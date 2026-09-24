@@ -39,10 +39,6 @@ _OFF = {"off", "stop", "leave", "quit"}
 _INFO = {"status", "info", "now", "genres", "list", "help"}
 
 
-def _genres_line() -> str:
-    return ", ".join(f"`{g}`" for g in genre_names())
-
-
 def _parse(parts: list[str]) -> tuple[str, str | None, str]:
     """(verb, genre, request). Anything that is not a verb or a genre is a request."""
     verb, genre, rest = "", None, []

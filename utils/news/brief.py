@@ -110,14 +110,6 @@ def brief_files(news_dir: Path = NEWS_DIR) -> List[Tuple[datetime, Path]]:
     return sorted(found, reverse=True)
 
 
-def load_latest(news_dir: Path = NEWS_DIR) -> Optional[Brief]:
-    files = brief_files(news_dir)
-    if not files:
-        return None
-    date, path = files[0]
-    return parse(path.read_text(encoding="utf-8", errors="replace"), date)
-
-
 _STOP = frozenset("""
 about after again against also among amid being between could during first from
 have into more most other over said says some their there these they this those

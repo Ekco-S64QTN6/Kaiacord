@@ -54,21 +54,3 @@ class RateLimiter:
         for uid in to_remove:
             del self.requests[uid]
     
-    def get_remaining(self, user_id: int) -> int:
-        """
-        Get remaining requests for a user.
-        
-        Args:
-            user_id: Discord user ID
-            
-        Returns:
-            Number of remaining requests in current minute
-        """
-        now = time.time()
-        user_requests = self.requests[user_id]
-        
-        # Remove old requests
-        user_requests = [req for req in user_requests if now - req < 60]
-        self.requests[user_id] = user_requests
-        
-        return max(0, self.limit - len(user_requests))

@@ -48,10 +48,6 @@ class CleanShutdown:
         """Register RAG instance for persistence on shutdown"""
         self.rag = rag_instance
     
-    def register_bot_task(self, task):
-        """Register bot task for cleanup"""
-        self.bot_task = task
-    
     def register_stop_event(self, event):
         """Register stop event for dashboard/main loop"""
         self.stop_event = event
@@ -289,18 +285,5 @@ class CleanShutdown:
         if not self.shutting_down:
             self.shutdown_handler(None, None)
     
-    def wait_for_shutdown(self, timeout: float = None) -> bool:
-        """
-        Wait for shutdown to complete.
-        
-        Returns True if shutdown completed, False if timed out.
-        """
-        if timeout is None:
-             from utils.infrastructure.system.yaml_config import config
-             timeout = config.shutdown_timeout
-             
-        return self._shutdown_complete.wait(timeout=timeout)
-
-
 # Global instance
 shutdown_manager = CleanShutdown()

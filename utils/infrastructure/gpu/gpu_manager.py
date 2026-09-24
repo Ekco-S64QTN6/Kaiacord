@@ -1,4 +1,3 @@
-import os
 import time
 import uuid
 import asyncio
@@ -6,7 +5,7 @@ import threading
 from typing import Optional, Dict, Any
 from enum import Enum
 from contextvars import ContextVar
-from utils.infrastructure.logging.kaia_logger import log_debug, log_action, log_info, log_error, log_warning
+from utils.infrastructure.logging.kaia_logger import log_debug, log_info
 
 # Global GPU Concurrency Guard
 # [ARCHITECTURAL NOTE]: We deliberately use a simple asyncio.Semaphore(1) instead
@@ -156,33 +155,6 @@ class OllamaGPUManager:
         self.gpu_available = GPUMonitor.is_gpu_available()
         
     @staticmethod
-    async def unload_model(ollama_client, model_name: str):
-        """Unload a model from Ollama to free VRAM"""
-        dedicated_client = None
-        try:
-            from utils.infrastructure.system.yaml_config import config
-            timeout = getattr(config, 'llm_request_seconds', 60.0)
-            log_info(f"🔄 Unloading model: {model_name} (timeout: {timeout}s)")
-            
-            if ollama_client is None:
-                import ollama
-                dedicated_client = ollama.AsyncClient(timeout=timeout)
-                client_to_use = dedicated_client
-            else:
-                client_to_use = ollama_client
-                
-            await client_to_use.generate(model=model_name, keep_alive=0)
-            return True
-        except Exception as e:
-            log_info(f"⚠️  Failed to unload model {model_name}: {e}")
-            return False
-        finally:
-            if dedicated_client:
-                # Some versions of AsyncClient might not have .close()
-                if hasattr(dedicated_client, 'close') and callable(dedicated_client.close):
-                    await dedicated_client.close()
-
-    @staticmethod
     async def unload_all_models(ollama_client=None):
         """Unload ALL running models from Ollama to reclaim all VRAM."""
         try:
@@ -251,78 +223,6 @@ class OllamaGPUManager:
                 if hasattr(dedicated_client, 'close') and callable(dedicated_client.close):
                     await dedicated_client.close()
 
-    async def ensure_gpu_loading(self, ollama_client, keep_alive: int = -1):
-        """Ensure model loads on GPU with proper parameters"""
-        if not self.gpu_available:
-            log_info("⚠️  GPU not detected. Running on CPU.")
-            return False
-        
-        try:
-            from utils.infrastructure.system.yaml_config import config
-            timeout = getattr(config, 'model_load_timeout', 300.0)
-            # Force GPU load with specific settings
-            options = self.get_gpu_options(for_chat=True)
-            
-            # Check if client is closed
-            if hasattr(ollama_client, '_client') and ollama_client._client.is_closed:
-                return False
-
-            log_info(f"🔄 Testing GPU model load (Lightweight, keep_alive={keep_alive})...")
-            await asyncio.wait_for(
-                ollama_client.generate(model=self.model_name, prompt="", keep_alive=keep_alive, options=options),
-                timeout=timeout
-            )
-            
-            # Verify GPU usage
-            gpu_info = GPUMonitor.get_gpu_info()
-            if gpu_info and gpu_info[0]['utilization'] > 0:
-                log_info(f"✅ GPU active: {gpu_info[0]['utilization']}% utilization")
-                return True
-            else:
-                log_info("✅ GPU load confirmed via generate.")
-                return True 
-                
-        except Exception as e:
-            log_info(f"❌ GPU load test failed: {e}")
-            return False
-
-    async def load_only(self, ollama_client):
-        """Trigger a model load without a full chat test"""
-        if not self.gpu_available:
-            return False
-        try:
-            from utils.infrastructure.system.yaml_config import config
-            ctx_size = config.max_context_tokens
-            timeout = getattr(config, 'model_load_timeout', 300.0)
-            
-            log_info(f"🔄 Triggering GPU load for {self.model_name} (num_ctx: {ctx_size})...")
-            log_info(f"⏳ Waiting up to {timeout}s for Ollama to allocate VRAM...")
-            
-            # Use fixed config
-            options = self.get_gpu_options(for_chat=True, num_ctx=ctx_size)
-            
-            # Start timer
-            start_time = time.time()
-            
-            await asyncio.wait_for(
-                ollama_client.generate(model=self.model_name, prompt="", keep_alive=-1, options=options),
-                timeout=timeout
-            )
-            
-            elapsed = time.time() - start_time
-            log_info(f"✅ {self.model_name} pre-warmed and locked in VRAM ({elapsed:.1f}s)")
-            return True
-        except asyncio.TimeoutError:
-            log_info(f"❌ GPU load TIMED OUT after {timeout}s for {self.model_name}")
-            log_info(f"⚠️  This model with {ctx_size} context may be too large for your VRAM.")
-            return False
-        except Exception as e:
-            if "out of memory" in str(e).lower() or "allocation failed" in str(e).lower():
-                 log_info(f"❌ CRITICAL: Model load failed due to OOM!")
-                 log_info(f"⚠️  Reducing context size might help.")
-            log_info(f"❌ GPU load failed: {e}")
-            return False
-    
     def get_gpu_options(self, for_chat: bool = True, num_ctx: Optional[int] = None) -> Dict[str, Any]:
         """Get optimal GPU options based on context, ensuring consistency for VRAM lock."""
         return gpu_options(for_chat=for_chat, num_ctx=num_ctx)
@@ -398,18 +298,6 @@ class GPUMemoryManager:
         self._lazy_import_torch()
         return self._cuda_available
     
-    def get_vram_status(self) -> dict:
-        torch = self._lazy_import_torch()
-        if not torch or not self.is_cuda_available():
-            return {'total': 0.0, 'allocated': 0.0, 'free': 0.0}
-        try:
-            total = torch.cuda.get_device_properties(0).total_memory / 1024**3
-            allocated = torch.cuda.memory_allocated() / 1024**3
-            free = total - allocated
-            return {'total': total, 'allocated': allocated, 'free': free}
-        except Exception:
-            return {'total': 0.0, 'allocated': 0.0, 'free': 0.0}
-
     async def run_with_gpu_guard(self, model_name: str, coro, task_id: str = None, priority: GPUTaskPriority = GPUTaskPriority.CHAT, vram_gb: float = 0.0):
         """Pass-through to the global guard function for backward compatibility."""
         return await run_with_gpu_guard(model_name, coro, task_id=task_id, priority=priority)

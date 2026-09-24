@@ -135,12 +135,6 @@ class StatsTracker:
             self.stats['last_update'] = time.time()
         self.save_stats()
     
-    def increment_queries(self):
-        """Increment query count"""
-        with self.lock:
-            self.stats['queries'] += 1
-            self.stats['last_update'] = time.time()
-    
     def record_response_time(self, response_time):
         """Record a response time measurement"""
         with self.lock:
@@ -152,12 +146,6 @@ class StatsTracker:
                 self.stats['avg_response_time'] = sum(self.stats['response_times']) / len(self.stats['response_times'])
             self.stats['last_update'] = time.time()
     
-    def set_queue_size(self, size):
-        """Update queue size"""
-        with self.lock:
-            self.stats['queue_size'] = size
-            self.stats['last_update'] = time.time()
-
     def set_stat(self, key, value):
         """Set a specific statistic manually"""
         with self.lock:
@@ -196,27 +184,5 @@ class StatsTracker:
             
             return stats_copy
     
-    def get_top_users(self, limit=5):
-        """Get top users by interaction count"""
-        with self.lock:
-            sorted_users = sorted(
-                self.stats['interactions_by_user'].items(),
-                key=lambda x: x[1],
-                reverse=True
-            )
-            return sorted_users[:limit]
-    
-    def reset_stats(self):
-        """Reset all stats (except totals)"""
-        with self.lock:
-            self.stats['active_users'].clear()
-            self.stats['response_times'].clear()
-            self.stats['interactions_by_hour'].clear()
-            self.stats['avg_response_time'] = 0.0
-            self.stats['last_response_time'] = 0.0
-            self.stats['queue_size'] = 0
-            self.stats['active_channels'] = 0
-            self.stats['last_update'] = time.time()
-
 # Global stats tracker
 stats_tracker = StatsTracker()

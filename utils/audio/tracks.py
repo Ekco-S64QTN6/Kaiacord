@@ -317,10 +317,6 @@ def transpose_ok(key: str) -> bool:
     return key in _KEY_ORDER
 
 
-def parts_named(track: Track) -> list[str]:
-    return [p.name for p in track.parts]
-
-
 def check(track: Track) -> list[str]:
     """Problems a track definition has before it is ever played."""
     problems = []

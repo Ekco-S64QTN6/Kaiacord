@@ -500,12 +500,6 @@ class NewsRetrievalEnhancer:
         
         self.save_mentioned_news()
             
-    def get_user_excluded_topics(self, user_id: str) -> List[str]:
-        """Placeholder for future feature to exclude topics"""
-        return []
-
-
-
 class RAGEnhancer:
     """Enhanced RAG configuration for news retrieval"""
     

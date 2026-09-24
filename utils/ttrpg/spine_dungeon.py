@@ -4,12 +4,11 @@ The Ironvein Deep — Static Mega Dungeon beneath the Spine of the World.
 Completely separate from the procedural dungeon system in dungeon.py.
 77 floors with persistent state and daily monster respawn.
 """
-import secrets
 import json
 import os
 import asyncio
 import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 # Reuse room type constants from dungeon.py
 R_START       = "start"
@@ -334,10 +333,3 @@ async def load_spine_dungeon(user_id: str, target_floor: int = None) -> Optional
         return state
     return await asyncio.to_thread(_load)
 
-
-async def clear_spine_dungeon(user_id: str):
-    def _clear():
-        path = os.path.join(SPINE_DIR, f"{user_id}_spine.json")
-        if os.path.exists(path):
-            os.remove(path)
-    await asyncio.to_thread(_clear)

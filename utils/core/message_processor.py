@@ -11,7 +11,7 @@ import base64
 import contextvars
 import threading
 from datetime import datetime
-from typing import Optional, Any, List, Dict, Set
+from typing import Optional, Any, List, Dict
 
 current_channel_id_var = contextvars.ContextVar("current_channel_id", default=None)
 _growth_log_lock = threading.Lock()
@@ -19,13 +19,14 @@ _gen_log_lock = threading.Lock()
 
 
 from utils.infrastructure.logging.log_sanitize import summarize_payload
-from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error, log_action, log_success
+from utils.infrastructure.logging.kaia_logger import (
+    log_info, log_debug, log_warning, log_error, log_action,
+)
 from utils.core.message_context import MessageContext
-from utils.core.response_filter import HallucinationDetector, BotSpeakFilter
+from utils.core.response_filter import BotSpeakFilter
 from utils.core.knowledge_boundary import KnowledgeBoundary
 from utils.core.rag_executor import run_rag_retrieval
 from utils.infrastructure.monitoring.async_task_registry import task_registry
-from utils.core.kaia_intelligence import ContextWeaver
 from utils.social.kaia_social_responder import load_persona_async
 from utils.commands.memory_handler import handle_memory_command
 from utils.commands.profile_handler import handle_profile_query
@@ -1380,7 +1381,6 @@ class MessageProcessor:
         ask_whats_new = any(trigger in ctx.sanitized_content.lower() for trigger in news_inquiry_triggers)
         
         from utils.core.response_filter import EmergencyContaminationFilter
-        from utils.news.kaia_news import NewsRetrievalEnhancer, RAGEnhancer
         
         freshness_keywords = ['news', 'latest', 'update', 'happening', 'today', 'current', 'recent', 'yesterday', 'tonight']
         is_news_query = self.config.news_auto_trigger and (
@@ -2861,11 +2861,3 @@ class MessageProcessor:
                     self._identity_cache["identity_stream"] = f.read().strip()
             except Exception as e:
                 log_error(f"Cache update failed for identity stream: {e}")
-
-    def _read_file_safe(self, path: str) -> str:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read().strip()
-        except Exception as e:
-            log_error(f"Error reading identity file {path}: {e}")
-            return ""

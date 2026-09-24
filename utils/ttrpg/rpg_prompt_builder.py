@@ -22,64 +22,6 @@ TTRPG_NARRATOR_OVERRIDE = (
 )
 
 
-def build_action_prompt(
-    actor_sheet: dict,
-    action_text: str,
-    roll_result: str,        # formatted breakdown from dice_engine
-    outcome: str,            # "SUCCESS", "FAILURE", "CRITICAL_SUCCESS", "CRITICAL_FAILURE"
-    dc: int,
-    skill_used: str,
-    scene_summary: str,
-    participants: list[dict], # list of other character sheets in session
-) -> str:
-    """Build the ground-truth block for a player action."""
-    
-    other_chars = ""
-    if participants:
-        lines = []
-        for p in participants:
-            lines.append(
-                f"  {p['character_name']} ({p['class']} Lv.{p['level']}) — "
-                f"HP {p['hp']['current']}/{p['hp']['max']}"
-            )
-        other_chars = "\nOTHER PARTY MEMBERS:\n" + "\n".join(lines)
-    
-    return f"""[TTRPG GROUND TRUTH — READ THIS BEFORE RESPONDING — DO NOT CONTRADICT]
-CURRENT SCENE: {scene_summary}
-
-ACTING CHARACTER: {actor_sheet['character_name']} ({actor_sheet['class']} Lv.{actor_sheet['level']})
-HP: {actor_sheet['hp']['current']}/{actor_sheet['hp']['max']}  Conditions: {', '.join(actor_sheet['conditions']) or 'none'}{other_chars}
-
-PLAYER'S ACTION: {action_text}
-SKILL CHECKED: {skill_used}
-ROLL: {roll_result}
-DC (difficulty): {dc}
-MECHANICAL OUTCOME: {outcome}
-
-YOUR TASK: Narrate this outcome in 2–4 sentences. Describe what happened based on the MECHANICAL OUTCOME above.
-- If SUCCESS: describe how the action worked, what the character saw/felt/accomplished.
-- If FAILURE: describe what went wrong — not a catastrophe unless CRITICAL_FAILURE.
-- If CRITICAL_SUCCESS (natural 20): something exceptional happened beyond the bare minimum.
-- If CRITICAL_FAILURE (natural 1): something went meaningfully wrong.
-Do NOT re-roll. Do NOT change the outcome. Do NOT invent HP changes, items gained, or XP.
-Speak as Kaia — the GM narrator. lowercase, grounded, specific. No "The… noun is… adj." cadence.
-[END GROUND TRUTH]"""
-
-
-def build_levelup_prompt(sheet: dict, new_level: int, hp_gained: int) -> str:
-    from utils.ttrpg.pantheon import get_class_deity_name, get_class_deity_epithet
-    d_name = get_class_deity_name(sheet.get('class', 'Warrior'))
-    d_ep = get_class_deity_epithet(sheet.get('class', 'Warrior'))
-    return f"""[TTRPG GROUND TRUTH]
-{sheet['character_name']} has leveled up to {sheet['class']} Level {new_level}.
-HP increased by {hp_gained} (new max: {sheet['hp']['max']}).
-Deity Patron: {d_name}, {d_ep}.
-YOUR TASK: Write 1–2 sentences of level-up flavor. Something felt or noticed by the character.
-Include a subtle nod to their deity or patron.
-Do NOT invent new abilities, items, or stats beyond what is stated.
-[END GROUND TRUTH]"""
-
-
 def build_combat_prompt(
     attacker: dict,
     monster_name: str,

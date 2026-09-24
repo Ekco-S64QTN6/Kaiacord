@@ -51,10 +51,6 @@ class Transmission:
         return FAMILY.get(self.station[:1], "")
 
     @property
-    def is_voice(self) -> bool:
-        return self.mode.upper() in VOICE_MODES and self.station[:1] in "EGSV"
-
-    @property
     def listen_url(self) -> Optional[str]:
         """Priyom's tuned WebSDR link. UTwente covers up to ~29 MHz."""
         if not self.khz or self.khz > 29000:

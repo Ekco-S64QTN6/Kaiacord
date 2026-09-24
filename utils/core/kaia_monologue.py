@@ -20,11 +20,11 @@ import hashlib
 import time
 import uuid
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
-from utils.infrastructure.logging.kaia_logger import log_debug, log_info, log_warning
+from utils.infrastructure.logging.kaia_logger import log_debug, log_info
 
 
 @dataclass
@@ -249,8 +249,3 @@ class InnerMonologue:
             + "\n".join(lines)
             + "]"
         )
-
-    @property
-    def thought_count(self) -> int:
-        """Number of thoughts currently in the buffer."""
-        return len(self._buffer)

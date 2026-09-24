@@ -286,20 +286,6 @@ async def post_thread_to_bluesky(chunks: list[str]) -> tuple[bool, Optional[str]
     return False, last_error
 
 
-async def post_quip_to_bluesky(quip: str) -> bool:
-    """
-    Post an idle quip to Bluesky (convenience wrapper).
-    
-    Args:
-        quip: The quip text to post
-        
-    Returns:
-        True if posted successfully, False otherwise
-    """
-    success, result = await post_to_bluesky(quip)
-    return success
-
-
 async def get_post_text(uri: str) -> Optional[str]:
     """
     Fetch the text content of a Bluesky post by its URI.

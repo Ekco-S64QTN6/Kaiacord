@@ -2,7 +2,9 @@ import re
 import os
 import json
 from typing import List, Dict, Set, Optional, Union
-from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_action, log_debug, log_warning, log_error
+from utils.infrastructure.logging.kaia_logger import (
+    log_info, log_success, log_debug, log_warning, log_error,
+)
 
 class KnowledgeBoundary:
     """Prevents Kaia from making up information she doesn't know"""
@@ -243,10 +245,6 @@ class KnowledgeBoundary:
                 suggestions[entity] = matches[:3] # Top 3 suggestions
         return suggestions
 
-    def _is_lazy_match(self, entity_lower: str) -> bool:
-        """Deprecated: Lazy matching is now handled by pre-loading in load_known_entities."""
-        return entity_lower in self.known_entities
-
     def _is_fuzzy_match(self, entity: str, context: str) -> bool:
         """Check for fuzzy matches (typos) in context."""
         if len(entity) < 4: return False
@@ -290,20 +288,3 @@ class KnowledgeBoundary:
             previous_row = current_row
         return previous_row[-1]
     
-    def generate_boundary_response(self, unknown_entities: List[str], query: str) -> str:
-        """Generate a response that admits lack of knowledge"""
-        if not unknown_entities:
-            return None
-        
-        entity_str = ", ".join(unknown_entities)
-        
-        responses = [
-            f"I don't have any information about {entity_str} in my knowledge base. They might be from a story or context I'm not familiar with.",
-            f"{entity_str}... those names don't ring a bell. They're not in any of my records.",
-            f"I can't find any references to {entity_str} in what I know. Are they characters from something specific?",
-            f"Those names - {entity_str} - aren't in my knowledge base. I don't want to make up stories about people I don't actually know.",
-            f"I don't have any context on {entity_str}. They might be from fiction, or personal knowledge I don't have access to."
-        ]
-        
-        import random
-        return random.choice(responses)

@@ -7,13 +7,10 @@ Stores mappings in knowledge_base/identity_registry.json.
 """
 
 import json
-import os
-import asyncio
 from pathlib import Path
 from typing import Optional, Dict, List, Any
-from datetime import datetime
 
-from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_action
+from utils.infrastructure.logging.kaia_logger import log_success, log_error
 from utils.core.atomic_write import write_atomic
 
 class IdentityRegistry:
@@ -93,9 +90,6 @@ class IdentityRegistry:
 
     def get_discord_id(self, forum_id: int) -> Optional[str]:
         return self.data["forum_to_discord"].get(str(forum_id))
-
-    def get_all_links(self, discord_id: str) -> Dict[str, Any]:
-        return self.data["mappings"].get(discord_id, {})
 
     # ── Self ─────────────────────────────────────────────────────────
 

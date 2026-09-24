@@ -1,6 +1,5 @@
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Set
-from collections import defaultdict
+from typing import List, Dict, Any, Optional
 import json
 import time
 import os
@@ -1508,14 +1507,6 @@ TODAY'S CONVERSATIONS:
         if "news" in parts: return "news"
         if "user_logs" in parts: return "log"
         return "document"
-
-    def _categorize_file(self, path: Path) -> str:
-        # Simple categorization heuristic
-        name = path.name.lower()
-        if any(w in name for w in ["tech", "ai", "hardware", "code"]): return "tech"
-        if any(w in name for w in ["spirit", "shinto", "philosophy"]): return "observation"
-        if "interactions" in name or "user_logs" in str(path): return "people"
-        return "memory"
 
     def get_dreams_from_files(self) -> Dict[str, Any]:
         """Get dream stats and recent dreams directly from .md files (no cache).

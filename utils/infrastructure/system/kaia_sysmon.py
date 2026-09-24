@@ -10,17 +10,14 @@ Firewall: UFW
 """
 
 import asyncio
-import os
 import socket
 import subprocess
 import time
 import re
-from functools import lru_cache
 from typing import Optional
 
 import psutil
 
-from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 
 
 # ---------------------------------------------------------------------------
@@ -396,9 +393,3 @@ async def build_sysmon_report_async() -> str:
 
     return _format_sysmon_report(state, ss_raw, ufw_detail, auth_log)
 
-
-async def build_system_prompt_block_async() -> str:
-    """Async version for message_processor injection."""
-    state = await collect_system_state_async()
-    state.pop("_ss_raw", None)
-    return build_system_prompt_block(state)  # formatting is pure, reuse sync version

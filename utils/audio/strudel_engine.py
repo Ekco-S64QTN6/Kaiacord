@@ -41,9 +41,7 @@ import threading
 import time
 from pathlib import Path
 
-from utils.infrastructure.logging.kaia_logger import (log_action, log_debug,
-                                                      log_error, log_info,
-                                                      log_warning)
+from utils.infrastructure.logging.kaia_logger import log_debug, log_error, log_info, log_warning
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ASSET_DIR = PROJECT_ROOT / "assets" / "strudel"
@@ -323,14 +321,6 @@ class StrudelEngine:
         try:
             return self._call(lambda: self._page.evaluate("() => window.__kaia.error")) or (
                 self._eval_errors[-1] if getattr(self, "_eval_errors", None) else None)
-        except Exception:
-            return None
-
-    def current_pattern(self) -> str | None:
-        if self._page is None:
-            return None
-        try:
-            return self._call(lambda: self._page.evaluate("() => window.__kaia.current"))
         except Exception:
             return None
 

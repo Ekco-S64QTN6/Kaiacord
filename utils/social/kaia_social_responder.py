@@ -40,18 +40,6 @@ def _ensure_social_imports():
         except ImportError:
             log_warning("Social libraries (atproto) not found. Some social features may be limited.")
 
-def warm_social_libraries():
-    """Trigger lazy imports of heavy social libraries."""
-    log_info("Warming social libraries (atproto, twikit)...")
-    _ensure_social_imports()
-    try:
-        import utils.social.kaia_twitter as kt
-        # Trigger lazy imports in kaia_twitter
-        kt.is_x_configured()
-    except Exception as e:
-        log_warning(f"Failed to warm X library: {e}")
-    return bool(models)
-
 # =============================================================================
 # CONSTANTS
 # =============================================================================
@@ -149,19 +137,6 @@ def _get_context_type_for_dream(dream: Dict[str, Any]) -> str:
         return "recalling a weird fever dream"
     return f"thinking about {dream.get('category', 'something')}"
 
-
-def _load_replied_ids():
-    """Legacy wrapper (No-op as tracker loads on init)."""
-    # Pre-silence all loaded IDs so they don't spam logs on first poll
-    _silenced_replied_ids.update(social_tracker.get_all_replied_ids())
-
-
-def _save_replied_ids():
-    """Trigger a state snapshot in the social_tracker."""
-    # social_tracker.save_snapshot is async, but this is a sync wrapper
-    # We use create_task if called from async, or run_until_complete if from sync (not ideal)
-    # However, responder calls this via _save_replied_ids_async usually.
-    pass
 
 async def _save_replied_ids_async():
     """Trigger a state snapshot in the social_tracker (Async)."""
@@ -294,7 +269,7 @@ async def check_and_reply_mentions(on_message_func):
         return await _generate_response(text, author, platform, on_message_func, parent_text=parent_text, root_text=root_text)
     
     # Check Bluesky
-    if config.bluesky_enabled and config.get('bluesky.reply_to_mentions', True):
+    if config.bluesky_enabled and config.bluesky_reply_to_mentions:
         mentions = await _get_bluesky_mentions(_silenced_replied_ids, _save_replied_ids_async)
         if mentions:
             log_info(f"Bluesky poll: Found {len(mentions)} unhandled mentions. Processing up to 10.")
@@ -337,7 +312,7 @@ async def check_and_reply_mentions(on_message_func):
                     total_replies += 1
     
     # Check X
-    if config.x_enabled and config.get('x_twitter.reply_to_mentions', True):
+    if config.x_enabled and config.x_reply_to_mentions:
         mentions = await _get_x_mentions(_silenced_replied_ids)
         if mentions:
             log_info(f"X poll: Found {len(mentions)} unhandled mentions. Processing up to 3.")

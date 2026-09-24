@@ -480,15 +480,3 @@ def replace_all_logging():
     root_logger.setLevel(logging.INFO)
     
     logger.log("Unified logging system initialized", "SUCCESS")
-
-def log_ollama_interaction(prompt, response):
-    """Log Ollama interactions to a separate file"""
-    try:
-        os.makedirs("logs", exist_ok=True)
-        with open("logs/ollama_client.log", "a", encoding="utf-8") as f:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"--- {timestamp} ---\n")
-            f.write(f"PROMPT: {str(prompt)[:500]}...\n")
-            f.write(f"RESPONSE: {str(response)[:500]}...\n\n")
-    except Exception:
-        pass

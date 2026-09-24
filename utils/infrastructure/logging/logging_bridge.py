@@ -161,16 +161,6 @@ class LoggingBridgeRegistry:
                 except Exception:
                     pass
     
-    def has_bridges(self) -> bool:
-        """
-        Check if any bridges are registered.
-        
-        Returns:
-            True if at least one bridge is registered
-        """
-        return len(self._bridges) > 0
-
-
 # Global registry instance
 _registry = LoggingBridgeRegistry()
 
@@ -184,22 +174,3 @@ def get_logging_registry() -> LoggingBridgeRegistry:
     """
     return _registry
 
-
-def register_logging_bridge(bridge: LoggingBridge) -> None:
-    """
-    Register a logging bridge with the global registry.
-    
-    Args:
-        bridge: LoggingBridge implementation
-    """
-    _registry.register(bridge)
-
-
-def unregister_logging_bridge(bridge: LoggingBridge) -> None:
-    """
-    Unregister a logging bridge from the global registry.
-    
-    Args:
-        bridge: LoggingBridge implementation
-    """
-    _registry.unregister(bridge)

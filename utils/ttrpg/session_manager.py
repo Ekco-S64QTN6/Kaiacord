@@ -112,9 +112,6 @@ def _write_session_sync(channel_id: str, text: str) -> None:
     with _lock:
         write_atomic(_path(channel_id), text)
 
-def _save_session_sync(session: dict) -> None:
-    _write_session_sync(str(session["channel_id"]), json.dumps(session, indent=2))
-
 async def save_session(session: dict) -> None:
     chan_id = str(session["channel_id"])
     text = json.dumps(session, indent=2)      # on the caller's thread: the session is live

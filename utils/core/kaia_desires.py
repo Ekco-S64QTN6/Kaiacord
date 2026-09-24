@@ -175,15 +175,6 @@ class DesireEngine:
         """Art, a quip, a dream — something made rather than said."""
         self.satisfy("creative")
 
-    def observe_idle(self) -> None:
-        """Fold elapsed quiet time into the state and persist it.
-
-        Recovery is handled by _accrue, so this only needs to trigger it — an
-        extra subtraction here would double-count the same idle hours.
-        """
-        self._accrue()
-        self.save()
-
     # ── Read-out ────────────────────────────────────────────────────
     def current(self) -> dict:
         self._accrue()

@@ -31,7 +31,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from utils.infrastructure.logging.kaia_logger import log_debug
@@ -275,10 +275,6 @@ class PostLedger:
         if not rec or newest_post_id is None:
             return False
         return rec.get("last_seen_post_id") == str(newest_post_id)
-
-    def clear_skip(self, thread_id: int) -> None:
-        if self.skips.pop(str(int(thread_id)), None) is not None:
-            self.save()
 
     def thread_is_cool(self, thread_id: int, cooldown_hours: float) -> bool:
         """False if she has interjected into this thread too recently.

@@ -6,10 +6,9 @@ Automatically strips colors when output is redirected to files.
 
 import sys
 from datetime import datetime
-from colorama import Fore, Back, Style, init
+from colorama import Fore, Style, init
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
 from utils.infrastructure.logging.unified_logging import logger as global_logger
 from utils.infrastructure.logging.logging_bridge import get_logging_registry, LogLevel
 
@@ -25,21 +24,6 @@ IS_TTY = sys.stdout.isatty()
 # Global monitor reference for dashboard integration
 _monitor = None
 _monitor_methods = {}
-
-def set_monitor(monitor):
-    """Set the monitor instance and cache its methods for high-performance lookups."""
-    global _monitor, _monitor_methods
-    _monitor = monitor
-    if monitor:
-        _monitor_methods = {
-            'log_system_event': getattr(monitor, 'log_system_event', None),
-            'add_log': getattr(monitor, 'add_log', None),
-            'log_response': getattr(monitor, 'log_response', None),
-            'add_alert': getattr(monitor, 'add_alert', None)
-        }
-    else:
-        _monitor_methods = {}
-
 
 def _get_timestamp():
     """Return current timestamp in dim gray (only if TTY)."""
@@ -260,47 +244,9 @@ def format_rag_table(nodes, query_info=None):
         print(f"{_get_timestamp()}{_colorize(info_text, Style.DIM + Fore.CYAN)}")
 
 
-def format_rag_panel(title, content):
-    """
-    Display RAG-related information in a Rich panel.
-    
-    Args:
-        title: Panel title
-        content: Content to display in panel
-    """
-    panel = Panel(
-        content,
-        title=title,
-        title_align="left",
-        border_style="cyan",
-        padding=(1, 2)
-    )
-    print(_get_timestamp()[:-1])
-    console.print(panel)
-
-
 # ============================================================================
 # CONVENIENCE FUNCTIONS FOR COMMON PATTERNS
 # ============================================================================
-
-def log_model_action(model_name, action):
-    """Log model-related actions (loading, unloading, etc.)."""
-    model_str = _colorize(model_name, Fore.CYAN + Style.BRIGHT)
-    log_action(f"{action}: {model_str}")
-
-
-def log_message_received(author_name, author_id, content):
-    """Log received Discord message."""
-    global_logger.log(f"Message from {author_name}: {content}", "INFO")
-
-
-def log_context_retrieval(query, count=None):
-    """Log context retrieval action."""
-    if count is not None:
-        log_action(f"Retrieving context for: {query} (found {count} nodes)")
-    else:
-        log_action(f"Retrieving context for: {query}")
-
 
 # ============================================================================
 # TEST FUNCTION

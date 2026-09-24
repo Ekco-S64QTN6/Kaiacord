@@ -37,7 +37,6 @@ class BotState:
         self.boot_complete_time: float = 0.0
         self.recent_ingestions: list = []  # List of filenames recently ingested
         self.last_dream_date: str = ""    # YYYY-MM-DD of last nightly dream
-        self.mentioned_files: Deque[str] = deque(maxlen=20) # Path of files mentioned
         self.is_generating: bool = False     # Transient: True while LLM is generating a user response
         self.first_chat_done: bool = False   # Transient: True after first successful LLM response
         self.last_evening_reflection: str = ""  # YYYY-MM-DD, persisted
@@ -161,10 +160,6 @@ class BotState:
                         history = state.get('quip_history', [])
                         self.quip_history = deque(history, maxlen=10)
                         
-                        # Load mentioned files
-                        mentions = state.get('mentioned_files', [])
-                        self.mentioned_files = deque(mentions, maxlen=20)
-                        
                         # Load memory contexts.
                         # Type contract: channel_memory uses int keys (Discord channel IDs).
                         # JSON always serialises keys as strings, so we cast back to int on load.
@@ -228,7 +223,6 @@ class BotState:
                     'unprompted_count': self.unprompted_count,
                     'unprompted_date': self.unprompted_date,
                     # boot_complete is TRANSIENT - do not save to disk
-                    'mentioned_files': list(self.mentioned_files),
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
                     'channel_memory': {str(k): list(v) for k, v in self.channel_memory.items()},
                     'saved_at': time.time()
@@ -260,11 +254,6 @@ class BotState:
     def reset_quips(self):
         """Reset consecutive quips counter"""
         self.consecutive_quips = 0
-        self.save()
-
-    def increment_quips(self):
-        """Increment consecutive quips counter"""
-        self.consecutive_quips += 1
         self.save()
 
     def update_interaction(self, channel_id: int):
@@ -301,17 +290,6 @@ class BotState:
         if len(self.recent_ingestions) > 10:
             self.recent_ingestions.pop(0)
         self.save()
-
-    def clear_ingestions(self):
-        """Clear the list of recent ingestions after they've been mentioned"""
-        self.recent_ingestions = []
-        self.save()
-
-    def add_mentioned_file(self, file_path: str):
-        """Track which archive file was mentioned to avoid repetition"""
-        if file_path not in self.mentioned_files:
-            self.mentioned_files.append(file_path)
-            self.save()
 
     def update_kaia_state(self, engagement_delta: float = 0.0, coherence_sample: float = None):
         """Update Kaia's mood state floats. Called by message processor and RAG.

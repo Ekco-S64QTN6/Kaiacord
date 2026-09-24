@@ -40,16 +40,6 @@ def set_stats_poller(poller) -> None:
     logger.debug("Stats poller reference registered")
 
 
-def get_stats_poller() -> Optional[object]:
-    """
-    Get the stats_poller instance if available.
-    
-    Returns:
-        RealTimeStatsPoller instance or None if not initialized
-    """
-    return _stats_poller_ref
-
-
 def safe_stop_stats_poller() -> bool:
     """
     Safely stop the stats poller if it exists.
@@ -96,24 +86,6 @@ def safe_start_stats_poller() -> bool:
         return False
 
 
-def safe_get_stats() -> dict:
-    """
-    Safely get current stats from the poller.
-    
-    Returns:
-        Stats dict if available, empty dict otherwise
-    """
-    try:
-        if _stats_poller_ref is not None and hasattr(_stats_poller_ref, 'get_stats'):
-            return _stats_poller_ref.get_stats()
-        else:
-            logger.debug("Stats poller not available or missing get_stats")
-            return {}
-    except Exception as e:
-        logger.error(f"Error getting stats: {e}")
-        return {}
-
-
 def safe_record_response_time(response_time: float) -> bool:
     """
     Safely record a response time measurement.
@@ -135,31 +107,3 @@ def safe_record_response_time(response_time: float) -> bool:
         logger.error(f"Error recording response time: {e}")
         return False
 
-
-def safe_increment_messages() -> bool:
-    """
-    Safely increment message count.
-    
-    Returns:
-        True if incremented successfully, False otherwise
-    """
-    try:
-        if _stats_poller_ref is not None and hasattr(_stats_poller_ref, 'increment_messages'):
-            _stats_poller_ref.increment_messages()
-            return True
-        else:
-            logger.debug("Stats poller not available, skipping message increment")
-            return False
-    except Exception as e:
-        logger.error(f"Error incrementing messages: {e}")
-        return False
-
-
-def is_stats_poller_available() -> bool:
-    """
-    Check if stats poller is available.
-    
-    Returns:
-        True if stats_poller is initialized and available
-    """
-    return _stats_poller_ref is not None

@@ -55,51 +55,10 @@ def _count_recent_hallucinations(log_path: str = "memory/hallucination_log.jsonl
     return count
 
 
-def _make_ansi_bar(pct: float, width: int = 15) -> str:
-    """Generate a premium ANSI-colored progress bar using ▰ and ▱."""
-    filled = max(0, min(width, int((pct / 100) * width)))
-    bar_str = ""
-    for i in range(width):
-        if i < filled:
-            pos_pct = (i / width) * 100
-            if pos_pct < 50:
-                color = "32" # Green
-            elif pos_pct < 80:
-                color = "33" # Yellow
-            else:
-                color = "31" # Red
-            bar_str += f"\u001b[{color}m▰\u001b[0m"
-        else:
-            bar_str += "\u001b[30m▱\u001b[0m"
-    return bar_str
-
-
-def _color_value(val_str: str, pct: float) -> str:
-    """Color a value string based on percentage."""
-    if pct < 50:
-        color = "32" # Green
-    elif pct < 80:
-        color = "33" # Yellow
-    else:
-        color = "31" # Red
-    return f"\u001b[1;{color}m{val_str}\u001b[0m"
-
-
 def _make_text_bar(pct: float, width: int = 10) -> str:
     """Generate a clean progress bar using ▰ and ▱."""
     filled = max(0, min(width, int((pct / 100) * width)))
     return "▰" * filled + "▱" * (width - filled)
-
-
-def _get_status_emoji(pct: float) -> str:
-    """Get emoji based on percentage."""
-    if pct < 50:
-        return "🟢"
-    elif pct < 80:
-        return "🟡"
-    else:
-        return "🔴"
-
 
 
 async def handle_sysmon_command(ctx, msg, send_kaia_response):

@@ -20,7 +20,7 @@ from typing import Optional
 import discord
 from discord.ext import tasks
 
-from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_info, log_warning
+from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 from utils.infrastructure.system.yaml_config import config
 
 
@@ -295,11 +295,6 @@ class KaiaPresenceManager:
         self._override_status = None
         self._override_until = 0.0
         self._force_update = True
-
-    def force_update(self):
-        """Force the next update_presence() call to push regardless of rate limit."""
-        self._force_update = True
-
 
 def make_presence_task(presence_manager: KaiaPresenceManager):
     """Create the background task loop for periodic presence updates."""

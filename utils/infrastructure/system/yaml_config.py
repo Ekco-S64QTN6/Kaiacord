@@ -19,7 +19,7 @@ from pathlib import Path
 
 
 # Legacy default paths
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from dataclasses import dataclass, field, fields
 
 # Paths are anchored to the checkout, not the working directory: a tool run
@@ -312,11 +312,6 @@ class YAMLConfig:
         return self.get_path('rag.text_instruction', 'search_document: ')
     
     @property
-    def dream_user_quota(self) -> float:
-        """Percentage of dreams dedicated to user logs (0.0 - 1.0)"""
-        return self.get_path('dream_mode.user_quota', 0.4)
-    
-    @property
     def idle_quip_timeout_minutes(self) -> int:
         return self.get_path('performance.idle_quip_timeout_minutes', 55)
     
@@ -356,23 +351,10 @@ class YAMLConfig:
     def startup_news_update(self) -> bool:
         return self.get_path('startup.news_update', False)
     
-    @property
-    def startup_news_timeout(self) -> int:
-        return self.get_path('startup.news_timeout', 10)
-    
-
     # Bluesky configuration
     @property
     def bluesky_enabled(self) -> bool:
         return self.get_path('bluesky.enabled', False)
-    
-    @property
-    def bluesky_handle(self) -> str:
-        return os.getenv("BLUESKY_HANDLE", "")
-        
-    @property
-    def bluesky_password(self) -> str:
-        return os.getenv("BLUESKY_APP_PASSWORD", "")
     
     # X (Twitter) configuration
     @property
@@ -405,14 +387,7 @@ class YAMLConfig:
     # =========================================================================
     # RAG Threshold Configuration
     # =========================================================================
-    @property
-    def rag_threshold_persona(self) -> float:
-        return self.get_path('performance.rag_thresholds.persona', 0.50)
-    
-    @property
-    def rag_threshold_user_identity(self) -> float:
-        return self.get_path('performance.rag_thresholds.user_identity', 0.50)
-    
+
     @property
     def rag_threshold_knowledge(self) -> float:
         return self.get_path('performance.rag_thresholds.knowledge', 0.45)
@@ -424,20 +399,11 @@ class YAMLConfig:
     # =========================================================================
     # Timeout Configuration (extracted from magic numbers)
     # =========================================================================
-    @property
-    def prewarm_timeout(self) -> float:
-        """Model pre-warm timeout in seconds"""
-        return self.get_path('timeouts.prewarm_seconds', 30.0)
-    
+
     @property
     def rag_retrieval_timeout(self) -> float:
         """RAG retrieval timeout in seconds"""
         return self.get_path('timeouts.rag_retrieval_seconds', 30.0)
-    
-    @property
-    def typing_indication_timeout(self) -> float:
-        """Typing indication duration in seconds"""
-        return self.get_path('timeouts.typing_indication_seconds', 2.0)
     
     @property
     def model_load_timeout(self) -> float:
@@ -479,21 +445,12 @@ class YAMLConfig:
         """Timeout for cancelling async tasks during shutdown in seconds"""
         return self.get_path('timeouts.shutdown_task_cancel_seconds', 5.0)
 
-    @property
-    def shutdown_model_unload_timeout(self) -> float:
-        """Timeout for unloading models during shutdown in seconds"""
-        return self.get_path('timeouts.shutdown_model_unload_seconds', 5.0)
-
     # =========================================================================
     # RAG Scoring & Boosts
     # =========================================================================
     @property
     def rag_base_score_multiplier(self) -> float:
         return self.get_path('performance.rag_scoring.base_score_multiplier', 60.0)
-
-    @property
-    def rag_path_boost(self) -> float:
-        return self.get_path('performance.rag_scoring.path_boost', 0.5)
 
     @property
     def rag_type_boosts(self) -> dict:
