@@ -442,6 +442,7 @@ and fix this table when it disagrees with the code.
 | **Observation digest** | `background_tasks.py` → `_make_observation_digest_task()` | Direct call to summarise; the digest text is then spoken verbatim, not re-generated |
 | **Dream engine** | `kaia_dream.py` | Direct call, dream summary + belief extraction |
 | **Inner monologue** | `kaia_monologue.py` | Direct call, background thought generation |
+| **Overnight log** | `utils/radio/overnight.py` via the radio task | Direct call over facts gathered in Python; a draft with a number no fact contains is rejected; posted through `unprompted.speak` |
 
 `utils/audio/` is deliberately **not** in this table: the music engine makes no LLM call at all.
 
@@ -551,7 +552,7 @@ drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source i
 ### Speaking unprompted
 
 Everything she says without being asked goes through **one system**,
-`utils/core/unprompted.py`, configured by one `unprompted:` block. Four sources feed it:
+`utils/core/unprompted.py`, configured by one `unprompted:` block. Five sources feed it:
 
 | Source | Decides when to try | Posts to |
 |:--|:--|:--|
@@ -559,10 +560,11 @@ Everything she says without being asked goes through **one system**,
 | `quip` | the channel has been quiet `performance.idle_quip_timeout_minutes` | most recent channel |
 | `observation` | `observation.min_new_turns` new messages watched | `#kaia-opolis` |
 | `monologue` | a thought every 15 minutes | `#kaia-opolis` |
+| `overnight` | once a morning (`radio.overnight_time`) | `#kaia-opolis` |
 
 A source decides *what* to say and *when to try*. Whether it posts is decided once, for all
 four, by `unprompted.gate`: the master switch, `unprompted.sources.<name>`, **one daily limit
-and one minimum gap shared by all four**, and one set of posting hours. `unprompted.speak` then
+and one minimum gap shared by all five**, and one set of posting hours. `unprompted.speak` then
 labels the post, sends it, appends it to channel memory, spends the allowance and cross-posts it
 to the feeds listed under `unprompted.bluesky` / `unprompted.x`. A source switched off still runs
 — the monologue still thinks, the digest is still written — nobody sees it. A manual `!quip`

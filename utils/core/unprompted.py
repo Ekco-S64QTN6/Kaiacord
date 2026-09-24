@@ -59,6 +59,7 @@ DEFAULT_LABELS = {
     "rabbit_hole": "🌀 Down the rabbit hole",
     "unspooling": "🪡 Unspooling",
     "long_thought": "📜 Long thought",
+    "overnight_log": "🌙 Overnight log",
 }
 
 # Which labels each kind of post may wear. The first is its home label.
@@ -72,6 +73,7 @@ KIND_LABELS = {
              "rabbit_hole"],
     "thread": ["train_of_thought", "long_thought", "rabbit_hole", "unspooling",
                "thinking_out_loud"],
+    "overnight": ["overnight_log"],
 }
 
 # The label a kind wore before this module existed, for anyone who set it.
@@ -264,7 +266,7 @@ def compose(label: str, text: str = "", posts: Optional[Iterable[str]] = None,
 
 
 # ── Whether ─────────────────────────────────────────────────────────────────
-SOURCES = ("proactive", "quip", "observation", "monologue")
+SOURCES = ("proactive", "quip", "observation", "monologue", "overnight")
 
 DEFAULTS = {
     "enabled": True,

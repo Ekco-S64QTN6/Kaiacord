@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta, timezone
 
-from utils.commands.embed_style import COLOR_ERROR, add_field, box, clean
+from utils.commands.embed_style import COLOR_ERROR, add_field, box, clean, clean_block
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning
 from utils.infrastructure.system.yaml_config import config
 from utils.radio import eam_watch, priyom
@@ -438,7 +438,8 @@ async def go_live(msg, khz: float, mode: str, region: str, label: str, family_ke
 
 BUZZER_BLURB = ("UVB-76, *The Buzzer* — a buzz every couple of seconds on 4625 kHz since the 1970s, "
                 "broken a few times a year by a voice reading Russian names and numbers. "
-                "Nobody outside knows what it's for.")
+                "Nobody outside knows what it's for. It carries best at night in Europe; by day "
+                "you may hear only static.")
 
 
 async def handle_buzzer_command(ctx, msg, send_kaia_response=None):
@@ -463,3 +464,89 @@ async def handle_buzzer_command(ctx, msg, send_kaia_response=None):
 
 
 nightshift.register("buzzer")
+
+
+# ── !beacons ────────────────────────────────────────────────────────────────
+
+BAND_ARGS = {"20": 0, "20m": 0, "17": 1, "17m": 1, "15": 2, "15m": 2, "12": 3, "12m": 3, "10": 4, "10m": 4}
+
+
+def beacons_embed(result: dict | None):
+    from utils.radio import beacons
+    now = beacons.now_on_air()
+    embed = box("🗼  The worldwide beacon chain",
+                "Eighteen beacons on six continents take turns every ten seconds on five bands. "
+                "Hearing one means that path is open right now.", COLOR_RADIO,
+                footer=f"NCDXF/IARU International Beacon Project · heard via a KiwiSDR\n{_others('beacons')}")
+    add_field(embed, "On the air this second", "\n".join(
+        f"`{khz / 1000:.3f} MHz` **{call}** · {where}" for khz, call, where in now))
+    if result:
+        heard = [b for b in result["beacons"] if b[2] >= beacons.HEARD_DB]
+        quiet = [b for b in result["beacons"] if b[2] < beacons.HEARD_DB]
+        at = datetime.fromisoformat(result["at"])
+        add_field(embed, f"What Kaia heard on {result['khz'] / 1000:.3f} MHz · {at:%H:%M}Z · from {clean(result['receiver'], 50)}",
+                  ("\n".join(f"✅ **{c}** {w} · +{db:.0f} dB" for c, w, db in sorted(heard, key=lambda b: -b[2]))
+                   or "nothing — the band is closed from there right now")
+                  + (f"\n\n*not heard:* {', '.join(c for c, _, _ in quiet)}" if quiet else ""))
+    return embed
+
+
+async def handle_beacons_command(ctx, msg, send_kaia_response=None):
+    import asyncio
+    import time
+    from utils.radio import beacons, kiwi
+    parts = msg.content.strip().split()
+    band = BAND_ARGS.get(parts[1].lower(), 0) if len(parts) > 1 else 0
+    log_action(f"!beacons band {band} for {msg.author}")
+    if not radio_enabled():
+        await msg.channel.send(embed=box("🗼  Beacons", "The radio feeds are switched off (`radio.enabled`).", COLOR_ERROR))
+        return
+    recent = beacons.recent()
+    fresh = (recent and time.time() - float(recent.get("fetched_at", 0)) < beacons.FRESH_S
+             and recent.get("khz") == beacons.BANDS_KHZ[band])
+    await msg.channel.send(embed=beacons_embed(recent if fresh else None))
+    if fresh or not kiwi.available():
+        return
+    if beacons._lock.locked():
+        await msg.channel.send(embed=box("🗼  Beacons", "I'm already listening — results in a few minutes.", COLOR_RADIO))
+        return
+    await msg.channel.send(embed=box("🗼  Listening", f"one full cycle on {beacons.BANDS_KHZ[band] / 1000:.3f} MHz — "
+                                     "back in about three minutes.", COLOR_RADIO))
+
+    async def listen_and_report():
+        try:
+            result = await beacons.listen(band)
+            await msg.channel.send(embed=beacons_embed(result))
+        except FeedError as e:
+            await msg.channel.send(embed=box("🗼  Beacons", f"couldn't get a clean listen — {clean(str(e), 200)}", COLOR_ERROR))
+        except Exception as e:
+            log_error(f"[radio] !beacons listen failed: {e}")
+    asyncio.create_task(listen_and_report())
+
+
+nightshift.register("beacons")
+
+
+
+# ── !overnight ──────────────────────────────────────────────────────────────
+
+async def handle_overnight_command(ctx, msg, send_kaia_response=None):
+    """Write the overnight log now, here. Skips the unprompted gate: it was asked for."""
+    from utils.radio import overnight
+    log_action(f"!overnight for {msg.author}")
+    try:
+        facts = await overnight.gather()
+        if len(facts) < overnight.MIN_FACTS:
+            await msg.channel.send(embed=box("🌙  Overnight log", "Not enough happened overnight to write up yet.",
+                                             COLOR_RADIO, footer=_others("overnight")))
+            return
+        text = await overnight.write(ctx, facts)
+        embed = box("🌙  Overnight log", clean_block(text, 1800) if text else "(nothing usable came back)",
+                    COLOR_RADIO, footer=f"written from {len(facts)} facts gathered in Python\n{_others('overnight')}")
+        await msg.channel.send(embed=embed)
+    except Exception as e:
+        log_error(f"[radio] !overnight failed: {e}")
+        await msg.channel.send(embed=box("🌙  Overnight log", "Something went wrong. It's in the log.", COLOR_ERROR))
+
+
+nightshift.register("overnight")

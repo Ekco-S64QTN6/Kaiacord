@@ -26,6 +26,7 @@ THEME = {
     "launch": ("!launch", "the next rockets", "sky"),
     "quake": ("!quake", "the ground moving", "sky"),
     "sky": ("!sky", "tonight overhead", "sky"),
+    "overnight": ("!overnight", "what the night shift saw, written up now", "radio"),
 }
 
 #: Only commands that exist are advertised; each module adds itself on import.

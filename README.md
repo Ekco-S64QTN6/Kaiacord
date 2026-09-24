@@ -416,6 +416,8 @@ Kaia keeps an ear on the strange end of the HF bands.
 !radio                     # what Kaia has heard, and how right she was
 !tacamo                    # are the EAM relay planes up?
 !buzzer                    # UVB-76, The Buzzer, live
+!beacons                   # which continents she can hear on the worldwide beacon chain
+!overnight                 # what her night shift saw, written up (she posts one each morning)
 !nightshift                # everything in this theme
 ```
 

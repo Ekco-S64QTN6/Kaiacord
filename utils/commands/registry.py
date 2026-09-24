@@ -24,7 +24,7 @@ from utils.commands.youtube_handler import handle_youtube_command
 from utils.commands.memory_handler import handle_memory_cmd
 from utils.commands.music_handler import handle_music_command
 from utils.commands.news_handler import handle_news_command
-from utils.commands.radio_handler import (handle_buzzer_command, handle_numbers_command, handle_radio_command,
+from utils.commands.radio_handler import (handle_beacons_command, handle_overnight_command, handle_buzzer_command, handle_numbers_command, handle_radio_command,
                                           handle_skyking_command, handle_tacamo_command)
 from utils.commands.nightshift import handle_nightshift_command
 from utils.commands.sky_handler import (handle_earth_command, handle_iss_command, handle_launch_command,
@@ -179,6 +179,11 @@ COMMANDS = (
             summary="Magnitude 4.5+ earthquakes in the last day"),
     Command("sky", handle_sky_command, GROUP_MEDIA, extra=RESPONDER,
             summary="Tonight overhead: the moon, planets, meteor showers, the next ISS pass"),
+    Command("beacons", handle_beacons_command, GROUP_MEDIA, extra=RESPONDER,
+            usage="!beacons [20 | 17 | 15 | 12 | 10]",
+            summary="Kaia listens to the worldwide HF beacon chain and says which continents she can hear"),
+    Command("overnight", handle_overnight_command, GROUP_MEDIA, extra=RESPONDER,
+            summary="Kaia writes up what her night shift saw — recordings, EAMs, the sky — from real data"),
     Command("nightshift", handle_nightshift_command, GROUP_MEDIA, extra=RESPONDER,
             summary="Every radio and sky command Kaia has, in one list"),
     Command("quip", handle_quip_command, GROUP_MEDIA,

@@ -236,6 +236,37 @@ async def _watch_stderr(proc, deadline_s: float) -> str:
     return reason
 
 
+async def smeter(receiver: Receiver, khz: float, mode: str, seconds: float) -> list[tuple]:
+    """Timestamped signal strength, ~6 readings a second: (datetime UTC, dBm).
+
+    RSSI comes from the receiver itself, before its audio AGC — which levels
+    the audio so thoroughly that loudness can't tell a beacon from noise.
+    """
+    from datetime import datetime, timezone
+    if not available():
+        raise FeedError("kiwiclient is not installed — run tools/maintenance/fetch_radio_assets.py")
+    cmd = [sys.executable, "-u", str(RECORDER), "-s", receiver.host, "-p", str(receiver.port),
+           "-f", f"{khz:g}", "-m", mode, "-u", KIWI_USER, "--S-meter=0", "--ts", "--tlimit", f"{int(seconds)}",
+           # the frequency is the centre of the passband, so the carrier sits in it
+           "--pbc"]
+    proc = await asyncio.create_subprocess_exec(*cmd, cwd=str(KIWICLIENT), stdout=asyncio.subprocess.PIPE,
+                                                stderr=asyncio.subprocess.DEVNULL)
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), seconds + 30)
+    except asyncio.TimeoutError:
+        await _stop(proc)
+        out = b""
+    readings = []
+    for line in out.decode("utf-8", "replace").splitlines():
+        m = re.match(r"(\d{2}-\w{3}-\d{4} \d{2}:\d{2}:\d{2}) UTC RSSI:\s*(-?\d+(?:\.\d+)?)", line.strip())
+        if m:
+            when = datetime.strptime(m.group(1), "%d-%b-%Y %H:%M:%S").replace(tzinfo=timezone.utc)
+            readings.append((when, float(m.group(2))))
+    if not readings:
+        raise FeedError(f"{receiver.host} returned no signal readings")
+    return readings
+
+
 def open_stream(receiver: Receiver, khz: float, mode: str):
     """A live stream: kiwirecorder --nc writes raw s16le mono at 12 kHz to
     stdout. A plain Popen, because discord.py's FFmpegPCMAudio reads a real

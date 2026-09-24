@@ -1899,6 +1899,17 @@ class CoreTaskManager:
             except Exception as e:
                 log_error(f"[radio] scheduled listen failed to start: {e}")
             transcribe.release_if_idle()
+            try:
+                from utils.radio import overnight
+                if bot and config.get("radio.overnight_log", True) and \
+                        overnight.due(hhmm=str(config.get("radio.overnight_time", "08:30"))):
+                    import discord
+                    channel = discord.utils.get(bot.get_all_channels(),
+                                                name=config.get("radio.post_channel", "kaia-opolis"))
+                    if channel is not None:
+                        await overnight.post(self.ctx, channel)
+            except Exception as e:
+                log_error(f"[radio] overnight log failed: {e}")
 
         @radio_task.before_loop
         async def before_radio():

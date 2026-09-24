@@ -18,6 +18,8 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!tacamo` | Are the EAM relay planes (E-6B, E-4B) broadcasting on ADS-B? | All |
 | `!buzzer [off]` | UVB-76, The Buzzer, live in your voice channel (`!uvb76`) | All |
 | `!nightshift` | Every radio and sky command in one list | All |
+| `!beacons [20\|17\|15\|12\|10]` | Kaia listens to the worldwide HF beacon chain; which continents she can hear | All |
+| `!overnight` | Kaia writes up what her night shift saw, from real data, now | All |
 | `!iss` | Where the space station is, who's in orbit, the next visible pass | All |
 | `!nasa` | NASA's picture of the day; who the Deep Space Network is talking to now (`!apod`, `!dsn`) | All |
 | `!earth` | The latest full-Earth image from DSCOVR | All |
@@ -95,6 +97,13 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   E-4B Nightwatch is broadcasting on ADS-B, via adsb.lol. They often fly with it off, so "none"
   means none visible; Kaia remembers when she last saw one.
 - `!buzzer` — UVB-76 on 4625 kHz, live from a European receiver. `!buzzer off` to stop.
+- `!beacons` — the NCDXF/IARU beacon chain: who is transmitting on each band this second, and
+  which of the 18 beacons Kaia can hear, measured over one three-minute cycle from a KiwiSDR
+  (`!beacons 15` for 21.150 MHz). A fresh listen takes about three minutes.
+- `!overnight` — the overnight log, written now. Each morning (`radio.overnight_time`, 08:30) she
+  posts one to `#kaia-opolis` on her own: what she recorded and copied, what eam.watch logged,
+  the sun, the closest asteroid. Only facts gathered in Python go in; a draft containing a number
+  no fact has is rejected.
 - `!nightshift` — the whole theme in one box.
 
 Recording and transcription need a one-time `python tools/maintenance/fetch_radio_assets.py`.
@@ -233,7 +242,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!quip`, `!forum link` |
+| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!beacons`, `!overnight`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!quip`, `!forum link` |
 | **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).
