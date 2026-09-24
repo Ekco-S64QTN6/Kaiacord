@@ -112,6 +112,9 @@ assets/strudel/strudel-repl.js
 # kiwiclient has no top-level licence and GPL parts; it is run, never committed.
 assets/kiwiclient/
 
+# Skyfield's planetary ephemeris (de421.bsp, 16 MB), downloaded on first use by utils/sky/passes.py.
+assets/skyfield/
+
 # A reindex request belongs at knowledge_base/.trigger_reindex (ignored above).
 # One at the repo root was never read by anything.
 /.trigger_reindex

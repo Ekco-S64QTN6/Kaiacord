@@ -438,6 +438,27 @@ the history stays in `memory/radio/`, outside her searchable memory. Setup:
 </details>
 
 <details>
+<summary><b>🛰️ Overhead — the ISS, NASA, the sky tonight</b></summary>
+
+<br>
+
+```
+!iss                       # where the station is, who's in orbit, when it passes over you
+!nasa                      # picture of the day + which probe the Deep Space Network is talking to now
+!earth                     # the whole sunlit Earth, from a million miles out
+!spaceweather              # the sun, geomagnetic storms, HF conditions
+!rocks · !launch · !quake  # close asteroids, the next rockets, the ground moving
+!sky                       # tonight: moon, planets, meteor showers
+!nightshift                # every radio and sky command
+```
+
+All public data (NASA, NOAA, JPL, USGS, Launch Library 2, CelesTrak), fetched when asked and
+cached; positions and passes are computed locally with Skyfield. Passes and `!sky` need
+`sky.location` set in `config/kaia.yaml`.
+
+</details>
+
+<details>
 <summary><b>🏟️ Project 1999 forum integration</b></summary>
 
 <br>
@@ -501,6 +522,7 @@ Kaiacord/
 │   ├── social/               Forum crawler & social responders
 │   ├── audio/                !music: arranged tracks, the DJ, the Strudel engine
 │   ├── radio/                !skyking, !numbers, !radio: feeds, KiwiSDR listening, transcription
+│   ├── sky/                  !iss, !nasa, !sky …: space feeds and local sky computation
 │   └── infrastructure/       DI context, dashboard, logging, GPU pinning
 ├── tools/
 │   ├── maintenance/          Health checks, re-indexing, KB ingestion, dream curation,

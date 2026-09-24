@@ -27,6 +27,9 @@ from utils.commands.news_handler import handle_news_command
 from utils.commands.radio_handler import (handle_buzzer_command, handle_numbers_command, handle_radio_command,
                                           handle_skyking_command, handle_tacamo_command)
 from utils.commands.nightshift import handle_nightshift_command
+from utils.commands.sky_handler import (handle_earth_command, handle_iss_command, handle_launch_command,
+                                        handle_nasa_command, handle_quake_command, handle_rocks_command,
+                                        handle_sky_command, handle_spaceweather_command)
 from utils.commands.reindex_handler import handle_reindex_command
 from utils.commands.rpg_handler import handle_rpg_command
 from utils.commands.scores_handler import handle_scores_command
@@ -160,6 +163,22 @@ COMMANDS = (
     Command("buzzer", handle_buzzer_command, GROUP_MEDIA, extra=RESPONDER, aliases=("uvb76",),
             usage="!buzzer [off]",
             summary="UVB-76, The Buzzer, live in your voice channel"),
+    Command("iss", handle_iss_command, GROUP_MEDIA, extra=RESPONDER,
+            summary="Where the space station is, who's in orbit, and when it next passes over you"),
+    Command("nasa", handle_nasa_command, GROUP_MEDIA, extra=RESPONDER, aliases=("apod", "dsn"),
+            summary="NASA's picture of the day, and which spacecraft the Deep Space Network is talking to now"),
+    Command("earth", handle_earth_command, GROUP_MEDIA, extra=RESPONDER,
+            summary="The latest picture of the whole sunlit Earth, from DSCOVR a million miles out"),
+    Command("spaceweather", handle_spaceweather_command, GROUP_MEDIA, extra=RESPONDER, aliases=("sun",),
+            summary="Geomagnetic activity, flares, and how HF radio is holding up"),
+    Command("rocks", handle_rocks_command, GROUP_MEDIA, extra=RESPONDER, aliases=("asteroids",),
+            summary="Asteroids passing close in the next month"),
+    Command("launch", handle_launch_command, GROUP_MEDIA, extra=RESPONDER, aliases=("launches",),
+            summary="The next rocket launches, anywhere"),
+    Command("quake", handle_quake_command, GROUP_MEDIA, extra=RESPONDER, aliases=("quakes",),
+            summary="Magnitude 4.5+ earthquakes in the last day"),
+    Command("sky", handle_sky_command, GROUP_MEDIA, extra=RESPONDER,
+            summary="Tonight overhead: the moon, planets, meteor showers, the next ISS pass"),
     Command("nightshift", handle_nightshift_command, GROUP_MEDIA, extra=RESPONDER,
             summary="Every radio and sky command Kaia has, in one list"),
     Command("quip", handle_quip_command, GROUP_MEDIA,

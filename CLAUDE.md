@@ -28,6 +28,7 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 | **Monitoring** | `utils/infrastructure/monitoring/` | Curses dashboard (`btop_dashboard_v2.py`). |
 | **News** | `utils/news/` | Daily briefs filed into `knowledge_base/news/`. The generator (`tools/maintenance/update_kaia_news.py`) calls the Gemini API with Google Search grounding — the only path that sends anything *of hers* off the machine. `utils/news/` itself only reads what was filed. |
 | **Radio** | `utils/radio/` | `!skyking` (military EAMs from eam.watch), `!numbers` (number-station schedule from Priyom), `!radio` (scheduled KiwiSDR recording, CPU transcription, live listening in voice). Feeds polled every `radio.poll_hours` (6); history in `memory/radio/`. See §7. |
+| **Sky** | `utils/sky/` | `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`. Public feeds fetched on request and cached per feed; passes and the night sky computed locally (Skyfield). Every radio/sky box ends with the theme's small print from `utils/commands/nightshift.py`. |
 | **LoRA fine-tune** | `finetune/` | Numbered pipeline (`01_convert_logs.py` → `05c_evaluate_persona.py`), driven by `scripts/run_finetune.sh`. Trains a persona adapter on her own logs and exports GGUF for Ollama. Off the runtime path — see [§16](#16-fine-tuning). |
 
 Models: `gemma3:12b` (GPU), `nomic-embed-text-cpu` (CPU embeddings). **There is no classifier

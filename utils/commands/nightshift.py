@@ -21,7 +21,7 @@ THEME = {
     "beacons": ("!beacons", "which continents Kaia can hear right now", "radio"),
     "iss": ("!iss", "the space station, its crew, the next pass", "sky"),
     "nasa": ("!nasa", "today's space picture · who the DSN is talking to", "sky"),
-    "earth": ("!earth", "the whole Earth, today, from a million miles", "sky"),
+    "earth": ("!earth", "the whole Earth, from a million miles", "sky"),
     "rocks": ("!rocks", "asteroids passing close", "sky"),
     "launch": ("!launch", "the next rockets", "sky"),
     "quake": ("!quake", "the ground moving", "sky"),

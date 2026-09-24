@@ -18,6 +18,14 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!tacamo` | Are the EAM relay planes (E-6B, E-4B) broadcasting on ADS-B? | All |
 | `!buzzer [off]` | UVB-76, The Buzzer, live in your voice channel (`!uvb76`) | All |
 | `!nightshift` | Every radio and sky command in one list | All |
+| `!iss` | Where the space station is, who's in orbit, the next visible pass | All |
+| `!nasa` | NASA's picture of the day; who the Deep Space Network is talking to now (`!apod`, `!dsn`) | All |
+| `!earth` | The latest full-Earth image from DSCOVR | All |
+| `!spaceweather` | Kp, flares, sunspots and HF band conditions (`!sun`) | All |
+| `!rocks` | Asteroids passing close in the next 30 days (`!asteroids`) | All |
+| `!launch` | The next rocket launches (`!launches`) | All |
+| `!quake` | Magnitude 4.5+ earthquakes in the last day (`!quakes`) | All |
+| `!sky` | Tonight overhead: moon, planets, meteor showers, ISS pass | All |
 | `!download <url>` | Submit a URL for the knowledge base (staged, filed hourly) | All |
 | `!youtube <url>` | Pull a video's transcript into the knowledge base, correcting misheard names (`!yt`) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
@@ -90,6 +98,23 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
 - `!nightshift` — the whole theme in one box.
 
 Recording and transcription need a one-time `python tools/maintenance/fetch_radio_assets.py`.
+
+### 🛰️ Overhead (`!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`)
+Live data from public sources, fetched when asked and cached (the ISS for 30 seconds, the Deep
+Space Network for 5 minutes, daily pictures for 6 hours). Every number — distances, lunar
+distances, light-time, asteroid sizes — is computed, not narrated.
+- `!iss` — position, altitude, speed, sunlight; everyone in orbit (Launch Library 2); the next
+  *visible* pass over you.
+- `!nasa` — the Astronomy Picture of the Day, and which spacecraft Goldstone, Madrid and Canberra
+  are talking to this minute, with distance and data rate.
+- `!earth` — the latest EPIC image of the whole sunlit Earth.
+- `!spaceweather` — Kp index, the latest flare, solar flux and sunspots, and HF band conditions.
+- `!rocks` · `!launch` · `!quake` — close asteroid approaches (JPL), upcoming launches, earthquakes (USGS).
+- `!sky` — moon phase and rise/set, planets up after dark, active meteor showers, the next ISS pass.
+
+`!iss` passes and `!sky` need `sky.location: "lat, lon"` in `config/kaia.yaml` — a city is enough;
+nothing guesses a location. `NASA_API_KEY` in `.env` is optional (the demo key is rate-limited).
+`!nightshift` lists every command in this theme.
 
 ### 📥 Download (`!download <url>`)
 Fetches content from a URL, converts it to Markdown, and **stages** it in
@@ -208,7 +233,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!quip`, `!forum link` |
+| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!quip`, `!forum link` |
 | **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).
