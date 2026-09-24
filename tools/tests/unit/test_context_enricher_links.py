@@ -106,3 +106,36 @@ def test_the_connector_refuses_a_name_that_resolves_to_a_private_address():
         finally:
             await conn.close()
     asyncio.run(run())
+
+
+def test_a_page_sent_in_pieces_is_read_whole():
+    """content.read(n) returns whatever has arrived, up to n — a page came
+    back as its first network chunk. The reader must keep reading."""
+    from aiohttp import web
+
+    async def handler(request):
+        resp = web.StreamResponse(headers={"Content-Type": "text/html"})
+        await resp.prepare(request)
+        for i in range(20):
+            await resp.write(f"<p>part{i} ".encode() + b"x" * 500 + b"</p>")
+            await asyncio.sleep(0.01)
+        await resp.write_eof()
+        return resp
+
+    async def run():
+        app = web.Application()
+        app.router.add_get("/", handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            with patch.object(ce, "is_safe_url", return_value=True), \
+                 patch.object(type(ce.config), "url_max_content_length", 10**9, create=True):
+                return await ContextEnricher(MagicMock())._scrape_single_url(f"http://127.0.0.1:{port}/")
+        finally:
+            await runner.cleanup()
+
+    out = asyncio.run(run())
+    assert "part0" in out and "part19" in out

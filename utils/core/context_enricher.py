@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from typing import List, Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning
 from utils.infrastructure.system.yaml_config import config
-from utils.core.sanitizer import is_safe_url, public_only_connector
+from utils.core.sanitizer import is_safe_url, public_only_connector, read_capped
 
 # A page is read at most this far before parsing; the prompt keeps far less
 # (url_max_content_length). Without a cap a linked multi-gigabyte file served
@@ -435,7 +435,7 @@ class ContextEnricher:
                         log_debug(f"URL {url} skipped due to content type: {content_type}")
                         return ""
                         
-                    raw = await response.content.read(MAX_PAGE_BYTES)
+                    raw = await read_capped(response, MAX_PAGE_BYTES)
                     try:
                         html = raw.decode(response.charset or "utf-8", errors="replace")
                     except LookupError:          # a charset Python does not know

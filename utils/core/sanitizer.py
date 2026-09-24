@@ -150,6 +150,20 @@ def public_only_connector():
     return aiohttp.TCPConnector(resolver=_PublicOnlyResolver())
 
 
+async def read_capped(response, cap: int) -> bytes:
+    """The body, up to `cap` bytes, stopping early at the cap.
+
+    `response.content.read(n)` is not this: it returns *at most* n bytes —
+    whatever has arrived — so a page came back as its first network chunk.
+    """
+    buf = bytearray()
+    async for chunk in response.content.iter_chunked(65536):
+        buf += chunk
+        if len(buf) >= cap:
+            break
+    return bytes(buf[:cap])
+
+
 def is_safe_url(url: str) -> bool:
     """
     Validate that a URL uses http/https and does not resolve to private,
