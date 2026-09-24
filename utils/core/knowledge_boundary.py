@@ -7,9 +7,8 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 class KnowledgeBoundary:
     """Prevents Kaia from making up information she doesn't know"""
     
-    def __init__(self, knowledge_base_dir="./knowledge_base", data_path="./memory", config_path="./config"):
+    def __init__(self, knowledge_base_dir="./knowledge_base", config_path="./config"):
         self.kb_path = knowledge_base_dir
-        self.data_path = data_path
         self.config_path = config_path
         self.known_entities = set()
         self.common_words_lower = set()
@@ -42,18 +41,6 @@ class KnowledgeBoundary:
 
     def load_known_entities(self):
         """Load known entities from database and knowledge base"""
-        # Load from generated database
-        db_path = os.path.join(self.data_path, "entity_database.json")
-        if os.path.exists(db_path):
-            try:
-                with open(db_path, 'r') as f:
-                    data = json.load(f)
-                    if 'entities' in data:
-                        for category in data['entities'].values():
-                            self.known_entities.update(e.lower() for e in category)
-            except Exception as e:
-                log_error(f"Error loading entity database: {e}")
-
         # 1. Scan User Logs (High Priority) - Pre-load usernames to avoid disk scans
         user_logs_dir = os.path.join(self.kb_path, "user_logs")
         if os.path.exists(user_logs_dir):
@@ -69,8 +56,8 @@ class KnowledgeBoundary:
         # 2. Scan Knowledge Subdirectories (Books, News, Technical, etc.)
         from pathlib import Path
         subdirs = [
-            "books", "news", "documents", "forum_posts", 
-            "forum_posts/technical", "technical", "infrastructure", "security_research"
+            "books", "news", "documents", "forum_posts",
+            "wiki", "troubleshooting", "transcripts",
         ]
         for subdir in subdirs:
             folder = Path(self.kb_path) / subdir

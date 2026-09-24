@@ -114,6 +114,10 @@ def test_the_knowledge_boundary_names_only_real_folders():
     """`knowledge_boundary` lists the corpus directories it will vouch for. It
     still named `blogs` and `deep_dive_reports` after both were folded into
     `documents`, which means it vouched for nothing in either."""
+    import ast
     src = Path("utils/core/knowledge_boundary.py").read_text(encoding="utf-8")
-    assert '"deep_dive_reports"' not in src
-    assert '"blogs"' not in src
+    lists = [n for n in ast.walk(ast.parse(src))
+             if isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "subdirs" for t in n.targets)]
+    assert lists, "knowledge_boundary no longer has a subdirs list — re-point this test"
+    for folder in ast.literal_eval(lists[0].value):
+        assert (KB / folder).is_dir(), f"knowledge_boundary names {folder}/, which does not exist"
