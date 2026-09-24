@@ -1,18 +1,16 @@
 <div align="center">
 
-# 🌌 KAIACORD
+# Kaiacord
 
-**A self-hosted Discord AI persona with cognitive persistence, hybrid RAG, and fully local inference.**
+**A self-hosted Discord companion with a persistent inner life, running on one consumer GPU.**
 
-[![Python](https://img.shields.io/badge/Python-3.12%2B-blue.svg?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![Ollama](https://img.shields.io/badge/Inference-Ollama-black.svg?style=flat-square)](https://ollama.com)
+[![Python](https://img.shields.io/badge/Python-3.12-blue.svg?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![discord.py](https://img.shields.io/badge/discord.py-2.7.1-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discordpy.readthedocs.io)
-[![Model](https://img.shields.io/badge/Model-gemma3%3A12b-4285F4.svg?style=flat-square&logo=google&logoColor=white)](https://ollama.com/library/gemma3)
-[![VRAM](https://img.shields.io/badge/VRAM-12GB-76B900.svg?style=flat-square&logo=nvidia&logoColor=white)](#gpu-budget)
-[![Tests](https://img.shields.io/badge/tests-1%2C957%20passed-success.svg?style=flat-square)](#testing)
+[![Ollama](https://img.shields.io/badge/Inference-Ollama-black.svg?style=flat-square)](https://ollama.com)
+[![Model](https://img.shields.io/badge/Model-gemma3%3A12b-4285F4.svg?style=flat-square)](https://ollama.com/library/gemma3)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
-[Overview](#overview) · [Cognitive Pipeline](#cognitive-pipeline) · [Architecture](#architecture) · [Install](#installation) · [Configuration](#configuration) · [Operations](#operations) · [Docs](#documentation)
+[Overview](#overview) · [How she works](#how-she-works) · [Install](#installation) · [Configuration](#configuration) · [Operations](#operations) · [Features](#features) · [Docs](#documentation)
 
 </div>
 
@@ -20,535 +18,325 @@
 
 ## Overview
 
-Kaia is a local Discord bot with a memory that persists.
+Kaia is a Discord bot built to feel less like a chatbot and more like someone who lives in the
+server. She remembers. Her mood carries from one conversation to the next, she knows each person
+differently, she forms opinions and sometimes changes them, and every night she turns the day's
+conversations into long-term memory.
 
-Her thinking runs entirely on local hardware: no hosted model, no telemetry, no per-token
-billing. The network is used only for things that live out there — the daily news brief (the
-Gemini API with search grounding), Bluesky if you enable it, and the public radio and space
-feeds her night-shift commands read. She carries an emotional state from one conversation to the next, develops different relationships with different people, forms beliefs that can later change, and turns the day's conversations into long-term memory each night.
-
-The result is continuity across conversations. Things that happen are retained and can matter later: shared events, periods of absence, changes in a relationship, or beliefs formed during earlier conversations.
-
-**What makes it different from a chat wrapper**
+Everything that thinks runs on your own hardware: a single 12 GB GPU serves the language model,
+and embeddings run on the CPU. There is no hosted model and no per-token bill. The network is used
+only for things that live out there: the daily news brief, Bluesky if you turn it on, and the
+public radio and space feeds behind her night-shift commands.
 
 | | |
 |:--|:--|
-| **Local inference** | One 12 GB consumer GPU. Chat, vision and embeddings are local; intent classification is plain regex. |
-| **State survives restarts** | Mood, relationships, beliefs, and episodic anchors are persisted atomically to disk. |
-| **Deterministic where it matters** | Combat maths, budgeting, and safety filtering are plain Python. The LLM is used for language, not arithmetic. |
-| **Grounded by default** | Hybrid BM25 + vector retrieval over a curated Markdown knowledge base, fused with Reciprocal Rank Fusion. |
-| **Guarded output** | A post-generation pipeline strips prompt echoes, bot-speak, fabricated citations and sycophancy before anything reaches Discord — and keeps the original when a cut would leave a sentence with a hole in it. |
+| **Continuity** | Mood, relationships, beliefs and episodic memories are persisted to disk and survive restarts. |
+| **Grounded answers** | Hybrid BM25 and vector retrieval over a curated Markdown knowledge base, merged with Reciprocal Rank Fusion. |
+| **Deterministic where it matters** | Game maths, budgets and filtering are plain Python. The model writes language; it never does arithmetic. |
+| **Guarded output** | A post-generation pipeline removes prompt echoes, bot-speak, fabricated citations and sycophancy, and keeps the original sentence whenever a cut would break it. |
+| **More than chat** | A persistent RPG, a fractal art engine, live-coded music in voice, shortwave radio monitoring, and a view of the night sky. |
 
 ---
 
-## Cognitive Pipeline
+## How she works
 
-Every message flows through a deterministic feature layer before generation. These are
-heuristics in Python, not auxiliary model calls, so they add context without costing VRAM.
-
-```
-                      ┌────────────────────────┐
-                      │      Message Input     │
-                      └───────────┬────────────┘
-                                  │
-             ┌────────────────────▼─────────────────────┐
-             │  Behavioural Injection Layer              │
-             │  Mood · Stance · History · Relationships │
-             └────────────────────┬─────────────────────┘
-                                  │
-             ┌────────────────────▼─────────────────────┐
-             │  System Prompt Assembly & Hybrid RAG     │
-             └────────────────────┬─────────────────────┘
-                                  │
-                      ┌───────────▼────────────┐
-                      │ Local Inference Engine │
-                      └────────────────────────┘
-```
-
-### Core subsystems
-
-- **Persistent emotional arc** — mood tracked as a `valence / arousal / energy` vector with
-  6-hour decay, modulating vocabulary, reaction frequency, and Discord status text.
-- **Staged relationships** — per-user event logs across five familiarity levels
-  (`stranger` → `inner_circle`), with behavioural gating and trust thresholds.
-- **Nightly dream cycle** — between 03:00 and 05:00 the engine aggregates the day's logs,
-  extracts assertions into a 100-entry revisable belief store, and updates a rolling identity
-  journal.
-- **Memory anchors** — up to 100 weighted episodic memories with exponential decay, enabling
-  callbacks to events from weeks earlier.
-- **Passive inner monologue** — background commentary from room observation, woven into the
-  active context as private intuition.
-- **Proactive initiation** — a multi-source trigger engine (absence, beliefs, dreams, mood,
-  curiosity, memory, silence, anchors, observation digest), rate-capped to a lifelike
-  frequency. The desire gate and its threshold are config-tunable, and deliberately so: the
-  gate once sat high enough that she spoke first *once in 102 evaluations*.
-- **One system for everything she says unasked** — proactive openers, quips and quip
-  threads, observations of conversations she watched, and her inner monologue share one
-  `unprompted:` config block: a switch per source, one daily limit and gap for all of them,
-  one set of posting hours, and a per-source list of what also goes to Bluesky. Each post
-  wears a label that fits it — 🪡 **Unspooling** when she questions an earlier view,
-  🌀 **Down the rabbit hole** for something she read, 📜 **Long thought** for a long one —
-  with a little chance mixed in.
-- **Temporal awareness** — time-of-day adjustments, fatigue multipliers on long threads, and
-  reunion detection when a user returns after an absence.
-- **Consistency watchdog** — compares each response against active high-confidence beliefs and
-  corrects capitulation before the message is sent.
-
----
-
-## Architecture
-
-Kaiacord uses a **classify → retrieve → generate** flow, keeping latency low by skipping
-retrieval entirely on high-confidence fast paths.
+### A message, start to finish
 
 ```mermaid
 flowchart TD
-    MSG([Message]) --> GK[Gatekeeper<br/>Rate limit · Blacklist · Boot guard]
-    GK --> CL{Classify intent}
+    MSG([Message]) --> GK[Gatekeeper<br/>rate limit · ignore list · boot guard]
+    GK --> CL{Intent<br/>regex, no model}
 
-    CL -- "Fast path<br/>high confidence" --> SKIP[Skip RAG<br/>Greeting / Command]
-    CL -- "Full path" --> RET
+    CL -- "fast path: greeting" --> GEN
+    CL -- "everything else" --> RET
 
-    subgraph RET ["Parallel Hybrid Retrieval"]
+    subgraph RET ["Parallel retrieval"]
         direction LR
-        P[Persona Context]
-        U[User History]
-        N[News Briefs]
-        D[Dreams & Beliefs]
-        W[Knowledge Base]
+        P[Persona]
+        U[User history]
+        N[News]
+        D[Dreams and beliefs]
+        W[Knowledge base]
     end
 
-    SKIP --> GEN
     RET --> RRF[Reciprocal Rank Fusion]
-    RRF --> CTX[Build Grounded Context]
+    RRF --> CTX[Context budget<br/>optimize_context]
     CTX --> GEN
 
-    subgraph GEN ["Self-Healing Generation Loop"]
+    subgraph GEN ["Generation"]
         direction TB
-        G1[Attempt 1] --> HC{Guards}
-        HC -- Pass --> OUT([Response])
-        HC -- Fail --> G2[Attempt 2<br/>Scaled temperature]
-        G2 --> HC2{Guards}
-        HC2 -- Pass --> OUT
-        HC2 -- Fail --> G3[Attempt 3]
-        G3 --> HC3{Guards}
-        HC3 -- Pass --> OUT
-        HC3 -- Fail --> SAL[Salvage<br/>best rejected attempt, re-checked]
+        G1[Attempt] --> HC{Guards}
+        HC -- pass --> OUT([Reply])
+        HC -- "fail, up to 3 attempts" --> G1
+        HC -- "all rejected" --> SAL[Salvage the best attempt<br/>and re-check it]
         SAL --> OUT
     end
 ```
 
-**1 · Intent classification (CPU).** Deterministic regex matchers label the query — greeting,
-command, recap, diagnostic, dream recall — so the primary model is never woken just to label a
-message. No auxiliary model is involved; the secondary classifier (`gemma2:2b`) was removed
-entirely after measurement showed it contributed nothing.
+1. **Intent** is matched by regular expressions on the CPU, so the model is never woken just to
+   label a message.
+2. **Retrieval** runs BM25 and dense vectors (`nomic-embed-text-cpu`) in parallel over the
+   persona, books and articles, news briefs, her dream reflections and each person's
+   conversation history.
+3. **Context** is budgeted once, by `optimize_context`: a system reserve and the reply are set
+   aside, and what remains is split between retrieval and conversation history.
+4. **Generation** uses two temperatures: 0.70 for conversation and 0.35 for answers grounded in
+   documents. A reply the guards reject is regenerated; if every attempt is rejected, the best one
+   is repaired and must pass the full pipeline on its own before it is used.
 
-**2 · Hybrid retrieval.** BM25 lexical search and dense vectors (`nomic-embed-text-cpu`) run in
-parallel over the Markdown knowledge base, then merge via Reciprocal Rank Fusion. Sources
-include the persona file, curated books and articles, daily news briefs, dream reflections, and
-per-user conversation history.
+### What persists between conversations
 
-**3 · Guarded generation.** Two temperatures are used: `0.70` for conversation, `0.35` for
-document-grounded answers. `optimize_context` allocates the whole window; a rejected answer is
-salvaged and re-run rather than becoming silence. Output then passes the post-generation
-pipeline, which removes prompt echoes, roleplay artefacts, fabricated citations, parroted user
-phrasing, sycophancy and stale clock times before delivery.
+- **Mood.** A valence, arousal and energy vector with a six-hour half-life. It shapes her
+  vocabulary, how often she reacts, and the status line under her name.
+- **Relationships.** Per-person event logs across five familiarity stages, from stranger to
+  inner circle.
+- **Beliefs.** A store of up to 100 positions with confidence, formed and revised overnight.
+- **Memory anchors.** Up to 100 weighted episodic memories that fade over time, so she can bring
+  up something from weeks ago.
+- **Dreams.** Between 03:00 and 05:00 she reads over the day, writes reflections, extracts
+  beliefs and updates a rolling identity journal.
+
+### Speaking first
+
+Kaia sometimes speaks without being asked: an opener when she has something on her mind, an
+idle remark when a channel has gone quiet, an observation about a conversation she followed, a
+passing thought, and a morning write-up of what her night shift saw. All of these go through one
+gate with one daily limit, one minimum gap and one set of posting hours, configured in a single
+`unprompted:` block. Each post carries a short label that fits it (*Unspooling* when she revisits
+an earlier view, *Down the rabbit hole* for something she read), and you choose which kinds also
+go to her Bluesky feed.
+
+A consistency check compares each reply with her strongest beliefs and her own recent messages,
+and corrects a reply that simply caves before it is sent.
 
 ---
 
 ## Installation
 
-### Prerequisites
+### Requirements
 
-| Requirement | Notes |
+| | |
 |:--|:--|
-| **OS** | Linux (developed on Arch; Ubuntu/Debian fine) |
-| **GPU** | NVIDIA, 12 GB VRAM (RTX 3060 or better) |
-| **Python** | 3.12+ |
+| **OS** | Linux (developed on Arch; Debian and Ubuntu work) |
+| **GPU** | NVIDIA with 12 GB of VRAM (RTX 3060 or better) |
+| **Python** | 3.12 |
 | **[Ollama](https://ollama.com)** | Local inference runtime |
-| **pandoc**, **poppler** | Optional — only for importing EPUB/PDF into the knowledge base |
+| **pandoc**, **poppler** | Optional, for importing EPUB and PDF into the knowledge base |
+| **ffmpeg**, **pactl** | Optional, for `!music` and `!radio` in voice |
 
 ### Setup
 
 ```bash
 git clone https://github.com/Ekco-S64QTN6/Kaiacord.git
 cd Kaiacord
-
 python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+venv/bin/pip install -r requirements.txt
 
-### Pull the models
+ollama pull gemma3:12b             # chat, narration, vision (GPU)
+ollama pull nomic-embed-text-cpu   # retrieval embeddings (CPU)
 
-```bash
-ollama pull gemma3:12b            # chat, narration, vision  (GPU)
-ollama pull nomic-embed-text-cpu  # RAG embeddings           (CPU)
-```
-
-### Configure
-
-```bash
 cp .env.example .env
 ```
 
-`DISCORD_TOKEN` is the only required value. Everything else is optional: Bluesky, X, and the
-Project 1999 forum each need both credentials **and** their `enabled` flag in
-`config/kaia.yaml`. `GEMINI_API_KEY` is used only for the daily news brief; leave it blank and
-there is no brief. `NASA_API_KEY` (free) lifts `!nasa` and `!earth` off NASA's shared demo key.
+`DISCORD_TOKEN` is the only required value. Bluesky, X and the Project 1999 forum each need their
+credentials **and** their `enabled` flag in `config/kaia.yaml`. `GEMINI_API_KEY` is used only for
+the daily news brief. `NASA_API_KEY` (free) lifts `!nasa` and `!earth` off NASA's shared demo key.
+
+Optional assets, fetched rather than vendored:
+
+```bash
+venv/bin/python3 tools/maintenance/fetch_music_assets.py   # Strudel, for !music
+venv/bin/python3 tools/maintenance/fetch_radio_assets.py   # kiwiclient and faster-whisper, for !radio (~3 GB)
+```
 
 ### Run
 
 ```bash
-python Kaiacord.py            # curses dashboard (default)
-python Kaiacord.py --no-gui   # headless, for systemd
+venv/bin/python3 Kaiacord.py            # with the terminal dashboard
+venv/bin/python3 Kaiacord.py --no-gui   # headless, for systemd
 ```
+
+Started under any other interpreter, `Kaiacord.py` re-launches itself in the virtualenv.
 
 ---
 
 ## Configuration
 
-Settings resolve in order: **environment variables** → `config/kaia.yaml` (your overrides) →
-`config/default_config.yaml` (defaults). Edit `kaia.yaml`; leave the defaults file alone.
-
-### Notable toggles
+Settings resolve in order: environment variables, then `config/kaia.yaml` (your overrides), then
+`config/default_config.yaml` (the defaults). Edit `kaia.yaml` and leave the defaults file alone.
 
 | Key | Default | Effect |
 |:--|:--|:--|
-| `features.self_model_injection` | `false` | Skips injecting `memory/kaia_self_model.md` (~900 tokens/turn). Its content duplicates the relationship manager, personalisation engine, and per-user profile documents already in RAG. |
-| `features.constitution_injection` | `true` | Injects `memory/kaia_constitution.md` (~2,400 tokens/turn). Disable to reclaim the largest single block of per-turn budget for retrieval. |
-| `generation.max_response_tokens` | `1024` | Reserved from the context window every turn. Measured maximum response across 352 generations: 852 tokens. |
-| `generation.base_temperature` | `0.70` | Conversational generation. |
-| `generation.rag_temperature` | `0.35` | Document-grounded generation only. |
-| `unprompted.sources.<name>` | `proactive`, `quip`, `observation` on; `monologue` off | Which sources may post unprompted. Off, the monologue still thinks and the digest is still written. |
-| `unprompted.max_per_day` / `min_interval_minutes` | `8` / `90` | One allowance shared by every unprompted post. `0` for the daily limit removes it. |
-| `unprompted.respect_quiet_hours` | `false` | When true, nothing unprompted posts outside `quiet_hour_start`–`quiet_hour_end`. |
-| `unprompted.bluesky.<name>` | `quip` only | Which sources are also posted to her Bluesky feed. Observations and openers can name people from the server. |
-| `unprompted.rotate` / `labels` | `true` / nine labels | Whether labels rotate to fit each post, and their wording. |
-| `desires.gate_enabled` | `true` | Enables the desire engine; `desires.initiate_threshold` sets how readily she speaks first. |
-| `bluesky.enabled` / `x_twitter.enabled` | `false` | With both disabled the social mention poller is never started. |
-| `sky.location` | unset | `"lat, lon"` — a city is enough. ISS passes and `!sky` need it. |
-| `radio.enabled` / `sky.enabled` | `true` | The night-shift commands and scheduled listening. |
+| `performance.max_context_tokens` | `16384` | The context window. Larger costs VRAM; check `nvidia-smi` after changing it. |
+| `features.constitution_injection` | `true` | Injects her constitution, about 2,400 tokens a turn that would otherwise go to retrieval. |
+| `features.self_model_injection` | `false` | Injects her self-model, about 900 tokens a turn. |
+| `generation.max_response_tokens` | `1024` | Reserved for the reply every turn. |
+| `generation.base_temperature` / `rag_temperature` | `0.70` / `0.35` | Conversation, and answers grounded in documents. |
+| `unprompted.sources.<name>` | all on except `monologue` | Which kinds of unprompted post may appear. A kind switched off still runs; nobody sees it. |
+| `unprompted.max_per_day` / `min_interval_minutes` | `8` / `90` | One allowance shared by every unprompted post. |
+| `unprompted.bluesky.<name>` | `quip` only | Which kinds are also posted to Bluesky. |
+| `desires.gate_enabled` / `initiate_threshold` | `true` | Whether, and how readily, she speaks first. |
+| `bluesky.enabled` / `x_twitter.enabled` | `false` | Turns each integration on. Credentials alone do nothing. |
+| `sky.location` | unset | `"lat, lon"`; a city is enough. ISS passes and `!sky` need it. |
 | `radio.hfgcs_windows_utc` / `radio.follow` | four windows / `["E11"]` | When she records the HFGCS net, and which number stations she tunes in for. |
-| `radio.overnight_log` / `overnight_time` | `true` / `08:30` | The morning write-up of her night shift, through the same unprompted gate. |
-| `radio.post_channel` / `post_clips` | `kaia-opolis` / `true` | Where catches and clips go. |
-| `radio.poll_hours` / `live_max_minutes` | `6` / `60` | How often the volunteer feeds are polled; how long a live `!radio` session may run. |
+| `radio.overnight_time` | `08:30` | When the morning write-up of her night shift is posted. |
+| `radio.poll_hours` | `6` | How often the volunteer radio feeds are polled. |
 
-<a name="gpu-budget"></a>
+### Hardware budget
 
-### GPU budget
+The build targets one 12 GB card. Embeddings are pinned to the CPU so the whole card belongs to
+the chat model and its context.
 
-The build targets a single 12 GB card. Embeddings are pinned to CPU so the whole card stays
-available to the chat model and its context window.
-
-| Model | Role | Device | VRAM | Host RAM |
-|:--|:--|:--:|--:|--:|
-| `gemma3:12b` | Chat, narration, vision | **GPU** | ~9.1 GB at 24,576 context, ~9.4 GB at 32,768 (q8_0 KV cache) | — |
-| `nomic-embed-text-cpu` | RAG embeddings | CPU | — | ~500 MB |
-
-> [!NOTE]
-> `performance.max_context_tokens` defaults to **16,384**; set it in `kaia.yaml` (check
-> `nvidia-smi` afterwards). The per-turn budget reserves
-> `system_reserve_tokens` and `max_response_tokens` before allocating the remainder to
-> retrieval and history, so raising the identity-injection blocks directly reduces RAG recall.
+| Model | Role | Device | Memory |
+|:--|:--|:--:|:--|
+| `gemma3:12b` | Chat, narration, vision | GPU | about 9.1 GB at 24,576 context, 9.4 GB at 32,768 (q8_0 KV cache) |
+| `nomic-embed-text-cpu` | Retrieval embeddings | CPU | about 500 MB of RAM |
 
 ---
 
 ## Operations
 
-### Interactive tool panel
+Most maintenance is behind one interactive menu:
 
 ```bash
 bash scripts/kaia-tools.sh
 ```
 
-### Maintenance
+The direct commands:
 
 ```bash
-# Health check: Ollama, models, GPU, knowledge base, config
-venv/bin/python3 tools/maintenance/health_check.py
-
-# Incremental RAG re-index against the running bot
-venv/bin/python3 tools/maintenance/reindex_rag.py --trigger
-
-# Full vector database wipe and rebuild. Refused while the bot is running —
-# she holds memory/rag_storage open, and a second writer corrupts the manifest.
-# Stop her first, or use --trigger above. (--force overrides, if you mean it.)
-venv/bin/python3 tools/maintenance/reindex_rag.py --clear
+venv/bin/python3 tools/maintenance/health_check.py          # Ollama, models, GPU, knowledge base, config
+venv/bin/python3 tools/maintenance/reindex_rag.py --trigger # incremental re-index of the running bot
+venv/bin/python3 tools/maintenance/reindex_rag.py --clear   # full rebuild; refused while she is running
+venv/bin/python3 tools/maintenance/audit_knowledge_base.py  # every known corpus fault, read-only
 ```
 
-> [!TIP]
-> With the bot stopped, a full rebuild embeds on the GPU automatically (~14 min on the current
-> corpus, against ~2 hours on CPU). While she is running it stays on CPU so the chat model keeps
-> its VRAM. `--cpu-embed` forces CPU either way.
+A full rebuild with the bot stopped embeds on the GPU (about 14 minutes on the current corpus,
+against about two hours on the CPU).
 
 ### Adding books and documents
 
-```bash
-# Interactive: Documents & Ingestion → Convert ebook/PDF (EPUB · PDF · TXT · HTML)
-bash scripts/kaia-tools.sh
+Use `kaia-tools.sh` → Documents & Ingestion, or convert directly:
 
-# Or convert directly
+```bash
 venv/bin/python3 tools/maintenance/ebook_to_kb_md.py ~/Downloads/book.epub \
   --outdir knowledge_base/books --category "Science Fiction" \
   --title "Title" --author "Author" --summary "One paragraph…" --keywords "a,b,c"
 ```
 
-The converter strips pandoc/Calibre artifacts, rebuilds paragraph and chapter structure, and
-writes the project's frontmatter schema. Naming follows the existing conventions:
-`books/` uses `Book - <Title> by <Author>.md`, `documents/` uses `<Topic> - <Title>.md`
-(`--prefix`). A hand-written `--summary` improves retrieval considerably over the auto-extracted
-fallback. Re-index afterwards.
-
-To repair structure in books whose source file is gone:
-
-```bash
-venv/bin/python3 tools/maintenance/repair_kb_book_structure.py          # dry run
-venv/bin/python3 tools/maintenance/repair_kb_book_structure.py --apply
-```
-
-### Behavioural probes
-
-```bash
-./scripts/run_jspace_probe.sh full         # static probes + log replay
-./scripts/run_jspace_probe.sh static-only
-```
-
-<a name="testing"></a>
+The converter removes pandoc and Calibre artefacts, rebuilds paragraphs and chapters, and writes
+the project's frontmatter. Books are named `Book - <Title> by <Author>.md`, documents
+`<Topic> - <Title>.md`. A hand-written summary retrieves much better than the automatic one.
+In Discord, `!download <url>` and `!youtube <url>` stage pages and transcripts for the hourly
+ingest.
 
 ### Testing
 
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-24: 1,957 passed, 9 skipped, 88 deselected, 1 xfailed.
-# Re-run rather than trusting this line — the count moves every phase.
 ```
 
-> [!TIP]
-> Test runs write to `logs/kaiacord.test.log`, never to the production telemetry log
-> `logs/kaiacord.log`. Override with `KAIACORD_LOG_FILE=/path/to.log`.
+Only a handful of tests need Ollama or the GPU; the rest run anywhere. Test runs log to
+`logs/kaiacord.test.log`, never to the production log.
 
 ---
 
-## Additional Systems
+## Features
 
-<details>
-<summary><b>⚔️ Aethelgard TTRPG engine</b></summary>
+### Aethelgard
 
-<br>
+A persistent, turn-based RPG in its own channel. Python computes every roll, stat and state
+change; the model only narrates.
 
-A deterministic, persistent turn-based RPG. All combat maths and state transitions are computed
-in Python; the LLM is used only for narration.
-
-- **77-floor mega-dungeon** ("Spine of the World") with Resonance Lift checkpoints and per-floor
-  encounter pools.
-- **369 monsters** (44 bosses), **395 pieces of gear** across 7 tiers plus 58 consumables,
-  248 fish, 12 quests.
-- **10 classes** with distinct progression, passive buffs, and triggerable combat procs.
-- Housing, procedural farming, pets, and alchemy.
-- Defence soft-cap `min(10, raw) + max(0, raw - 10) // 2` and absolute stat budgets prevent
-  scaling breakage.
+- The Spine of the World, a 77-floor dungeon with checkpoints and per-floor encounters.
+- 369 monsters (44 bosses), 395 pieces of gear across seven tiers plus 58 consumables, 248 fish
+  and 12 quests.
+- Ten advanced classes with passives and combat procs; housing, farming, pets and alchemy.
 
 See [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md).
 
-</details>
+### Art
 
-<details>
-<summary><b>🎨 Fractal art engine</b></summary>
-
-<br>
-
-A CPU-rendered fractal flame generator based on the Electric Sheep algorithm: 20 variation
-functions, 10 curated colour LUTs, adaptive density estimation, 1080² output. Kaia **decides a
-piece before it is drawn**: from your words, her mood, or the colours of an attached image she
-picks a palette, symmetry, lead shapes and a title from the renderer's own menus — then
-remembers what she made.
-
-`!art mandelbrot` renders the Mandelbrot set instead, with the iteration budget scaled to the
-zoom depth, mirrored palette cycling, and 2x2 supersampling. Pass a
-[weirdly.net](http://weirdly.net/webtoys/mandelbrot/) config URL — `!art <url>` — and it renders
-those exact coordinates, so a location someone shares can be reproduced rather than transcribed.
+`!art` renders a fractal flame in the style of Electric Sheep, on the CPU at 1080². Kaia decides
+the piece before it is drawn: from your words, her mood or the colours of an attached image, she
+picks a palette, symmetry, shapes and a title from the renderer's own options, and remembers what
+she made. `!art mandelbrot` renders the Mandelbrot set, and a
+[weirdly.net](http://weirdly.net/webtoys/mandelbrot/) link reproduces those exact coordinates.
 
 ```
-!art                          # her choice, from her mood
-!art a cold storm over the sea  # she reads the brief and picks to match
-!art                          # with an image attached: its colours, her composition
+!art                               her choice
+!art a cold storm over the sea     she reads the brief
 !art mandelbrot --palette void --seed 42
-!art http://weirdly.net/webtoys/mandelbrot/index.html?config=v1,-1.768941,...
 ```
 
-</details>
+### Music
 
-<details>
-<summary><b>🎧 Live-coded music engine</b></summary>
+`!music on` brings Kaia into a voice channel to DJ a live-coded set. Each of the fourteen genres is
+an arranged track (intro, build, drop, breakdown, second drop), with levels measured rather than
+guessed. With no genre named she picks one for her mood and the hour; requests such as
+`!music darker`, `faster` or `drop` edit the parts that are playing without losing the song's place.
 
-<br>
+The sound comes from [Strudel](https://codeberg.org/uzu/strudel) running in a local browser,
+captured into Discord voice. No model is involved and no VRAM is used.
 
-`!music on` puts Kaia in a voice channel **DJing a live-coded set**. Every genre is an arranged
-track with a full groove from bar one: intro, groove, a build with a snare roll and riser, the
-kick cutting out before the drop, a breakdown, a second build and a bigger drop. Levels are
-measured, not guessed — every part was soloed and calibrated in the real engine — and an energy
-curve makes the drops the loudest thing in the track.
+### Night shift: radio and sky
 
-```
-!music on                  # she picks a genre for her mood and the hour, and says why
-!music on --psytrance      # or you pick
-!music techno              # switch genre without leaving
-!music darker · faster · drop · more bass · bring in the vocals   # requests
-!music status · genres · off
-```
+`!nightshift` lists every command in this set.
 
-Fourteen genres — `acid` `ambient` `berlinschool` `breakbeat` `deephouse` `drumnbass` `dub`
-`house` `lofi` `psytrance` `synthwave` `techno` `trance` `triphop`. Her arousal nudges the tempo;
-requests edit the parts that are playing without losing the song's place.
+| Command | What it does |
+|:--|:--|
+| `!skyking` | The latest military Emergency Action Messages from the HFGCS net, via eam.watch |
+| `!numbers` | Number stations on the air soon, via Priyom, each with a tuned listening link |
+| `!radio` | What Kaia has recorded and how accurate she was; `!radio hfgcs` plays the net live in voice |
+| `!buzzer` | UVB-76, live |
+| `!tacamo` | Whether the E-6B and E-4B relay aircraft are broadcasting their position |
+| `!beacons` | Which continents she can hear on the worldwide beacon chain |
+| `!overnight` | A write-up of what her night shift saw (she also posts one each morning) |
+| `!iss` | The station, its crew, and its next visible pass over you |
+| `!nasa` · `!earth` | The astronomy picture of the day, the Deep Space Network, and the whole sunlit Earth |
+| `!spaceweather` | The sun, geomagnetic storms and HF conditions |
+| `!rocks` · `!launch` · `!quake` | Close asteroids, upcoming launches, recent earthquakes |
+| `!sky` | Tonight's moon, planets and meteor showers |
 
-The sound engine is [Strudel](https://codeberg.org/uzu/strudel) (AGPL-3.0), running its own REPL
-in a local browser and captured off a PipeWire null sink into Discord voice. Strudel is fetched
-at install time — none of it is vendored here. `music.show_window: true` to watch the code play.
+Four times a day Kaia records the HFGCS net from a public [KiwiSDR](http://kiwisdr.com/),
+transcribes it on the CPU, marks anything she is unsure of with `?`, and checks herself against
+the volunteer log. The messages are encrypted and she never claims to decode one. The feeds are
+volunteer services, polled every six hours and cached; radio history is kept in `memory/radio/`,
+outside her searchable memory. Sky positions are computed locally with Skyfield.
 
-**GPU cost is zero** — synthesis happens in the browser, so the chat model keeps all of its VRAM.
+### Project 1999 forum
 
-Setup: `venv/bin/python3 tools/maintenance/fetch_music_assets.py` (needs `ffmpeg` and `pactl`).
-Tuning: `tools/maintenance/audition_tracks.py` plays, measures and calibrates every part.
+Optional scraping of the Off-Topic and Technical Discussion forums. Every reply she drafts waits
+in a Discord moderation queue for a person to accept or reject it. See
+[`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md).
 
-</details>
+### Dashboard
 
-<details>
-<summary><b>📻 Shortwave — EAMs and number stations</b></summary>
-
-<br>
-
-Kaia keeps an ear on the strange end of the HF bands.
-
-```
-!skyking                   # latest military Emergency Action Messages off the HFGCS net
-!skyking 3                 # one in full, with a recording when someone captured it
-!skyking classic           # an old Skyking broadcast from the archive, read the way it sounded
-!numbers                   # number stations on the air in the next 6 hours, with listen links
-!numbers e11               # when the "Oracle" is next on
-!radio hfgcs               # play the HFGCS net live in your voice channel
-!radio                     # what Kaia has heard, and how right she was
-!tacamo                    # are the EAM relay planes up?
-!buzzer                    # UVB-76, The Buzzer, live
-!beacons                   # which continents she can hear on the worldwide beacon chain
-!overnight                 # what her night shift saw, written up (she posts one each morning)
-!nightshift                # everything in this theme
-```
-
-EAMs come from [eam.watch](https://eam.watch/)'s volunteer log of the USAF High Frequency Global
-Communications System (8992 / 11175 kHz USB) — callsign, preamble and the encrypted message.
-Skyking itself is defunct; the command is an homage. The number-station schedule comes from
-[Priyom](https://priyom.org/), and every listen link opens the
-[UTwente WebSDR](http://websdr.ewi.utwente.nl:8901/) already tuned. Both feeds are read-only,
-polled every 6 hours and cached — they are volunteer services. Nothing here decodes anything:
-the messages are encrypted, and Kaia says so.
-
-**Kaia listens, too.** Four times a day she records the HFGCS net from a public
-[KiwiSDR](http://kiwisdr.com/) receiver, and she tunes in for the number stations she follows.
-She transcribes EAMs on the CPU (faster-whisper), turns the phonetic alphabet back into the
-message — marking anything she's unsure of with `?` rather than guessing — and checks herself
-against eam.watch's human copy of the same broadcast. Catches and clips go to `#kaia-opolis`;
-the history stays in `memory/radio/`, outside her searchable memory. Setup:
-`venv/bin/python3 tools/maintenance/fetch_radio_assets.py` (kiwiclient, faster-whisper, ~3 GB model).
-
-</details>
-
-<details>
-<summary><b>🛰️ Overhead — the ISS, NASA, the sky tonight</b></summary>
-
-<br>
-
-```
-!iss                       # where the station is, who's in orbit, when it passes over you
-!nasa                      # picture of the day + which probe the Deep Space Network is talking to now
-!earth                     # the whole sunlit Earth, from a million miles out
-!spaceweather              # the sun, geomagnetic storms, HF conditions
-!rocks · !launch · !quake  # close asteroids, the next rockets, the ground moving
-!sky                       # tonight: moon, planets, meteor showers
-!nightshift                # every radio and sky command
-```
-
-All public data (NASA, NOAA, JPL, USGS, Launch Library 2, CelesTrak), fetched when asked and
-cached; positions and passes are computed locally with Skyfield. Passes and `!sky` need
-`sky.location` set in `config/kaia.yaml`.
-
-</details>
-
-<details>
-<summary><b>🏟️ Project 1999 forum integration</b></summary>
-
-<br>
-
-Periodic scraping of Off-Topic and Technical Discussion forums, with a Discord moderation queue
-offering Accept/Reject on drafted replies, RAG-grounded support answers, and profile caching to
-model active users.
-
-It also has a tech-knowledge synthesiser that extracts and categorises issues from
-Technical Discussion threads into the knowledge base, profile compaction that distils scattered
-forum-user logs into single grounded cards, and scrape-watermark persistence so compacted users
-are not redundantly re-scraped.
-
-See [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md).
-
-</details>
-
-<details>
-<summary><b>🖥️ Curses dashboard</b></summary>
-
-<br>
-
-A terminal UI in panes — **System Stats**, **Bot Status**, **Cognitive Pipeline**, **RAG Health**,
-**Alerts** and **Live Logs** — showing CPU/GPU metrics, who is active, cognitive counters
-(beliefs, anchors, affinity), retrieval confidence, and a stream of elevated log events.
-
-See [`docs/02-user-guide/dashboard.md`](docs/02-user-guide/dashboard.md).
-
-</details>
+A terminal dashboard shows system load, who is active, her cognitive counters, retrieval health,
+alerts and a live log. See [`docs/02-user-guide/dashboard.md`](docs/02-user-guide/dashboard.md).
 
 ---
 
-## Repository Layout
+## Repository layout
 
 ```
 Kaiacord/
-├── Kaiacord.py               Entry point and orchestrator
-├── CLAUDE.md                 Developer instructions & runtime constraints
-├── config/                   YAML configuration (kaia.yaml overrides defaults)
-├── knowledge_base/           Grounding corpus
-│   ├── books/                Long-form reference works
-│   ├── documents/            Articles, specs, scraped reports
-│   ├── wiki/                 Project 1999 wiki articles
-│   └── troubleshooting/      Synthesised support guides
-├── memory/                   Runtime state — never committed
-│   ├── beliefs.json          100-entry revisable belief store
-│   ├── bot_state.json        Mood, familiarity, global variables
-│   ├── anchors.json          100-entry episodic callbacks with decay
-│   ├── identity_stream.md    Rolling identity journal
-│   └── relationships/        Per-user trust events
+├── Kaiacord.py              entry point
+├── config/                  default_config.yaml (defaults), kaia.yaml (your overrides)
+├── knowledge_base/          the retrieval corpus; layout in knowledge_base/README.md
+├── memory/                  runtime state, never committed
 ├── utils/
-│   ├── core/                 Cognitive layer
-│   │   ├── message_processor.py   Primary intelligence flow
-│   │   ├── safety_pipeline.py     Post-generation guards
-│   │   ├── response_filter.py     Persona & bot-speak filtering
-│   │   ├── context_optimizer.py   Token budgeting
-│   │   ├── kaia_rag*.py           Retrieval, indexing, scoring
-│   │   └── kaia_dream.py          Nightly consolidation
-│   ├── ttrpg/                Combat, dungeon, housing state
-│   ├── commands/             Discord command routers
-│   ├── social/               Forum crawler & social responders
-│   ├── audio/                !music: arranged tracks, the DJ, the Strudel engine
-│   ├── radio/                !skyking, !numbers, !radio: feeds, KiwiSDR listening, transcription
-│   ├── sky/                  !iss, !nasa, !sky …: space feeds and local sky computation
-│   └── infrastructure/       DI context, dashboard, logging, GPU pinning
-├── tools/
-│   ├── maintenance/          Health checks, re-indexing, KB ingestion, dream curation,
-│   │                         profile compaction, document retitling
-│   ├── diagnostics/          RAG deep-dive and index health
-│   ├── development/          Self-model and profile utilities
-│   ├── social/               Tech-knowledge synthesiser
-│   └── tests/                Unit and integration suites
-├── finetune/                 LoRA pipeline for Gemma 3 12B
-└── docs/                     Technical and gameplay documentation
+│   ├── core/                message processing, retrieval, memory, safety pipeline
+│   ├── ttrpg/               Aethelgard
+│   ├── audio/               !music
+│   ├── radio/               !skyking, !numbers, !radio and scheduled listening
+│   ├── sky/                 !iss, !nasa, !sky and the other space commands
+│   ├── social/              forum, Bluesky, X
+│   ├── commands/            command handlers
+│   └── infrastructure/      configuration, logging, GPU guard, dashboard
+├── tools/                   maintenance, diagnostics and tests
+├── finetune/                LoRA pipeline for gemma3:12b
+└── docs/
 ```
 
 ---
@@ -560,45 +348,32 @@ Kaiacord/
 | Installation | [`docs/01-getting-started/installation.md`](docs/01-getting-started/installation.md) |
 | Quick start | [`docs/01-getting-started/quick-start.md`](docs/01-getting-started/quick-start.md) |
 | Commands | [`docs/02-user-guide/commands.md`](docs/02-user-guide/commands.md) |
-| Persona system | [`docs/02-user-guide/persona.md`](docs/02-user-guide/persona.md) |
-| Curses dashboard | [`docs/02-user-guide/dashboard.md`](docs/02-user-guide/dashboard.md) |
-| News system | [`docs/02-user-guide/news-system.md`](docs/02-user-guide/news-system.md) |
+| Persona | [`docs/02-user-guide/persona.md`](docs/02-user-guide/persona.md) |
+| Dashboard | [`docs/02-user-guide/dashboard.md`](docs/02-user-guide/dashboard.md) |
+| News | [`docs/02-user-guide/news-system.md`](docs/02-user-guide/news-system.md) |
 | Social integrations | [`docs/02-user-guide/social-media.md`](docs/02-user-guide/social-media.md) |
 | Forum integration | [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integration.md) |
 | User profiling | [`docs/02-user-guide/user-profiling.md`](docs/02-user-guide/user-profiling.md) |
-| Architecture overview | [`docs/03-architecture/overview.md`](docs/03-architecture/overview.md) |
-| RAG grounding layer | [`docs/03-architecture/rag-system.md`](docs/03-architecture/rag-system.md) |
+| Architecture | [`docs/03-architecture/overview.md`](docs/03-architecture/overview.md) |
+| Retrieval | [`docs/03-architecture/rag-system.md`](docs/03-architecture/rag-system.md) |
 | Intelligence layer | [`docs/03-architecture/intelligence-layer.md`](docs/03-architecture/intelligence-layer.md) |
-| GPU & VRAM tuning | [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) |
+| GPU and VRAM | [`docs/03-architecture/gpu-management.md`](docs/03-architecture/gpu-management.md) |
 | `utils/` reference | [`docs/03-architecture/utils-reference.md`](docs/03-architecture/utils-reference.md) |
 | Testing | [`docs/04-development/testing.md`](docs/04-development/testing.md) |
-| Maintenance procedures | [`docs/05-maintenance/procedures.md`](docs/05-maintenance/procedures.md) |
+| Maintenance | [`docs/05-maintenance/procedures.md`](docs/05-maintenance/procedures.md) |
 | Troubleshooting | [`docs/06-troubleshooting/common-issues.md`](docs/06-troubleshooting/common-issues.md) |
-| Aethelgard TTRPG | [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md) |
-
-> Operational audit reports live in `docs/reports/`, which is git-ignored — they contain
-> transcript excerpts and runtime telemetry, so they stay local to a deployment.
+| Aethelgard | [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md) |
+| Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
 ---
 
 ## License
 
-Released under the [MIT License](LICENSE) — use it, fork it, ship it.
+[MIT](LICENSE).
 
-Kaiacord depends on other open-source projects, all under permissive licenses (MIT, Apache-2.0,
-BSD). The exceptions: `browser_cookie3` (LGPL), used only for optional X/Twitter cookie import
-and imported dynamically; and two tools fetched at install time rather than vendored and only
-driven from here — Strudel (AGPL-3.0) for `!music` and kiwiclient (parts GPL) for `!radio`. None
-of them carries a copyleft obligation for this project. The
-models themselves ship under their own terms — see
-[Gemma](https://ai.google.dev/gemma/terms) and [Nomic Embed](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5).
-
----
-
-<div align="center">
-<sub>
-
-Built by **Ekco** · Local AI, no hosted model.
-
-</sub>
-</div>
+Dependencies are under permissive licences (MIT, Apache-2.0, BSD), with three exceptions that
+carry no obligation for this project: `browser_cookie3` (LGPL), imported only for optional X
+cookie import; and Strudel (AGPL-3.0) and kiwiclient (partly GPL), which are fetched at install
+time, never vendored, and only driven from here. The models are under their own terms:
+[Gemma](https://ai.google.dev/gemma/terms) and
+[Nomic Embed](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5).
