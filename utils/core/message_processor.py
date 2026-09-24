@@ -31,7 +31,7 @@ from utils.commands.memory_handler import handle_memory_command
 from utils.commands.profile_handler import handle_profile_query
 from utils.commands.registry import dispatch_command
 from utils.infrastructure.system.messaging import send_kaia_response
-from utils.core.sanitizer import sanitize_prompt
+from utils.core.sanitizer import sanitize_prompt, pointed_at
 
 # Constants
 
@@ -492,6 +492,10 @@ class MessageProcessor:
             root_context=root_text,
             start_time=time.time()
         )
+        ctx.pointed_at = pointed_at(sanitized_content, parent_text)
+        if ctx.pointed_at:
+            log_info(f"Turn points at a quoted or linked message "
+                     f"({len(ctx.pointed_at)} chars); treating it as the subject.")
 
         self.bot_state.reset_quips()
 
@@ -585,7 +589,8 @@ class MessageProcessor:
             return
 
         # 1. Fast Path
-        fast_intent = self.intent_parser.fast_parse(ctx.sanitized_content)
+        # A turn that only points at a message is classified by that message.
+        fast_intent = self.intent_parser.fast_parse(ctx.pointed_at or ctx.sanitized_content)
         
         if fast_intent:
             ctx.intent = fast_intent
@@ -1224,7 +1229,7 @@ class MessageProcessor:
         """Prepare all parallel tasks for retrieval."""
         
         # Determine query details
-        clean_query = ctx.sanitized_content.lower().replace("kaia", "").strip("?,. ")
+        clean_query = (ctx.pointed_at or ctx.sanitized_content).lower().replace("kaia", "").strip("?,. ")
         display_name = (getattr(ctx.message.author, 'display_name', '') or "").strip(".")
         
         target_user_id = ctx.author_id
@@ -1729,7 +1734,11 @@ class MessageProcessor:
             stripped_alpha = re.sub(r'[\W_]+', '', user_msg_content).strip().lower()
             has_attachments = bool(getattr(ctx.message, 'attachments', None)) if ctx.message else False
             
-            if not stripped_alpha and not has_attachments:
+            if ctx.pointed_at:
+                # The message it points at travels in the reminder below.
+                from utils.core.sanitizer import user_authored_text
+                user_msg_content = user_authored_text(user_msg_content) or "(points at the message above)"
+            elif not stripped_alpha and not has_attachments:
                 if raw_msg_text:
                     user_msg_content = f"{raw_msg_text} [User sent non-content/empty formatting characters with no text. Respond in-character.]"
                 else:
@@ -2039,7 +2048,17 @@ class MessageProcessor:
 
         # Re-assert conversation target
         context_reminder = ""
-        if ctx.parent_context:
+        if ctx.pointed_at:
+            clipped = ctx.pointed_at[:1500] + ("..." if len(ctx.pointed_at) > 1500 else "")
+            context_reminder = (
+                f"[POINTED_AT_MESSAGE]\n"
+                f"{ctx.author_name} is pointing you at the message below and wants your "
+                f"take on it. It is the subject of this turn: respond to what it says. "
+                f"Their own words are only them getting your attention, not a greeting. "
+                f"Speak to {ctx.author_name}; whoever wrote the message may be someone else.\n"
+                f"{clipped}"
+            )
+        elif ctx.parent_context:
             label = "[REPLYING_TO_CONTEXT]"
             if ctx.root_context == ctx.parent_context:
                 label = "[THREAD_ROOT_AND_PARENT]"

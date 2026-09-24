@@ -108,6 +108,42 @@ def user_authored_text(text: str) -> str:
     return body.strip()
 
 
+# What someone types to hand her a message: her name, a mention, the link
+# itself, and a word or two of pointing. Anything else is a message of its own.
+_POINTING_WORDS = frozenset(
+    "kaia hey hi yo look at this that see here check out thoughts thought "
+    "opinion opinions take think what do you of about read lol pls please "
+    "wdyt".split())
+_DISCORD_LINK = re.compile(
+    r"https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/channels/\S+", re.IGNORECASE)
+
+
+def pointed_at(sanitized_content: str, parent_context: str | None) -> str | None:
+    """The message a turn points at, when pointing is all the turn does.
+
+    Replying to a post with just "Kaia", or pasting a message link and her
+    name, means "look at this". The words typed carry nothing; the quoted or
+    linked message is the subject. Returns that message, or None when the
+    user said something of their own or nothing was quoted or linked.
+    """
+    text = sanitized_content or ""
+    linked = ""
+    if "[LINKED_MESSAGE_CONTEXT]" in text:
+        linked = text.split("[LINKED_MESSAGE_CONTEXT]", 1)[1]
+        linked = linked.split("\n\n[LINKED_WEB_CONTENT]", 1)[0].strip()
+    subject = linked or (parent_context or "").strip()
+    if not subject:
+        return None
+
+    own = _DISCORD_LINK.sub(" ", user_authored_text(text))
+    if re.search(r"https?://", own):
+        return None     # a web link is a subject of its own
+    words = re.findall(r"[a-z']+", own.lower().replace("@", " "))
+    if len(words) > 6 or any(w.strip("'") not in _POINTING_WORDS for w in words):
+        return None
+    return subject
+
+
 def strip_runtime_scaffolding(text: str) -> str:
     """Remove enricher-injected blocks before a message is written to a log.
 

@@ -73,7 +73,7 @@ flowchart TD
     end
 ```
 
-1. **Intent** is matched by regular expressions on the CPU, so the model is never woken just to
+1. **Intent** is decided by regex matchers on the CPU, so the model is never woken just to
    label a message.
 2. **Retrieval** runs BM25 and dense vectors (`nomic-embed-text-cpu`) in parallel over the
    persona, books and articles, news briefs, her dream reflections and each person's

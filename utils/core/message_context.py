@@ -15,6 +15,8 @@ class MessageContext:
     category: str = "GENERAL"
     root_context: Optional[str] = None
     parent_context: Optional[str] = None
+    # The quoted or linked message, when the turn is only pointing at it.
+    pointed_at: Optional[str] = None
     intent: Optional[Intent] = None
     fast_intent_strategy: Optional[str] = None  # Stashed from fast-path, immune to async overwrite
     history: List[Dict[str, str]] = field(default_factory=list)
