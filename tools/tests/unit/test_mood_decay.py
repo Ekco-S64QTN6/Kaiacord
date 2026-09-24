@@ -51,3 +51,14 @@ def test_engagement_decays_once_per_idle_span(tmp_path):
 
     assert abs(first - 0.8 * 0.5 ** (10 / 24)) < 1e-3
     assert state.kaia_engagement == first
+
+
+def test_a_plain_read_of_the_mood_sees_it_decayed(monkeypatch, tmp_path):
+    """The art intent, the proactive opener, presence and !scores read the
+    properties directly; on a quiet day they saw arousal as of hours ago."""
+    clock = [1_000_000.0]
+    arc = _arc(monkeypatch, tmp_path, clock)
+    clock[0] += 6 * 3600
+    assert arc.arousal < 1.0 and arc.social_energy > 0.0
+    first = arc.arousal
+    assert arc.arousal == first      # reading again changes nothing

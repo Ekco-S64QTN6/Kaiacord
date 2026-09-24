@@ -325,16 +325,23 @@ class EmotionalArc:
 
         return f"[emotional day summary: {'. '.join(lines)}]"
 
+    # Mood decays on read. The stored values are as of the last interaction or
+    # read, so a reader that took them raw — the art intent, the proactive
+    # opener, presence, !scores — saw arousal hours out of date on a quiet day.
+    # The decay advances its own clock, so reading more often changes nothing.
     @property
     def valence(self) -> float:
+        self._apply_decay()
         return self._mood.valence
 
     @property
     def arousal(self) -> float:
+        self._apply_decay()
         return self._mood.arousal
 
     @property
     def social_energy(self) -> float:
+        self._apply_decay()
         return self._mood.social_energy
 
 
