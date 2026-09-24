@@ -903,13 +903,16 @@ class MessageProcessor:
                 if rel_summary:
                     ctx.system_prompt = ctx.system_prompt + f"\n\n{rel_summary}"
 
-                # Relationship events (Item 7)
-                from utils.core.relationship_manager import get_top_events, format_for_injection
-                top_events = get_top_events(ctx.author_id, n=3)
-                if top_events:
-                    events_line = format_for_injection(top_events)
-                    if events_line:
-                        ctx.system_prompt = ctx.system_prompt + f"\n\n{events_line}"
+                # How she sees them (K11): the nightly prose impression, or
+                # the top events until one has been written.
+                from utils.core.relationship_impressions import impression_note
+                events_line = await asyncio.to_thread(impression_note, ctx.author_id, ctx.author_name)
+                if not events_line:
+                    from utils.core.relationship_manager import get_top_events, format_for_injection
+                    top_events = await asyncio.to_thread(get_top_events, ctx.author_id, 3)
+                    events_line = format_for_injection(top_events) if top_events else ""
+                if events_line:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{events_line}"
 
                 # An open disagreement this turn returns to (K10)
                 from utils.core.relationship_manager import disagreement_note

@@ -769,6 +769,11 @@ class CoreTaskManager:
                         from utils.social.kaia_social_responder import load_persona_async
                         persona_content = await load_persona_async()
                         await self.ctx.dream_engine.nightly_dream_processing(persona_content)
+                        try:
+                            from utils.core import relationship_impressions
+                            await relationship_impressions.refresh_all(self.ctx)
+                        except Exception as imp_err:
+                            log_warning(f"Relationship impressions skipped: {imp_err}")
                         
                         from utils.core.rag_executor import run_rag as run_rag_func
                         
