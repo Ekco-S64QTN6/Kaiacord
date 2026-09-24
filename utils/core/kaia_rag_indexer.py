@@ -364,6 +364,13 @@ class RAGIndexerMixin:
             index_types = ['persona', 'user_profiles', 'knowledge', 'logs', 'dreams']
             for itype in index_types:
                 itype_dir = os.path.join(self.persist_dir, itype)
+                # A persist killed between its two renames leaves the last good
+                # copy in <itype>_old and no <itype>: restore it rather than
+                # start an empty index and re-embed everything.
+                old_dir = f"{itype_dir}_old"
+                if not os.path.exists(itype_dir) and os.path.isdir(old_dir):
+                    os.rename(old_dir, itype_dir)
+                    log_warning(f"Restored {itype} index from {old_dir} (an interrupted persist).")
                 try:
                     if os.path.exists(itype_dir) and os.listdir(itype_dir):
                         log_debug(f"Loading {itype} index...")

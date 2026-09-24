@@ -208,10 +208,14 @@ class DashboardManager:
                 is_kaiacord = cmdline and any('Kaiacord.py' in arg for arg in cmdline)
                 
                 if is_python and is_kaiacord and pid != current_pid:
-                    log_action(f"  - Terminating orphaned instance: PID {pid}")
+                    # Usually a live instance, not an orphan: one token runs one
+                    # bot, so the newest wins. Give it time to shut down cleanly;
+                    # that takes ~15 s, most of it persisting the RAG indices, and
+                    # 5 s killed it partway through the write.
+                    log_action(f"  - Stopping the other running instance: PID {pid}")
                     proc.terminate()
                     try:
-                        proc.wait(timeout=5)
+                        proc.wait(timeout=45)
                         log_success(f"  - PID {proc.info['pid']} terminated.")
                     except psutil.TimeoutExpired:
                         log_warning(f"  - PID {proc.info['pid']} didn't terminate, killing...")
