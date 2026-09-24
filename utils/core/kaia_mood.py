@@ -344,5 +344,27 @@ class EmotionalArc:
         return self._mood.social_energy
 
 
+#: Mood shaping generation (DECISIONS K13), tightly bounded. Arousal moves
+#: temperature at most this far either way; below LOW_ENERGY she is asked to
+#: say less. Nothing here caps tokens: a cap cuts a reply mid-sentence, and a
+#: drained Kaia should be terser, never worse.
+MOOD_TEMPERATURE_SPAN = 0.05
+LOW_ENERGY = 0.25
+
+
+def mood_temperature_delta(arousal: float) -> float:
+    """-0.05 (flat) … +0.05 (wound up), linear in arousal around 0.5."""
+    a = min(1.0, max(0.0, float(arousal)))
+    return round((a - 0.5) * 2 * MOOD_TEMPERATURE_SPAN, 3)
+
+
+def mood_length_note(social_energy: float) -> str:
+    """A prompt note when she is drained, or ""."""
+    if social_energy >= LOW_ENERGY:
+        return ""
+    return ("[you're low on social energy right now. say less — shorter, plainer — "
+            "but not worse, and not cold.]")
+
+
 # Global singleton instance
 emotional_arc = EmotionalArc()

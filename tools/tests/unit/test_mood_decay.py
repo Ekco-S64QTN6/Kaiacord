@@ -62,3 +62,12 @@ def test_a_plain_read_of_the_mood_sees_it_decayed(monkeypatch, tmp_path):
     assert arc.arousal < 1.0 and arc.social_energy > 0.0
     first = arc.arousal
     assert arc.arousal == first      # reading again changes nothing
+
+
+def test_mood_shapes_generation_within_its_bounds():
+    """DECISIONS K13: bounded, and a drained Kaia is asked to be terser, not worse."""
+    from utils.core.kaia_mood import mood_length_note, mood_temperature_delta
+    assert mood_temperature_delta(0.5) == 0.0
+    assert mood_temperature_delta(1.0) == 0.05 and mood_temperature_delta(0.0) == -0.05
+    assert mood_temperature_delta(7) == 0.05
+    assert mood_length_note(0.8) == "" and "say less" in mood_length_note(0.1)

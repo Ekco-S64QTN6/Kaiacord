@@ -1081,6 +1081,16 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8f1. Mood shapes length (K13, behind features.mood_shapes_generation)
+        try:
+            if self.config.get('features.mood_shapes_generation', False) is True:
+                from utils.core.kaia_mood import emotional_arc, mood_length_note
+                _note = mood_length_note(emotional_arc.social_energy)
+                if _note:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{_note}"
+        except Exception:
+            pass
+
         # 8g. Her own growth — a revised belief in play, or an identity shift
         # the speaker's words touch (utils/core/growth_recall.py).
         try:
@@ -2115,6 +2125,13 @@ class MessageProcessor:
             ctx.intent and getattr(ctx.intent, 'suggested_strategy', None) in ["SUMMARIZATION", "PRECISE_RECALL", "DIAGNOSTIC_DEEP_DIVE"]
         )
         base_temp = self.config.generation_rag_temperature if is_grounded else self.config.generation_base_temperature
+        # Arousal nudges conversation, never grounded work (K13, flagged).
+        if not is_grounded and self.config.get('features.mood_shapes_generation', False) is True:
+            try:
+                from utils.core.kaia_mood import emotional_arc, mood_temperature_delta
+                base_temp = round(base_temp + mood_temperature_delta(emotional_arc.arousal), 3)
+            except Exception:
+                pass
         temp_scaling = self.config.generation_temperature_scaling
         
         last_failed_short = False
