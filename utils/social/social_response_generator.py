@@ -202,6 +202,37 @@ def _sanitize_rag_content(text: str) -> str:
     text = re.sub(r'\s{2,}', ' ', text).strip()
     return text
 
+# A feed post that opens "it's a strange …, isn't it?" is a template, not a
+# thought; her feed read like one. The first sentence goes when it is only
+# that and something follows it.
+_TAG_OPENER = re.compile(r"^[^.!?\n]{0,80}?,\s*(?:isn[’']t|aren[’']t|wasn[’']t)\s+(?:it|they|that)\?\s+", re.I)
+_BRIEF_FRAME = re.compile(r"\breading (?:this|that|these|the) news briefs?\b", re.I)
+
+
+def drop_tag_opener(quip: str) -> str:
+    """Remove a leading tag-question sentence when at least 40 characters follow it."""
+    m = _TAG_OPENER.match(quip)
+    rest = quip[m.end():].strip() if m else ""
+    return rest if len(rest) >= 40 else quip
+
+
+def opening(quip: str) -> str:
+    """The first two words, folded: what a reader of the feed notices repeating."""
+    words = re.findall(r"[a-z]+(?:[’'][a-z]+)?", quip.lower().replace("’", "'"))
+    return " ".join(words[:2])
+
+
+def repeats_opening(quip: str, recent: list, window: int = 5) -> str:
+    """Why `quip` opens like her last few posts, or "" if it doesn't."""
+    last = [r for r in recent if isinstance(r, str)][-window:]
+    start = opening(quip)
+    if start and sum(opening(r) == start for r in last) >= 2:
+        return f'opens "{start}" like {sum(opening(r) == start for r in last)} of the last {len(last)}'
+    if _BRIEF_FRAME.search(quip) and sum(bool(_BRIEF_FRAME.search(r)) for r in last) >= 1:
+        return "frames itself as reading the news brief again"
+    return ""
+
+
 def clean_quip(quip_text, max_chars=800):  # Increased default
     """Clean up generated text while preserving substance."""
     if not quip_text:
@@ -630,35 +661,46 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
             f"{what_she_is_reacting_to}"
         )
 
-        quip = (await process_external_mention(
-            ctx=ctx,
-            content=content,
-            author_name="Kaia",
-            author_id=0,
-            platform=BROADCAST_PLATFORM,
-            # One rolling broadcast history, so consecutive posts can see what
-            # she already said rather than circling the same thought.
-            conversation_key=None,
-            # This function does its own channel-memory and RAG bookkeeping
-            # below; letting the processor persist as well double-wrote it.
-            no_persist=True,
-        ) or "").strip()
-
-        if not quip:
-            log_warning("Quip generation returned nothing.")
-            return
+        async def _draft():
+            return (await process_external_mention(
+                ctx=ctx,
+                content=content,
+                author_name="Kaia",
+                author_id=0,
+                platform=BROADCAST_PLATFORM,
+                # One rolling broadcast history, so consecutive posts can see what
+                # she already said rather than circling the same thought.
+                conversation_key=None,
+                # This function does its own channel-memory and RAG bookkeeping
+                # below; letting the processor persist as well double-wrote it.
+                no_persist=True,
+            ) or "").strip()
 
         from utils.social.forum_drafting import is_generation_failure
-        if is_generation_failure(quip):
-            log_warning(f"Quip was a generation failure string, not posting: '{quip}'")
-            return
-
-        # Formatting for a public feed, not prompt engineering: Bluesky counts
-        # graphemes and will reject an over-long post outright.
-        quip = clean_quip(quip, max_chars=800)
-        if not quip:
-            log_warning("Quip was empty after formatting.")
-            return
+        recent_posts = [r for r in (bot_state.get_recent_quips() or []) if isinstance(r, str)]
+        quip = ""
+        # One retry, for an opening her feed has already worn out.
+        for attempt in (1, 2):
+            quip = await _draft()
+            if not quip:
+                log_warning("Quip generation returned nothing.")
+                return
+            if is_generation_failure(quip):
+                log_warning(f"Quip was a generation failure string, not posting: '{quip}'")
+                return
+            # Formatting for a public feed, not prompt engineering: Bluesky counts
+            # graphemes and will reject an over-long post outright.
+            quip = drop_tag_opener(clean_quip(quip, max_chars=800))
+            if not quip:
+                log_warning("Quip was empty after formatting.")
+                return
+            worn = repeats_opening(quip, recent_posts)
+            if not worn:
+                break
+            if attempt == 2:
+                log_warning(f"Quip skipped: the retry still {worn}.")
+                return
+            log_info(f"Quip {worn}; drafting it again.")
 
         # The one quality gate worth keeping. It is about *posting in public*
         # rather than about generation: saying the same thing twice on a feed
