@@ -901,8 +901,9 @@ class CoreTaskManager:
                         state["xp_mult"] = state.get("xp_mult", 1.0) + (effect_value / 100.0)
                     elif effect_type == "gil_bonus":
                         state["gil_mult"] = state.get("gil_mult", 1.0) + (effect_value / 100.0)
-                    elif effect_type == "armor_penalty":
-                        state["def_mod"] = state.get("def_mod", 0) + effect_value
+                    # armor_penalty is applied per player in combat_engine,
+                    # to heavy armor only; adding it here as well took it
+                    # off every player's DEF twice.
 
                 # Roll for world event (15% chance)
                 if random.random() < 0.15:

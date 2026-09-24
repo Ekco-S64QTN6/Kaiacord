@@ -169,8 +169,8 @@ SPECIAL_DAYS = {
         "desc": "The canopy shifts overnight. Oakhaven wakes to orange and red.",
         "type": "seasonal_transition",
         "buff": "harvest_strength",
-        "buff_desc": "+1 Gil from all monster kills today",
-        "buff_value": 1,
+        "buff_desc": "+25% Gil from all monster kills today",
+        "buff_value": 0.25,
         "announcement": "🍂 *Autumn has come to Aethelgard. The Whisperwood changed color overnight. Nobody saw it happen.*",
     },
     (10, 31): {
@@ -357,7 +357,7 @@ WEATHER_TABLES = {
     ],
     "summer": [
         (35, "clear",        "Clear",          "Bright and dry. The Whisperwood hums. Good day for a hunt.",           "☀️",  None),
-        (25, "hot",          "Sweltering",     "Heavy heat. Moving in plate armor today would be a mistake.",          "🌡️",  {"type": "armor_penalty", "desc": "Heavy armor (chainmail+) reduces max HP by 2 today", "value": -2}),
+        (25, "hot",          "Sweltering",     "Heavy heat. Moving in plate armor today would be a mistake.",          "🌡️",  {"type": "armor_penalty", "desc": "Mail and plate cost 2 DEF today", "value": -2}),
         (20, "overcast",     "Overcast",       "High cloud, no shade. Warm and grey.",                                "⛅",  None),
         (15, "rain",         "Rain",           "Brief summer rain. The dust settles. Paths are muddier.",              "🌦️",  None),
         (5,  "drought_wind", "Dry Wind",       "Hot wind from the west. The Whisperwood is restless. Fire risk.",      "💨",  {"type": "encounter_mod", "desc": "Fire-adjacent monsters more aggressive — +2 ATK for Salamanders and similar", "value": 2}),
@@ -365,7 +365,7 @@ WEATHER_TABLES = {
     "autumn": [
         (30, "overcast",     "Overcast",       "Heavy cloud. The light is flat. The forest looks older.",              "☁️",  None),
         (25, "fog",          "Foggy",          "Morning fog that doesn't lift. The Shrine is invisible from the square.","🌫️", {"type": "scout_blocked", "desc": "!rpg scout unavailable — fog obscures the canopy", "value": 0}),
-        (20, "clear",        "Clear",          "Crisp autumn day. Good visibility. The canopy is red and gold.",        "🍂",  {"type": "xp_bonus", "desc": "+5 XP per monster kill — clear sight, clean work", "value": 5}),
+        (20, "clear",        "Clear",          "Crisp autumn day. Good visibility. The canopy is red and gold.",        "🍂",  {"type": "xp_bonus", "desc": "+10% XP from monster kills — clear sight, clean work", "value": 10}),
         (15, "rain",         "Rain",           "Cold autumn rain. The Trade Road is treacherous. Hemlock lit a fire.",  "🌧️",  None),
         (10, "wind",         "High Wind",      "Wind off the Spine. The Watchtower crew came down. Smart.",            "🌬️",  {"type": "scout_blocked", "desc": "!rpg scout unavailable — tower is unsafe", "value": 0}),
     ],
@@ -374,7 +374,7 @@ WEATHER_TABLES = {
         (25, "blizzard",     "Blizzard",       "White-out conditions. The Whisperwood is impassable above level 4.",   "🌨️",  {"type": "level_gate", "desc": "Whisperwood Deep requires level 6 today — the storm turns back weaker hunters", "value": 6, "locations": ["whisperwood_deep"]}),
         (20, "clear",        "Clear",          "Cold and bright. The snow reflects everything. Quiet.",                "🌨️✨", None),
         (15, "overcast",     "Overcast",       "Flat winter light. Grey sky, grey town. Hemlock's fire is welcome.",   "☁️",  None),
-        (10, "frost",        "Hard Frost",     "Everything is ice. The Tricklebrook is frozen solid.",                 "🧊",  {"type": "gil_bonus", "desc": "+3 Gil per monster kill — pelts are worth more in hard frost", "value": 3}),
+        (10, "frost",        "Hard Frost",     "Everything is ice. The Tricklebrook is frozen solid.",                 "🧊",  {"type": "gil_bonus", "desc": "+20% Gil from monster kills — pelts are worth more in hard frost", "value": 20}),
     ],
 }
 

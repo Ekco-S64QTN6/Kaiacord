@@ -5,6 +5,49 @@ from utils.ttrpg.class_advancement import ADVANCED_CLASSES, apply_advanced_class
 from utils.ttrpg.calendar import get_weather
 from utils.ttrpg.rpg_ui import colored_bar
 
+# Blessings that last one fight. Each is read every round and removed when
+# the fight ends (the monster falls or the player does), which is what their
+# descriptions promise: "until next combat".
+ONE_FIGHT_BUFFS = {
+    # condition:        (ATK, DMG, DEF)
+    "battle_focus":     (1, 0, 0),
+    "forest_sight":     (1, 0, 0),
+    "shadow_step":      (2, 0, 0),
+    "sharp_mind":       (1, 0, 0),
+    "veiled_blessing":  (1, 0, 0),
+    "veiled_watched":   (1, 0, 0),
+    "resonance_link":   (0, 2, 0),
+    "divine_clarity":   (0, 2, 0),
+    # The Veiled elder's blessings for the advanced classes.
+    "holy_aura":        (2, 0, 1),
+    "dark_embrace":     (2, 0, 0),   # + lifesteal, below
+    "death_sight":      (0, 0, 0),   # +3 DMG against the undead, below
+    "arcane_surge":     (0, 3, 0),
+    "predator_eye":     (2, 0, 0),   # + crit range, below
+    "roots_aura":       (0, 0, 3),
+    "void_step":        (3, 0, 0),   # + crit on 17, below
+    "golden_tongue":    (0, 0, 0),   # + gil on the kill, paid by the handler
+    "divine_word":      (0, 3, 0),   # + 5 HP when the fight ends, below
+    "world_speak":      (0, 0, 2),
+}
+BUFF_LABELS = {
+    "battle_focus": "⚔️ Battle Focus", "forest_sight": "🏹 Forest Sight",
+    "shadow_step": "🌘 Shadow Step", "sharp_mind": "🧠 Sharp Mind",
+    "veiled_blessing": "✨ Veiled Blessing", "veiled_watched": "👁️ The Veiled Gaze",
+    "resonance_link": "💎 Resonance Link", "divine_clarity": "🕊️ Divine Clarity",
+    "holy_aura": "✨ Holy Aura", "dark_embrace": "🩸 Dark Embrace", "death_sight": "💀 Death Sight",
+    "arcane_surge": "🔮 Arcane Surge", "predator_eye": "🎯 Predator's Eye", "roots_aura": "🌳 Roots Aura",
+    "void_step": "🌑 Void Step", "golden_tongue": "🪙 Golden Tongue", "divine_word": "📜 Divine Word",
+    "world_speak": "🌍 World Speak",
+}
+
+HEAVY_ARMOR_WORDS = ("mail", "plate", "cuirass")
+
+
+def is_heavy_armor(key) -> bool:
+    return bool(key) and any(w in str(key) for w in HEAVY_ARMOR_WORDS)
+
+
 TIER_DAMAGE = {
     "trivial": (1, 4),
     "easy":    (1, 6),
@@ -13,6 +56,12 @@ TIER_DAMAGE = {
     "boss":    (3, 6),
     "deadly":  (3, 6),
 }
+
+
+def _is_undead(monster: dict) -> bool:
+    from utils.ttrpg.class_advancement import _UNDEAD_NAMES
+    name = str(monster.get("name", "")).lower()
+    return any(u in name for u in _UNDEAD_NAMES)
 
 
 def _compute_player_defense(sheet: dict, def_mod_global: int = 0, pet_bonuses: dict = None) -> int:
@@ -63,7 +112,11 @@ def _compute_player_defense(sheet: dict, def_mod_global: int = 0, pet_bonuses: d
     # Weather modifier
     weather = get_weather()
     weather_effect = weather.get("effect") if weather else None
-    weather_def_mod = weather_effect.get("value", 0) if weather_effect and weather_effect.get("type") == "armor_penalty" else 0
+    # Heat weighs on mail and plate only.
+    weather_def_mod = 0
+    if (weather_effect and weather_effect.get("type") == "armor_penalty"
+            and is_heavy_armor(_eq_key(eq.get("armor")))):
+        weather_def_mod = weather_effect.get("value", 0)
 
     raw_total_def = 10 + dex_mod + effective_gear_def + adv_flat_def + def_mod_global + pet_def_bonus + weather_def_mod
 
@@ -71,6 +124,7 @@ def _compute_player_defense(sheet: dict, def_mod_global: int = 0, pet_bonuses: d
     conditions = set(sheet.get("conditions", []))
     if "fortified" in conditions:
         raw_total_def += 2
+    raw_total_def += sum(ONE_FIGHT_BUFFS[c][2] for c in conditions if c in ONE_FIGHT_BUFFS)
 
     # Global DEF cap
     player_level = sheet.get("level", 1)
@@ -149,6 +203,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         status_logs.append(f"🟢 *Poison saps {poison_dmg} HP.*")
         
     if sheet["hp"]["current"] <= 0:
+        sheet["conditions"] = [c for c in sheet.get("conditions", []) if c not in ONE_FIGHT_BUFFS]
         return {
             "sheet": sheet,
             "monster": monster,
@@ -187,47 +242,14 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     if embered_bonus:
         status_logs.append(f"🔥 *Firebrew burns through your veins (+2 ATK).*")
 
-    # Event and Oracle Buff Conditions (single-combat consumption)
-    consumed_conditions = []
-    oracle_atk_bonus = 0
-    if "battle_focus" in conditions:
-        oracle_atk_bonus += 1
-        consumed_conditions.append("battle_focus")
-        status_logs.append("⚔️ *Battle Focus sharpens your blow (+1 ATK).*")
-    if "forest_sight" in conditions:
-        oracle_atk_bonus += 1
-        consumed_conditions.append("forest_sight")
-        status_logs.append("🏹 *Forest Sight guides your distance (+1 ATK).*")
-    if "shadow_step" in conditions:
-        oracle_atk_bonus += 2
-        consumed_conditions.append("shadow_step")
-        status_logs.append("🌘 *Shadow Step gives superior flanking (+2 ATK).*")
-    if "sharp_mind" in conditions:
-        oracle_atk_bonus += 1
-        consumed_conditions.append("sharp_mind")
-        status_logs.append("🧠 *Sharp Mind clarifies your focus (+1 ATK).*")
-    if "veiled_blessing" in conditions:
-        oracle_atk_bonus += 1
-        consumed_conditions.append("veiled_blessing")
-        status_logs.append("✨ *Veiled Blessing guides your strike (+1 ATK).*")
-    if "veiled_watched" in conditions:
-        oracle_atk_bonus += 1
-        consumed_conditions.append("veiled_watched")
-        status_logs.append("👁️ *The Veiled Gaze steadies your blade (+1 ATK).*")
-
-    oracle_dmg_bonus = 0
-    if "resonance_link" in conditions:
-        oracle_dmg_bonus += 2
-        consumed_conditions.append("resonance_link")
-        status_logs.append("💎 *Resonance Link amplifies force (+2 DMG).*")
-    if "divine_clarity" in conditions:
-        oracle_dmg_bonus += 2
-        consumed_conditions.append("divine_clarity")
-        status_logs.append("🕊️ *Divine Clarity empowers your strike (+2 DMG).*")
-
-    # Clean consumed conditions from sheet
-    if consumed_conditions and "conditions" in sheet:
-        sheet["conditions"] = [c for c in sheet["conditions"] if c not in consumed_conditions]
+    # One-fight blessings: read every round, removed when the fight ends.
+    active_buffs = [c for c in sheet.get("conditions", []) if c in ONE_FIGHT_BUFFS]
+    oracle_atk_bonus = sum(ONE_FIGHT_BUFFS[c][0] for c in active_buffs)
+    oracle_dmg_bonus = sum(ONE_FIGHT_BUFFS[c][1] for c in active_buffs)
+    if "death_sight" in active_buffs and _is_undead(monster):
+        oracle_dmg_bonus += 3
+    if active_buffs:
+        status_logs.append("*" + ", ".join(BUFF_LABELS.get(c, c) for c in active_buffs) + " — still with you.*")
 
     attack_mod = (
         atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus +
@@ -269,6 +291,10 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                     if stored:
                         crit_threshold = stored
                     break
+        if "predator_eye" in active_buffs:
+            crit_threshold -= 1
+        if "void_step" in active_buffs:
+            crit_threshold = min(crit_threshold, 17)
         player_crit = raw_hit >= crit_threshold
         player_hit = total_hit >= monster["defense"] or player_crit
         player_fumble = raw_hit == 1
@@ -319,6 +345,11 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 f"{bonus_str}=**{player_damage}**"
             )
             monster["hp"]["current"] = max(0, monster["hp"]["current"] - player_damage)
+
+            if "dark_embrace" in active_buffs:
+                drained = max(1, player_damage // 4)
+                sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + drained)
+                status_logs.append(f"🩸 *Dark Embrace drinks deep: +{drained} HP*")
             
             # Apply lifesteal
             heal = adv_mods["heal_amount"]
@@ -442,6 +473,15 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         if sheet["hp"]["current"] > hp_before:
             status_logs.append(f"✨ **Pet Bonus:** Your sprite mends your wounds (+{pet_heal} HP).")
 
+    # The fight is over for this monster: spend the one-fight blessings.
+    spent_buffs = []
+    if active_buffs and (monster["hp"]["current"] <= 0 or sheet["hp"]["current"] <= 0):
+        spent_buffs = active_buffs
+        sheet["conditions"] = [c for c in sheet.get("conditions", []) if c not in ONE_FIGHT_BUFFS]
+        if "divine_word" in spent_buffs and sheet["hp"]["current"] > 0:
+            sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + 5)
+            status_logs.append("📜 *Divine Word mends you: +5 HP*")
+
     # formatting exchanges
     exchanges = list(status_logs)
     
@@ -499,4 +539,5 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         "player_alive": player_alive,
         "exchanges": exchanges,
         "monster_defeated": not monster_alive,
+        "spent_buffs": spent_buffs,
     }

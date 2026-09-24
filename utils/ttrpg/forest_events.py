@@ -212,22 +212,24 @@ def _veiled_elder(sheet: dict) -> dict:
     r["title"] = "👁️ A Veiled Elder"
     char_class = sheet.get("class", "Warrior")
     advanced = sheet.get("advanced_class", "")
+    # What each one does lives in combat_engine.ONE_FIGHT_BUFFS; the text
+    # here must say the same thing.
     class_buffs = {
-        "Warrior":    ("battle_focus",   "STR checks +1 until next combat"),
-        "Ranger":     ("forest_sight",   "DEX checks +1 until next combat"),
-        "Mage":       ("resonance_link", "INT checks +2 until next combat"),
-        "Rogue":      ("shadow_step",    "DEX checks +2 until next combat"),
-        "Cleric":     ("divine_clarity", "WIS checks +2 until next combat"),
-        "Paladin":    ("holy_aura",      "STR +2, DEF +1 until next combat"),
-        "Shadowknight": ("dark_embrace", "ATK +2, lifesteal active until next combat"),
-        "Necromancer": ("death_sight",   "INT +3 vs undead until next combat"),
-        "Wizard":     ("arcane_surge",   "INT +3 until next combat"),
-        "Hunter":     ("predator_eye",   "DEX +2, crit range -1 until next combat"),
-        "Warden":     ("roots_aura",     "DEF +3 until next combat"),
-        "Shadowblade": ("void_step",     "DEX +3, crit on 17 until next combat"),
-        "Trickster":  ("golden_tongue",  "Gil +2 per kill until next combat"),
-        "High Priest": ("divine_word",   "WIS +3, next heal +5"),
-        "Shaman":     ("world_speak",    "Next forest event: +15 XP, DEF +2"),
+        "Warrior":    ("battle_focus",   "ATK +1 for your next fight"),
+        "Ranger":     ("forest_sight",   "ATK +1 for your next fight"),
+        "Mage":       ("resonance_link", "+2 damage for your next fight"),
+        "Rogue":      ("shadow_step",    "ATK +2 for your next fight"),
+        "Cleric":     ("divine_clarity", "+2 damage for your next fight"),
+        "Paladin":    ("holy_aura",      "ATK +2 and DEF +1 for your next fight"),
+        "Shadowknight": ("dark_embrace", "ATK +2 for your next fight, and a quarter of your damage heals you"),
+        "Necromancer": ("death_sight",   "+3 damage against the undead for your next fight"),
+        "Wizard":     ("arcane_surge",   "+3 damage for your next fight"),
+        "Hunter":     ("predator_eye",   "ATK +2 and a wider crit range for your next fight"),
+        "Warden":     ("roots_aura",     "DEF +3 for your next fight"),
+        "Shadowblade": ("void_step",     "ATK +3 and crits on 17+ for your next fight"),
+        "Trickster":  ("golden_tongue",  "+25% gil from the kill that ends your next fight"),
+        "High Priest": ("divine_word",   "+3 damage for your next fight, and +5 HP when it ends"),
+        "Shaman":     ("world_speak",    "DEF +2 for your next fight"),
     }
     lookup = advanced if advanced in class_buffs else char_class
     condition, effect_text = class_buffs.get(lookup, ("veiled_blessing", "+1 to next check"))

@@ -166,3 +166,25 @@ def get_character_title(sheet: dict) -> str:
     """Return the character's current earned title."""
     from utils.ttrpg.class_advancement import get_title
     return get_title(sheet)
+
+
+# ── Kill-reward bonuses ─────────────────────────────────────────────────────
+# A kill is worth anywhere from 4 gil (trivial) to thousands (boss), so a flat
+# bonus means everything at level 1 and nothing at level 15: "+1 gil per kill"
+# was a quarter of a trivial kill and under 2% of a typical hard one. Bonuses
+# are a share of the kill, never less than the flat amount they replaced.
+
+def harvest_bonus(gil: int, share: float) -> int:
+    """First Day of Autumn."""
+    return max(1, round(gil * share))
+
+
+def streak_bonus(gil: int, streak: int) -> int:
+    """Consecutive kills: 5% of the kill per link, up to five."""
+    links = min(streak, 5)
+    return max(links * 2, round(gil * 0.05 * links))
+
+
+def golden_tongue_bonus(gil: int) -> int:
+    """The Trickster's blessing, paid on the kill that ends the fight."""
+    return max(2, round(gil * 0.25))

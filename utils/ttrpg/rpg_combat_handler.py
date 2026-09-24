@@ -16,7 +16,7 @@ from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.world_state import get_current_state
 from utils.ttrpg.character_manager import load, save, create, format_sheet, load_all
 from utils.ttrpg.session_manager import load_session, save_session, create_session, end_session
-from utils.ttrpg.progression import check_and_reset_hunts, hunts_remaining, check_level_up, MAX_HUNTS_PER_DAY, get_max_hunts, xp_to_next_level, XP_THRESHOLDS
+from utils.ttrpg.progression import harvest_bonus, streak_bonus, golden_tongue_bonus, check_and_reset_hunts, hunts_remaining, check_level_up, MAX_HUNTS_PER_DAY, get_max_hunts, xp_to_next_level, XP_THRESHOLDS
 from utils.ttrpg.class_advancement import (
     apply_advanced_class_to_combat, apply_advanced_class_to_sheet,
     get_advanced_options, get_title, ADVANCED_CLASSES
@@ -157,7 +157,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                 if res["player_alive"]:
                     sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _bv)
             elif _buff == "harvest_strength":
-                gil_gain += _bv
+                gil_gain += harvest_bonus(gil_gain, _bv)
             elif _buff == "remembrance":
                 xp_gain = int(xp_gain * _bv)
             elif _buff == "winter_resolve":
@@ -183,6 +183,9 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                     if _heal > 0 and sheet["hp"]["current"] > 0:
                         sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _heal)
                     break
+
+        if "golden_tongue" in res.get("spent_buffs", ()):
+            gil_gain += golden_tongue_bonus(gil_gain)
 
         # Experience Tonic bonus (+25% XP, consumed on use)
         if "xp_boosted" in sheet.get("conditions", []):
@@ -946,12 +949,8 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                     if _heal > 0 and sheet["hp"]["current"] > 0:
                         sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _heal)
                     break
-        # Weather bonus effects (e.g. clear autumn +5 XP, winter frost +3 Gil)
-        weather_effect = get_weather().get("effect") or {}
-        if weather_effect.get("type") == "xp_bonus":
-            xp_gain += weather_effect.get("value", 0)
-        if weather_effect.get("type") == "gil_bonus":
-            gil_gain += weather_effect.get("value", 0)
+        # Weather XP / gil bonuses are already in state xp_mult / gil_mult
+        # (set at dawn); adding them here too counted them twice.
 
         # ── Calendar Special Day Buffs ─────────────────────────────────────
         from utils.ttrpg.calendar import get_special_day
@@ -965,8 +964,8 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                     sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _bv)
                     streak_msg += f"  🔥 Long Fire: +{_bv} HP"
             elif _buff == "harvest_strength":
-                # First Day of Autumn: +1 Gil per kill
-                gil_gain += _bv
+                # First Day of Autumn: a share of every kill
+                gil_gain += harvest_bonus(gil_gain, _bv)
             elif _buff == "remembrance":
                 # The Remembrance: +50% XP
                 xp_gain = int(xp_gain * _bv)
@@ -986,6 +985,9 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                     sheet["_new_year_applied"] = True
                     streak_msg += "  🎆 The Turning: fully restored"
 
+        if "golden_tongue" in res.get("spent_buffs", ()):
+            gil_gain += golden_tongue_bonus(gil_gain)
+
         # Experience Tonic bonus (+25% XP, consumed on use)
         if "xp_boosted" in sheet.get("conditions", []):
             xp_gain = int(xp_gain * 1.25)
@@ -1003,7 +1005,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         streak = sheet.get("hunt_streak", 0) + 1
         sheet["hunt_streak"] = streak
         if streak > 1:
-            streak_bonus_gil = min(streak, 5) * 2
+            streak_bonus_gil = streak_bonus(gil_gain, streak)
             gil_gain += streak_bonus_gil
             streak_msg = f"  🔥 Streak: {streak} (+{streak_bonus_gil}g)"
             
