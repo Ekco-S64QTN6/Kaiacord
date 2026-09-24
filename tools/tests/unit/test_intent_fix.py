@@ -86,3 +86,33 @@ def test_words_in_passing_are_not_a_diagnosis_or_a_greeting(text):
 def test_real_diagnostics_still_are(text):
     from utils.core.intent_classifier import IntentParser
     assert IntentParser().fast_parse(text).suggested_strategy == "DIAGNOSTIC_DEEP_DIVE"
+
+
+@pytest.mark.parametrize("text, is_dream", [
+    ("kaia what did you think of do androids dream of electric sheep", False),
+    ("kaia that's my dream car", False),
+    ("i had a nightmare of a day at work", False),
+    ("kaia what did you dream about last night", True),
+    ("kaia any recent dreams?", True),
+    ("kaia tell me about your dream", True),
+    ("did you have any weird dreams", True),
+    ("kaia have you been dreaming lately", True),
+])
+def test_dream_recall_is_about_her_dreams(text, is_dream):
+    """DREAM_RECALL searches the dream index alone."""
+    from utils.core.intent_classifier import IntentParser
+    intent = IntentParser().fast_parse(text)
+    assert (intent is not None and intent.suggested_strategy == "DREAM_RECALL") is is_dream
+
+
+@pytest.mark.parametrize("text, is_command", [
+    ("kaia clear skies today, want to go fishing?", False),
+    ("kaia stats on that sword look insane", False),
+    ("kaia reset your expectations lol", False),
+    ("kaia status", True), ("status kaia", True), ("kaia ping", True), ("quip", True),
+])
+def test_command_intent_is_the_whole_message(text, is_command):
+    """COMMAND_EXECUTION takes the shortcut that skips retrieval."""
+    from utils.core.intent_classifier import IntentParser
+    intent = IntentParser().fast_parse(text)
+    assert (intent is not None and intent.suggested_strategy == "COMMAND_EXECUTION") is is_command

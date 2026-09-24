@@ -57,11 +57,19 @@ class IntentParser:
                 r"^\s*(<@!?\d+>\s*)?kaia[!?.,]*$"
             ],
             "COMMAND_EXECUTION": [
-                r"^\s*(kaia\s+)?(status|stats|ping|uptime|clear|reset|quip)\b",
+                # The whole message is the command. As a prefix it took "kaia
+                # clear skies today..." and "stats on that sword" down the
+                # no-retrieval shortcut; clear and reset do nothing here.
+                r"^\s*(kaia\s+)?(status|stats|ping|uptime|quip)(\s+kaia)?[!?.,]*\s*$",
                 r"^\s*[!/](quip|news|dreams|cache)\b"
             ],
             "DREAM_RECALL": [
-                r"\b(dream(s|t|ing)?|nightmare(s)?)\b",
+                # Her dreams, not the word: "my dream car", "a nightmare of a
+                # day" and "Do Androids Dream..." routed to the dream index
+                # alone, which kept the book itself out of retrieval.
+                r"\b(you|your)\s+(\w+\s+)?(dream(s|t|ed|ing)?|nightmares?)\b",
+                r"\bany\s+(recent\s+|good\s+|weird\s+)?(dreams|nightmares)\b",
+                r"\b(dream(s|t|ed)?|nightmares?)\s+(last night|lately|recently)\b",
                 r"^\s*(kaia\s+)?what did you dream",
                 r"^\s*(kaia\s+)?tell me about your dream",
                 r"^\s*(kaia\s+)?any recent dreams"
