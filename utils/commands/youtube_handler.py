@@ -6,8 +6,8 @@ YouTube Transcript Command
 
 Open to everyone, and staged rather than filed directly, for the same reason
 `!download` is: the document lands in `knowledge_base/_ingress/`, which the RAG
-indexer skips, so nothing a user submits is retrievable until the hourly ingest
-pass has processed it.
+indexer skips, so nothing a user submits is retrievable until it has been
+cleaned and filed — which the command starts straight away.
 
 The conversion itself lives in `tools/maintenance/youtube_to_kb_md.py` so the
 same code serves the command, the CLI and `kaia-tools.sh`. Misheard names are
@@ -138,7 +138,7 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
     length = f"{hours}h{minutes:02d}m" if hours else f"{minutes}m{seconds:02d}s"
 
     embed = box(f"🎬  {clean(stats['title'], 200)}", "staged for the knowledge base.",
-                COLOR_INFO, footer="filed on the next ingest pass (hourly)")
+                COLOR_INFO, footer="filing it…")
     if stats.get("channel"):
         add_field(embed, "Channel", clean(stats["channel"], 100), inline=True)
     add_field(embed, "Length", length, inline=True)
@@ -146,7 +146,9 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
     if counts:
         from tools.maintenance.transcript_names import describe
         add_field(embed, "Fixed misheard names", clean(describe(counts, corrections, limit=4), 900))
-    await msg.channel.send(embed=embed)
+    reply = await msg.channel.send(embed=embed)
+    from utils.core import ingress
+    ingress.start_filing(path, reply)
     log_action(
         f"Staged YouTube transcript {stats['url']} "
         f"({stats['words']} words) by {msg.author.display_name}"

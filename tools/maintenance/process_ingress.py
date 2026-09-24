@@ -299,9 +299,7 @@ def _file_preformatted(md_path: Path, raw: str, meta: dict, dry_run: bool) -> tu
         return True, f"would file as {dest.relative_to(KB)} (preformatted, {len(raw.split())} words)"
 
     dest_dir.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".tmp")
-    tmp.write_text(document, encoding="utf-8")
-    tmp.replace(dest)
+    write_atomic(dest, document)
 
     md_path.unlink()
     side = md_path.with_suffix(".meta.json")
@@ -386,9 +384,7 @@ def process_one(md_path: Path, dry_run: bool = False) -> tuple[bool, str]:
         return True, f"would file as {dest.relative_to(KB)} ({len(body.split())} words)"
 
     dest_dir.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(".tmp")
-    tmp.write_text(document, encoding="utf-8")
-    tmp.replace(dest)
+    write_atomic(dest, document)
 
     md_path.unlink()
     side = md_path.with_suffix(".meta.json")
@@ -402,7 +398,29 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="report without writing")
     ap.add_argument("--quiet", action="store_true", help="only report totals")
+    ap.add_argument("--file", type=Path,
+                    help="file just this staged .md (what !download and !youtube do right away)")
     args = ap.parse_args()
+
+    if args.file:
+        md = args.file if args.file.is_absolute() else Path.cwd() / args.file
+        if md.parent.resolve() != INGRESS.resolve() or md.suffix != ".md" or not md.exists():
+            print(f"Not a staged document: {args.file}", file=sys.stderr)
+            return 2
+        try:
+            success, message = process_one(md, args.dry_run)
+        except Exception as e:                      # noqa: BLE001
+            success, message = False, f"{type(e).__name__}: {e}"
+        if not success:
+            if not args.dry_run:
+                md.with_suffix(".error").write_text(message, encoding="utf-8")
+            print(f"FAIL {md.name}: {message}", file=sys.stderr)
+            return 1
+        if not args.dry_run:
+            from utils.core.rag_utils import request_reindex
+            request_reindex()
+        print(message)
+        return 0
 
     if not INGRESS.exists():
         if not args.quiet:

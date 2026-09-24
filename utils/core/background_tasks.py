@@ -1814,9 +1814,10 @@ class CoreTaskManager:
             return ""
 
     def _make_ingress_task(self):
-        """Process documents staged in knowledge_base/_ingress/ by !download.
+        """File whatever is still staged in knowledge_base/_ingress/.
 
-        Runs the same normalisation the ebook converter uses, writes Kaia's
+        `!download` and `!youtube` file their own document at once; this picks
+        up what failed then or was placed by hand. Runs the same normalisation the ebook converter uses, writes Kaia's
         frontmatter with provenance, files each document into the corpus and
         requests one reindex for the batch. Staged files are inert until this
         runs — _ingress is skipped by the RAG indexer.
@@ -1834,15 +1835,8 @@ class CoreTaskManager:
                     return
 
                 log_action(f"Processing {len(pending)} staged document(s) from _ingress...")
-
-                def _run():
-                    import subprocess
-                    return subprocess.run(
-                        [sys.executable, "tools/maintenance/process_ingress.py", "--quiet"],
-                        capture_output=True, text=True, timeout=600,
-                    )
-
-                result = await asyncio.to_thread(_run)
+                from utils.core import ingress
+                result = await ingress.run()
                 summary = (result.stdout or "").strip().splitlines()
                 if summary:
                     log_success(f"[ingress] {summary[-1]}")

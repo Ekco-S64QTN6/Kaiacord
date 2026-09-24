@@ -38,7 +38,8 @@ async def handle_download_command(ctx, msg, send_kaia_response):
     Open to everyone. Downloads land in `knowledge_base/_ingress/`, which is
     excluded from RAG indexing, so nothing a user submits is retrievable until
     `tools/maintenance/process_ingress.py` has normalised it, given it
-    frontmatter and provenance, and filed it. That runs hourly and on demand.
+    frontmatter and provenance, and filed it. The command files it straight
+    away (`utils/core/ingress.py`); the hourly pass retries anything that failed.
 
     This replaces an owner-only gate: restricting the command stopped the
     corpus poisoning but also stopped users contributing anything, which was
@@ -85,15 +86,17 @@ async def handle_download_command(ctx, msg, send_kaia_response):
             await msg.channel.send(embed=notice("something went wrong during the download. check the url and try again.", error=True))
             return
 
-    # No reindex from here. The document is staged outside the indexed tree;
-    # process_ingress.py requests a single reindex once it has filed a batch.
+    # Staged outside the indexed tree, then filed straight away; filing
+    # requests the reindex. The footer says where it went.
     embed = box(f"📥  {clean(result.get('title') or result['filename'], 200)}",
                 "staged for the knowledge base.", COLOR_INFO,
-                footer="cleaned up and filed on the next ingest pass (hourly)")
+                footer="cleaning it up and filing it…")
     add_field(embed, "Words", f"~{result['word_count']:,}", inline=True)
     add_field(embed, "Type", str(result['content_type']), inline=True)
     add_field(embed, "Destination", f"`{result['folder']}/`", inline=True)
-    await msg.channel.send(embed=embed)
+    reply = await msg.channel.send(embed=embed)
+    from utils.core import ingress
+    ingress.start_filing(Path(result['filepath']), reply)
     log_action(f"Staged {url} -> {result['filepath']} ({result['word_count']} words) "
                f"by {msg.author.display_name}")
 

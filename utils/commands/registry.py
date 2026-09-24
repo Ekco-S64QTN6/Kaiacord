@@ -131,9 +131,9 @@ COMMANDS = (
     # has cleaned and filed it.
     Command("download", handle_download_command, GROUP_KNOWLEDGE, extra=RESPONDER,
             usage="!download <url>",
-            summary="Submit a URL to the knowledge base (filed on the next hourly pass)"),
+            summary="Submit a URL to the knowledge base"),
     # Open, and staged like !download: the transcript lands in _ingress, which
-    # the RAG indexer skips, so it is inert until the hourly pass files it.
+    # the RAG indexer skips, so it is inert until it has been cleaned and filed.
     Command("youtube", handle_youtube_command, GROUP_KNOWLEDGE, extra=RESPONDER,
             aliases=("yt",), usage="!youtube <url>",
             summary="Pull a video's transcript into the knowledge base"),

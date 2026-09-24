@@ -227,8 +227,8 @@ venv/bin/python3 tools/maintenance/ebook_to_kb_md.py ~/Downloads/book.epub \
 The converter removes pandoc and Calibre artefacts, rebuilds paragraphs and chapters, and writes
 the project's frontmatter. Books are named `Book - <Title> by <Author>.md`, documents
 `<Topic> - <Title>.md`. A hand-written summary retrieves much better than the automatic one.
-In Discord, `!download <url>` and `!youtube <url>` stage pages and transcripts for the hourly
-ingest.
+In Discord, `!download <url>` and `!youtube <url>` stage a page or transcript and file it straight
+away; the hourly ingest pass retries anything that failed.
 
 ### Testing
 
