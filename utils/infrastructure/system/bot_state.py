@@ -9,6 +9,7 @@ Extracted from Kaiacord.py to improve modularity.
 
 import os
 import json
+import re
 import time
 import threading
 import traceback
@@ -603,43 +604,48 @@ class BotState:
         text = message_text.strip()
         lower_text = text.lower()
 
-        # Check existing state and apply 2h decay if inactive
-        current_state = self.user_states.get(uid)
-        if current_state and (now - current_state.get('updated_at', 0) > 7200):
-            current_state = None
+        # Whole words and phrases only. Substrings made "whatever" frustrated
+        # (h-a-t-e), "later" tired, "definitely" troubleshooting, and any
+        # message opening with "you" a greeting ("yo").
+        def has(*words):
+            return any(re.search(rf"\b{re.escape(w)}\b", lower_text) for w in words)
+
+        def opens_with(*words):
+            return any(re.match(rf"{re.escape(w)}\b", lower_text) for w in words)
 
         # 1. Energy level heuristic
+        letters = [c for c in text if c.isalpha()]
+        caps_ratio = sum(c.isupper() for c in letters) / len(letters) if len(letters) >= 8 else 0.0
         excl_count = text.count('!')
-        caps_count = sum(1 for c in text if c.isupper())
-        caps_ratio = caps_count / max(len(text), 1)
-
         if excl_count >= 2 or caps_ratio > 0.5:
             energy = "high"
-        elif len(text) < 15 and not excl_count and any(w in lower_text for w in ["meh", "bored", "tired", "sleepy", "whatever"]):
+        elif len(text) < 15 and not excl_count and has("meh", "bored", "tired", "sleepy", "whatever"):
             energy = "low"
         else:
             energy = "moderate"
 
         # 2. Apparent Mood heuristic
-        if any(w in lower_text for w in ["ugh", "sigh", "dammit", "annoyed", "wrong", "broke", "error", "hate", "stuck", "fail", "broken", "angry"]):
+        if has("ugh", "sigh", "dammit", "annoyed", "wrong", "broke", "broken", "error",
+               "hate", "stuck", "fail", "failed", "failing", "angry"):
             mood = "frustrated"
-        elif any(w in lower_text for w in ["lol", "lmao", "haha", "yay", "great", "awesome", "nice", "love", "thanks", "cool", "good", "happy"]):
+        elif has("lol", "lmao", "haha", "yay", "great", "awesome", "nice", "love",
+                 "thanks", "cool", "good", "happy"):
             mood = "upbeat"
-        elif any(w in lower_text for w in ["tired", "exhausted", "sleepy", "late", "bored", "goodnight", "meh"]):
+        elif has("tired", "exhausted", "sleepy", "bored", "goodnight", "meh", "up late"):
             mood = "tired"
-        elif any(w in lower_text for w in ["wondering", "curious", "think", "maybe", "perplexed", "why", "how"]):
+        elif has("wondering", "curious", "think", "maybe", "perplexed", "why", "how"):
             mood = "thoughtful"
         else:
             mood = "neutral"
 
         # 3. Likely Intent heuristic
-        if "```" in text or any(w in lower_text for w in ["traceback", "def", "error", "issue", "bug", "exception"]):
+        if "```" in text or has("traceback", "error", "issue", "bug", "exception"):
             intent = "troubleshooting"
-        elif "?" in text or any(lower_text.startswith(w) for w in ["how", "what", "why", "where", "can you", "who", "is it"]):
+        elif "?" in text or opens_with("how", "what", "why", "where", "can you", "who", "is it"):
             intent = "asking_questions"
-        elif any(lower_text.startswith(w) for w in ["hi", "hello", "hey", "yo", "good morning", "good evening"]):
+        elif opens_with("hi", "hello", "hey", "yo", "good morning", "good evening"):
             intent = "greeting"
-        elif any(w in lower_text for w in ["thanks", "thank you", "good job", "nice work"]):
+        elif has("thanks", "thank you", "good job", "nice work"):
             intent = "giving_feedback"
         else:
             intent = "casual_chat"

@@ -39,3 +39,8 @@ def test_the_reply_never_carries_a_profile(tmp_path, monkeypatch):
 def test_ordinary_messages_are_not_taken():
     assert not ph.is_user_list_query("kaia what do you know about pixel")
     assert ph.is_user_list_query("kaia list users")
+
+
+def test_asked_as_a_reply_it_still_answers():
+    quoted = "[REPLYING_TO]\nLune: " + "a long quoted message " * 10 + "\n\n[USER_MESSAGE]\nkaia who do you know"
+    assert ph.is_user_list_query(quoted)

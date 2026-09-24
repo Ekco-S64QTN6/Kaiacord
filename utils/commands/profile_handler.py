@@ -41,7 +41,8 @@ def get_known_users() -> Tuple[List[str], int]:
 
 
 def is_user_list_query(text: str) -> bool:
-    q = text.lower().strip()
+    from utils.core.sanitizer import user_authored_text
+    q = user_authored_text(text).lower().strip()
     return len(q) < 100 and any(p.search(q) for p in _PATTERNS)
 
 
