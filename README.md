@@ -6,10 +6,10 @@
 
 [![Python](https://img.shields.io/badge/Python-3.12%2B-blue.svg?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![Ollama](https://img.shields.io/badge/Inference-Ollama-black.svg?style=flat-square)](https://ollama.com)
-[![discord.py](https://img.shields.io/badge/discord.py-2.6.4-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discordpy.readthedocs.io)
+[![discord.py](https://img.shields.io/badge/discord.py-2.7.1-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discordpy.readthedocs.io)
 [![Model](https://img.shields.io/badge/Model-gemma3%3A12b-4285F4.svg?style=flat-square&logo=google&logoColor=white)](https://ollama.com/library/gemma3)
 [![VRAM](https://img.shields.io/badge/VRAM-12GB-76B900.svg?style=flat-square&logo=nvidia&logoColor=white)](#gpu-budget)
-[![Tests](https://img.shields.io/badge/tests-1%2C528%20passed-success.svg?style=flat-square)](#testing)
+[![Tests](https://img.shields.io/badge/tests-1%2C957%20passed-success.svg?style=flat-square)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 [Overview](#overview) · [Cognitive Pipeline](#cognitive-pipeline) · [Architecture](#architecture) · [Install](#installation) · [Configuration](#configuration) · [Operations](#operations) · [Docs](#documentation)
@@ -22,7 +22,10 @@
 
 Kaia is a local Discord bot with a memory that persists.
 
-She runs entirely on local hardware, with no cloud APIs, telemetry, or per-token billing. She carries an emotional state from one conversation to the next, develops different relationships with different people, forms beliefs that can later change, and turns the day's conversations into long-term memory each night.
+Her thinking runs entirely on local hardware: no hosted model, no telemetry, no per-token
+billing. The network is used only for things that live out there — the daily news brief (the
+Gemini API with search grounding), Bluesky if you enable it, and the public radio and space
+feeds her night-shift commands read. She carries an emotional state from one conversation to the next, develops different relationships with different people, forms beliefs that can later change, and turns the day's conversations into long-term memory each night.
 
 The result is continuity across conversations. Things that happen are retained and can matter later: shared events, periods of absence, changes in a relationship, or beliefs formed during earlier conversations.
 
@@ -30,11 +33,11 @@ The result is continuity across conversations. Things that happen are retained a
 
 | | |
 |:--|:--|
-| **Runs entirely offline** | One 12 GB consumer GPU. Inference and embeddings are local; intent classification is plain regex. |
+| **Local inference** | One 12 GB consumer GPU. Chat, vision and embeddings are local; intent classification is plain regex. |
 | **State survives restarts** | Mood, relationships, beliefs, and episodic anchors are persisted atomically to disk. |
 | **Deterministic where it matters** | Combat maths, budgeting, and safety filtering are plain Python. The LLM is used for language, not arithmetic. |
 | **Grounded by default** | Hybrid BM25 + vector retrieval over a curated Markdown knowledge base, fused with Reciprocal Rank Fusion. |
-| **Guarded output** | A ten-layer post-generation pipeline strips hallucinations, roleplay artifacts, and prompt echoes before anything reaches Discord. |
+| **Guarded output** | A post-generation pipeline strips prompt echoes, bot-speak, fabricated citations and sycophancy before anything reaches Discord — and keeps the original when a cut would leave a sentence with a hole in it. |
 
 ---
 
@@ -127,8 +130,11 @@ flowchart TD
         HC -- Fail --> G2[Attempt 2<br/>Scaled temperature]
         G2 --> HC2{Guards}
         HC2 -- Pass --> OUT
-        HC2 -- Fail --> G3[Attempt 3<br/>Fallback template]
-        G3 --> OUT
+        HC2 -- Fail --> G3[Attempt 3]
+        G3 --> HC3{Guards}
+        HC3 -- Pass --> OUT
+        HC3 -- Fail --> SAL[Salvage<br/>best rejected attempt, re-checked]
+        SAL --> OUT
     end
 ```
 
@@ -188,8 +194,8 @@ cp .env.example .env
 
 `DISCORD_TOKEN` is the only required value. Everything else is optional: Bluesky, X, and the
 Project 1999 forum each need both credentials **and** their `enabled` flag in
-`config/kaia.yaml`. `GEMINI_API_KEY` is used only by background summarisation tasks — leave it
-blank to run fully offline.
+`config/kaia.yaml`. `GEMINI_API_KEY` is used only for the daily news brief; leave it blank and
+there is no brief. `NASA_API_KEY` (free) lifts `!nasa` and `!earth` off NASA's shared demo key.
 
 ### Run
 
@@ -221,21 +227,28 @@ Settings resolve in order: **environment variables** → `config/kaia.yaml` (you
 | `unprompted.rotate` / `labels` | `true` / nine labels | Whether labels rotate to fit each post, and their wording. |
 | `desires.gate_enabled` | `true` | Enables the desire engine; `desires.initiate_threshold` sets how readily she speaks first. |
 | `bluesky.enabled` / `x_twitter.enabled` | `false` | With both disabled the social mention poller is never started. |
+| `sky.location` | unset | `"lat, lon"` — a city is enough. ISS passes and `!sky` need it. |
+| `radio.enabled` / `sky.enabled` | `true` | The night-shift commands and scheduled listening. |
+| `radio.hfgcs_windows_utc` / `radio.follow` | four windows / `["E11"]` | When she records the HFGCS net, and which number stations she tunes in for. |
+| `radio.overnight_log` / `overnight_time` | `true` / `08:30` | The morning write-up of her night shift, through the same unprompted gate. |
+| `radio.post_channel` / `post_clips` | `kaia-opolis` / `true` | Where catches and clips go. |
+| `radio.poll_hours` / `live_max_minutes` | `6` / `60` | How often the volunteer feeds are polled; how long a live `!radio` session may run. |
 
 <a name="gpu-budget"></a>
 
 ### GPU budget
 
-The build targets a single 12 GB card. Classification and embeddings are hard-pinned to CPU so
-the full context window stays available to the chat model.
+The build targets a single 12 GB card. Embeddings are pinned to CPU so the whole card stays
+available to the chat model and its context window.
 
 | Model | Role | Device | VRAM | Host RAM |
 |:--|:--|:--:|--:|--:|
-| `gemma3:12b` | Chat, narration, vision | **GPU** | ~8.2 GB | ~1.2 GB KV cache |
+| `gemma3:12b` | Chat, narration, vision | **GPU** | ~9.1 GB at 24,576 context, ~9.4 GB at 32,768 (q8_0 KV cache) | — |
 | `nomic-embed-text-cpu` | RAG embeddings | CPU | — | ~500 MB |
 
 > [!NOTE]
-> `performance.max_context_tokens` is **16,384**. The per-turn budget reserves
+> `performance.max_context_tokens` defaults to **16,384**; set it in `kaia.yaml` (check
+> `nvidia-smi` afterwards). The per-turn budget reserves
 > `system_reserve_tokens` and `max_response_tokens` before allocating the remainder to
 > retrieval and history, so raising the identity-injection blocks directly reduces RAG recall.
 
@@ -272,8 +285,8 @@ venv/bin/python3 tools/maintenance/reindex_rag.py --clear
 ### Adding books and documents
 
 ```bash
-# Interactive picker over ~/Downloads (EPUB · PDF · TXT · HTML)
-bash knowledge_base/epub-to-md.sh
+# Interactive: Documents & Ingestion → Convert ebook/PDF (EPUB · PDF · TXT · HTML)
+bash scripts/kaia-tools.sh
 
 # Or convert directly
 venv/bin/python3 tools/maintenance/ebook_to_kb_md.py ~/Downloads/book.epub \
@@ -307,7 +320,7 @@ venv/bin/python3 tools/maintenance/repair_kb_book_structure.py --apply
 
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-22: 1,696 passed, 9 skipped, 85 deselected, 1 xfailed.
+# 2026-09-24: 1,957 passed, 9 skipped, 88 deselected, 1 xfailed.
 # Re-run rather than trusting this line — the count moves every phase.
 ```
 
@@ -329,7 +342,8 @@ in Python; the LLM is used only for narration.
 
 - **77-floor mega-dungeon** ("Spine of the World") with Resonance Lift checkpoints and per-floor
   encounter pools.
-- **369 monsters** (44 bosses), **453 equipment items** across 7 tiers, 248 fish, 12 quests.
+- **369 monsters** (44 bosses), **395 pieces of gear** across 7 tiers plus 58 consumables,
+  248 fish, 12 quests.
 - **10 classes** with distinct progression, passive buffs, and triggerable combat procs.
 - Housing, procedural farming, pets, and alchemy.
 - Defence soft-cap `min(10, raw) + max(0, raw - 10) // 2` and absolute stat budgets prevent
@@ -483,9 +497,9 @@ See [`docs/02-user-guide/forum-integration.md`](docs/02-user-guide/forum-integra
 
 <br>
 
-A three-pane terminal UI — **System Stats**, **Bot Status**, and **Cognitive Pipeline** — showing
-live CPU/GPU metrics, cognitive counters (beliefs, anchors, affinity), and a stream of elevated
-log events.
+A terminal UI in panes — **System Stats**, **Bot Status**, **Cognitive Pipeline**, **RAG Health**,
+**Alerts** and **Live Logs** — showing CPU/GPU metrics, who is active, cognitive counters
+(beliefs, anchors, affinity), retrieval confidence, and a stream of elevated log events.
 
 See [`docs/02-user-guide/dashboard.md`](docs/02-user-guide/dashboard.md).
 
@@ -514,7 +528,7 @@ Kaiacord/
 ├── utils/
 │   ├── core/                 Cognitive layer
 │   │   ├── message_processor.py   Primary intelligence flow
-│   │   ├── safety_pipeline.py     10-layer post-generation guard
+│   │   ├── safety_pipeline.py     Post-generation guards
 │   │   ├── response_filter.py     Persona & bot-speak filtering
 │   │   ├── context_optimizer.py   Token budgeting
 │   │   ├── kaia_rag*.py           Retrieval, indexing, scoring
@@ -572,8 +586,10 @@ Kaiacord/
 Released under the [MIT License](LICENSE) — use it, fork it, ship it.
 
 Kaiacord depends on other open-source projects, all under permissive licenses (MIT, Apache-2.0,
-BSD). The one exception is `browser_cookie3` (LGPL), used only for optional X/Twitter cookie
-import; it is imported dynamically and carries no copyleft obligation for this project. The
+BSD). The exceptions: `browser_cookie3` (LGPL), used only for optional X/Twitter cookie import
+and imported dynamically; and two tools fetched at install time rather than vendored and only
+driven from here — Strudel (AGPL-3.0) for `!music` and kiwiclient (parts GPL) for `!radio`. None
+of them carries a copyleft obligation for this project. The
 models themselves ship under their own terms — see
 [Gemma](https://ai.google.dev/gemma/terms) and [Nomic Embed](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5).
 
@@ -582,7 +598,7 @@ models themselves ship under their own terms — see
 <div align="center">
 <sub>
 
-Built by **Ekco** · Local AI, no cloud required.
+Built by **Ekco** · Local AI, no hosted model.
 
 </sub>
 </div>

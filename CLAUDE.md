@@ -1059,9 +1059,8 @@ it here.
 `finetune/` trains a persona LoRA for `gemma3:12b` on her own logs and exports a GGUF for Ollama.
 It is **off the runtime path** — nothing in `utils/` imports it, and the bot runs the stock model
 until a Modelfile is built and registered. `scripts/run_finetune.sh` drives it; the numbered steps
-are meant to be runnable individually and the wrapper deliberately skips two of them
-(`01_convert_logs.py`, because the dataset is pre-built, and `01b_augment_data.py`, which would
-overwrite it).
+are meant to be runnable individually and the wrapper deliberately skips `01_convert_logs.py`,
+because the dataset is pre-built.
 
 Only `*.py`, `Modelfile` and the directory skeletons are tracked. `dataset/`, `output/`,
 `checkpoints/`, `llama.cpp/` and every `.gguf`/`.safetensors` are git-ignored — the corpus is real

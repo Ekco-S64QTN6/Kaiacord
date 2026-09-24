@@ -33,11 +33,11 @@ otherwise, and why the failure surfaces hours later somewhere unrelated.
 ```bash
 # The default invocation — no Ollama, no GPU
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-22: 1,696 passed, 9 skipped, 85 deselected, 1 xfailed.
+# 2026-09-24: 1,957 passed, 9 skipped, 88 deselected, 1 xfailed.
 # Re-run rather than trusting this line — the count moves every phase.
 
 # One file, or one test
-venv/bin/python3 -m pytest tools/tests/unit/test_combat_engine.py -q
+venv/bin/python3 -m pytest tools/tests/unit/test_combat_concurrency.py -q
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent
 
 # Import and exercise the code you changed — this is the strongest check

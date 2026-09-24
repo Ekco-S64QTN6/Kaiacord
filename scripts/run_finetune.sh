@@ -5,7 +5,7 @@
 # Phase 4 changes:
 #   - Dataset is pre-built (new_train/eval/augmented.jsonl) — 01_convert NOT called
 #   - Validation uses 05b_test_ollama.py (live Ollama test, not the stub)
-#   - 01b_augment_data.py is intentionally NOT called (would overwrite clean dataset)
+#   - (01b_augment_data.py, which overwrote the clean dataset, has been removed)
 
 # -u catches an unset variable instead of expanding it to the empty string;
 # -o pipefail makes a failure anywhere in a pipeline fail the step.

@@ -29,7 +29,7 @@ venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harde
 4. **Skipping External Services** (the invocation to use by default):
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-22: 1,696 passed, 9 skipped, 85 deselected, 1 xfailed.
+# 2026-09-24: 1,957 passed, 9 skipped, 88 deselected, 1 xfailed.
 # Re-run rather than trusting this line — the count moves every phase, and it
 # has been stale in three files at once. What matters is that nothing failed.
 ```
@@ -65,10 +65,11 @@ enables `--strict-markers`, and pins the asyncio loop scope.
 ```text
 tools/tests/
 ├── unit/                 # Isolated component logic (No network, mocked Ollama/Discord)
-│   ├── test_imports.py         # Validates modular imports
-│   ├── test_yaml_config.py     # Tests configuration merging and parsing
-│   ├── test_phase61_fixes.py   # Timezone, chunking guard, KB grounding
-│   ├── test_combat_engine.py   # TTRPG combat formulas & defense soft-caps
+│   ├── test_response_filters.py     # Post-generation guards
+│   ├── test_chat_model_calls.py     # Every model call keeps the runner loaded
+│   ├── test_monitoring_health.py    # Dashboard numbers, loop watchdog, GPU queue
+│   ├── test_radio.py, test_sky.py   # Night-shift feeds and local sky computation
+│   ├── ttrpg/                       # Aethelgard: combat, economy, every subcommand
 │   └── ...
 └── integration/          # Integration checks & end-to-end flows
     ├── test_rag_boot.py        # RAG boot and index hydration
@@ -92,12 +93,11 @@ When contributing to Kaia, follow these guidelines for new tests:
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from utils.infrastructure.system.yaml_config import YAMLConfig
+from utils.infrastructure.system.yaml_config import config
 
 @pytest.mark.asyncio
 async def test_my_new_feature():
-    # Setup
-    config = YAMLConfig("config/kaia.yaml")
+    # Setup: the shared config, as the bot sees it
     
     # Execution
     result = await do_something_async(config)

@@ -89,7 +89,51 @@ Core utility modules used by Kaiacord.
 | `explain_handler.py` | `!explain` RAG retrieval diagnostics |
 | `download_handler.py` | `!download` — stages URLs into `knowledge_base/_ingress/` |
 | `youtube_handler.py` | `!youtube` — stages video transcripts into `knowledge_base/_ingress/` |
-| `system_handler.py` | `!cache` and system administration commands |
+| `music_handler.py` | `!music` — start, stop, genre switches and DJ requests |
+| `radio_handler.py` | `!skyking`, `!numbers`, `!radio`, `!buzzer`, `!tacamo`, `!beacons`, `!overnight` |
+| `sky_handler.py` | `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky` |
+| `nightshift.py` | `!nightshift`, and the small print on each radio/sky box naming its siblings |
+| `profile_handler.py` | Answers "what do you know about <user>" from their profile document |
+| `embed_style.py` | The embed box every `!` command answers in (`box`, `add_field`, `notice`, `clean`) |
+
+## Music (`utils/audio/`)
+
+No model and no VRAM: Strudel runs in a headed browser and is captured into voice.
+
+| Module | Purpose |
+|--------|---------|
+| `strudel_patterns.py` | The arranged track for each genre |
+| `tracks.py` | Plays a track; `check()` enforces the rules that keep every bar audible |
+| `performance.py` | A lane — one `$:` line of the program — and the edits made to it |
+| `dj.py` | Kaia as DJ: genre from mood and hour, tempo from arousal, requests as lane edits |
+| `strudel_engine.py` | Local server, Chromium via Playwright, PipeWire sink, ffmpeg capture |
+| `strudel_session.py` | A voice-channel session driving the engine |
+| `strudel_source.py` | The Discord audio source fed by the capture |
+| `levels.json` | Measured per-part gains, written by `audition_tracks.py --calibrate` |
+
+## Radio (`utils/radio/`)
+
+Guest on volunteer services: polled every `radio.poll_hours`, history in `memory/radio/`.
+
+| Module | Purpose |
+|--------|---------|
+| `fetch.py` | The one HTTP path: identifying User-Agent, public-only connector, caches |
+| `eam_watch.py`, `priyom.py` | eam.watch's EAM log; Priyom's number-station schedule |
+| `kiwi.py` | KiwiSDR directory, receiver choice, recording, S-meter and live streams |
+| `watch.py` | Scheduled listening: HFGCS windows and followed stations, cross-checked against eam.watch |
+| `transcribe.py`, `phonetic.py` | CPU faster-whisper, and phonetic readbacks merged with `?` where they disagree |
+| `live.py` | `!radio`/`!buzzer` live in a voice channel |
+| `beacons.py` | The NCDXF beacon chain, judged from the S-meter |
+| `adsb.py` | E-6B/E-4B sightings on adsb.lol |
+| `overnight.py` | The morning write-up: facts gathered in Python, one model call, invented numbers rejected |
+| `log.py` | `memory/radio/log.json` and the clips |
+
+## Sky (`utils/sky/`)
+
+| Module | Purpose |
+|--------|---------|
+| `feeds.py` | NASA, NOAA SWPC, JPL, USGS, Launch Library 2, DSN Now |
+| `passes.py` | ISS passes, moon and planets from `sky.location`, computed locally with Skyfield |
 
 ## Social & Forum Layer (`utils/social/`)
 
@@ -112,8 +156,8 @@ Core utility modules used by Kaiacord.
 | `class_advancement.py`| 10 advanced classes, stat scaling, and proc logic |
 | `character_manager.py`| Per-user character sheet I/O (async, locked) |
 | `monster_registry.py` | Monster stat blocks (369 / 44 boss-tier at time of writing — verify with `exec()` + `len(MONSTERS)`) |
-| `equipment_registry.py`| 453 items across 7 tiers |
-| `fishing.py` & `fishing_engine.py` | 253 fish species, rods, bait, and fishing economy |
+| `equipment_registry.py`| 395 pieces of gear across 7 tiers, plus 58 consumables |
+| `fishing.py` & `fishing_engine.py` | 248 fish species, rods, bait, and fishing economy |
 | `shop.py` | Merchant inventory and pricing (Hemlock, Pell's, Caravan) |
 | `housing.py`, `farming.py`, `pets.py`, `alchemy.py` | Estate management, harvesting, companions, brewing |
 | `calendar.py` | Seasons, dynamic weather, and 13 special calendar holidays |
