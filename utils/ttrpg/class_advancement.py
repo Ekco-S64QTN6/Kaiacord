@@ -68,6 +68,9 @@ PROC_EMOJIS = {
     "Shaman":       "🌀",
 }
 
+# Where Warden and Shaman forest bonuses apply.
+FOREST_LOCATIONS = ("whisperwood_edge", "whisperwood_deep")
+
 def resolve_class_proc(sheet: dict, weapon_die: int, player_crit: bool, monster: dict) -> dict:
     """
     Roll and resolve a class-based proc for one combat hit.
@@ -470,18 +473,13 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
     # Warden — forest defense
     elif advanced == "Warden":
         loc = location or sheet.get("location", "")
-        if bonuses.get("forest_def_bonus") and loc in ("whisperwood_edge", "whisperwood_deep"):
+        if bonuses.get("forest_def_bonus") and loc in FOREST_LOCATIONS:
             result["monster_damage_reduction"] += bonuses["forest_def_bonus"]
             if monster_damage > 0:
                 result["extra_log"].append(f"🌲 *Warden's bark: -{bonuses['forest_def_bonus']} damage taken.*")
 
-    # Cleric (stay) — enhanced healing (handled via heal_mult in combat_engine)
-    elif advanced == "Cleric":
-        pass  # heal_mult applied separately in combat_engine.py
-
-    # Shaman — nature heal on event
-    elif advanced == "Shaman":
-        pass  # Applied separately in event handler
+    # Applied elsewhere: Cleric/High Priest heal_mult on consumables
+    # (rpg_core_handler), Shaman's forest XP and event heal (rpg_combat_handler).
 
     return result
 

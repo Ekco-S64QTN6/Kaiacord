@@ -169,11 +169,13 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         # Advanced class bonuses
         _adv = sheet.get("advanced_class", "")
         if _adv:
-            from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+            from utils.ttrpg.class_advancement import ADVANCED_CLASSES, FOREST_LOCATIONS
             for _opts in ADVANCED_CLASSES.values():
                 if _adv in _opts:
                     _b = _opts[_adv].get("bonuses", {})
                     xp_gain  = int(xp_gain  * (1.0 + _b.get("xp_bonus_pct",  0.0)))
+                    if _b.get("forest_xp_bonus") and sheet.get("location") in FOREST_LOCATIONS:
+                        xp_gain = int(xp_gain * (1.0 + _b["forest_xp_bonus"]))
                     gil_gain = int(gil_gain * (1.0 + _b.get("gil_bonus_pct", 0.0)))
                     _heal = _b.get("heal_on_combat_end", 0)
                     if _heal > 0 and sheet["hp"]["current"] > 0:
@@ -188,13 +190,15 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
             xp_gain = int(xp_gain * 1.25)
             sheet["conditions"].remove("xp_boosted")
         
-        # Pet Gil Bonus (Oakhaven Cat)
+        # Pet reward bonuses: gil (Cat, Tomb Bat), XP (Wisp Lantern)
         from utils.ttrpg.housing import load_housing_async
         from utils.ttrpg.pets import get_pet_passive
         housing_rewards = await load_housing_async(uid)
         pet_rewards = get_pet_passive(housing_rewards) if housing_rewards else {}
         if pet_rewards.get("gil_bonus_pct"):
             gil_gain = int(gil_gain * (1.0 + pet_rewards["gil_bonus_pct"]))
+        if pet_rewards.get("xp_bonus_pct"):
+            xp_gain = int(xp_gain * (1.0 + pet_rewards["xp_bonus_pct"]))
 
         sheet["xp"] = sheet.get("xp", 0) + xp_gain
         sheet["gil"] = sheet.get("gil", 0) + gil_gain
@@ -933,11 +937,13 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         # Advanced class XP/Gil percentage bonuses
         _adv = sheet.get("advanced_class", "")
         if _adv:
-            from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+            from utils.ttrpg.class_advancement import ADVANCED_CLASSES, FOREST_LOCATIONS
             for _opts in ADVANCED_CLASSES.values():
                 if _adv in _opts:
                     _b = _opts[_adv].get("bonuses", {})
                     xp_gain  = int(xp_gain  * (1.0 + _b.get("xp_bonus_pct",  0.0)))
+                    if _b.get("forest_xp_bonus") and sheet.get("location") in FOREST_LOCATIONS:
+                        xp_gain = int(xp_gain * (1.0 + _b["forest_xp_bonus"]))
                     gil_gain = int(gil_gain * (1.0 + _b.get("gil_bonus_pct", 0.0)))
                     _heal = _b.get("heal_on_combat_end", 0)
                     if _heal > 0 and sheet["hp"]["current"] > 0:
@@ -987,13 +993,15 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             xp_gain = int(xp_gain * 1.25)
             sheet["conditions"].remove("xp_boosted")
         
-        # Pet Gil Bonus (Oakhaven Cat)
+        # Pet reward bonuses: gil (Cat, Tomb Bat), XP (Wisp Lantern)
         from utils.ttrpg.housing import load_housing_async
         from utils.ttrpg.pets import get_pet_passive
         housing_rewards = await load_housing_async(uid)
         pet_rewards = get_pet_passive(housing_rewards) if housing_rewards else {}
         if pet_rewards.get("gil_bonus_pct"):
             gil_gain = int(gil_gain * (1.0 + pet_rewards["gil_bonus_pct"]))
+        if pet_rewards.get("xp_bonus_pct"):
+            xp_gain = int(xp_gain * (1.0 + pet_rewards["xp_bonus_pct"]))
         
         # Streak mechanics
         streak = sheet.get("hunt_streak", 0) + 1

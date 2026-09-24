@@ -2427,6 +2427,19 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 item = find_item(loot)
                 loot_text = f"\n\n💰 Found: **{item['name'] if item else loot}**"
                 state.setdefault("loot_gained", []).append(loot)
+                # Iron Pup: a chance to sniff out a second chest.
+                from utils.ttrpg.housing import load_housing_async
+                from utils.ttrpg.pets import get_pet_passive
+                _housing = await load_housing_async(uid)
+                _chest_pct = get_pet_passive(_housing).get("extra_chest_pct", 0) if _housing else 0
+                if _chest_pct and secrets.randbelow(100) < int(_chest_pct * 100):
+                    bonus = get_loot("medium")
+                    if bonus:
+                        sheet["inventory"].append(bonus)
+                        state["loot_gained"].append(bonus)
+                        b_item = find_item(bonus)
+                        loot_text += (f"\n🐶 Your Iron Pup noses out a second chest: "
+                                      f"**{b_item['name'] if b_item else bonus}**")
             else:
                 gil = secrets.randbelow(25) + 10
                 sheet["gil"] = sheet.get("gil", 0) + gil

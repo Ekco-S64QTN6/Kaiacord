@@ -84,6 +84,7 @@ PET_REGISTRY = {
         "emoji": "🐶",
         "passive": "def_bonus",
         "passive_value": 1,
+        "extra": {"extra_chest_pct": 0.05},
         "food": "iron_plating",
         "food_cost": 15,
         "flavor_fed": "It wags its metallic tail with a quiet whirring sound.",
@@ -141,6 +142,8 @@ def get_pet_passive(housing: dict) -> dict:
         passive = pet_data["passive"]
         val = pet_data["passive_value"]
         bonuses[passive] = bonuses.get(passive, 0) + val
+        for extra, extra_val in pet_data.get("extra", {}).items():
+            bonuses[extra] = bonuses.get(extra, 0) + extra_val
     return bonuses
 
 def reset_daily_pets(housing: dict) -> dict:
