@@ -10,6 +10,7 @@ from pathlib import Path
 import discord
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info, log_warning, log_debug
+from utils.infrastructure.logging.log_sanitize import summarize_payload
 from utils.infrastructure.system.bot_state import bot_state
 from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
@@ -1791,6 +1792,18 @@ class CoreTaskManager:
                 turns.append((m.group('ts'), f"{speaker}: {m.group('msg')}"))
         return turns
 
+    _QUOTED = re.compile(r'["“]([^"“”]{4,})["”]')
+
+    @classmethod
+    def _unverified_quotes(cls, digest: str, conversation: str) -> list:
+        """Quoted spans in the digest that nobody in the conversation said.
+
+        Case, spacing and typographic quotes are ignored; the words are not.
+        """
+        norm = lambda t: " ".join(t.replace("’", "'").casefold().split())
+        said = norm(conversation)
+        return [q for q in cls._QUOTED.findall(digest) if norm(q).strip(" .,!?") not in said]
+
     @staticmethod
     def _load_digest_watermark():
         """Newest turn timestamp already covered by a stored digest.
@@ -1985,16 +1998,16 @@ class CoreTaskManager:
                     "CONVERSATION:\n"
                     f"{joined_messages}\n\n"
                     "Task: Write a concise 1-2 sentence digest in first person ('I noticed...', 'They were talking about...') "
-                    "summarizing the main themes of this conversation and anything that stood out. "
+                    "about the main themes of this conversation and anything that stood out. "
+                    "Describe topics in your own words, but never put words in anyone's mouth: "
+                    "if you say what a person said, quote them exactly, in double quotes, copied "
+                    "character for character from the conversation above. "
+                    "If nothing stood out, reply with only the word NOTHING. "
                     "Speak in your blunt, dry, slightly weary voice. No markdown formatting, no headers, no intro."
                 )
 
-                # Execute LLM call through GPU memory manager
-                from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
-                gpu_manager = OllamaGPUManager(config.chat_model)
-                opts = gpu_manager.get_gpu_options(for_chat=True)
-                opts["num_predict"] = 150
-                opts["temperature"] = 0.3
+                from utils.infrastructure.gpu.gpu_manager import chat_options, gpu_memory_manager, GPUTaskPriority
+                opts = chat_options(temperature=0.3, num_predict=150)
 
                 async def _run_digest_chat():
                     return await self.ctx.ollama_client.chat(
@@ -2012,7 +2025,14 @@ class CoreTaskManager:
                 )
                 digest_text = finish_cleanly(resp["message"]["content"].strip().replace("`", ""))
 
-                if not digest_text:
+                if not digest_text or digest_text.strip(" .").upper() == "NOTHING":
+                    return
+                # It is posted as her observation of real people: a quote
+                # has to be something one of them actually said.
+                misquoted = self._unverified_quotes(digest_text, joined_messages)
+                if misquoted:
+                    log_warning(f"Observation digest declined: quote not in the conversation "
+                                f"({summarize_payload('quote', misquoted[0])})")
                     return
 
                 # Save to memory/observation_digest.json with rolling window

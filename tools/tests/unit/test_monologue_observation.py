@@ -464,3 +464,12 @@ def test_a_failed_thought_is_retried_on_the_same_conversation():
     first = asyncio.run(mono.generate_thought(memory, None, Flaky(), "m"))
     second = asyncio.run(mono.generate_thought(memory, None, Flaky(), "m"))
     assert first is None and second and "bug" in second
+
+
+def test_the_digest_may_only_quote_what_was_said():
+    """DECISIONS Q4: the digest is posted as her observation of real people."""
+    from utils.core.background_tasks import CoreTaskManager as M
+    conv = "Ekco: i think the rover’s   wheels are toast\nStarkind: Nala knocked the plant over again"
+    assert M._unverified_quotes('Ekco said "I think the rover\'s wheels are toast."', conv) == []
+    assert M._unverified_quotes('Starkind said "Nala is a menace".', conv) == ["Nala is a menace"]
+    assert M._unverified_quotes("They were on about rovers and cats.", conv) == []
