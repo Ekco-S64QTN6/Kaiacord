@@ -11,9 +11,34 @@ import base64
 import contextvars
 import threading
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Any, List, Dict
 
 current_channel_id_var = contextvars.ContextVar("current_channel_id", default=None)
+
+#: Exact prompts of turns the consistency watchdog flagged, newest kept.
+WATCHDOG_PROMPTS_DIR = "memory/watchdog_prompts"
+WATCHDOG_PROMPTS_KEEP = 50
+
+
+def _save_watchdog_prompt(ctx, response_text: str, reasons: list) -> None:
+    """Write the exact messages sent to Ollama for a flagged turn.
+
+    A later investigation then reads the real input rather than a
+    reconstruction. One file per turn in memory/ (never the main log),
+    pruned to the newest WATCHDOG_PROMPTS_KEEP.
+    """
+    from utils.core.atomic_write import write_atomic
+    folder = Path(telemetry_path(WATCHDOG_PROMPTS_DIR))
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    write_atomic(folder / f"{stamp}_{ctx.channel_id}.json", json.dumps({
+        "timestamp": time.time(), "channel_id": ctx.channel_id, "author_name": ctx.author_name,
+        "reasons": reasons, "response": response_text,
+        "messages": getattr(ctx, "prompt_messages", None) or [],
+    }, indent=1, ensure_ascii=False))
+    for old in sorted(folder.glob("*.json"))[:-WATCHDOG_PROMPTS_KEEP]:
+        old.unlink(missing_ok=True)
 _growth_log_lock = threading.Lock()
 _gen_log_lock = threading.Lock()
 
@@ -2057,19 +2082,17 @@ class MessageProcessor:
                 f"{clipped_parent}"
             )
 
-        if False:   # the forum used to bypass the addressee anchor below
-            pass
+        if context_reminder:
+            messages.append({"role": "user", "content": f"{context_reminder}\n\n[You are speaking exclusively to {ctx.author_name}. Do NOT greet or address other users.]\n{ctx.author_name}: {user_msg_content}"})
         else:
-            if context_reminder:
-                messages.append({"role": "user", "content": f"{context_reminder}\n\n[You are speaking exclusively to {ctx.author_name}. Do NOT greet or address other users.]\n{ctx.author_name}: {user_msg_content}"})
-            else:
-                messages.append({"role": "user", "content": f"[You are speaking exclusively to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}"})
+            messages.append({"role": "user", "content": f"[You are speaking exclusively to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}"})
         
         log_debug(f"Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
 
     async def _call_ollama_with_retries(self, ctx: MessageContext, messages: List[Dict[str, str]]) -> str:
         """Execute the self-healing generation loop."""
+        ctx.prompt_messages = messages      # kept for the watchdog's record
         from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
         from utils.infrastructure.system.self_healing import SelfHealingSystem
         from utils.core.response_filter import EmergencyContaminationFilter
@@ -2262,7 +2285,9 @@ class MessageProcessor:
                         position = b.get('position', '').lower()
                         
                         aliases = [topic] + [a.lower() for a in b.get('aliases', []) if a]
-                        matched_alias = next((a for a in aliases if a in resp_lower), None)
+                        # Whole words: the topic "art" is not in "start".
+                        matched_alias = next((a for a in aliases if a and re.search(
+                            rf"\b{re.escape(a)}\b", resp_lower)), None)
                         if matched_alias:
                             # Whole words only. As substring tests these invert
                             # polarity: "pro" matches inside "compromise", and
@@ -2311,6 +2336,7 @@ class MessageProcessor:
                             'reasons': reasons
                         }) + "\n")
                 await asyncio.to_thread(_log_to_disk)
+                await asyncio.to_thread(_save_watchdog_prompt, ctx, response_text, reasons)
             return reasons
         except Exception as ce:
             log_debug(f"Self-Consistency Watchdog failed (non-fatal): {ce}")
