@@ -708,14 +708,17 @@ class BotSpeakFilter:
     # markers and Python's '**kwargs' both butt against a word character.
     RE_EMPTY_ASTERISKS = re.compile(r'(?<![\*\w])\*\s*\*(?![\*\w])')
     RE_DOUBLE_SPACES = re.compile(r' +')
-    RE_SPACE_BEFORE_PUNC = re.compile(r' ([\.,\?\!])')
+    # A space an excision left between a word and its punctuation. Only after a
+    # word, and only horizontal: a row of dots (". .. ...") is content, and a
+    # line that opens on punctuation must not be pulled onto the line above.
+    RE_SPACE_BEFORE_PUNC = re.compile(r'(?<=[\w)\]>"\'’”])[ \t]+([\.,\?\!])')
     RE_GLOBAL_ROLE_PREFIX = re.compile(r'^\s*(Kaia|User|Assistant):\s+', re.IGNORECASE | re.MULTILINE)
     RE_DOUBLE_NEWLINES = re.compile(r'\n\s*\n+')
     RE_GRAMMAR_ARTICLE = re.compile(r'\b(?:a|an|the|my|your|our)\s+(?=[,\.\?!])', re.IGNORECASE)
-    RE_GRAMMAR_PUNC_SPACE = re.compile(r'\s+([,\.\?!])')
+    RE_GRAMMAR_PUNC_SPACE = RE_SPACE_BEFORE_PUNC
     RE_GRAMMAR_DOUBLE_COMMA = re.compile(r',\s*,')
     RE_GRAMMAR_I_AM = re.compile(r'\b(?:i am|i\'m),\s*', re.IGNORECASE)
-    RE_GRAMMAR_START_PUNC = re.compile(r'^[,\.\?!]\s*')
+    RE_GRAMMAR_START_PUNC = re.compile(r'^[,\.\?!]\s*(?=\w)')   # an orphan, not "..." or a pattern
 
     @classmethod
     def is_stage_direction(cls, content: str) -> bool:

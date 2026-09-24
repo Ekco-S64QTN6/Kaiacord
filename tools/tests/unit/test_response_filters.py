@@ -516,3 +516,17 @@ def test_clause_excision_keeps_a_clause_after_a_semicolon():
     """A dangling tail can still carry real substance past a semicolon."""
     out = BotSpeakFilter.harden("you're right to push back; the logs were stale.")
     assert out == "the logs were stale."
+
+
+def test_a_row_of_dots_survives_the_pipeline():
+    """Starkind asked her for a pattern of dots. The space-before-punctuation
+    cleanups fused `. .. ...` into one run and pulled it onto the line above."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    dots = ". .. ... .... ..... . . . . ..."
+    for text in (dots, f"here's mine, starkind.\n\n{dots}"):
+        out, reject = P.process_attempt(content=text, attempt=1, query="generate your own dots",
+                                        author_id=1, channel_id=1)
+        assert reject is None
+        assert out.endswith(dots)
+    # The cleanup still does its job after a word.
+    assert BotSpeakFilter.harden("the answer is 4 .") == "the answer is 4."
