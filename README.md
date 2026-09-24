@@ -412,6 +412,8 @@ Kaia keeps an ear on the strange end of the HF bands.
 !skyking classic           # an old Skyking broadcast from the archive, read the way it sounded
 !numbers                   # number stations on the air in the next 6 hours, with listen links
 !numbers e11               # when the "Oracle" is next on
+!radio hfgcs               # play the HFGCS net live in your voice channel
+!radio                     # what Kaia has heard, and how right she was
 ```
 
 EAMs come from [eam.watch](https://eam.watch/)'s volunteer log of the USAF High Frequency Global
@@ -421,6 +423,14 @@ Skyking itself is defunct; the command is an homage. The number-station schedule
 [UTwente WebSDR](http://websdr.ewi.utwente.nl:8901/) already tuned. Both feeds are read-only,
 polled every 6 hours and cached — they are volunteer services. Nothing here decodes anything:
 the messages are encrypted, and Kaia says so.
+
+**Kaia listens, too.** Four times a day she records the HFGCS net from a public
+[KiwiSDR](http://kiwisdr.com/) receiver, and she tunes in for the number stations she follows.
+She transcribes EAMs on the CPU (faster-whisper), turns the phonetic alphabet back into the
+message — marking anything she's unsure of with `?` rather than guessing — and checks herself
+against eam.watch's human copy of the same broadcast. Catches and clips go to `#kaia-opolis`;
+the history stays in `memory/radio/`, outside her searchable memory. Setup:
+`venv/bin/python3 tools/maintenance/fetch_radio_assets.py` (kiwiclient, faster-whisper, ~3 GB model).
 
 </details>
 
@@ -487,7 +497,7 @@ Kaiacord/
 │   ├── commands/             Discord command routers
 │   ├── social/               Forum crawler & social responders
 │   ├── audio/                !music: arranged tracks, the DJ, the Strudel engine
-│   ├── radio/                !skyking and !numbers: eam.watch and Priyom feeds
+│   ├── radio/                !skyking, !numbers, !radio: feeds, KiwiSDR listening, transcription
 │   └── infrastructure/       DI context, dashboard, logging, GPU pinning
 ├── tools/
 │   ├── maintenance/          Health checks, re-indexing, KB ingestion, dream curation,

@@ -1867,27 +1867,38 @@ class CoreTaskManager:
         return ingress_task
 
     def _make_radio_task(self):
-        """Refresh the shortwave feeds (eam.watch, Priyom) for !skyking and !numbers.
+        """Shortwave: refresh the feeds, start scheduled listens, cross-check.
 
-        Checks hourly and fetches only what is older than `radio.poll_hours`
-        (6 by default): these are volunteer-run services and a novelty feed.
+        Ticks every minute so a scheduled listen starts on time; the feeds
+        themselves are fetched only when older than `radio.poll_hours` (6):
+        eam.watch and Priyom are volunteer-run and this is a novelty.
         """
-        @tasks.loop(hours=1)
+        @tasks.loop(minutes=1)
         async def radio_task():
             if shutdown_manager.shutting_down:
                 return
-            from utils.commands.radio_handler import poll_seconds, radio_enabled
+            from utils.commands.radio_handler import poll_seconds, post_entry, radio_enabled
             if not radio_enabled():
                 return
-            from utils.radio import eam_watch, priyom
+            from utils.radio import eam_watch, priyom, transcribe, watch
             from utils.radio.fetch import FeedError
             for name, refresh in (("eam.watch", eam_watch.refresh), ("priyom", priyom.refresh)):
                 try:
-                    await refresh(poll_seconds())
+                    cache = await refresh(poll_seconds())
+                    if name == "eam.watch":
+                        checked = watch.cross_check(eam_watch.messages(cache))
+                        if checked:
+                            log_info(f"[radio] cross-checked {checked} transcription(s) against eam.watch")
                 except FeedError as e:
                     log_warning(f"[radio] {name} refresh failed: {e}")
                 except Exception as e:
                     log_error(f"[radio] {name} refresh error: {e}")
+            bot = getattr(self.ctx, "bot", None)
+            try:
+                await watch.tick(poster=(lambda e: post_entry(bot, e)) if bot else None)
+            except Exception as e:
+                log_error(f"[radio] scheduled listen failed to start: {e}")
+            transcribe.release_if_idle()
 
         @radio_task.before_loop
         async def before_radio():

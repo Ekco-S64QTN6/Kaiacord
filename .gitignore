@@ -108,6 +108,10 @@ knowledge_base/.test/
 # off this repo, where committing it would not.
 assets/strudel/strudel-repl.js
 
+# Shortwave listening, fetched by tools/maintenance/fetch_radio_assets.py.
+# kiwiclient has no top-level licence and GPL parts; it is run, never committed.
+assets/kiwiclient/
+
 # A reindex request belongs at knowledge_base/.trigger_reindex (ignored above).
 # One at the repo root was never read by anything.
 /.trigger_reindex

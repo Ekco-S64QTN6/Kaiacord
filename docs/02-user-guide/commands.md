@@ -14,6 +14,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!news [n \| category]` | Today's headlines; `!news 3` opens story 3 | All |
 | `!skyking [n \| classic]` | Latest military Emergency Action Messages (eam.watch) | All |
 | `!numbers [station] [hours]` | Number stations on the air soon, with listen links (Priyom) | All |
+| `!radio [hfgcs \| <kHz> \| <station> \| log [n] \| listen \| off]` | What Kaia has heard on shortwave; play a receiver live in voice | All |
 | `!download <url>` | Submit a URL for the knowledge base (staged, filed hourly) | All |
 | `!youtube <url>` | Pull a video's transcript into the knowledge base, correcting misheard names (`!yt`) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
@@ -60,7 +61,7 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
 
 **Categories:** `today`, `technology`, `security`, `hacking`, `politics`, `business`, `science`, `culture`, `general`
 
-### 📻 Shortwave (`!skyking` / `!eam`, `!numbers`)
+### 📻 Shortwave (`!skyking` / `!eam`, `!numbers`, `!radio`)
 - `!skyking` — the latest five Emergency Action Messages logged off the USAF HFGCS net
   (8992 / 11175 kHz USB) at [eam.watch](https://eam.watch/), with callsign, preamble and message.
   Messages are encrypted; Kaia shows them, she doesn't decode them.
@@ -71,6 +72,16 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   each with a link that opens the UTwente WebSDR already tuned. `!numbers e11` for one station,
   `!numbers 12` for a longer window.
 - The feeds are volunteer-run and polled every 6 hours, so this is a few hours behind by design.
+- `!radio` — what Kaia has heard: her last recordings, what she made of them, and how her
+  transcriptions compared with eam.watch's human copies.
+- `!radio log` / `!radio log 3` — the full log, and one entry with its recording attached.
+- `!radio hfgcs` (or `!radio 11175`, `!radio 6998 usb`) — join your voice channel first; Kaia
+  plays that frequency live from a public KiwiSDR receiver. `!radio e11` tunes to E11 if it's on
+  the air now, or tells you when it is next. `!radio off` to stop; she leaves after an hour or
+  when the channel empties.
+- `!radio listen [minutes]` — run an HFGCS watch now (she also does this four times a day).
+
+Recording and transcription need a one-time `python tools/maintenance/fetch_radio_assets.py`.
 
 ### 📥 Download (`!download <url>`)
 Fetches content from a URL, converts it to Markdown, and **stages** it in
@@ -189,7 +200,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!quip`, `!forum link` |
+| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!quip`, `!forum link` |
 | **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).

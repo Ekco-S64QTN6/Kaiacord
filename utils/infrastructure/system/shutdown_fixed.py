@@ -123,6 +123,14 @@ class CleanShutdown:
         except Exception as e:
             log_warning(f"  ⚠️  Failed to leave voice channel: {e}")
 
+        try:
+            from utils.radio.live import active as radio_active, stop_all as radio_stop_all
+            if radio_active():
+                await radio_stop_all()
+                log_info("  ✅ Live radio stopped")
+        except Exception as e:
+            log_warning(f"  ⚠️  Failed to stop live radio: {e}")
+
         # 1. Cancel all registered tasks via registry (STOP EVERYTHING FIRST)
         try:
             from utils.infrastructure.monitoring.async_task_registry import task_registry

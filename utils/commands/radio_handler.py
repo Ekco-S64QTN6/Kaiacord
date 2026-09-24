@@ -3,6 +3,7 @@
 !skyking N          — message N in full: preamble, body, repeats, recording
 !skyking classic    — a message from the Skyking archive, read the way it sounded
 !numbers [station]  — number stations on the air in the next few hours (Priyom)
+!radio …            — what Kaia has heard, and live listening in voice (KiwiSDR)
 
 Skyking itself is defunct; the command is named for it as an homage, and shows
 what the net sends now. Feeds are read from the on-disk cache the radio task
@@ -11,7 +12,7 @@ refreshes every few hours; a command only fetches when there is no cache yet.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from utils.commands.embed_style import COLOR_ERROR, add_field, box, clean
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning
@@ -27,6 +28,7 @@ RADIO_COMMANDS = {
     "detail": "!skyking <n> — one in full",
     "classic": "!skyking classic — an old Skyking",
     "numbers": "!numbers [station] [hours] — number stations",
+    "radio": "!radio — what Kaia heard · !radio hfgcs — listen live",
 }
 
 
@@ -178,3 +180,194 @@ async def handle_numbers_command(ctx, msg, send_kaia_response=None):
     except Exception as e:
         log_error(f"[radio] !numbers failed: {e}")
         await msg.channel.send(embed=box("🔢  Numbers", "Something went wrong reading the schedule. It's in the log.", COLOR_ERROR))
+
+
+# ── !radio ──────────────────────────────────────────────────────────────────
+
+LIVE_PRESETS = {
+    "hfgcs": (8992.0, "usb", "na", "HFGCS"),
+    "8992": (8992.0, "usb", "na", "HFGCS"),
+    "11175": (11175.0, "usb", "na", "HFGCS"),
+}
+
+
+def _entry_line(i: int, e: dict) -> str:
+    when = datetime.fromisoformat(e["started"])
+    parsed = e.get("parsed") or {}
+    what = f"`{parsed['message']}`" if parsed.get("message") else clean(e.get("transcript") or "(no transcript)", 90)
+    who = parsed.get("callsign") or e.get("station", "")
+    check = e.get("check")
+    mark = f" · ✔ {check['accuracy']:.0%}" if check else ""
+    return f"**{i}** · {when:%d %b %H:%M}Z · {e['khz']:g} kHz · **{clean(who, 30)}** {what}{mark}"
+
+
+def status_embed(entries: list[dict]):
+    from utils.radio import kiwi, transcribe, watch
+    from utils.radio import priyom as pr
+    lines = []
+    windows = config.get("radio.hfgcs_windows_utc", watch.DEFAULT_WINDOWS)
+    now = datetime.now(timezone.utc)
+    upcoming = sorted(
+        (now.replace(hour=int(w.split(":")[0]), minute=int(w.split(":")[1]), second=0, microsecond=0)
+         for w in windows), key=lambda t: (t < now, t))
+    if upcoming:
+        lines.append(f"Next HFGCS watch: **{upcoming[0]:%H:%M}Z** on 8992 kHz")
+    follow = config.get("radio.follow", watch.DEFAULT_FOLLOW)
+    nxt = [t for t in pr.upcoming(read_cache_safe(pr.CACHE), 24)
+           if t.station.upper() in {f.upper() for f in follow} and t.khz]
+    if nxt:
+        lines.append(f"Next {nxt[0].station}: **{nxt[0].start:%H:%M}Z** on {nxt[0].khz:g} kHz")
+    missing = []
+    if not kiwi.available():
+        missing.append("kiwiclient")
+    if not transcribe.available():
+        missing.append("faster-whisper")
+    if missing:
+        lines.append(f"⚠️ not installed: {', '.join(missing)} — `tools/maintenance/fetch_radio_assets.py`")
+    embed = box("📡  What Kaia has heard", "\n".join(lines), COLOR_RADIO,
+                footer=f"receivers: the public KiwiSDR network · !radio log <n> · !radio listen\n{_others('radio')}")
+    if entries:
+        add_field(embed, "Latest", "\n".join(_entry_line(i, e) for i, e in enumerate(entries[:6], 1)))
+        checks = [e["check"]["accuracy"] for e in entries if e.get("check")]
+        if checks:
+            add_field(embed, "Against eam.watch's copies",
+                      f"{len(checks)} checked · {sum(checks) / len(checks):.0%} of characters right on average")
+    else:
+        add_field(embed, "Latest", "Nothing yet — the first scheduled watch will fill this in.")
+    return embed
+
+
+def read_cache_safe(name):
+    from utils.radio.fetch import read_cache
+    return read_cache(name)
+
+
+def entry_embed(e: dict):
+    parsed = e.get("parsed") or {}
+    title = f"📡  {e['station']} · {e['khz']:g} kHz {e['mode'].upper()}"
+    desc = f"`{parsed['message']}`" if parsed.get("message") else clean(e.get("transcript") or "", 1500)
+    embed = box(title, desc or "(no transcript)", COLOR_RADIO,
+                footer=f"via {e.get('receiver_location') or e['receiver']} (KiwiSDR) · `?` = not sure\n{_others('radio')}")
+    add_field(embed, "Heard", f"{datetime.fromisoformat(e['started']):%d %b %H:%M}Z", inline=True)
+    add_field(embed, "Length", f"{e['seconds']:.0f} s", inline=True)
+    if parsed.get("callsign"):
+        add_field(embed, "Callsign", parsed["callsign"], inline=True)
+    if parsed.get("preamble"):
+        add_field(embed, "Preamble", f"`{parsed['preamble']}`", inline=True)
+    check = e.get("check")
+    if check:
+        add_field(embed, "eam.watch's copy", f"`{check['truth']}` — {check['accuracy']:.0%} match")
+    if parsed.get("message") and e.get("transcript"):
+        add_field(embed, "What I heard", clean(e["transcript"], 900))
+    return embed
+
+
+def clip_file(e: dict):
+    import discord
+    from utils.radio import log as radio_log
+    path = radio_log.clips_dir() / e.get("clip", "")
+    return discord.File(str(path), filename=path.name) if e.get("clip") and path.is_file() else None
+
+
+async def post_entry(bot, e: dict) -> bool:
+    """Post a catch to the review channel (radio.post_channel, #kaia-opolis)."""
+    import discord
+    if not config.get("radio.post_clips", True):
+        return False
+    name = config.get("radio.post_channel", "kaia-opolis")
+    channel = discord.utils.get(bot.get_all_channels(), name=name)
+    if channel is None:
+        log_warning(f"[radio] #{name} not found; not posting {e['id']}")
+        return False
+    f = clip_file(e)
+    await channel.send(embed=entry_embed(e), **({"file": f} if f else {}))
+    return True
+
+
+async def handle_radio_command(ctx, msg, send_kaia_response=None):
+    from utils.radio import kiwi, live, log as radio_log, watch
+    parts = msg.content.strip().split()
+    verb = parts[1].lower() if len(parts) > 1 else "status"
+    log_action(f"!radio {' '.join(parts[1:])} for {msg.author}")
+    if not radio_enabled():
+        await msg.channel.send(embed=box("📡  Radio", "The radio feeds are switched off (`radio.enabled`).", COLOR_ERROR))
+        return
+    try:
+        if verb in ("status", "heard"):
+            await msg.channel.send(embed=status_embed(radio_log.entries()))
+            return
+        if verb == "log":
+            entries = radio_log.entries()
+            if len(parts) > 2 and parts[2].isdigit():
+                n = int(parts[2])
+                if not 1 <= n <= len(entries):
+                    await msg.channel.send(embed=box("📡  Radio", f"There are {len(entries)} in the log.", COLOR_ERROR))
+                    return
+                e = entries[n - 1]
+                f = clip_file(e)
+                await msg.channel.send(embed=entry_embed(e), **({"file": f} if f else {}))
+                return
+            embed = box("📡  Radio log", "\n".join(_entry_line(i, e) for i, e in enumerate(entries[:12], 1))
+                        or "Nothing recorded yet.", COLOR_RADIO,
+                        footer=f"!radio log <n> — one in full, with the recording\n{_others('radio')}")
+            await msg.channel.send(embed=embed)
+            return
+        if verb == "off":
+            stopped = msg.guild and await live.stop(msg.guild.id)
+            await msg.channel.send(embed=box("📡  Radio", "off the air." if stopped else "nothing was playing.", COLOR_RADIO))
+            return
+        if verb == "listen":
+            if not kiwi.available():
+                await msg.channel.send(embed=box("📡  Radio", "kiwiclient isn't installed — "
+                                                 "`tools/maintenance/fetch_radio_assets.py`.", COLOR_ERROR))
+                return
+            minutes = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 10
+            minutes = max(2, min(30, minutes))
+            job = {"key": f"manual:{datetime.now(timezone.utc):%Y%m%dT%H%M}", "kind": "hfgcs", "station": "HFGCS",
+                   "khz": watch.HFGCS_KHZ, "mode": "usb", "seconds": minutes * 60, "region": "na",
+                   "squelch": watch.SQUELCH_DB}
+            bot = getattr(ctx, "bot", None)
+            import asyncio
+            asyncio.create_task(watch.run_job(job, (lambda e: post_entry(bot, e)) if bot else None))
+            await msg.channel.send(embed=box("📡  Listening", f"on 8992 kHz for {minutes} minutes. Anything that "
+                                             "sounds like an EAM goes to the log and #kaia-opolis.", COLOR_RADIO,
+                                             footer=_others('radio')))
+            return
+
+        # Live: a preset, a station, or a frequency in kHz.
+        if msg.guild is None or not getattr(msg.author, "voice", None) or not msg.author.voice.channel:
+            await msg.channel.send(embed=box("📡  Radio", "join a voice channel first, then `!radio hfgcs`.", COLOR_ERROR))
+            return
+        from utils.audio.strudel_session import get_session as music_session
+        if music_session(msg.guild.id):
+            await msg.channel.send(embed=box("📡  Radio", "the music's playing — `!music off` first.", COLOR_ERROR))
+            return
+        if verb in LIVE_PRESETS:
+            khz, mode, region, label = LIVE_PRESETS[verb]
+        elif verb.replace(".", "", 1).isdigit():
+            khz, region, label = float(verb), "na", f"{float(verb):g} kHz"
+            mode = parts[2].lower() if len(parts) > 2 else "usb"
+        else:
+            cache = await priyom.refresh(poll_seconds())
+            items = [t for t in priyom.upcoming(cache, 24, station=verb) if t.khz]
+            now = datetime.now(timezone.utc)
+            onair = [t for t in items if t.start - timedelta(minutes=10) <= now <= t.start + timedelta(minutes=10)]
+            if not onair:
+                nxt = f"next at **{items[0].start:%H:%M}Z** on {items[0].khz:g} kHz" if items else "not on the schedule today"
+                await msg.channel.send(embed=box("📡  Radio", f"{verb.upper()} isn't on the air now — {nxt}.",
+                                                 COLOR_RADIO, footer=_others('radio')))
+                return
+            t = onair[0]
+            khz, mode, region, label = t.khz, (t.mode or "usb").lower(), "eu", t.station
+        s = await live.start(msg.author.voice.channel, khz, mode, region, label, str(msg.author.display_name))
+        await msg.channel.send(embed=box(f"📡  Live · {label}", f"{khz:g} kHz {mode.upper()} from "
+                                         f"**{clean(s.receiver.location or s.receiver.host, 80)}**. "
+                                         f"`!radio off` to stop; I leave after "
+                                         f"{config.get('radio.live_max_minutes', 60)} minutes or when the channel empties.",
+                                         COLOR_RADIO, footer=_others('radio')))
+    except FeedError as e:
+        log_warning(f"[radio] {e}")
+        await msg.channel.send(embed=box("📡  Radio", f"couldn't reach the receivers — {clean(str(e), 200)}", COLOR_ERROR))
+    except Exception as e:
+        log_error(f"[radio] !radio failed: {e}")
+        await msg.channel.send(embed=box("📡  Radio", "Something went wrong with the radio. It's in the log.", COLOR_ERROR))

@@ -9,6 +9,7 @@ from typing import Any, Optional
 import aiohttp
 
 from utils.core.atomic_write import write_atomic
+from utils.core.sanitizer import read_capped
 from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
 USER_AGENT = "Kaiacord/1.0 (self-hosted Discord bot; polls every few hours; github.com/Ekco-S64QTN6/Kaiacord)"
@@ -32,7 +33,7 @@ async def get_json(url: str, params: Optional[dict] = None) -> Any:
             async with session.get(url, params=params) as resp:
                 if resp.status != 200:
                     raise FeedError(f"{url} answered HTTP {resp.status}")
-                raw = await resp.content.read(MAX_BYTES)
+                raw = await read_capped(resp, MAX_BYTES)
     except FeedError:
         raise
     except Exception as e:

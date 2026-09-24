@@ -27,7 +27,7 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 | **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X, each behind its own enable flag. |
 | **Monitoring** | `utils/infrastructure/monitoring/` | Curses dashboard (`btop_dashboard_v2.py`). |
 | **News** | `utils/news/` | Daily briefs filed into `knowledge_base/news/`. The generator (`tools/maintenance/update_kaia_news.py`) calls the Gemini API with Google Search grounding — the only path that sends anything *of hers* off the machine. `utils/news/` itself only reads what was filed. |
-| **Radio** | `utils/radio/` | `!skyking` (military EAMs from eam.watch) and `!numbers` (number-station schedule from Priyom). Read-only polls of volunteer-run public feeds, every `radio.poll_hours` (6), cached in `memory/radio/`. See §7. |
+| **Radio** | `utils/radio/` | `!skyking` (military EAMs from eam.watch), `!numbers` (number-station schedule from Priyom), `!radio` (scheduled KiwiSDR recording, CPU transcription, live listening in voice). Feeds polled every `radio.poll_hours` (6); history in `memory/radio/`. See §7. |
 | **LoRA fine-tune** | `finetune/` | Numbered pipeline (`01_convert_logs.py` → `05c_evaluate_persona.py`), driven by `scripts/run_finetune.sh`. Trains a persona adapter on her own logs and exports GGUF for Ollama. Off the runtime path — see [§16](#16-fine-tuning). |
 
 Models: `gemma3:12b` (GPU), `nomic-embed-text-cpu` (CPU embeddings). **There is no classifier
@@ -511,8 +511,18 @@ is a novelty, not a live feed), one request at a time, with the identifying User
 `utils/radio/fetch.py`, through `public_only_connector`. A response in an unexpected shape raises
 `FeedError` and the command says so; it must never become an empty list, which reads as "no
 traffic". EAMs and number-station groups are encrypted: nothing Kaia says may claim to decode
-one. The research and the remaining phases (recording, transcription, live `!radio`) are in
-`docs/reports/investigations/2026-09-24-shortwave-feasibility.md`.
+one. Research: `docs/reports/investigations/2026-09-24-shortwave-feasibility.md`.
+
+Kaia also **listens** (`utils/radio/watch.py`): scheduled, squelched recordings from public
+KiwiSDRs via `kiwirecorder` (fetched into `assets/kiwiclient/` by
+`tools/maintenance/fetch_radio_assets.py`, never vendored — no licence file, GPL parts), CPU-only
+faster-whisper `large-v3` on band-passed audio, and `phonetic.parse`, which merges the readbacks
+and writes `?` where they disagree. Rules: pick receivers with a free slot and no time limit, hold
+a slot only while a job or `!radio` needs it, one listen at a time. **Radio history lives in
+`memory/radio/`, never in `knowledge_base/`** — it is noise to retrieval. Accuracy is measured
+against eam.watch's human copies (`watch.cross_check`), not claimed. Small and medium Whisper
+models, raw audio and the VAD filter all hallucinated on HF audio; don't "optimise" to them
+without re-running that comparison.
 
 Strudel is AGPL-3.0 and is **not vendored**. `tools/maintenance/fetch_music_assets.py` fetches it
 as its own unmodified bundle at install time (needs `ffmpeg` and `pactl`), and this project only

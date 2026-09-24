@@ -117,7 +117,10 @@ async def refresh(max_age_s: float, force: bool = False) -> dict:
     items = _page_items(await get_json(f"{BASE}/api/messages", {"page": 1}))
     for item in items:           # validate before anything is written
         parse(item)
-    write_cache(MESSAGES_CACHE, {"messages": items})
+    # Every callsign ever seen, so a transcription can be matched to a name
+    # that is no longer on the first page.
+    known = set(cache.get("callsigns") or []) | {parse(i).sender for i in items}
+    write_cache(MESSAGES_CACHE, {"messages": items, "callsigns": sorted(known)})
     return read_cache(MESSAGES_CACHE)
 
 
