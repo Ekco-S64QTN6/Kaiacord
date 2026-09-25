@@ -330,3 +330,19 @@ def test_pools_are_wide_enough_to_not_read_as_a_tic():
 def test_a_link_slug_is_not_a_reaction_cue():
     from utils.core.kaia_reactions import KaiaReactions
     assert KaiaReactions().score_categories("https://example.com/insane-funny-clip") == {}
+
+
+def test_print_is_levelled_by_its_prefix_not_by_words_inside_it():
+    from utils.infrastructure.logging import unified_logging as u
+    def level(t):
+        m = u._PRINT_LEVEL.match(t)
+        return u._EMOJI_LEVEL.get(m.group(1)) or (m.group(2) or "INFO").upper(), t[m.end():]
+    assert level("found 0 ERRORs in 12 files") == ("INFO", "found 0 ERRORs in 12 files")
+    assert level("success of the launch was mixed")[0] == "INFO"
+    assert level("WARNING: disk low") == ("WARNING", "disk low")
+    assert level("✅ SUCCESS: saved") == ("SUCCESS", "saved")
+
+
+def test_the_logger_keeps_no_unbounded_buffer():
+    from utils.infrastructure.logging.unified_logging import logger
+    assert not hasattr(logger, "console_buffer")

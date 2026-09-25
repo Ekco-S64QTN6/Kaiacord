@@ -18,8 +18,8 @@ class UnifiedLogger:
     """Single source of truth for all logging (Thread-safe, Non-blocking)"""
     def __init__(self):
         self.lock = threading.RLock()
-        self.console_buffer = []
         self.dashboard_buffer = deque(maxlen=200)
+        self._dropped = 0     # lines lost to a full queue since the last report
         self.message_history = OrderedDict()
         self.last_console_message = None
         self.last_message_time = 0
@@ -205,14 +205,18 @@ class UnifiedLogger:
         if log_type != "DEBUG":
             with self.lock:
                 self.dashboard_buffer.append(log_entry)
-                self.console_buffer.append(log_entry)
 
         # ENQUEUE for background worker (Thread-safe, Non-blocking)
         try:
+            if self._dropped:
+                # Say what was lost, once there is room again.
+                self.log_queue.put_nowait({**log_entry, 'type': 'WARNING',
+                                           'message': f"{self._dropped} log line(s) dropped: the log queue was full"})
+                self._dropped = 0
             self.log_queue.put_nowait(log_entry)
         except queue.Full:
-            # Drop logs if queue is full to prioritize event loop health
-            pass
+            # Drop rather than block the event loop, and count it.
+            self._dropped += 1
 
         return log_entry
 
@@ -348,7 +352,6 @@ class UnifiedLogger:
         """Clear log buffers"""
         with self.lock:
             self.dashboard_buffer.clear()
-            self.console_buffer.clear()
 
     def stop(self):
         """Stop background worker and flush remaining logs."""
@@ -390,6 +393,12 @@ class UnifiedStderr:
             # Happens during interpreter shutdown
             pass
 
+_EMOJI_LEVEL = {"✅": "SUCCESS", "⚡": "ACTION", "⚠️": "WARNING", "❌": "ERROR"}
+_PRINT_LEVEL = __import__("re").compile(
+    r"^\s*(?:(✅|⚡|⚠️|❌)\s*)?(?:(success|action|warning|error)\s*:)?\s*(?=\S)",
+    __import__("re").IGNORECASE)
+
+
 # Replace ALL existing logging
 def replace_all_logging():
     """Monkey-patch all logging to use unified system"""
@@ -414,29 +423,15 @@ def replace_all_logging():
             if not message.strip():
                 return
                 
-            # Detect log type from common prefixes
+            # The level from a leading marker only — "✅", "SUCCESS:" and the
+            # like. Matching the word anywhere filed "found 0 ERRORs" as an
+            # error and cut the word out of the message.
             log_type = "INFO"
-            if message.startswith("✅") or "SUCCESS" in message:
-                log_type = "SUCCESS"
-                clean_msg = message.replace("✅", "").replace("SUCCESS", "").strip()
-                if clean_msg.startswith(":"): clean_msg = clean_msg[1:].strip()
-                message = clean_msg
-            elif message.startswith("⚡") or "ACTION" in message:
-                log_type = "ACTION"
-                clean_msg = message.replace("⚡", "").replace("ACTION", "").strip()
-                if clean_msg.startswith(":"): clean_msg = clean_msg[1:].strip()
-                message = clean_msg
-            elif message.startswith("⚠️") or "WARNING" in message:
-                log_type = "WARNING"
-                clean_msg = message.replace("⚠️", "").replace("WARNING", "").strip()
-                if clean_msg.startswith(":"): clean_msg = clean_msg[1:].strip()
-                message = clean_msg
-            elif message.startswith("❌") or "ERROR" in message:
-                log_type = "ERROR"
-                clean_msg = message.replace("❌", "").replace("ERROR", "").strip()
-                if clean_msg.startswith(":"): clean_msg = clean_msg[1:].strip()
-                message = clean_msg
-            
+            m = _PRINT_LEVEL.match(message)
+            if m:
+                log_type = _EMOJI_LEVEL.get(m.group(1)) or (m.group(2) or "INFO").upper()
+                message = message[m.end():].strip() or message
+
             # Remove any existing timestamps
             if "|" in message and len(message.split("|")) >= 2:
                 # Check if it starts with timestamp pattern
