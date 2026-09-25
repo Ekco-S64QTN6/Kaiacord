@@ -61,6 +61,7 @@ DEFAULT_LABELS = {
     "long_thought": "📜 Long thought",
     "overnight_log": "🌙 Overnight log",
     "afterthought": "🕰️ Afterthought",
+    "correction": "📌 Correction",
 }
 
 # Which labels each kind of post may wear. The first is its home label.
@@ -78,6 +79,7 @@ KIND_LABELS = {
     # A follow-up to her own reply in the conversation: labelled, but not
     # gated, counted or cross-posted (background_tasks' afterthought task).
     "afterthought": ["afterthought"],
+    "correction": ["correction"],             # self_correction.py; same rules
 }
 
 # The label a kind wore before this module existed, for anyone who set it.

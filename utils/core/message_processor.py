@@ -2134,6 +2134,10 @@ class MessageProcessor:
             or _node_meta(n).get('retrieval_method') == 'summarization'
             for n in raw_nodes
         )
+        # The reference documents behind this reply, for the self-check (K7).
+        ctx.grounded_sources = sorted({
+            _node_meta(n).get('file_path') for n in raw_nodes
+            if _node_meta(n).get('source_type') in KNOWLEDGE_SOURCES and _node_meta(n).get('file_path')})
         is_grounded = has_rag_knowledge or bool(
             ctx.intent and getattr(ctx.intent, 'suggested_strategy', None) in ["SUMMARIZATION", "PRECISE_RECALL", "DIAGNOSTIC_DEEP_DIVE"]
         )
@@ -2610,6 +2614,16 @@ class MessageProcessor:
                         log_debug(f"Relationship event saved: {event_type} for {ctx.author_name}")
                 except Exception as _rel_err:
                     log_debug(f"Relationship update error (non-fatal): {_rel_err}")
+
+                # A reply grounded in reference documents, kept so a later check
+                # can compare it with its sources (K7). Discord only.
+                if not ctx.is_social and ctx.grounded_sources:
+                    try:
+                        from utils.core.self_correction import record_claim
+                        await asyncio.to_thread(record_claim, ctx.channel_id, ctx.author_name,
+                                                _own, bot_response, ctx.grounded_sources)
+                    except Exception as _gc_err:
+                        log_debug(f"Grounded claim not recorded (non-fatal): {_gc_err}")
 
                 # An argued point about one of her beliefs, kept for the nightly
                 # review (K9). Discord only: strangers on a public feed don't

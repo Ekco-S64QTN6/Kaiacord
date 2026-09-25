@@ -68,6 +68,7 @@ class CoreTaskManager:
         self.corpus_hygiene_task = self._make_corpus_hygiene_task()
         self.ingress_task = self._make_ingress_task()
         self.radio_task = self._make_radio_task()
+        self.self_correction_task = self._make_self_correction_task()
         
     def _make_news_refresh_task(self):
         @tasks.loop(hours=12)
@@ -1839,6 +1840,28 @@ class CoreTaskManager:
         except Exception:
             return ""
 
+    def _make_self_correction_task(self):
+        """Check recent grounded claims against their sources (utils/core/self_correction.py)."""
+        @tasks.loop(hours=3)
+        async def self_correction_task():
+            if shutdown_manager.shutting_down or not self.ctx or not self.ctx.ollama_client:
+                return
+            if getattr(self.ctx.bot_state, 'is_generating', False):
+                return
+            try:
+                from utils.core import self_correction
+                await self_correction.check(self.ctx)
+            except Exception as e:
+                log_warning(f"Self-correction check failed (non-fatal): {e}")
+
+        @self_correction_task.before_loop
+        async def before_self_correction():
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+                await asyncio.sleep(600)
+
+        return self_correction_task
+
     def _make_ingress_task(self):
         """File whatever is still staged in knowledge_base/_ingress/.
 
@@ -2261,6 +2284,9 @@ class CoreTaskManager:
         self.radio_task.start()
         if self.radio_task.get_task():
             task_registry.register("radio_task", self.radio_task.get_task())
+        self.self_correction_task.start()
+        if self.self_correction_task.get_task():
+            task_registry.register("self_correction_task", self.self_correction_task.get_task())
 
         log_action("Core background tasks started via CoreTaskManager.")
 
@@ -2288,6 +2314,7 @@ class CoreTaskManager:
         self.corpus_hygiene_task.stop()
         self.ingress_task.stop()
         self.radio_task.stop()
+        self.self_correction_task.stop()
 
 # Helper for backward compatibility
 _task_manager = None

@@ -29,7 +29,8 @@ class MessageContext:
     raw_nodes: List[Any] = field(default_factory=list)
     context_nodes: List[Any] = field(default_factory=list)
     system_prompt: str = ""
-    prompt_messages: List[Dict[str, str]] = field(default_factory=list)   # exactly what Ollama was sent
+    prompt_messages: List[Dict[str, str]] = field(default_factory=list)
+    grounded_sources: List[str] = field(default_factory=list)   # reference files behind the reply   # exactly what Ollama was sent
     user_traits: Dict[str, Any] = field(default_factory=dict)
     knowledge_boundary_check: Dict[str, Any] = field(default_factory=dict)
     classification_task: Optional[Any] = None
