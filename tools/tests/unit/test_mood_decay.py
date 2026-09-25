@@ -65,7 +65,7 @@ def test_a_plain_read_of_the_mood_sees_it_decayed(monkeypatch, tmp_path):
 
 
 def test_mood_shapes_generation_within_its_bounds():
-    """DECISIONS K13: bounded, and a drained Kaia is asked to be terser, not worse."""
+    """Bounded, and a drained Kaia is asked to be terser, not worse."""
     from utils.core.kaia_mood import mood_length_note, mood_temperature_delta
     assert mood_temperature_delta(0.5) == 0.0
     assert mood_temperature_delta(1.0) == 0.05 and mood_temperature_delta(0.0) == -0.05

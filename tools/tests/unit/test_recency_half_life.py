@@ -1,7 +1,7 @@
-"""DECISIONS M2 stage 5: per-type recency half-lives."""
+"""Per-type recency half-lives."""
 
 def test_recency_half_life_is_per_source_type():
-    """DECISIONS M2 stage 5: news goes stale faster than conversation."""
+    """News goes stale faster than conversation."""
     from unittest.mock import MagicMock
     from utils.core.kaia_rag_query import RECENCY_HALF_LIFE_DAYS, recency_half_lives
 

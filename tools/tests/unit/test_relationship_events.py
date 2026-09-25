@@ -37,7 +37,7 @@ def test_quoted_reply_context_is_not_the_users_words():
 
 
 def test_a_correction_she_takes_is_a_repair_and_one_she_rejects_a_disagreement():
-    """DECISIONS K10."""
+    """A correction she rejects is a disagreement; one she takes is a repair."""
     said = "no, that's not right, it was 1999"
     assert detect_event_type(said, "you're right, 1999. my mistake.") == "repair"
     assert detect_event_type(said, "it was 1998. the patch notes are dated.") == "disagreement"

@@ -319,7 +319,7 @@ unprompted:
     proactive: true
     quip: true
     observation: true
-    monologue: false
+    monologue: true
 
   # One allowance shared by all four: at most this many posts a day, at least
   # this many minutes apart. 0 for max_per_day removes the daily limit.
@@ -486,6 +486,22 @@ features:
 
   # Enable Discord Presence system (mood-driven status updates)
   presence_enabled: true
+
+  # --- Kaia's self-knowledge (off unless set to true) ---
+  # At an extreme — the last prompt at 80%+ of the context window, social
+  # energy below 0.15, no dream for two nights — she is given the real number
+  # and may mention it. At most once per channel every two hours.
+  real_telemetry: false
+
+  # Every 3 hours her document-grounded claims are checked against their
+  # sources. Off, a contradiction is only recorded (memory/self_corrections.jsonl,
+  # "would correct" in the log); on, she posts one correction a day at most in
+  # the channel where she said it.
+  self_correction: false
+
+  # Arousal moves conversation temperature by up to ±0.05, and low social
+  # energy asks her to say less. Grounded answers are unaffected.
+  mood_shapes_generation: false
 
 # ============================================================================
 # Audit & Quality Configuration

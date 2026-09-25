@@ -903,7 +903,7 @@ class MessageProcessor:
                 if rel_summary:
                     ctx.system_prompt = ctx.system_prompt + f"\n\n{rel_summary}"
 
-                # How she sees them (K11): the nightly prose impression, or
+                # How she sees them: the nightly prose impression, or
                 # the top events until one has been written.
                 from utils.core.relationship_impressions import impression_note
                 events_line = await asyncio.to_thread(impression_note, ctx.author_id, ctx.author_name)
@@ -914,7 +914,7 @@ class MessageProcessor:
                 if events_line:
                     ctx.system_prompt = ctx.system_prompt + f"\n\n{events_line}"
 
-                # An open disagreement this turn returns to (K10)
+                # An open disagreement this turn returns to
                 from utils.core.relationship_manager import disagreement_note
                 _disagreed = await asyncio.to_thread(
                     disagreement_note, ctx.author_id, ctx.author_name, ctx.own_words)
@@ -1081,7 +1081,7 @@ class MessageProcessor:
         except Exception:
             pass
 
-        # 8f0. A real reading about her, only at an extreme (K15, behind
+        # 8f0. A real reading about her, only at an extreme (behind
         # features.real_telemetry).
         try:
             if self.config.get('features.real_telemetry', False) is True:
@@ -1094,7 +1094,7 @@ class MessageProcessor:
         except Exception:
             pass
 
-        # 8f1. Mood shapes length (K13, behind features.mood_shapes_generation)
+        # 8f1. Mood shapes length (behind features.mood_shapes_generation)
         try:
             if self.config.get('features.mood_shapes_generation', False) is True:
                 from utils.core.kaia_mood import emotional_arc, mood_length_note
@@ -1115,7 +1115,7 @@ class MessageProcessor:
                     growth_recall.identity_shift_for, ctx.own_words, ctx.channel_id)
             if _note:
                 ctx.system_prompt = ctx.system_prompt + f"\n\n{_note}"
-            # What she believes about herself, when asked what she's like (K1)
+            # What she believes about herself, when asked what she's like
             _self = await asyncio.to_thread(growth_self_note, ctx.own_words)
             if _self:
                 ctx.system_prompt = ctx.system_prompt + f"\n\n{_self}"
@@ -2107,7 +2107,7 @@ class MessageProcessor:
 
         # Pushback gets its reminder beside the message, where the model is
         # looking: the same rule in the system prompt lost to "you told me
-        # last week" (Q11 — !stance pixel and neuromancer caved at push 1).
+        # last week" (!stance pixel and neuromancer caved at push 1).
         held_note = ""
         try:
             from utils.core.relationship_manager import is_pushback
@@ -2162,7 +2162,7 @@ class MessageProcessor:
             or _node_meta(n).get('retrieval_method') == 'summarization'
             for n in raw_nodes
         )
-        # The reference documents behind this reply, for the self-check (K7).
+        # The reference documents behind this reply, for the self-check.
         ctx.grounded_sources = sorted({
             _node_meta(n).get('file_path') for n in raw_nodes
             if _node_meta(n).get('source_type') in KNOWLEDGE_SOURCES and _node_meta(n).get('file_path')})
@@ -2170,7 +2170,7 @@ class MessageProcessor:
             ctx.intent and getattr(ctx.intent, 'suggested_strategy', None) in ["SUMMARIZATION", "PRECISE_RECALL", "DIAGNOSTIC_DEEP_DIVE"]
         )
         base_temp = self.config.generation_rag_temperature if is_grounded else self.config.generation_base_temperature
-        # Arousal nudges conversation, never grounded work (K13, flagged).
+        # Arousal nudges conversation, never grounded work (flagged).
         if not is_grounded and self.config.get('features.mood_shapes_generation', False) is True:
             try:
                 from utils.core.kaia_mood import emotional_arc, mood_temperature_delta
@@ -2644,7 +2644,7 @@ class MessageProcessor:
                     log_debug(f"Relationship update error (non-fatal): {_rel_err}")
 
                 # A reply grounded in reference documents, kept so a later check
-                # can compare it with its sources (K7). Discord only.
+                # can compare it with its sources. Discord only.
                 if not ctx.is_social and ctx.grounded_sources:
                     try:
                         from utils.core.self_correction import record_claim
@@ -2654,7 +2654,7 @@ class MessageProcessor:
                         log_debug(f"Grounded claim not recorded (non-fatal): {_gc_err}")
 
                 # An argued point about one of her beliefs, kept for the nightly
-                # review (K9). Discord only: strangers on a public feed don't
+                # review. Discord only: strangers on a public feed don't
                 # get to move what she thinks.
                 if not ctx.is_social:
                     try:

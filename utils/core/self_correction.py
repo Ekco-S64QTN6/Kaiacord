@@ -1,4 +1,4 @@
-"""She corrects herself when a source says she was wrong (DECISIONS K7).
+"""She corrects herself when a source says she was wrong.
 
 The safety pipeline spends everything on not being wrong out loud; nothing
 repaired a claim once it was out. This does, under rules that keep it honest:

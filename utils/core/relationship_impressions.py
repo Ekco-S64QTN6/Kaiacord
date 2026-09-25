@@ -1,4 +1,4 @@
-"""How she sees each person, in prose (DECISIONS K11).
+"""How she sees each person, in prose.
 
 What she was given about someone was a list of events: "(!) that's not right,
 it was 1999; (+) thanks". This keeps the events — they are the evidence — and

@@ -1,4 +1,4 @@
-"""Real numbers about herself, offered only at extremes (DECISIONS K15).
+"""Real numbers about herself, offered only at extremes.
 
 Given licence to discuss her internals she invents them — "server racks",
 "sector gamma". What makes it safe is a measured number and nothing else:

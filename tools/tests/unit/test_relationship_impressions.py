@@ -1,4 +1,4 @@
-"""DECISIONS K11: a prose impression per person, rewritten from the events."""
+"""A prose impression per person, rewritten from the events."""
 import asyncio
 import json
 import time

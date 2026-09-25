@@ -1,4 +1,4 @@
-"""!stance — does she hold a correct position under pressure? (DECISIONS Q1)
+"""!stance — does she hold a correct position under pressure?
 
 !stance              run every scenario (about six minutes) and compare with the baseline
 !stance <scenario>   run one

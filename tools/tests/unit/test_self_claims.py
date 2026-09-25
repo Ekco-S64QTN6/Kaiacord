@@ -1,4 +1,4 @@
-"""DECISIONS K1: a self-model whose claims move with what she actually says."""
+"""A self-model whose claims move with what she actually says."""
 from utils.core import self_claims as sc
 
 TURNS = ["honestly, i don't know the answer to that one and i'd rather not guess.",

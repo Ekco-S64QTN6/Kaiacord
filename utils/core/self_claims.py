@@ -1,4 +1,4 @@
-"""A self-model that can be wrong (DECISIONS K1).
+"""A self-model that can be wrong.
 
 Ten to twenty things she believes about her own character ("i get terse when
 someone pushes me on facts"), each with a confidence and the lines of hers it

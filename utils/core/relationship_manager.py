@@ -308,7 +308,7 @@ def detect_event_type(user_text: str, bot_text: str) -> Optional[str]:
     return None  # Unremarkable interaction
 
 
-# ── Disagreements (DECISIONS K10) ──────────────────────────────────────
+# ── Disagreements ──────────────────────────────────────
 _TOPIC_WORD = re.compile(r"[a-z][a-z'’-]{2,}")
 _TOPIC_STOP = frozenset("""
 the and but for not you your yours are was were has have had its it's this that these those

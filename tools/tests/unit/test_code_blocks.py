@@ -1,4 +1,4 @@
-"""DECISIONS Q6: code she writes reaches Discord as code."""
+"""Code she writes reaches Discord as code."""
 from utils.core import code_blocks
 from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
 

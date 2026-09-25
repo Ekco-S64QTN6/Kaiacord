@@ -132,7 +132,7 @@ unprompted:
     proactive: true
     quip: true
     observation: true
-    monologue: false
+    monologue: true
 
   # Shared by all four: at most this many posts a day, this many minutes apart.
   max_per_day: 16
@@ -159,6 +159,12 @@ features:
   # The constitution block costs ~2,200 tokens of every prompt, taken off the
   # top before RAG and history split what is left. Off, that goes to history.
   constitution_injection: false
+
+  # She may state real readings about herself at extremes.
+  real_telemetry: true
+
+  # She posts a correction when a source contradicts something she said.
+  self_correction: true
 
 
 # ============================================================================

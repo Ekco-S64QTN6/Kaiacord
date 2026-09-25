@@ -1,4 +1,4 @@
-"""DECISIONS K9: a recurring, argued point can move a belief; one message can't."""
+"""A recurring, argued point can move a belief; one message can't."""
 import json
 import time
 

@@ -1,4 +1,4 @@
-"""DECISIONS Q9: a watchdog trip keeps the exact prompt that produced it."""
+"""A watchdog trip keeps the exact prompt that produced it."""
 import json
 from types import SimpleNamespace
 

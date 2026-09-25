@@ -344,7 +344,7 @@ class EmotionalArc:
         return self._mood.social_energy
 
 
-#: Mood shaping generation (DECISIONS K13), tightly bounded. Arousal moves
+#: Mood shaping generation, tightly bounded. Arousal moves
 #: temperature at most this far either way; below LOW_ENERGY she is asked to
 #: say less. Nothing here caps tokens: a cap cuts a reply mid-sentence, and a
 #: drained Kaia should be terser, never worse.

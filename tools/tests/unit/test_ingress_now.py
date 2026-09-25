@@ -1,4 +1,4 @@
-"""!download and !youtube file their document at once (DECISIONS M1)."""
+"""!download and !youtube file their document at once."""
 import asyncio
 import subprocess
 import sys

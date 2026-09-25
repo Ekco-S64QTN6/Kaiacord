@@ -1,4 +1,4 @@
-"""DECISIONS K2: she re-reads her own identity shifts when the talk touches them."""
+"""She re-reads her own identity shifts when the talk touches them."""
 import json
 
 import pytest

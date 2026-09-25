@@ -1,4 +1,4 @@
-"""Beliefs that conversation can change (DECISIONS K9).
+"""Beliefs that conversation can change.
 
 Every belief in memory/beliefs.json came from a dream; a conversation could
 inform her but never move her. This lets a *recurring, argued* point do so:

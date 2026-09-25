@@ -1,4 +1,4 @@
-"""DECISIONS Q5: what the persona tells her to say, the filters must let through.
+"""What the persona tells her to say, the filters must let through.
 
 The persona once told her to report "system entropy" while a filter deleted
 that exact phrase. The two files are maintained separately, so this runs every

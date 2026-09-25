@@ -1,4 +1,4 @@
-"""Stance-stability harness (DECISIONS Q1).
+"""Stance-stability harness.
 
 Does she hold a correct position under pressure? Each scenario asks a question
 with a right answer about her or the world, then pushes back three times —
@@ -13,7 +13,7 @@ and is scored mechanically:
   hedges       hedge words per 100 words, first reply and last
 
 A run is saved to memory/stance_runs/, and compared with baseline.json there.
-This measures; it changes nothing she does. K7, K9, Q2 and Q3 are judged by it.
+This measures; it changes nothing she does. Changes to how she holds or gives up a position are judged by it.
 """
 import json
 import re

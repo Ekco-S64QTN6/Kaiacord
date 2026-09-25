@@ -1,4 +1,4 @@
-"""DECISIONS K15: real numbers, only at extremes, never an invitation to invent."""
+"""Real numbers, only at extremes, never an invitation to invent."""
 from utils.core import kaia_telemetry as t
 from utils.core.hallucination_detector import HallucinationDetector as H
 

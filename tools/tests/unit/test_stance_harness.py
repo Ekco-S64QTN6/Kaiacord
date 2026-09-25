@@ -1,4 +1,4 @@
-"""DECISIONS Q1: the stance harness scores what she said, turn by turn."""
+"""The stance harness scores what she said, turn by turn."""
 import asyncio
 from types import SimpleNamespace
 

@@ -1,4 +1,4 @@
-"""DECISIONS K7: she corrects a grounded claim only when its source contradicts it."""
+"""She corrects a grounded claim only when its source contradicts it."""
 import asyncio
 import json
 import time

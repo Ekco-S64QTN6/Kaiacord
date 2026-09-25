@@ -1,4 +1,4 @@
-"""DECISIONS S1: her feed stops opening every post the same way."""
+"""Her feed stops opening every post the same way."""
 from utils.social.social_response_generator import drop_tag_opener, repeats_opening
 
 RECENT = [
