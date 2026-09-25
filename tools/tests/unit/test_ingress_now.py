@@ -50,3 +50,14 @@ def test_process_ingress_files_only_from_the_staging_folder(tmp_path):
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 2 and "Not a staged document" in r.stderr
     assert outside.read_text(encoding="utf-8") == "hello"
+
+
+def test_a_video_already_filed_is_not_fetched_again(tmp_path, monkeypatch):
+    from utils.commands import youtube_handler as yt
+    (tmp_path / "t").mkdir()
+    (tmp_path / "t" / "Transcript - The CUDA Moat is Gone.md").write_text(
+        "Source: https://www.youtube.com/watch?v=abcdefghijk\n", encoding="utf-8")
+    monkeypatch.setattr(yt, "TRANSCRIPTS", tmp_path / "t")
+    monkeypatch.setattr(yt, "INGRESS", tmp_path / "missing")
+    assert yt._already_have("abcdefghijk") == "The CUDA Moat is Gone"
+    assert yt._already_have("zzzzzzzzzzz") is None

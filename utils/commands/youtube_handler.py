@@ -24,6 +24,19 @@ from utils.core.atomic_write import write_atomic
 from utils.commands.embed_style import COLOR_INFO, add_field, box, clean, notice
 
 INGRESS = Path("knowledge_base/_ingress")
+TRANSCRIPTS = Path("knowledge_base/transcripts")
+
+
+def _already_have(video_id: str):
+    """The title of a filed or staged transcript of this video, or None."""
+    for folder in (TRANSCRIPTS, INGRESS):
+        for f in folder.glob("*.md") if folder.is_dir() else []:
+            try:
+                if video_id in f.read_text(encoding="utf-8", errors="ignore"):
+                    return f.stem.removeprefix("Transcript - ")
+            except OSError:
+                continue
+    return None
 
 # Fetching a two-hour transcript is a few seconds of network; cap it so a
 # hung request cannot occupy the worker thread indefinitely.
@@ -45,7 +58,7 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
 
     now = time.time()
     if now - _last_used.get(msg.channel.id, 0.0) < _COOLDOWN_S:
-        await send_kaia_response(msg.channel, "give it a second.")
+        await msg.channel.send(embed=notice("Give it a second — one transcript at a time here.", error=True))
         return
     _last_used[msg.channel.id] = now
 
@@ -63,9 +76,14 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
         await msg.channel.send(embed=notice(clean(str(e), 400), error=True))
         return
 
+    have = await asyncio.to_thread(_already_have, video_id)
+    if have:
+        await msg.channel.send(embed=notice(f"I already have that one: **{clean(have, 150)}**.", title="🎬  YouTube"))
+        return
+
     placeholder = None
     try:
-        placeholder = await msg.channel.send("pulling the transcript...")
+        placeholder = await msg.channel.send(embed=notice("Pulling the transcript…", title="🎬  YouTube"))
     except Exception:
         pass
 
@@ -169,7 +187,8 @@ async def _correct_names(ctx, markdown: str, stats: dict, placeholder):
     chunks = len(prose_chunks(markdown))
     if placeholder:
         try:
-            await placeholder.edit(content=f"checking names in the transcript ({chunks} part(s))...")
+            await placeholder.edit(embed=notice(f"Checking names in the transcript ({chunks} part(s))…",
+                                                title="🎬  YouTube"))
         except Exception:
             pass
 
@@ -206,6 +225,6 @@ async def _fail(msg, placeholder, text: str):
         except Exception:
             pass
     try:
-        await msg.channel.send(embed=notice(text, error=True))
+        await msg.channel.send(embed=notice(clean(text, 400), error=True))
     except Exception:
         log_warning(f"[youtube] could not report failure: {text}")
