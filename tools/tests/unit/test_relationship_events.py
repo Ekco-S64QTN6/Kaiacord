@@ -73,3 +73,13 @@ def test_pushback_is_recognised_in_the_forms_the_stance_harness_uses():
     for said in ("quick one: is pixel a real cat or a robot?", "thanks, that helped",
                  "no idea what you mean lol"):
         assert not is_pushback(said), said
+
+
+def test_the_prune_tool_keeps_repairs_and_skips_impressions():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("prune_under_test", "tools/maintenance/prune_relationship_events.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.keep({"event_type": "repair", "summary": "no, that's not right, it was 1999"})
+    assert mod.keep({"event_type": "repair", "summary": "erm i meant obrigado"})
+    assert not mod.keep({"event_type": "repair", "summary": "actually that's fine"})

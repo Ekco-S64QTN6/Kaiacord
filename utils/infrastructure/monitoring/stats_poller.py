@@ -338,7 +338,9 @@ class RealTimeStatsPoller:
             try:
                 rel_dir = "memory/relationships"
                 if os.path.exists(rel_dir):
-                    new_stats['relationship_count'] = len([f for f in os.listdir(rel_dir) if f.endswith('.json')])
+                    # One file of events per person; impressions sit beside them.
+                    new_stats['relationship_count'] = len([f for f in os.listdir(rel_dir)
+                                                           if f.endswith('.json') and not f.endswith('.impression.json')])
                 else:
                     new_stats['relationship_count'] = 0
             except Exception:

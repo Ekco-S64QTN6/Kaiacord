@@ -33,7 +33,10 @@ def keep(event: dict) -> bool:
     summary = str(event.get("summary", ""))
     kind = event.get("event_type")
     if kind in ("repair", "friction"):
-        return detect_event_type(summary.removesuffix("..."), "") == kind
+        found = detect_event_type(summary.removesuffix("..."), "")
+        # Her reply isn't stored, and repair vs disagreement turns on whether
+        # it conceded: with none to read, the detector says "disagreement".
+        return found == kind or (kind == "repair" and found == "disagreement")
     return not any(marker in summary for marker in NOT_THE_USER)
 
 
@@ -45,6 +48,8 @@ def main() -> int:
 
     tally = Counter()
     for path in sorted(Path(RELATIONSHIPS_DIR).glob("*.json")):
+        if path.name.endswith(".impression.json"):
+            continue            # a prose impression, not a list of events
         events = json.loads(path.read_text(encoding="utf-8"))
         kept = [e for e in events if keep(e)]
         for e in events:
