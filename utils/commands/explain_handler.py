@@ -2,11 +2,9 @@
 Knowledge Source Provenance Display
 ====================================
 
-!explain     — the sources behind the latest retrieval.
-!explain N   — the sources behind the Nth-most-recent one.
-
-Both render the same box: the question, how long ago it was asked, how strong
-the match was, and each source it drew on by name.
+!explain          — the sources behind the latest retrieval in this channel.
+!explain N        — source N from that list: what it is and the passages used.
+!explain back [N] — the sources behind an earlier retrieval (1 = the one before).
 """
 
 import time
@@ -62,7 +60,9 @@ def render_sources(title: str, query: str, confidence: float, total: int,
     its title.
     """
     lines = []
-    question = clean(query, 200) if query else ""
+    # What they typed: the recorded query carries any fetched page after it.
+    from utils.core.sanitizer import user_authored_text
+    question = clean(user_authored_text(query), 200) if query else ""
     if question:
         lines.append(f"> {question}")
     status = [when] if when else []
@@ -75,6 +75,22 @@ def render_sources(title: str, query: str, confidence: float, total: int,
         flag = f" · ⚑ {', '.join(flags)}" if flags else ""
         lines.append(f"**{i}.** {describe_source(row.get('source', ''))}{extra}{flag}")
     return box(title, "\n".join(lines), COLOR_SOURCES, footer)
+
+
+def render_source_detail(n: int, row: dict, past: dict) -> discord.Embed:
+    """One source from a retrieval: what it is, and the passages that were used."""
+    source = row.get("source", "")
+    passages = [r for r in past.get("nodes", []) if r.get("source", "") == source]
+    lines = [f"`{clean(source, 180)}`", ""]
+    for i, r in enumerate(passages[:4], 1):
+        head = clean(r.get("head", ""), 300)
+        if head:
+            lines.append(f"**{i}.** {head}")
+    flags = row.get("flags") or []
+    if flags:
+        lines.append(f"\n⚑ flagged: {', '.join(flags)}")
+    return box(f"📚  Source {n} · {describe_source(source)}", "\n".join(lines), COLOR_SOURCES,
+               "!explain for the whole list")
 
 
 async def handle_explain_command(ctx, msg, send_kaia_response):
@@ -91,28 +107,41 @@ async def handle_explain_command(ctx, msg, send_kaia_response):
 
     raw = getattr(msg, "content", "")
     parts = raw.split() if isinstance(raw, str) else []
-    nth = max(1, int(parts[1])) if len(parts) > 1 and parts[1].isdigit() else 1
+    args = parts[1:]
+    back = 0
+    if args and args[0].lower() == "back":
+        back = int(args[1]) if len(args) > 1 and args[1].isdigit() else 1
+        args = []
+    pick = int(args[0]) if args and args[0].isdigit() else 0
 
     # Always the trace: it carries the question and the time. The live cache
     # carried neither, so after a reply that searched nothing, `!explain`
     # showed the retrieval before it as if it were that reply's sources.
     from utils.infrastructure.monitoring.retrieval_trace import recent
-    history = recent(nth, channel_id=msg.channel.id)
+    history = recent(back + 1, channel_id=msg.channel.id)
     if not history:
         await msg.channel.send(embed=box(
             "📚  Sources", "Nothing retrieved in this channel since the last restart. Ask me something first.",
             COLOR_SOURCES))
         return
-    if len(history) < nth:
+    if len(history) <= back:
         await msg.channel.send(embed=box(
-            "📚  Sources",
-            f"Only {len(history)} retrieval(s) in this channel since the last restart — "
-            f"try `!explain {len(history)}`.", COLOR_ERROR))
+            "📚  Sources", f"Only {len(history)} retrieval(s) in this channel since the last restart.",
+            COLOR_ERROR))
         return
 
-    past = history[nth - 1]
-    title = "📚  Sources" if nth == 1 else f"📚  Sources · #{nth}"
-    footer = f"!explain {nth + 1} for the one before"
+    past = history[back]
+    grouped = _grouped(past.get("nodes", [])[:SHOWN])
+    if pick:
+        if pick > len(grouped):
+            await msg.channel.send(embed=box(
+                "📚  Sources", f"That list has {len(grouped)} source(s).", COLOR_ERROR))
+            return
+        await msg.channel.send(embed=render_source_detail(pick, grouped[pick - 1][0], past))
+        return
+
+    title = "📚  Sources" if not back else f"📚  Sources · {back} back"
+    footer = "!explain 2 opens source 2 · !explain back for the one before"
     embed = render_sources(title, past.get("query", ""), past.get("confidence", 0.0),
                            past.get("n", 0), past.get("nodes", []), footer,
                            when=_ago(past["ts"]))

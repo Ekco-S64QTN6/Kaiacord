@@ -91,9 +91,9 @@ COMMANDS = (
     # Open to everyone: read-only provenance for the previous answer, no
     # privileged state and no mutation.
     Command("explain", handle_explain_command, GROUP_CORE, extra=RESPONDER,
-            usage="!explain [n]",
-            summary="Which sources informed a reply "
-                    "(`!explain 3` = third-most-recent)"),
+            usage="!explain [n | back [n]]",
+            summary="Which sources informed a reply (`!explain 2` opens source 2, "
+                    "`!explain back` the retrieval before)"),
     Command("flag", handle_flag_command, GROUP_CORE, extra=RESPONDER,
             owner_only=True, usage="!flag <construct>",
             summary="Flag retrieval nodes with a Data Rot label"),

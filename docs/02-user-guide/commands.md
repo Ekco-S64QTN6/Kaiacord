@@ -42,7 +42,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!selfmodel` | Regenerate Kaia's self-model | Admin |
 | `!stance [scenario\|baseline]` | Pressure-test whether she holds a correct position | Admin |
 | `!sysmon` | System monitoring dashboard | Admin |
-| `!explain [n]` | Where the last answer's retrieved context came from, or the *n*-th most recent | All |
+| `!explain [n \| back [n]]` | Where the last answer's retrieved context came from; `!explain 2` opens source 2 | All |
 
 ---
 
@@ -161,7 +161,7 @@ Triggers a social media quip — a short post cross-posted to Bluesky and/or X, 
 ### 🔍 Explain (`!explain [n]`)
 Deep-dive into the RAG retrieval logic for the last response — shows top retrieved sources with similarity scores, retrieval method (HYBRID/VECTOR/BM25/INJECTION), clean category paths, and audit flags in color-coded ANSI code blocks.
 
-`!explain 3` shows the third-most-recent retrieval instead, from a short in-memory history, so an answer can still be checked after someone else has spoken. The history does not survive a restart. Open to everyone: it shows what a previous answer was grounded in and changes nothing.
+`!explain 2` opens source 2 of that list and shows the passages she was given from it. `!explain back` shows the retrieval before, `!explain back 3` three back, from a short in-memory history per channel, so an answer can still be checked after someone else has spoken. The history does not survive a restart. Open to everyone: it shows what a previous answer was grounded in and changes nothing.
 
 ### 🏟️ Forum (`!forum`)
 Manages VBulletin 3.x integration and Discord ↔ Forum identity linking.

@@ -29,7 +29,7 @@ MAX_TRACES = 25
 
 #: How much of a node's text is kept. Enough to recognise the passage, not
 #: enough to be a copy of it.
-HEAD_CHARS = 160
+HEAD_CHARS = 300
 
 _traces: deque = deque(maxlen=MAX_TRACES)
 _lock = threading.Lock()

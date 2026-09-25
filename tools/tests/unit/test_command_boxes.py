@@ -81,11 +81,16 @@ def test_explain_n_sends_an_embed_even_for_a_fenced_query():
         {"score": 2.0, "content": "---\nsummary: x\n---\n[2026-09-15 00:22:17] Ekco: hello there",
          "metadata": {"file_path": "/k/knowledge_base/user_logs/Ekco_1/interactions_20260915.md",
                       "source_type": "user_logs", "retrieval_method": "hybrid"}}], channel=7)
-    msg = _msg("!explain 1")
+    msg = _msg("!explain")
     asyncio.run(handle_explain_command(MagicMock(), msg, AsyncMock()))
     embed = msg.channel.send.call_args.kwargs["embed"]
     assert "```" not in embed.description and "\x1b" not in embed.description
     assert "**1.** 💬 Ekco · chat · Sep 15" in embed.description
+    # !explain 1 opens that source and shows the passage she was given.
+    msg = _msg("!explain 1")
+    asyncio.run(handle_explain_command(MagicMock(), msg, AsyncMock()))
+    detail = msg.channel.send.call_args.kwargs["embed"]
+    assert detail.title.startswith("📚  Source 1") and "hello there" in detail.description
     retrieval_trace.clear()
 
 
@@ -96,7 +101,7 @@ def test_explain_shows_only_what_was_asked_in_its_own_channel():
     retrieval_trace.record("asked here", 0.8, [], channel="7")
     retrieval_trace.record("asked in another channel", 0.8, [], channel="8")
     retrieval_trace.record("a background retrieval", 0.8, [], channel="global")
-    for command in ("!explain", "!explain 0"):
+    for command in ("!explain", "!explain 0", "!explain back 0"):
         msg = _msg(command)
         asyncio.run(handle_explain_command(MagicMock(), msg, AsyncMock()))
         embed = msg.channel.send.call_args.kwargs["embed"]
@@ -238,3 +243,15 @@ def test_help_offers_only_constructs_flag_accepts():
     from utils.commands.help_handler import _reference_values
     constructs, palettes = _reference_values()
     assert set(constructs) == VALID_CONSTRUCTS and "void" in palettes
+
+
+def test_explain_back_steps_to_an_earlier_retrieval():
+    from utils.commands.explain_handler import handle_explain_command
+    from utils.infrastructure.monitoring import retrieval_trace
+    retrieval_trace.clear()
+    retrieval_trace.record("older question", 0.8, [], channel=7)
+    retrieval_trace.record("newer question", 0.8, [], channel=7)
+    msg = _msg("!explain back")
+    asyncio.run(handle_explain_command(MagicMock(), msg, AsyncMock()))
+    assert "older question" in msg.channel.send.call_args.kwargs["embed"].description
+    retrieval_trace.clear()
