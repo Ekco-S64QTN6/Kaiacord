@@ -276,3 +276,14 @@ def test_an_afterthought_wears_its_own_label():
     from utils.core import unprompted
     assert unprompted.compose(unprompted.pick_label("afterthought"), "actually, one more thing.") == [
         "🕰️ **Afterthought:** actually, one more thing."]
+
+
+def test_the_overnight_log_is_posted_but_not_kept_as_one_of_her_turns(monkeypatch, cfg):
+    """Held in channel history, its readings were copied into later replies."""
+    cfg.update({"unprompted.max_per_day": 1, "unprompted.min_interval_minutes": 0})
+    state = _state()
+    channel = _Channel()
+    result = asyncio.run(up.speak(types.SimpleNamespace(bot_state=state), channel, "overnight",
+                                  "the planetary k index is 4.3."))
+    assert result.posted and channel.sent
+    assert not state.channel_memory.get(42)

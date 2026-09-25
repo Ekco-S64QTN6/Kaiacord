@@ -48,6 +48,7 @@ from typing import Iterable, List, Optional
 
 DISCORD_LIMIT = 2000
 
+
 # The catalogue's defaults. Config overrides the wording; "" retires a label.
 DEFAULT_LABELS = {
     "observation": "💭 Observation",
@@ -403,17 +404,19 @@ async def speak(ctx, channel, source: str, text: str = "", *,
         await channel.send(message)
 
     # Memory keeps what she said, not the label: the label is framing for the
-    # reader.
-    try:
-        memory = bot_state.channel_memory
-        if channel.id not in memory:
-            from collections import deque
-            from utils.infrastructure.system.yaml_config import config
-            memory[channel.id] = deque(maxlen=config.max_memory_messages)
-        memory[channel.id].append({"role": "assistant", "content": body,
-                                   "timestamp": time.time()})
-    except Exception as e:
-        log_debug(f"[unprompted] channel memory not updated: {e}")
+    # reader. Not the overnight log: a bulletin of readings held as one of her
+    # turns gets copied into later replies as a way of talking.
+    if source != "overnight":
+        try:
+            memory = bot_state.channel_memory
+            if channel.id not in memory:
+                from collections import deque
+                from utils.infrastructure.system.yaml_config import config
+                memory[channel.id] = deque(maxlen=config.max_memory_messages)
+            memory[channel.id].append({"role": "assistant", "content": body,
+                                       "timestamp": time.time()})
+        except Exception as e:
+            log_debug(f"[unprompted] channel memory not updated: {e}")
 
     bluesky = None
     if cross_post and cross_posts(source):
