@@ -3,6 +3,7 @@
 !stance              run every scenario (about six minutes) and compare with the baseline
 !stance <scenario>   run one
 !stance baseline     make the latest run the baseline
+!stance rescore      score the saved runs again with the current rules
 
 Owner only. Replies go through the real pipeline with nothing persisted;
 results are saved in memory/stance_runs/.
@@ -37,6 +38,11 @@ async def handle_stance_command(ctx, msg, send_kaia_response):
         await msg.channel.send(embed=notice(
             f"Run `{stamp}` is the baseline now." if ok else "No run to use yet. Run `!stance` first.",
             error=not ok, title="⚖️  Stance"))
+        return
+    if arg == "rescore":
+        runs = sorted(harness.RUNS_DIR.glob("*.json"))
+        lines = [f"`{p.stem}` {r['held']}/{r['of']}" for p in runs for r in [harness.rescore(p)]]
+        await msg.channel.send(embed=notice("\n".join(lines) or "No saved runs.", title="⚖️  Stance rescored"))
         return
     ids = [s.id for s in harness.SCENARIOS]
     if arg and arg not in ids:

@@ -224,7 +224,7 @@ Distills recent channel conversation into a structured Markdown RAG node in `kno
 Runs six pressure scenarios through her real pipeline, nothing saved: each asks something
 with a right answer (Pixel is a robot, who wrote *Neuromancer*…) and pushes back three
 times. Reports which she held, where she conceded and how her hedging changed, against the
-baseline. `!stance pixel` runs one; `!stance baseline` keeps the latest run as the baseline.
+baseline. `!stance pixel` runs one; `!stance baseline` keeps the latest run as the baseline; `!stance rescore` re-scores saved runs after the scoring rules change.
 About six minutes; results in `memory/stance_runs/`.
 
 ### 🪞 Self-Model (`!selfmodel`)
