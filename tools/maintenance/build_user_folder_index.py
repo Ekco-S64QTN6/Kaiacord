@@ -3,6 +3,7 @@
 tools/maintenance/build_user_folder_index.py
 
 Write a README.md into each user folder: what is here, and what it covers.
+For people browsing the tree; README.md files are never indexed.
 
 Opening `Ekco_177011971818782721/` used to mean 178 undifferentiated daily
 files and one generated profile, which answers none of the questions a person
@@ -23,6 +24,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
+
+from utils.core.atomic_write import write_atomic  # noqa: E402
 
 USER_LOGS = ROOT / "knowledge_base" / "user_logs"
 
@@ -153,7 +156,7 @@ def main() -> int:
         text = render(user_dir, a)
         written += 1
         if args.apply:
-            (user_dir / "README.md").write_text(text, encoding="utf-8")
+            write_atomic(user_dir / "README.md", text)
         else:
             print(f"  {user_dir.name}: {a['turns']:,} turns, {len(a['days'])} days, "
                   f"{len(a['files'])} files, {len(a['links'])} links")

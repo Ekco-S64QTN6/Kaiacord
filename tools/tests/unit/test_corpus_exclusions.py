@@ -114,3 +114,10 @@ def test_ingress_and_forum_posts_stay_excluded():
     """Pre-existing exclusions must survive the change."""
     assert _excluded("knowledge_base/_ingress/pending.md")
     assert _excluded("knowledge_base/forum_posts/thread_123_something.md")
+
+
+def test_folder_readmes_are_not_indexed():
+    from utils.core.kaia_rag_indexer import RAGIndexerMixin as M
+    assert M._is_excluded_path("/k/knowledge_base/user_logs/Ekco_1/README.md")
+    assert M._is_excluded_path("/k/knowledge_base/README.md")
+    assert not M._is_excluded_path("/k/knowledge_base/user_logs/Ekco_1/interactions_20260924.md")
