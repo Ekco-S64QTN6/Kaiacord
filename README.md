@@ -2,7 +2,7 @@
 
 # Kaiacord
 
-**A self-hosted Discord companion with a persistent inner life, running on one consumer GPU.**
+**A self-hosted Discord bot with a persistent inner life, running on one consumer GPU.**
 
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![discord.py](https://img.shields.io/badge/discord.py-2.7.1-5865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discordpy.readthedocs.io)
