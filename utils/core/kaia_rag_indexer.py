@@ -18,7 +18,6 @@ Contains all document-related operations for KaiaRAG:
 import os
 import re
 import asyncio
-import time
 import json
 import traceback
 from datetime import datetime
@@ -182,80 +181,6 @@ class RAGIndexerMixin:
             nltk_words.ensure_loaded()               # Force eager load — NLTK lazy loader is not thread-safe
         except Exception as e:
             log_warning(f"NLTK pre-load failed: {e}")
-
-    async def get_recent_files_async(self, limit: int = 5) -> List[Dict[str, str]]:
-        """Async wrapper for get_recent_files utilizing cache."""
-        now = time.time()
-        # Refresh cache if stale (60s)
-        if now - self._last_recent_scan > 60:
-            await asyncio.to_thread(self.get_recent_files, limit)
-        return self._recent_files_cache[:limit]
-
-    def get_recent_files(self, limit: int = 5) -> List[Dict[str, str]]:
-        """Get recently modified files, using manifest to avoid full disk scan."""
-        # 1. Sort manifest entries by mtime/boost
-        from utils.infrastructure.system.yaml_config import config
-        daily_news_boost = getattr(config, 'rag_boost_daily_news', 172800)
-        dream_boost = getattr(config, 'rag_boost_dreams', 64800)
-        
-        weighted_files = []
-        for path, meta in self.indexed_files.items():
-            mtime = meta.get("mtime", 0)
-            weight = mtime
-            
-            # Application-specific boosting
-            if "daily" in path and "news_brief" in path:
-                weight += daily_news_boost
-            elif "kaia_dreams" in path:
-                weight += dream_boost
-                
-            weighted_files.append((path, mtime, weight))
-            
-        # 2. Sort by weight descending
-        weighted_files.sort(key=lambda x: x[2], reverse=True)
-        
-        # 3. Build snippets for top entries
-        recent_with_snippets = []
-        for path, mtime, weight in weighted_files[:limit * 2]: # Get extra to account for filters
-            filename = os.path.basename(path)
-            snippet = ""
-            context_prefix = ""
-            
-            # Guess context from path
-            if "user_logs" in path:
-                parts = path.split(os.sep)
-                try:
-                    folder = parts[parts.index("user_logs") + 1]
-                    username = folder.split("_")[0] if "_" in folder else folder
-                    context_prefix = f"Log ({username}): "
-                except Exception: pass
-            elif "news" in path:
-                context_prefix = "News: "
-            
-            try:
-                if path.endswith(('.txt', '.md')):
-                    with open(path, 'r', encoding='utf-8', errors='replace') as f:
-                        content = f.read(500)
-                        if "User Log" in content or "Interaction" in content:
-                           snippet = content[-300:].strip().replace("\n", " ") + "..."
-                        else:
-                           snippet = content[:300].strip().replace("\n", " ") + "..."
-                elif path.endswith('.pdf'): snippet = "[PDF Content Indexed]"
-                else: snippet = "[Document Indexed]"
-            except Exception: continue
-                
-            recent_with_snippets.append({
-                "filename": context_prefix + filename,
-                "snippet": snippet
-            })
-            
-        self._recent_files_cache = recent_with_snippets
-        self._last_recent_scan = time.time()
-        return self._recent_files_cache[:limit]
-
-    async def get_stats_async(self) -> Dict[str, Any]:
-        """Async wrapper for get_stats."""
-        return await asyncio.to_thread(self.get_stats)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get RAG statistics for dashboard"""
