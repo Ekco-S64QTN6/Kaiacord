@@ -270,7 +270,8 @@ class NewsManager:
             return 'science'
             
         # Intelligence/AI mapping
-        if 'intelligence' in section_lower or 'ai' in section_lower:
+        # Whole word: as a substring "ai" is in "affairs" and "maintenance".
+        if 'intelligence' in section_lower or re.search(r"\bai\b", section_lower):
             return 'technology'
             
         # Infrastructure mapping
@@ -366,9 +367,8 @@ class NewsManager:
 class NewsRetrievalEnhancer:
     """Advanced news retrieval system for Kaia"""
     
-    def __init__(self, max_news_per_query: int = 8, days_of_freshness: int = 7):
+    def __init__(self, max_news_per_query: int = 8):
         self.max_news_per_query = max_news_per_query
-        self.days_of_freshness = days_of_freshness
         self.memory_path = Path("memory/mentioned_news.json")
         self.mentioned_news_cache = defaultdict(set)  # user_id -> set of news IDs
         self.news_categories = {
@@ -407,26 +407,6 @@ class NewsRetrievalEnhancer:
                     self.mentioned_news_cache = defaultdict(set, {user_id: set(news_ids) for user_id, news_ids in data.items()})
         except Exception as e:
             log_warning(f"Error loading mentioned news: {e}")
-    
-    def enhance_news_query(self, original_query: str, user_id: str = None) -> str:
-        """Enhance news queries for better retrieval"""
-        query = original_query.lower()
-        
-        # Add temporal context
-        if 'recent' in query or 'latest' in query or 'this week' in query:
-            time_context = f" from the last {self.days_of_freshness} days"
-            if 'week' in query:
-                time_context = " from this week"
-            query += time_context
-        
-        # Add diversity trigger
-        if 'more' in query or 'else' in query or 'other' in query:
-            query += " different diverse topics"
-        
-        if 'interesting' in query or 'intresting' in query:
-            query += " unusual unexpected surprising"
-        
-        return query
     
     def diversify_news_results(self, news_items: List[Dict], user_id: str = None) -> List[Dict]:
         """Ensure diverse news topics and avoid repetition"""
@@ -503,57 +483,16 @@ class NewsRetrievalEnhancer:
 class RAGEnhancer:
     """Enhanced RAG configuration for news retrieval"""
     
-    def __init__(self):
-        self.news_query_params = {
-            'similarity_top_k': 12,  # Retrieve more initially
-            'mmr_threshold': 0.7,     # Use MMR for diversity
-            'date_weight': 0.3,       # Weight recency
-            'freshness_window_days': 3,
-        }
-        
-        self.query_expansion_keywords = {
-            'news': ['update', 'report', 'develop', 'situation', 'trend', 'analysis'],
-            'tech': ['technology', 'innovation', 'development', 'release', 'launch'],
-            'security': ['threat', 'attack', 'vulnerability', 'patch', 'exploit'],
-        }
-    
-    def prepare_news_query(self, base_query: str, user_context: Dict = None) -> Dict:
-        """Prepare enhanced query for news retrieval"""
-        expanded_query = base_query
-        
-        # Add query expansion
-        for category, keywords in self.query_expansion_keywords.items():
-            if any(word in base_query.lower() for word in ['tech', 'technology', 'ai']):
-                expanded_query += " " + " ".join(keywords[:2])
-        
-        # Add temporal context
-        if 'recent' in base_query.lower() or 'latest' in base_query.lower():
-            expanded_query += f" last {self.news_query_params['freshness_window_days']} days"
-        
-        # Prepare metadata filters
-        filters = {
-            'date': f">{datetime.now() - timedelta(days=7)}",
-            'doc_type': 'news',
-        }
-        
-        if user_context and 'exclude_topics' in user_context:
-            filters['exclude_topics'] = user_context['exclude_topics']
-        
-        return {
-            'query': expanded_query,
-            'filters': filters,
-            'params': self.news_query_params,
-            'diversity': True,
-        }
-    
     def deduplicate_results(self, nodes: List[Any]) -> List[Any]:
         """Remove duplicate or highly similar news"""
         unique_contents = set()
         deduplicated = []
         
         for node in nodes:
-            # Handle both LlamaIndex Nodes and dicts (if converted)
-            text = getattr(node, 'text', None) or getattr(node, 'content', '') or str(node)
+            # retrieve() returns dicts; str(node) of one includes its score,
+            # so no two ever hashed alike and nothing was deduplicated.
+            text = (node.get('content') if isinstance(node, dict)
+                    else getattr(node, 'text', None) or getattr(node, 'content', '')) or ''
             
             content_hash = hashlib.md5(
                 text[:500].encode()  # Hash first 500 chars for deduplication

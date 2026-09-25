@@ -18,15 +18,19 @@ import time
 from typing import Optional
 from utils.infrastructure.logging.kaia_logger import log_info
 
-# Patterns that suggest something unresolved — user expressed intent or pending action
+# Something the speaker said *they* would do. The subject has to be them:
+# "blizzard is going to try", "keep working on that zen" and "was hoping to"
+# matched when any subject would do, and were half of all hits.
+_I = r"(?:i|we)"
+_I_AM = r"(?:i'?m|i am|we'?re|we are)"
 _UNRESOLVED_PATTERNS = [
-    re.compile(r"\bi'?ll\s+(?:let you know|update you|check|test|try|look into|fix|get back)\b", re.IGNORECASE),
-    re.compile(r"\blet me know how\b", re.IGNORECASE),
-    re.compile(r"\bgoing to\s+(?:try|check|fix|test|look into|work on|start|finish|build|run)\b", re.IGNORECASE),
-    re.compile(r"\bwill\s+(?:try|check|look|test|fix|update|work on)\b", re.IGNORECASE),
-    re.compile(r"\b(?:working on|thinking about|planning to|hoping to)\b", re.IGNORECASE),
+    re.compile(rf"\b{_I}'?ll\s+(?:let you know|update you|check|test|try|look into|fix|get back)\b", re.IGNORECASE),
+    # "going to fix it tonight" at the start of a sentence: the "i" dropped.
+    re.compile(rf"(?:\b{_I_AM}\s+|(?:^|[.!?]\s+))(?:going to|gonna)\s+(?:try|check|fix|test|look into|work on|start|finish|build|run)\b", re.IGNORECASE),
+    re.compile(rf"\b{_I}\s+will\s+(?:try|check|look|test|fix|update|work on)\b", re.IGNORECASE),
+    re.compile(rf"\b{_I_AM}\s+(?:working on|planning to|hoping to)\b", re.IGNORECASE),
+    re.compile(rf"\b{_I}\s+(?:plan|hope)\s+to\b", re.IGNORECASE),
     re.compile(r"\bget back to you\b", re.IGNORECASE),
-    re.compile(r"\bfollow up\b", re.IGNORECASE),
     re.compile(r"\bnext time\s+(?:i|i'll|we|we'll|let's)\b", re.IGNORECASE),
 ]
 

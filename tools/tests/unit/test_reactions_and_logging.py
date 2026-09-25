@@ -326,3 +326,7 @@ def test_pools_are_wide_enough_to_not_read_as_a_tic():
 
     thin = {n: len(p) for n, p in ALL_POOLS.items() if len(p) < 6}
     assert not thin, f"pools too small to vary: {thin}"
+
+def test_a_link_slug_is_not_a_reaction_cue():
+    from utils.core.kaia_reactions import KaiaReactions
+    assert KaiaReactions().score_categories("https://example.com/insane-funny-clip") == {}

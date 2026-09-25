@@ -169,3 +169,14 @@ class TestCuriosityPatterns:
             r"\bnext time\s+(?:i|i'll|we|we'll|let's)\b", re.IGNORECASE
         )
         assert not next_time_pattern.search("until next time!")
+
+
+def test_someone_elses_plans_are_not_the_speakers():
+    """Real lines that matched when any subject would do (24 Sept, 42 hits, half false)."""
+    from utils.core.curiosity_scanner import _UNRESOLVED_PATTERNS
+    for line in ("Theres some massive open source WoW thing, blizzard is going to try to get it taken down",
+                 "Just keep working on that zen and enlightenment",
+                 "Was hoping to get a pic of it in the pond",
+                 "Opus 5.5 has been working on it"):
+        assert not any(p.search(line) for p in _UNRESOLVED_PATTERNS), line
+    assert any(p.search("I'm gonna try green beans and spinach") for p in _UNRESOLVED_PATTERNS)

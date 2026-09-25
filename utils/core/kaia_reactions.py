@@ -211,7 +211,8 @@ class KaiaReactions:
 
     def score_categories(self, content: str) -> dict:
         """Match count per category. Exposed so the behaviour is testable."""
-        low = (content or "").lower().strip()
+        # A link's slug is not something they said ("…/insane-clip").
+        low = re.sub(r"https?://\S+", " ", (content or "").lower()).strip()
         scores = {}
         for name, (pattern, _pool) in _COMPILED.items():
             hits = len(pattern.findall(low))

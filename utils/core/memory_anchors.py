@@ -8,7 +8,7 @@ is injected as a system prompt hint — creating the illusion of deep
 associative memory beyond raw keyword RAG retrieval.
 
 Storage: memory/anchors.json — list of anchor dicts
-Cap: 100 anchors max, oldest pruned first
+Cap: 100 anchors max, the weakest (after decay) evicted first
 Decay: weight reduces by 0.1 per 30 days
 Writes: atomic, and every read-modify-write holds one lock — the dream engine
 saves anchors on a worker thread while chat turns update access counts.
@@ -177,10 +177,11 @@ def save_anchor(
             'keywords': sorted(_tokenize(f"{theme} {anchor_text}")),
         })
 
-        # Cap enforcement — prune oldest first
+        # Cap enforcement — evict the weakest after decay, not the oldest: an
+        # old anchor she keeps recalling outranks last night's passing one.
         if len(anchors) > MAX_ANCHORS:
-            anchors.sort(key=lambda a: a.get('created_at', 0))
-            anchors = anchors[-MAX_ANCHORS:]
+            anchors = sorted(_apply_decay(anchors), key=lambda a: a.get('effective_weight', 0),
+                             reverse=True)[:MAX_ANCHORS]
 
         _save_anchors(anchors)
     log_debug(f"Saved new anchor: {theme} for user {user_name or user_id}")
@@ -258,7 +259,8 @@ def format_anchor_injection(anchor: Dict) -> str:
     theme = (anchor.get('theme') or 'something').replace('_', ' ')
     text = anchor.get('anchor_text', '')
     user_name = anchor.get('user_name')
-    created = anchor.get('created_at', time.time())
+    # When its text was last written: an updated anchor carries new words.
+    created = anchor.get('updated_at') or anchor.get('created_at', time.time())
 
     # Human-readable time delta
     days_ago = int((time.time() - created) / 86400)
@@ -267,9 +269,9 @@ def format_anchor_injection(anchor: Dict) -> str:
     elif days_ago == 1:
         time_ref = "yesterday"
     elif days_ago < 7:
-        time_ref = f"a few days ago"
+        time_ref = "a few days ago"
     elif days_ago < 30:
-        time_ref = f"a couple weeks ago"
+        time_ref = "a couple weeks ago"
     else:
         time_ref = f"about {days_ago // 30} month{'s' if days_ago > 60 else ''} ago"
 

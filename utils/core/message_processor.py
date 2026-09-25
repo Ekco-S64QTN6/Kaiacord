@@ -928,7 +928,7 @@ class MessageProcessor:
             from utils.core.memory_anchors import find_matching_anchors, format_anchor_injection
             anchors = await asyncio.to_thread(
                 find_matching_anchors,
-                message_text=ctx.sanitized_content,
+                message_text=ctx.own_words,
                 user_id=str(ctx.author_id),
                 max_results=1,
             )
@@ -1421,20 +1421,24 @@ class MessageProcessor:
 
         if is_news_query:
             log_info("Detected news query - activating enhanced news retrieval")
-            enhanced_query = self.news_enhancer.enhance_news_query(clean_query, ctx.author_id)
-            rag_params = self.rag_enhancer.prepare_news_query(enhanced_query)
-            
-            # Use 'rag_news' for distinct tracking if needed, but 'rag' is the primary context
+            # include_news: without it the scorer drops every news node, and
+            # this search returned chat logs and books. The query goes as
+            # asked — the "from the last 7 days" and "different diverse
+            # topics" words once appended to it were searched for literally.
             tasks['rag_news'] = asyncio.create_task(self.run_rag(
-                self.rag.retrieve, 
-                rag_params['query'], 
-                top_k=rag_params['params']['similarity_top_k']
+                self.rag.retrieve,
+                clean_query,
+                top_k=12,
+                include_news=True,
+                category='news',
+                intent=ctx.intent,
             ))
             
         if ask_whats_new:
             news_expansions = EmergencyContaminationFilter.expand_news_query(clean_query)
             for i, expansion in enumerate(news_expansions):
-                tasks[f'news_extra_{i}'] = asyncio.create_task(self.run_rag(self.rag.retrieve, expansion, top_k=2))
+                tasks[f'news_extra_{i}'] = asyncio.create_task(self.run_rag(
+                    self.rag.retrieve, expansion, top_k=2, include_news=True, category='news'))
 
         return tasks, ask_whats_new, is_news_query, clean_query
 

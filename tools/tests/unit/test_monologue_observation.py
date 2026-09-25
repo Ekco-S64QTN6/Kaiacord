@@ -473,3 +473,25 @@ def test_the_digest_may_only_quote_what_was_said():
     assert M._unverified_quotes('Ekco said "I think the rover\'s wheels are toast."', conv) == []
     assert M._unverified_quotes('Starkind said "Nala is a menace".', conv) == ["Nala is a menace"]
     assert M._unverified_quotes("They were on about rovers and cats.", conv) == []
+
+
+def test_the_monologue_attributes_only_what_the_speaker_typed(monkeypatch):
+    import asyncio, time
+    from types import SimpleNamespace
+    from utils.core.kaia_monologue import InnerMonologue
+    prompts = []
+
+    async def chat(model, messages, options, keep_alive):
+        prompts.append(messages[0]["content"])
+        return {"message": {"content": "people keep quoting each other lately."}}
+
+    async def guard(model_name, priority, coro, task_id):
+        return await coro
+    from utils.infrastructure.gpu import gpu_manager
+    monkeypatch.setattr(gpu_manager.gpu_memory_manager, "run_with_gpu_guard", guard)
+    memory = {1: [{"role": "user", "timestamp": time.time(),
+                   "content": "Ekco: [REPLYING_TO]\nBrad: the moon is made of cheese\n"
+                              "[USER_MESSAGE]\nwhat do you make of this?"}]}
+    asyncio.run(InnerMonologue().generate_thought(memory, None, SimpleNamespace(chat=chat), "m"))
+    assert "Ekco: what do you make of this?" in prompts[0]
+    assert "cheese" not in prompts[0]

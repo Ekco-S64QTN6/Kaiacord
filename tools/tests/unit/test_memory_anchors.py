@@ -56,3 +56,24 @@ def test_concurrent_saves_keep_every_anchor(store):
     for t in threads:
         t.join()
     assert len(json.loads(store.read_text())) == 20
+
+
+def test_the_cap_evicts_the_weakest_not_the_oldest(tmp_path, monkeypatch):
+    import json, time
+    monkeypatch.setattr(ma, "ANCHORS_PATH", str(tmp_path / "anchors.json"))
+    monkeypatch.setattr(ma, "MAX_ANCHORS", 2)
+    old = time.time() - 40 * 86400
+    (tmp_path / "anchors.json").write_text(json.dumps([
+        {"theme": "boats", "anchor_text": "an old boat she keeps coming back to", "weight": 0.9,
+         "salience": 1.0, "created_at": old, "access_count": 6},
+        {"theme": "toast", "anchor_text": "a passing remark about toast", "weight": 0.2,
+         "salience": 0.1, "created_at": time.time() - 86400}]))
+    ma.save_anchor(None, "rain", "rain on a tin roof at night", weight=0.7)
+    assert sorted(a["theme"] for a in json.loads((tmp_path / "anchors.json").read_text())) == ["boats", "rain"]
+
+
+def test_an_updated_anchor_is_dated_by_its_update():
+    import time
+    anchor = {"theme": "boats", "anchor_text": "x", "created_at": time.time() - 90 * 86400,
+              "updated_at": time.time() - 3600}
+    assert "earlier today" in ma.format_anchor_injection(anchor)

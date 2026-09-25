@@ -24,7 +24,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from utils.core.sanitizer import user_authored_text
 from utils.infrastructure.logging.kaia_logger import log_debug, log_info
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
 
 @dataclass
@@ -39,7 +41,7 @@ class InnerMonologue:
     """Manages Kaia's ephemeral inner thought stream."""
 
     # Path for persistent monologue logs
-    LOG_PATH = Path("memory") / "monologue_log.jsonl"
+    LOG_PATH = Path(telemetry_path("memory/monologue_log.jsonl"))
 
     # Minimum interval between thought generation attempts
     COOLDOWN_SECONDS = 900  # 15 minutes
@@ -103,14 +105,15 @@ class InnerMonologue:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
                 if role == "user" and content:
-                    # channel_memory content is prefixed with author name
-                    # e.g. "Ekco: hey what's up" — extract the name
-                    if ": " in content:
-                        name = content.split(": ", 1)[0]
-                        text = content.split(": ", 1)[1][:120]
-                    else:
-                        name = "someone"
-                        text = content[:120]
+                    # "Ekco: <enriched message>" — the name, then only what
+                    # they typed: a reply's first 120 characters were the
+                    # post it quoted, attributed to the person replying.
+                    name, sep, said = content.partition(": ")
+                    if not sep:
+                        name, said = "someone", content
+                    text = user_authored_text(said)[:120]
+                    if not text:
+                        continue
                     try:
                         when = float(msg.get("timestamp") or 0.0)
                     except (TypeError, ValueError):
