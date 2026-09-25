@@ -31,3 +31,12 @@ def test_prose_is_not_mistaken_for_code():
 def test_a_block_whose_placeholder_was_dropped_is_appended():
     text, blocks = code_blocks.stash(f"intro.\n\n{CODE}")
     assert code_blocks.restore("intro.", blocks).endswith(CODE)
+
+
+def test_the_safety_pipeline_is_given_the_speakers_words():
+    """The echo guards compare her reply with the user's message; given the
+    enriched message they deleted her quotes from a linked article."""
+    from pathlib import Path
+    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+    assert "query=getattr(ctx, 'sanitized_content'" not in src
+    assert "strip_echoed_query(\n            ctx.response_text, ctx.own_words)" in src

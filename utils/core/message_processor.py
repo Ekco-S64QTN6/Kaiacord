@@ -1365,7 +1365,7 @@ class MessageProcessor:
                         "score": 1.0,
                     })
                 if not combined_results:
-                    log_info("RECAP: Both channel memory and RAG results empty — injecting unavailable cache warning header (💡-2)")
+                    log_info("RECAP: Both channel memory and RAG results empty — injecting unavailable cache warning header")
                     combined_results = [{
                         "content": "[System Notification: Channel history cache is unavailable for the requested timeframe. Do not invent past messages or attribute actions to channels without explicit log data.]",
                         "metadata": {
@@ -2231,13 +2231,13 @@ class MessageProcessor:
                 from utils.core.kaia_telemetry import record_prompt
                 record_prompt(ctx.channel_id, response.get('prompt_eval_count'), self.config.max_context_tokens)
 
-                # Process raw generation through PostGenerationSafetyPipeline (💡-4)
+                # Process raw generation through PostGenerationSafetyPipeline
                 from utils.core.safety_pipeline import PostGenerationSafetyPipeline
 
                 cleaned_content, reject_reason = PostGenerationSafetyPipeline.process_attempt(
                     content=content,
                     attempt=attempt + 1,
-                    query=getattr(ctx, 'sanitized_content', ''),
+                    query=ctx.own_words,  # their words: a quoted article line is not an echo
                     author_id=getattr(ctx, 'author_id', None),
                     channel_id=getattr(ctx, 'channel_id', None),
                     is_channel_recall=getattr(ctx, '_is_channel_recall', False),
@@ -2287,7 +2287,7 @@ class MessageProcessor:
                 salvaged, still_rejected = PostGenerationSafetyPipeline.process_attempt(
                     content=defused,
                     attempt=max_attempts,
-                    query=getattr(ctx, 'sanitized_content', ''),
+                    query=ctx.own_words,  # their words: a quoted article line is not an echo
                     author_id=getattr(ctx, 'author_id', None),
                     channel_id=getattr(ctx, 'channel_id', None),
                     is_channel_recall=getattr(ctx, '_is_channel_recall', False),
@@ -2427,13 +2427,15 @@ class MessageProcessor:
         from utils.core import code_blocks
         ctx.response_text, _code = code_blocks.stash(ctx.response_text)
 
-        # Run Ellipsis & Em Dash Collapsers via Safety Pipeline (💡-4)
+        # Run Ellipsis & Em Dash Collapsers via Safety Pipeline
         from utils.core.safety_pipeline import PostGenerationSafetyPipeline
         ctx.response_text = PostGenerationSafetyPipeline.apply_style_collapsers(ctx.response_text)
         # Needs the query, so it cannot live in harden(): drop an opening line
         # that merely repeats what the user just said.
+        # What they typed: on a reply turn the first line of the enriched
+        # message is the post being replied to.
         ctx.response_text = PostGenerationSafetyPipeline.strip_echoed_query(
-            ctx.response_text, getattr(ctx, "sanitized_content", "") or "")
+            ctx.response_text, ctx.own_words)
         # The same fault in the body of a reply rather than at its front. Measured
         # against `user_authored_text`, not `sanitized_content`: the enricher's
         # appended blocks are not words the user typed, and counting them would

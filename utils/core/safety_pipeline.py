@@ -2,8 +2,9 @@
 Post-Generation Safety Pipeline & Security Dogtag Replay Logger
 ================================================================
 
-Consolidates raw LLM post-generation sanitization into a unified, 10-layer testable pipeline (💡-4)
-and provides thread-safe verbatim security dogtag replay logging (💡-3).
+The post-generation checks every chat reply passes through, in order, in one
+testable place; and a thread-safe log of the verbatim query and response
+whenever a security rule trips, for offline replay.
 """
 
 from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
@@ -31,7 +32,7 @@ def log_security_dogtag_replay(
     author_id: Optional[int] = None,
     channel_id: Optional[int] = None
 ):
-    """Verbatim prompt and response logger for security dogtag trips (💡-3).
+    """Verbatim prompt and response logger for security dogtag trips.
     
     Enables offline J-space replay by recording verbatim query, generated output,
     and the tripped security rule to memory/security_dogtag_replay.jsonl.
@@ -64,7 +65,7 @@ def log_security_dogtag_replay(
 
 
 class PostGenerationSafetyPipeline:
-    """Unified 10-Layer Post-Generation Safety Pipeline (💡-4)."""
+    """The post-generation safety pipeline."""
 
     DANGLING_STUB_PATTERN = re.compile(
         r"^[^.!?]{0,60}(select|choose|pick|say|answer|go with)(?:\s+is|\s+was|\s+would be)?\s*\.\s*$",
