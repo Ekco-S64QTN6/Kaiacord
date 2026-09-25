@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from utils.commands.embed_style import COLOR_ERROR, add_field, box, clean, clean_block
-from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning
+from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info, log_warning
 from utils.infrastructure.system.yaml_config import config
 from utils.radio import eam_watch, priyom
 from utils.radio.fetch import FeedError
@@ -518,6 +518,9 @@ async def handle_beacons_command(ctx, msg, send_kaia_response=None):
     async def listen_and_report():
         try:
             result = await beacons.listen(band)
+            heard = [b[0] for b in result["beacons"] if b[2] >= beacons.HEARD_DB]
+            log_info(f"[radio] beacons on {result['khz']:g} kHz from {result['receiver']}: "
+                     f"heard {len(heard)} of {len(result['beacons'])}{': ' + ', '.join(heard) if heard else ''}")
             await msg.channel.send(embed=beacons_embed(result))
         except FeedError as e:
             await msg.channel.send(embed=box("🗼  Beacons", f"couldn't get a clean listen — {clean(str(e), 200)}", COLOR_ERROR))

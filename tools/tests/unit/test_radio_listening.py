@@ -227,3 +227,50 @@ def test_every_recorder_spawn_dies_with_its_parent():
     src = Path("utils/radio/kiwi.py").read_text(encoding="utf-8")
     spawns = src.count("create_subprocess_exec(") + src.count("subprocess.Popen(")
     assert spawns and src.count("preexec_fn=_die_with_parent") == spawns
+
+
+FAKE_RECORDER = '''
+import sys, os
+args = sys.argv[1:]
+out = args[args.index("-d") + 1]
+if "--crash" in open(os.path.join(os.path.dirname(__file__), "mode")).read():
+    print("FileNotFoundError: no such directory", file=sys.stderr)
+    sys.exit(0)
+with open(os.path.join(out, "20260925T000000Z_8423000_e11_usb.wav"), "wb") as f:
+    f.write(b"\\0" * 12000 * 2 * 5)
+'''
+
+
+def _fake_kiwiclient(tmp_path, monkeypatch, mode=""):
+    from utils.radio import kiwi
+    client = tmp_path / "kiwiclient"
+    client.mkdir()
+    (client / "kiwirecorder.py").write_text(FAKE_RECORDER)
+    (client / "mode").write_text(mode)
+    monkeypatch.setattr(kiwi, "KIWICLIENT", client)
+    monkeypatch.setattr(kiwi, "RECORDER", client / "kiwirecorder.py")
+    return kiwi.Receiver("rx.example", 8073, "rx", "", 0, 0, 0, 4, 20, 0, 30_000_000)
+
+
+def test_a_recording_lands_in_a_relative_work_folder(tmp_path, monkeypatch):
+    """The recorder runs in assets/kiwiclient/; memory/radio/work handed to it
+    as-is pointed at a folder that doesn't exist, and every listen came back
+    with 0 recordings."""
+    import asyncio
+    from utils.radio import kiwi
+    r = _fake_kiwiclient(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    wavs = asyncio.run(kiwi.record(r, 8423, "usb", 5, Path("memory/radio/work"), label="e11"))
+    assert [w.name for w in wavs] == ["20260925T000000Z_8423000_e11_usb.wav"]
+    assert (tmp_path / "memory/radio/work" / wavs[0].name).is_file()
+
+
+def test_a_recorder_that_quits_with_nothing_is_a_failure(tmp_path, monkeypatch):
+    """kiwirecorder exits 0 when one of its threads crashes; that must reach the
+    log and move on to the next receiver, not read as a quiet frequency."""
+    import asyncio
+    from utils.radio import kiwi
+    from utils.radio.fetch import FeedError
+    r = _fake_kiwiclient(tmp_path, monkeypatch, mode="--crash")
+    with pytest.raises(FeedError, match="stopped early: FileNotFoundError"):
+        asyncio.run(kiwi.record(r, 8423, "usb", 30, tmp_path / "work", label="e11"))

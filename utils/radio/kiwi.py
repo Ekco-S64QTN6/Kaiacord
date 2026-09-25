@@ -194,6 +194,9 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
     written, one file each; without, one file. Returns the WAVs written."""
     if not available():
         raise FeedError("kiwiclient is not installed — run tools/maintenance/fetch_radio_assets.py")
+    # Absolute: the recorder runs in assets/kiwiclient/, and a relative
+    # memory/radio/work sent every file it wrote into a folder that isn't there.
+    out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     before = set(out_dir.glob("*.wav"))
     cmd = _recorder_cmd(receiver, khz, mode) + ["-d", str(out_dir), "--station", label]
@@ -206,11 +209,15 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
                                                 stdout=asyncio.subprocess.DEVNULL,
                                                 stderr=asyncio.subprocess.PIPE,
                                                 preexec_fn=_die_with_parent)
-    refused = await _watch_stderr(proc, seconds + 20)
+    refused, last = await _watch_stderr(proc, seconds + 20)
+    quit_early = proc.returncode is not None
     await _stop(proc)
     written = sorted(set(out_dir.glob("*.wav")) - before)
     if refused and not written:
         raise FeedError(f"{receiver.host} {refused}")
+    if quit_early and not written:
+        # kiwirecorder exits 0 even when a thread of it crashed.
+        raise FeedError(f"{receiver.host} recorder stopped early: {last or 'no output'}")
     # Drop a squelch opening that is only noise-length.
     return [p for p in written if p.stat().st_size > SAMPLE_RATE * 2 * 3]
 
@@ -219,11 +226,12 @@ _REFUSALS = ("Failed to connect", "server closed the connection", "Too busy", "t
              "Password", "banned")
 
 
-async def _watch_stderr(proc, deadline_s: float) -> str:
+async def _watch_stderr(proc, deadline_s: float) -> tuple[str, str]:
     """Read kiwirecorder's log as it arrives (a full pipe would block it) until
     it exits or the deadline passes. A receiver that refuses us twice is given
-    up on at once instead of after the whole window. Returns why, or ''."""
-    strikes, reason = 0, ""
+    up on at once instead of after the whole window. Returns (why it refused
+    or '', the last line it logged)."""
+    strikes, reason, last = 0, "", ""
     loop = asyncio.get_running_loop()
     end = loop.time() + deadline_s
     while proc.returncode is None and loop.time() < end:
@@ -235,13 +243,15 @@ async def _watch_stderr(proc, deadline_s: float) -> str:
             await proc.wait()
             break
         text = line.decode("utf-8", "replace")
+        if text.strip():
+            last = text.strip()[-200:]
         hit = next((r for r in _REFUSALS if r.lower() in text.lower()), None)
         if hit:
             strikes += 1
             reason = f"refused the connection ({hit})"
             if strikes >= 2:
                 break
-    return reason
+    return reason, last
 
 
 async def smeter(receiver: Receiver, khz: float, mode: str, seconds: float) -> list[tuple]:
