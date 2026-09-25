@@ -573,9 +573,11 @@ async def run(args) -> int:
 
     from ollama import Client
     from utils.infrastructure.system.yaml_config import config
-    model = config.get("chat_model", "gemma3:12b")
-    client = Client(host=config.get("ollama_host", "http://localhost:11434"),
-                    timeout=600)
+    # config.chat_model, not config.get("chat_model"): there is no such
+    # top-level key, so the lookup fell back to a hardcoded name and would have
+    # kept loading that model after a switch, evicting the one chat uses.
+    model = config.chat_model
+    client = Client(host="http://localhost:11434", timeout=600)
 
     written = consumed = failed = 0
     for k, v in order:

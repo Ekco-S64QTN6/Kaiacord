@@ -360,7 +360,7 @@ async def main():
     model_name = config.chat_model
     gpu_manager = OllamaGPUManager(model_name)
     options = gpu_manager.get_gpu_options(for_chat=True)
-    client = Client(host=config.get('ollama_host', 'http://localhost:11434'))
+    client = Client(host='http://localhost:11434')
 
     print(f"model: {model_name}   mode: {'DRY RUN (no files written)' if DRY_RUN else 'APPLY'}")
 
