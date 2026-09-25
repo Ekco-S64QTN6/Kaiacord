@@ -231,3 +231,10 @@ def test_a_full_reindex_removes_every_node_before_re_embedding():
     assert _wipe(rag) == 3
     assert deleted == {"knowledge": ["a", "b"], "logs": ["c"]}
     assert rag.indexed_files == {} and rag._file_to_nodes == {} and rag.bm25_cache == {}
+
+
+def test_help_offers_only_constructs_flag_accepts():
+    from utils.commands.audit_handler import VALID_CONSTRUCTS
+    from utils.commands.help_handler import _reference_values
+    constructs, palettes = _reference_values()
+    assert set(constructs) == VALID_CONSTRUCTS and "void" in palettes

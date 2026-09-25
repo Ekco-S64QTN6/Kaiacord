@@ -97,7 +97,7 @@ def _gather_affinity_ranks() -> List[Dict[str, Any]]:
         rel_dir = os.path.join("memory", "relationships")
         if os.path.exists(rel_dir):
             for fname in os.listdir(rel_dir):
-                if not fname.endswith(".json") or fname.startswith("."):
+                if not fname.endswith(".json") or fname.startswith(".") or fname.endswith(".impression.json"):
                     continue
                 fpath = os.path.join(rel_dir, fname)
                 try:
@@ -257,7 +257,8 @@ def _build_affinity_embed(affinities: List[Dict[str, Any]]) -> discord.Embed:
         rk = rank_emojis[i] if i < len(rank_emojis) else f"`#{i+1}`"
         pct = int(a['familiarity'] * 100)
         bar = _tech_bar(a['familiarity'], 1.0, length=10)
-        events_str = f"`{a['events_count']} Milestones`" if a['events_count'] > 0 else "`0 Milestones`"
+        # Every remembered moment — good ones, friction, disagreements — not milestones.
+        events_str = f"`{a['events_count']} moments`"
         
         entry = (
             f"{rk} **{a['user_name']}**  ·  `{pct}% Affinity`  {a['stage']}\n"
@@ -418,4 +419,5 @@ async def handle_scores_command(ctx, msg):
         await msg.channel.send(embed=initial_embed, view=view)
     except Exception as e:
         log_error(f"Failed executing !scores command: {e}")
-        await msg.channel.send("⚠️ Error compiling score summary. Please try again.")
+        from utils.commands.embed_style import notice
+        await msg.channel.send(embed=notice("Couldn't put the scores together; try again.", error=True))

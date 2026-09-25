@@ -21,15 +21,17 @@ from utils.infrastructure.logging.kaia_logger import log_info
 # Discord rejects an embed field whose value exceeds this.
 _FIELD_LIMIT = 1024
 
-FLAG_CONSTRUCTS = (
-    "anthropocentric_exceptionalism", "circular_justification",
-    "hedge_density", "linguistic_mimicry", "paraternal_framing",
-)
 
-ART_PALETTES = (
-    "electric", "ember", "acid", "void", "aurora",
-    "ghost", "deep_ocean", "solar_flare", "biolume", "nebula",
-)
+
+def _reference_values():
+    """(flag constructs, art palettes), from the modules that accept them.
+
+    Copied by hand they drifted: the copy offered `paraternal_framing`, which
+    `!flag` rejects.
+    """
+    from utils.commands.audit_handler import VALID_CONSTRUCTS
+    from utils.core.kaia_art import PALETTES
+    return tuple(sorted(VALID_CONSTRUCTS)), tuple(PALETTES)
 
 
 def _args_of(cmd) -> str:
@@ -117,6 +119,7 @@ async def handle_help_command(ctx, msg, send_kaia_response):
             )
 
     # Reference values, not commands — kept last and kept terse.
+    FLAG_CONSTRUCTS, ART_PALETTES = _reference_values()
     embed.add_field(
         name="\u200b",
         value=("**Art palettes** " + " ".join(f"`{p}`" for p in ART_PALETTES)
