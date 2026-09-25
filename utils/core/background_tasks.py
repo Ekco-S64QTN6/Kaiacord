@@ -783,6 +783,11 @@ class CoreTaskManager:
                                 self.ctx, self.ctx.dream_engine._log_growth_event)
                         except Exception as rev_err:
                             log_warning(f"Conversation belief review skipped: {rev_err}")
+                        try:
+                            from utils.core import self_claims
+                            await self_claims.nightly(self.ctx, self.ctx.dream_engine._log_growth_event)
+                        except Exception as sc_err:
+                            log_warning(f"Self-model review skipped: {sc_err}")
                         
                         from utils.core.rag_executor import run_rag as run_rag_func
                         

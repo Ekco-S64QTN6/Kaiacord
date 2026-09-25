@@ -147,6 +147,22 @@ async def handle_memory_cmd(ctx, msg, send_kaia_response):
 
         await msg.channel.send(embed=embed)
 
+    elif subcommand == "self":
+        from utils.commands.embed_style import add_field, box, clean
+        from utils.core import self_claims
+        claims = await asyncio.to_thread(self_claims.load)
+        if not claims:
+            await msg.channel.send(embed=box("🪞  Self-model", "No claims yet; the first are written after a dream night."))
+            return
+        embed = box("🪞  Self-model", "What she believes about herself, and how sure she is. "
+                    "Checked nightly against what she said that day.")
+        for c in sorted(claims, key=lambda c: -c["confidence"])[:20]:
+            against = [e for e in c.get("evidence", []) if not e.get("for")]
+            tag = " · retired" if c.get("retired") else ""
+            add_field(embed, f"{c['confidence']:.2f}{tag}", clean(c["claim"], 150)
+                      + (f"\n↳ against: “{clean(against[-1]['quote'], 120)}”" if against else ""))
+        await msg.channel.send(embed=embed)
+
     else:
         # Show usage help
         embed = discord.Embed(
@@ -158,7 +174,8 @@ async def handle_memory_cmd(ctx, msg, send_kaia_response):
             name="Usage",
             value=(
                 "`!memory beliefs` — View active revisable beliefs (100-cap)\n"
-                "`!memory anchors` — View episodic memory anchors (100-cap)"
+                "`!memory anchors` — View episodic memory anchors (100-cap)\n"
+                "`!memory self` — What she believes about herself, with confidence"
             ),
             inline=False
         )

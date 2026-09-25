@@ -1108,12 +1108,17 @@ class MessageProcessor:
         # the speaker's words touch (utils/core/growth_recall.py).
         try:
             from utils.core import growth_recall
+            from utils.core.self_claims import note as growth_self_note
             _note = await asyncio.to_thread(growth_recall.belief_revision_for, matching)
             if not _note:
                 _note = await asyncio.to_thread(
                     growth_recall.identity_shift_for, ctx.own_words, ctx.channel_id)
             if _note:
                 ctx.system_prompt = ctx.system_prompt + f"\n\n{_note}"
+            # What she believes about herself, when asked what she's like (K1)
+            _self = await asyncio.to_thread(growth_self_note, ctx.own_words)
+            if _self:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{_self}"
         except Exception:
             pass
 
