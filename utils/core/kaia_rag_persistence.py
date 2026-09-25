@@ -11,14 +11,12 @@ Contains:
 - flag_nodes: Data rot flagging
 - get_audit_summary: Audit statistics
 - persist / persist_async: Index persistence with atomic swap
-- pre_warm: BM25 pre-warming
 """
 
 from utils.infrastructure.monitoring.telemetry_paths import corpus_dir
 import os
 import re
 import asyncio
-import time
 import shutil
 import traceback
 from datetime import datetime
@@ -29,7 +27,7 @@ from utils.infrastructure.logging.kaia_logger import (
 )
 from utils.infrastructure.system.yaml_config import config
 from utils.core.hallucination_detector import HallucinationDetector
-from utils.core.kaia_rag_retriever import sanitize_log_content, SimpleBM25Retriever, thread_safe_rag_operation
+from utils.core.kaia_rag_retriever import sanitize_log_content, thread_safe_rag_operation
 
 from utils.social.kaia_identities import registry
 
@@ -396,64 +394,3 @@ class RAGPersistenceMixin:
 
         self.persist_needed = False
         log_success(f"RAG indices persisted ({len(persisted)}).")
-
-    async def pre_warm(self):
-        """
-        Warms up individual BM25 retrievers asynchronously.
-        Replaces raw nodes with tokenized structures to save RAM.
-        """
-        try:
-            import psutil
-            import gc
-            
-            log_action("Pre-warming RAG BM25 indices (Async)...")
-            index_list = list(self.indices.items())
-            
-            for itype, index in index_list:
-                # 1. Resource Guard
-                avail_mem_gb = psutil.virtual_memory().available / (1024**3)
-                if avail_mem_gb < 1.0: # Lowered threshold slightly due to better efficiency
-                    log_warning(f"Low RAM ({avail_mem_gb:.1f}GB). Skipping pre-warm for '{itype}'.")
-                    continue
-
-                # 2. Check cache (Memory or Disk)
-                with self._data_lock:
-                    if itype in self.bm25_cache and self.bm25_cache[itype] is not None:
-                        continue
-                
-                # Try loading from disk first
-                retriever = await asyncio.to_thread(self._load_bm25_cache, itype)
-                
-                if not retriever:
-                    with self._data_lock:
-                        nodes = list(index.storage_context.docstore.docs.values())
-                    
-                    if nodes:
-                        log_debug(f"Async pre-warming '{itype}' ({len(nodes)} nodes) via full build...")
-                        start = time.time()
-                        
-                        # 3. Use the new async-ready retriever
-                        retriever = SimpleBM25Retriever(nodes)
-                        await retriever.initialize_async()
-                        
-                        with self._data_lock:
-                            self.bm25_cache[itype] = retriever
-                            
-                        # Persist to disk for faster next start
-                        await asyncio.to_thread(self._save_bm25_cache, itype)
-                        
-                        gc.collect() 
-                        log_success(f"Index '{itype}' pre-warmed in {time.time() - start:.2f}s")
-                else:
-                    # Successfully loaded from disk
-                    with self._data_lock:
-                        self.bm25_cache[itype] = retriever
-                    
-                    # Breath between indices
-                    await asyncio.sleep(0.5)
-            
-            log_success("All RAG indices pre-warmed.")
-        except Exception as e:
-            log_error(f"RAG pre-warm failed: {e}")
-            traceback.print_exc()
-

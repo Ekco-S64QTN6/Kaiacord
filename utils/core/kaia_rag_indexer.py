@@ -20,8 +20,6 @@ import re
 import asyncio
 import time
 import json
-import copy
-import threading
 import traceback
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple, Set
@@ -280,83 +278,6 @@ class RAGIndexerMixin:
             "last_refresh": datetime.now()
         }
 
-    def _get_bm25_cache_path(self, itype: str) -> str:
-        """Get the file path for the pickled BM25 retriever of a specific index type."""
-        return os.path.join(self.persist_dir, itype, "bm25_cache.pkl")
-
-    def _save_bm25_cache(self, itype: str, skip_lock: bool = False):
-        """Persists the SimpleBM25Retriever to disk using pickle."""
-        import pickle
-        
-        def _do_save():
-            retriever = self.bm25_cache.get(itype)
-            if not retriever or getattr(retriever, 'bm25', None) is None:
-                return # Nothing to save
-        
-            cache_path = self._get_bm25_cache_path(itype)
-            itype_dir = os.path.dirname(cache_path)
-            
-            try:
-                if not os.path.exists(itype_dir):
-                    os.makedirs(itype_dir)
-                temp_path = f"{cache_path}.tmp"
-                
-                # We don't want to pickle the lock object inside SimpleBM25Retriever
-                # So we create a shallow copy and remove the lock before pickling
-                retriever_copy = copy.copy(retriever)
-                if hasattr(retriever_copy, '_lock'):
-                    delattr(retriever_copy, '_lock')
-                    
-                with open(temp_path, 'wb') as f:
-                    pickle.dump(retriever_copy, f, protocol=pickle.HIGHEST_PROTOCOL)
-                    
-                os.replace(temp_path, cache_path)
-                log_debug(f"Saved BM25 cache for '{itype}' to disk.")
-            except Exception as e:
-                log_error(f"Failed to save BM25 cache for '{itype}': {e}")
-
-        if skip_lock:
-            _do_save()
-        else:
-            with self._data_lock:
-                _do_save()
-
-    def _load_bm25_cache(self, itype: str):
-        """Loads the SimpleBM25Retriever from disk. Returns None if invalid or missing."""
-        import pickle
-        cache_path = self._get_bm25_cache_path(itype)
-        
-        if not os.path.exists(cache_path):
-            return None
-            
-        # Verify if the cache is still valid based on mtime of the index directory
-        # (If the index was updated, the vector store files will have newer mtimes)
-        try:
-            cache_mtime = os.path.getmtime(cache_path)
-            
-            # Check if any indexed file for this itype has changed since the cache was created
-            with self._data_lock:
-                for path, meta in self.indexed_files.items():
-                    # Only invalidate if a file belonging to THIS index type changed
-                    node_itype = meta.get("itype", "")
-                    if node_itype and node_itype != itype:
-                        continue
-                    file_mtime = meta.get("mtime", 0)
-                    if file_mtime > cache_mtime:
-                         log_debug(f"BM25 cache for '{itype}' is stale (file updated).")
-                         return None
-            
-            # Index manifest is older than cache, we can load it
-            with open(cache_path, 'rb') as f:
-                retriever = pickle.load(f)
-                
-                # Restore the lock that was removed during pickling
-                retriever._lock = threading.Lock()
-                log_debug(f"Loaded BM25 cache for '{itype}' from disk.")
-                return retriever
-        except Exception as e:
-            log_error(f"Failed to load BM25 cache for '{itype}', falling back to rebuild: {e}")
-            return None
 
     def _initialize_indices(self):
         """Initialize hierarchical indices from storage or create new ones."""
@@ -399,13 +320,7 @@ class RAGIndexerMixin:
                     except Exception as persist_err:
                         log_error(f"Failed to persist fresh index for {itype}: {persist_err}")
                         
-                    # Remove BM25 cache
-                    bm25_cache_path = self._get_bm25_cache_path(itype)
-                    if os.path.exists(bm25_cache_path):
-                        try:
-                            os.remove(bm25_cache_path)
-                        except Exception:
-                            pass
+                    self.bm25_cache.pop(itype, None)
                     
                     # Remove files of this index type from manifest so they are re-scanned/re-indexed
                     if hasattr(self, 'indexed_files') and isinstance(self.indexed_files, dict):
@@ -1197,17 +1112,10 @@ class RAGIndexerMixin:
         """
         self.persist_needed = True
         
-        # 1. Invalidate BM25 caches, in memory and on disk. The disk copy is
-        # judged fresh by file mtimes alone, and a deletion changes no file:
-        # after a prune the old pickle, deleted nodes and all, was loaded
-        # straight back.
+        # 1. Drop the changed indices' BM25; it rebuilds on next use.
         with self._data_lock:
             for itype in updated_itypes:
                 self.bm25_cache.pop(itype, None)
-                try:
-                    os.remove(self._get_bm25_cache_path(itype))
-                except OSError:
-                    pass
 
         # 2. Heavy Disk I/O (NO LOCK HELD)
         # We don't hold the global data lock during storage_context.persist()
@@ -1220,10 +1128,6 @@ class RAGIndexerMixin:
                 self.indices[itype].storage_context.persist(persist_dir=persist_path)
                 log_success(f"Index '{itype}' persisted.")
                 persisted.add(itype)
-
-                # 3. Persist BM25 if already in memory (re-acquires lock internally)
-                if itype in self.bm25_cache and self.bm25_cache[itype]:
-                    self._save_bm25_cache(itype)
             except Exception as e: 
                 log_error(f"Failed to persist {itype}: {e}")
                 
