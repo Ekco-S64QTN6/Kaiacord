@@ -216,3 +216,10 @@ def test_a_question_about_the_news_retrieves_news():
     assert _NEWS_CUE.search("any headlines?")
     assert not _NEWS_CUE.search("what's new with you")
     assert not _NEWS_CUE.search("newsletter from the guild")
+
+
+def test_logging_keeps_the_users_bracketed_words():
+    """User turns are never rewritten; the placeholder strip is for her replies."""
+    from utils.core.kaia_rag_retriever import sanitize_log_content
+    assert sanitize_log_content("[EDIT] fixed it [USER_MESSAGE] ok", users_words=True) == "[EDIT] fixed it ok"
+    assert sanitize_log_content("see [IMAGE] here") == "see here"

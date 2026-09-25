@@ -224,7 +224,7 @@ class RAGPersistenceMixin:
             header_text = "---\nsummary: \"\"\nkeywords: []\ndocument_type: Transcript\n---\n\n"
 
         # Sanitize internal tags before logging to prevent RAG pollution
-        message_content = sanitize_log_content(message_content)
+        message_content = sanitize_log_content(message_content, users_words=True)
         bot_response = sanitize_log_content(bot_response)
 
         timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

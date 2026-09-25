@@ -33,7 +33,7 @@ class CircuitOpenError(Exception):
     pass
 
 
-def sanitize_log_content(text: str) -> str:
+def sanitize_log_content(text: str, users_words: bool = False) -> str:
     """Strip internal system tags and dev metadata from text before logging.
     
     Prevents RAG pollution from internal tags like [AUTO_QUIP], [REMEMBER_COMMAND],
@@ -54,10 +54,14 @@ def sanitize_log_content(text: str) -> str:
     # Strip dev metadata tokens
     clean = re.sub(r'\[(?:RAG Component|MODIFY|NEW|DELETE|INSERT)\]', '', clean)
     
-    # Strip hallucinated bracket placeholders (e.g. [LINK_TO_ARCHIVE], [IMAGE_HERE])
-    # Requires underscore OR 4+ uppercase chars to avoid stripping legitimate [NOTE], [EDIT], [TIP]
-    clean = re.sub(r'\[\s*[A-Z][A-Z_]*_[A-Z_]*\s*\]', '', clean)  # Must contain underscore
-    clean = re.sub(r'\[\s*[A-Z]{4,}\s*\]', '', clean)  # Or 4+ consecutive uppercase chars
+    # Pipeline markers ([USER_MESSAGE], [LINKED_WEB_CONTENT]) always contain an
+    # underscore.
+    clean = re.sub(r'\[\s*[A-Z][A-Z_]*_[A-Z_]*\s*\]', '', clean)
+    # Her hallucinated placeholders ([IMAGE], [LINK]) — in her replies only. A
+    # person who typed "[EDIT]" or "[WHISKEY]" keeps their words: user turns
+    # are never rewritten.
+    if not users_words:
+        clean = re.sub(r'\[\s*[A-Z]{4,}\s*\]', '', clean)
     
     # Strip <think>...</think> reasoning blocks (defensive strip — no-op for current models)
     clean = re.sub(r'<think>.{0,5000}?</think>', '', clean, flags=re.DOTALL)
