@@ -197,6 +197,11 @@ LIVE_PRESETS = {
 }
 
 
+MODES = ("usb", "lsb", "am", "amn", "cw", "cwn", "nbfm")
+RADIO_USAGE = ("`!radio hfgcs` · `!radio buzzer` · `!radio <kHz> [usb|lsb|am|cw]` · "
+               "`!radio <station>` for a number station on `!numbers` · `!radio log` · `!radio listen` · `!radio off`")
+
+
 def _entry_line(i: int, e: dict) -> str:
     when = datetime.fromisoformat(e["started"])
     parsed = e.get("parsed") or {}
@@ -348,14 +353,24 @@ async def handle_radio_command(ctx, msg, send_kaia_response=None):
         elif verb.replace(".", "", 1).isdigit():
             khz, region, label = float(verb), "na", f"{float(verb):g} kHz"
             mode = parts[2].lower() if len(parts) > 2 else "usb"
+            if mode not in MODES or not 10 <= khz <= 30000:
+                await msg.channel.send(embed=box("📡  Radio", "KiwiSDRs cover 10–30,000 kHz in "
+                                                 f"{', '.join(MODES)}.\n\n{RADIO_USAGE}", COLOR_ERROR,
+                                                 footer=_others('radio')))
+                return
         else:
             cache = await priyom.refresh(poll_seconds())
             items = [t for t in priyom.upcoming(cache, 24, station=verb) if t.khz]
+            if not items:
+                await msg.channel.send(embed=box("📡  Radio", f"nothing called {clean(verb.upper(), 20)} is on "
+                                                 f"Priyom's schedule today.\n\n{RADIO_USAGE}", COLOR_RADIO,
+                                                 footer=_others('radio')))
+                return
             now = datetime.now(timezone.utc)
             onair = [t for t in items if t.start - timedelta(minutes=10) <= now <= t.start + timedelta(minutes=10)]
             if not onair:
-                nxt = f"next at **{items[0].start:%H:%M}Z** on {items[0].khz:g} kHz" if items else "not on the schedule today"
-                await msg.channel.send(embed=box("📡  Radio", f"{verb.upper()} isn't on the air now — {nxt}.",
+                nxt = f"next at **{items[0].start:%H:%M}Z** on {items[0].khz:g} kHz"
+                await msg.channel.send(embed=box("📡  Radio", f"{clean(verb.upper(), 20)} isn't on the air now — {nxt}.",
                                                  COLOR_RADIO, footer=_others('radio')))
                 return
             t = onair[0]
@@ -428,7 +443,14 @@ async def go_live(msg, khz: float, mode: str, region: str, label: str, family_ke
     if music_session(msg.guild.id):
         await msg.channel.send(embed=box("📡  Radio", "the music's playing — `!music off` first.", COLOR_ERROR))
         return
-    s = await live.start(msg.author.voice.channel, khz, mode, region, label, str(msg.author.display_name))
+    try:
+        s = await live.start(msg.author.voice.channel, khz, mode, region, label, str(msg.author.display_name))
+    except RuntimeError as e:
+        # No free receiver, or none sent audio: the reason is the answer.
+        log_warning(f"[radio] live {label}: {e}")
+        await msg.channel.send(embed=box("📡  Radio", f"{clean(str(e), 200)} — try again in a few minutes.",
+                                         COLOR_ERROR, footer=_others(family_key)))
+        return
     await msg.channel.send(embed=box(
         f"📡  Live · {label}",
         (f"{blurb}\n\n" if blurb else "")

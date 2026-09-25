@@ -165,6 +165,28 @@ def test_radio_status_and_live_refusals():
     assert "voice channel" in m.channel.send.await_args.kwargs["embed"].description
 
 
+def test_radio_answers_a_bad_request_with_the_usage():
+    """`!radio station` read as a station called STATION; a mode or frequency
+    no receiver has went straight to kiwirecorder."""
+    from utils.commands import radio_handler as rh
+    for text in ("!radio station", "!radio 7000 foo", "!radio 145000"):
+        m = _msg(text, in_voice=True)
+        with patch.object(rh.priyom, "refresh", AsyncMock(return_value={"items": []})), \
+                patch("utils.radio.live.start", AsyncMock()) as start:
+            asyncio.run(rh.handle_radio_command(MagicMock(), m))
+        assert "!radio hfgcs" in m.channel.send.await_args.kwargs["embed"].description, text
+        start.assert_not_awaited()
+
+
+def test_no_free_receiver_is_said_not_logged_as_a_fault():
+    from utils.commands import radio_handler as rh
+    m = _msg("!radio hfgcs", in_voice=True)
+    with patch("utils.radio.live.start", AsyncMock(side_effect=RuntimeError("no free receiver covers 8992 kHz right now"))), \
+            patch("utils.audio.strudel_session.get_session", return_value=None):
+        asyncio.run(rh.handle_radio_command(MagicMock(), m))
+    assert "no free receiver" in m.channel.send.await_args.kwargs["embed"].description
+
+
 def test_no_radio_subprocess_writes_to_the_bots_terminal():
     """ffmpeg inherits fd 2 unless told otherwise — beneath the logging
     redirect — and its output broke the curses dashboard."""
