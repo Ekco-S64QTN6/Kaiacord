@@ -57,27 +57,31 @@ def body_of(text: str) -> str:
     return text
 
 
-def build_archive(user: str, month: str, days: list[Path]) -> tuple[str, int]:
-    parts, turns = [], 0
+def build_archive(user: str, month: str, days: list[Path], existing: str = "") -> tuple[str, int]:
+    """The month's archive: an existing archive's body first, then these days.
+
+    Merging matters: without it, days that arrived after a month was rolled
+    up would, at the next rollup, replace the archive holding everything
+    before them.
+    """
+    from utils.core.frontmatter import dump_frontmatter
+    parts = [body_of(existing).strip()] if existing.strip() else []
     for f in sorted(days):
-        text = f.read_text(encoding="utf-8", errors="replace")
-        turns += len(TURN_MARKER.findall(text))
-        body = body_of(text).strip()
+        body = body_of(f.read_text(encoding="utf-8", errors="replace")).strip()
         if body:
             parts.append(body)
-
+    text = "\n\n".join(p for p in parts if p).strip()
+    turns = len(TURN_MARKER.findall(text))
     pretty = f"{month[:4]}-{month[4:]}"
-    front = (
-        "---\n"
-        f'title: "{user} — {pretty}"\n'
-        'document_type: Transcript\n'
-        f'month: "{pretty}"\n'
-        f"days_merged: {len(days)}\n"
-        f"turns: {turns}\n"
-        'archived: true\n'
-        "---\n\n"
-    )
-    return front + "\n\n".join(parts).strip() + "\n", turns
+    merged_before = 0
+    m = re.search(r"^days_merged:\s*(\d+)", existing, re.M)
+    if m:
+        merged_before = int(m.group(1))
+    front = dump_frontmatter({
+        "title": f"{user} — {pretty}", "document_type": "Transcript", "month": pretty,
+        "days_merged": merged_before + len(days), "turns": turns, "archived": True,
+    })
+    return front + "\n" + text + "\n", turns
 
 
 def main() -> int:
@@ -112,16 +116,19 @@ def main() -> int:
             day = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
             months[f"{m.group(1)}{m.group(2)}"].append((day, f))
 
+        this_month = datetime.now().strftime("%Y%m")
         for month, entries in sorted(months.items()):
             days = [f for _, f in entries]
             newest = max(d for d, _ in entries)
-            if newest > cutoff:
-                continue          # month still open
-            if len(days) < 2:
-                continue          # nothing to gain
-
+            # Closed means over, not merely quiet: a month whose last day was a
+            # week ago can still get tomorrow's conversation.
+            if month >= this_month or newest > cutoff:
+                continue
             archive = user_dir / f"interactions_{month}_archive.md"
-            text, turns = build_archive(user_dir.name, month, days)
+            existing = archive.read_text(encoding="utf-8", errors="replace") if archive.exists() else ""
+            if len(days) < 2 and not existing:
+                continue          # nothing to gain
+            text, turns = build_archive(user_dir.name, month, days, existing)
             made += 1
             removed += len(days)
             turns_total += turns
@@ -131,6 +138,8 @@ def main() -> int:
                 dest.mkdir(parents=True, exist_ok=True)
                 for f in days:
                     shutil.copy2(f, dest / f.name)
+                if existing:
+                    shutil.copy2(archive, dest / f"{archive.name}.before-merge")
                 write_atomic(archive, text)
                 for f in days:
                     f.unlink()

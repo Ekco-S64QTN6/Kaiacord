@@ -273,3 +273,17 @@ def test_compaction_is_idempotent_and_keeps_the_citation():
     twice = compact_link_dump(once)
     assert twice == once, "second pass changed an already-compacted turn"
     assert "[shared link:" in twice, "the re-run dropped the recovered title"
+
+
+def test_a_rollup_adds_to_an_existing_archive_instead_of_replacing_it(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rollup_under_test", "tools/maintenance/rollup_user_logs.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    existing = ("---\ndays_merged: 10\n---\n\n[2026-07-02 10:00:00] Ekco: early july\n"
+                "[2026-07-02 10:00:05] Kaia: noted.\n")
+    day = tmp_path / "interactions_20260728.md"
+    day.write_text("[2026-07-28 09:00:00] Ekco: late july\n", encoding="utf-8")
+    text, turns = m.build_archive("Ekco_1", "202607", [day], existing)
+    assert "early july" in text and "late july" in text and turns == 3
+    assert "days_merged: 11" in text
