@@ -60,6 +60,7 @@ DEFAULT_LABELS = {
     "unspooling": "🪡 Unspooling",
     "long_thought": "📜 Long thought",
     "overnight_log": "🌙 Overnight log",
+    "afterthought": "🕰️ Afterthought",
 }
 
 # Which labels each kind of post may wear. The first is its home label.
@@ -74,6 +75,9 @@ KIND_LABELS = {
     "thread": ["train_of_thought", "long_thought", "rabbit_hole", "unspooling",
                "thinking_out_loud"],
     "overnight": ["overnight_log"],
+    # A follow-up to her own reply in the conversation: labelled, but not
+    # gated, counted or cross-posted (background_tasks' afterthought task).
+    "afterthought": ["afterthought"],
 }
 
 # The label a kind wore before this module existed, for anyone who set it.

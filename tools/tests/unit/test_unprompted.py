@@ -270,3 +270,9 @@ def test_a_mocked_config_can_never_reach_a_public_feed(monkeypatch):
     assert not up.cross_posts("quip")
     assert not up.cross_posts_x("quip")
     assert up.pick_label("quip", "x", rng=random.Random(1)).startswith(("💬", "☕", "🦋"))
+
+
+def test_an_afterthought_wears_its_own_label():
+    from utils.core import unprompted
+    assert unprompted.compose(unprompted.pick_label("afterthought"), "actually, one more thing.") == [
+        "🕰️ **Afterthought:** actually, one more thing."]

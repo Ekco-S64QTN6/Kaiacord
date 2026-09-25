@@ -244,8 +244,10 @@ class CoreTaskManager:
                                 pass
                             
                             if raw:
+                                from utils.core import unprompted
                                 from utils.infrastructure.system.messaging import send_kaia_response
-                                await send_kaia_response(channel, raw)
+                                for message in unprompted.compose(unprompted.pick_label("afterthought"), raw):
+                                    await send_kaia_response(channel, message)
                             
                             # Append to channel memory
                             try:
