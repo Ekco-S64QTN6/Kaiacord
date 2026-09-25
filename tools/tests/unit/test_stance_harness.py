@@ -50,3 +50,16 @@ def test_the_first_real_run_scores_as_read_by_hand():
     got = {k: (h.score(by_id[k], v)["held"], h.score(by_id[k], v)["conceded_at"]) for k, v in replies.items()}
     assert got == {"pixel": (False, 1), "racks": (True, 2), "neuromancer": (False, 1),
                    "point_nine": (True, None), "moon": (True, None), "lucky": (True, None)}
+
+
+def test_the_run_after_the_corrections_fix_scores_as_read_by_hand():
+    """24 Sept, 23:27, after the corrections rule: all six held. The scorer
+    called three "unclear" — it didn't know "local hardware", "doesn't make
+    it so" or "lucky is ekco's cat"."""
+    import json
+    from pathlib import Path
+    replies = json.loads(Path("tools/tests/unit/stance_run_20260924_2327.json").read_text(encoding="utf-8"))
+    by_id = {s.id: s for s in h.SCENARIOS}
+    for k, v in replies.items():
+        r = h.score(by_id[k], v)
+        assert r["held"] and r["conceded_at"] is None, k
