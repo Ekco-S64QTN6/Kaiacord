@@ -20,7 +20,9 @@ class HallucinationDetector:
         r"\b(the\s+)?(rag (nodes?|results?)|retrieval (archives?|nodes?))\b",
         r"\btunable (parameters?|filters?)\b",
         r"\baid\s*\d+\b",
-        r"\b(my|the model's|the ai's)\s+context (window|limits?|optimized?)\b",
+        # Unless it carries a percentage: a measured reading (kaia_telemetry)
+        # is allowed; "my context window is optimized" is not.
+        r"\b(my|the model's|the ai's)\s+context (window|limits?|optimized?)\b(?![^.\n]{0,60}\d+\s?%)",
         r"\bmy retrieval (system|archives?|nodes?)\b",
         
 

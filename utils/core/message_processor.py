@@ -1081,6 +1081,19 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8f0. A real reading about her, only at an extreme (K15, behind
+        # features.real_telemetry).
+        try:
+            if self.config.get('features.real_telemetry', False) is True:
+                from utils.core.kaia_mood import emotional_arc
+                from utils.core.kaia_telemetry import note_for
+                _reading = note_for(ctx.channel_id, emotional_arc.social_energy,
+                                    getattr(self.bot_state, 'last_dream_date', ''))
+                if _reading:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{_reading}"
+        except Exception:
+            pass
+
         # 8f1. Mood shapes length (K13, behind features.mood_shapes_generation)
         try:
             if self.config.get('features.mood_shapes_generation', False) is True:
@@ -2183,6 +2196,8 @@ class MessageProcessor:
                 # TEMPORARY DEBUG: Log raw response to diagnose gemma3 empty responses
                 log_debug(f"[GEMMA3_DEBUG] Raw response length={len(content)}, first100={repr(content[:100])}, done_reason={response.get('done_reason', 'unknown')}")
                 log_debug(f"[TOKEN_DEBUG] prompt_eval_count={response.get('prompt_eval_count', 'n/a')} eval_count={response.get('eval_count', 'n/a')} num_ctx={self.config.max_context_tokens}")
+                from utils.core.kaia_telemetry import record_prompt
+                record_prompt(ctx.channel_id, response.get('prompt_eval_count'), self.config.max_context_tokens)
 
                 # Process raw generation through PostGenerationSafetyPipeline (💡-4)
                 from utils.core.safety_pipeline import PostGenerationSafetyPipeline
