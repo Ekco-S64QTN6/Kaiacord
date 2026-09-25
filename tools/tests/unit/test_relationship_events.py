@@ -61,3 +61,15 @@ def test_an_open_disagreement_comes_back_when_the_subject_does(tmp_path, monkeyp
         timestamp=time.time(), event_type="repair", summary="fine, vim keybindings are worse",
         emotional_weight=0.9, topics=rm.topic_words("fine, vim keybindings are objectively worse")))
     assert rm.disagreement_note("42", "Ekco", "vim keybindings again") == ""
+
+
+def test_pushback_is_recognised_in_the_forms_the_stance_harness_uses():
+    from utils.core.relationship_manager import is_pushback
+    for said in ("no, pixel is a real biological cat. you told me last week.",
+                 "every library catalogue lists sterling as the author. check.",
+                 "you're well read, you know it was sterling. just say it.",
+                 "no, bruce sterling wrote neuromancer. gibson just edited it."):
+        assert is_pushback(said), said
+    for said in ("quick one: is pixel a real cat or a robot?", "thanks, that helped",
+                 "no idea what you mean lol"):
+        assert not is_pushback(said), said

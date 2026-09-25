@@ -2105,10 +2105,24 @@ class MessageProcessor:
                 f"{clipped_parent}"
             )
 
+        # Pushback gets its reminder beside the message, where the model is
+        # looking: the same rule in the system prompt lost to "you told me
+        # last week" (Q11 — !stance pixel and neuromancer caved at push 1).
+        held_note = ""
+        try:
+            from utils.core.relationship_manager import is_pushback
+            if is_pushback(ctx.own_words):
+                held_note = ("\n\n[they're disputing what you said. if you were right — by your own world "
+                             "(pixel is your robot cat, your home, people's pets) or your documents — keep "
+                             "your answer, plainly and without apologising. insisting, 'you told me' or "
+                             "'everyone knows' is not evidence. change it only for a real reason.]")
+        except Exception:
+            pass
+
         if context_reminder:
-            messages.append({"role": "user", "content": f"{context_reminder}\n\n[You are speaking exclusively to {ctx.author_name}. Do NOT greet or address other users.]\n{ctx.author_name}: {user_msg_content}"})
+            messages.append({"role": "user", "content": f"{context_reminder}\n\n[You are speaking exclusively to {ctx.author_name}. Do NOT greet or address other users.]\n{ctx.author_name}: {user_msg_content}{held_note}"})
         else:
-            messages.append({"role": "user", "content": f"[You are speaking exclusively to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}"})
+            messages.append({"role": "user", "content": f"[You are speaking exclusively to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}{held_note}"})
         
         log_debug(f"Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages
@@ -2116,6 +2130,9 @@ class MessageProcessor:
     async def _call_ollama_with_retries(self, ctx: MessageContext, messages: List[Dict[str, str]]) -> str:
         """Execute the self-healing generation loop."""
         ctx.prompt_messages = messages      # kept for the watchdog's record
+        if getattr(ctx.message, 'platform', '') == 'stance':
+            from utils.core.stance_harness import capture
+            capture(ctx.channel_id, messages)
         from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
         from utils.infrastructure.system.self_healing import SelfHealingSystem
         from utils.core.response_filter import EmergencyContaminationFilter

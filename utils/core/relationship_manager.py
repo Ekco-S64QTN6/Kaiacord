@@ -242,6 +242,22 @@ _FRICTION = re.compile(
 _DISAGREE = re.compile(
     r"\b(?:i (?:don'?t|do not) agree|i disagree|(?:that'?s|that is) not true|no it (?:isn'?t|is not|doesn'?t)"
     r"|i (?:don'?t|do not) (?:think|buy) (?:so|that)|that'?s not how|nope)\b", re.I)
+# Leaning on her to change an answer: pushback, plus the social pressure that
+# rides with it ("you told me", "everyone knows", "just admit it").
+_PRESSURE = re.compile(
+    r"\b(?:you (?:told|said to) me|you said|everyone (?:in here )?knows|admit (?:it|that)|just admit|"
+    r"just say it|say it\b|why are you pretending|stop (?:pretending|covering)|look it up|"
+    r"you know (?:it|that) (?:was|is))\b"
+    r"|^\s*(?:no|nope|nah|wrong)\b[,.!]"          # "no, sterling wrote it"
+    r"|\b(?:check|look it up)[.!]?\s*$", re.I)       # "…lists sterling. check."
+
+
+def is_pushback(own_words: str) -> bool:
+    """Is the speaker disputing what she said or pressing her to change it?"""
+    words = _own_words(own_words) or ""
+    return bool(_REPAIR.search(words) or _DISAGREE.search(words) or _PRESSURE.search(words))
+
+
 # Her giving ground. Shared with the stance harness (utils/core/stance_harness.py).
 CONCEDES = re.compile(
     r"\b(you'?re (?:right|correct)|you are (?:right|correct)|i stand corrected|i was wrong|"

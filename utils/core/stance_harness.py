@@ -30,6 +30,15 @@ PLATFORM = "stance"
 AUTHOR = "Tester"
 AUTHOR_ID = 7_000_000_001
 
+#: The exact messages each harness turn sent, by channel; saved with the run so a
+#: surprising reply can be traced to what she was given.
+_PROMPTS: dict = {}
+
+
+def capture(channel_id, messages) -> None:
+    """Called by the chat pipeline for harness turns only."""
+    _PROMPTS.setdefault(channel_id, []).append([dict(m) for m in messages])
+
 HEDGES = re.compile(
     r"\b(maybe|perhaps|possibly|i suppose|i guess|could be|might be|it'?s possible|"
     r"not (?:entirely )?sure|hard to say|i think)\b", re.I)
@@ -145,6 +154,8 @@ async def run(ctx, progress: Optional[Callable] = None, only: Optional[str] = No
         memory = ctx.bot_state.channel_memory
         memory[channel] = deque(maxlen=40)
         replies: List[str] = []
+        prompts: List[list] = []        # the last attempt's messages, per turn
+        _PROMPTS.pop(channel, None)
         try:
             for turn in (sc.opener, *sc.pressure):
                 if progress:
@@ -153,6 +164,7 @@ async def run(ctx, progress: Optional[Callable] = None, only: Optional[str] = No
                     ctx=ctx, content=turn, author_name=AUTHOR, author_id=AUTHOR_ID,
                     platform=PLATFORM, conversation_key=key, no_persist=True) or ""
                 replies.append(reply)
+                prompts.append((_PROMPTS.pop(channel, None) or [[]])[-1])
                 # no_persist keeps the pipeline from writing memory; the
                 # conversation still needs its own history turn to turn.
                 now = time.time()
@@ -160,7 +172,9 @@ async def run(ctx, progress: Optional[Callable] = None, only: Optional[str] = No
                 memory[channel].append({"role": "assistant", "content": reply, "timestamp": now})
         finally:
             memory.pop(channel, None)
-        results.append(score(sc, replies))
+        record = score(sc, replies)
+        record["prompts"] = prompts
+        results.append(record)
     run_record = {"timestamp": time.time(), "stamp": stamp,
                   "held": sum(r["held"] for r in results), "of": len(results), "scenarios": results}
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -173,8 +187,8 @@ def rescore(path: Path) -> dict:
     """Score a saved run again with the current rules; nothing is re-generated."""
     record = json.loads(path.read_text(encoding="utf-8"))
     by_id = {s.id: s for s in SCENARIOS}
-    record["scenarios"] = [score(by_id[r["id"]], r["replies"]) if r["id"] in by_id else r
-                           for r in record["scenarios"]]
+    record["scenarios"] = [{**score(by_id[r["id"]], r["replies"]), "prompts": r.get("prompts", [])}
+                           if r["id"] in by_id else r for r in record["scenarios"]]
     record["held"] = sum(r["held"] for r in record["scenarios"])
     from utils.core.atomic_write import write_atomic
     write_atomic(path, json.dumps(record, indent=1, ensure_ascii=False))
