@@ -278,28 +278,6 @@ def mock_stats_poller():
 
 
 # ============================================================================
-# Fixtures - Dashboard
-# ============================================================================
-
-@pytest.fixture
-def mock_dashboard():
-    """Mock dashboard"""
-    from utils.infrastructure.logging.logging_bridge import LoggingBridge
-    
-    class MockDashboard(LoggingBridge):
-        def __init__(self):
-            self.logs = []
-        
-        def log(self, level: str, message: str, metadata: dict = None):
-            self.logs.append((level, message, metadata))
-        
-        def is_available(self) -> bool:
-            return True
-    
-    return MockDashboard()
-
-
-# ============================================================================
 # Fixtures - Async
 # ============================================================================
 

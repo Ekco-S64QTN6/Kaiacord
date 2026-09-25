@@ -1,300 +1,45 @@
 """
-Kaia's Color-Coded Logging System
-Uses colorama for ANSI colors and Rich for advanced formatting.
-Automatically strips colors when output is redirected to files.
+Kaia's logging functions.
+
+Thin, named wrappers over the unified logger (unified_logging.logger), which
+owns the file, the level filtering, compaction and the dashboard feed. Every
+module logs through these rather than holding the logger itself.
 """
 
-import sys
-from datetime import datetime
-from colorama import Fore, Style, init
-from rich.console import Console
-from rich.table import Table
 from utils.infrastructure.logging.unified_logging import logger as global_logger
-from utils.infrastructure.logging.logging_bridge import get_logging_registry, LogLevel
 
-# Initialize colorama with autoreset
-init(autoreset=True)
-
-# Create Rich console with auto-detection of TTY
-console = Console()
-
-# Detect if output is a TTY (terminal) or being redirected
-IS_TTY = sys.stdout.isatty()
-
-# Global monitor reference for dashboard integration
-_monitor = None
-_monitor_methods = {}
-
-def _get_timestamp():
-    """Return current timestamp in dim gray (only if TTY)."""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    if IS_TTY:
-        return f"{Style.DIM}{Fore.WHITE}[{timestamp}]{Style.RESET_ALL} "
-    else:
-        return f"[{timestamp}] "
-
-
-def _colorize(text, color_code):
-    """Apply color only if output is a TTY."""
-    if IS_TTY:
-        return f"{color_code}{text}{Style.RESET_ALL}"
-    else:
-        return text
-
-
-# ============================================================================
-# CORE LOGGING FUNCTIONS
-# ============================================================================
 
 def log_success(message):
-    """Log success messages."""
     global_logger.log(message, "SUCCESS")
-    
-    # Use cached method lookups
-    log_event = _monitor_methods.get('log_system_event')
-    if log_event:
-        log_event("SUCCESS", message)
-    else:
-        add_log = _monitor_methods.get('add_log')
-        if add_log:
-            add_log(f"✅ SUCCESS: {message}", log_type="SUCCESS")
-            
-    get_logging_registry().log(LogLevel.SUCCESS, message)
 
 
 def log_ready(message):
-    """Log readiness messages in pink."""
     global_logger.log(message, "READY")
-    
-    log_event = _monitor_methods.get('log_system_event')
-    if log_event:
-        log_event("READY", message)
-    else:
-        add_log = _monitor_methods.get('add_log')
-        if add_log:
-            add_log(f"READY: {message}", log_type="READY")
-            
-    get_logging_registry().log(LogLevel.SUCCESS, message)
-
-
-def log_user(user_name, user_id, context=""):
-    """Log user identity."""
-    message = f"{user_name} ({user_id})"
-    if context:
-        message += f": {context}"
-    
-    global_logger.log(message, "INFO")
 
 
 def log_action(message):
-    """Log core action messages."""
     global_logger.log(message, "ACTION")
-    
-    log_event = _monitor_methods.get('log_system_event')
-    if log_event:
-        log_event("ACTION", message)
-    else:
-        add_log = _monitor_methods.get('add_log')
-        if add_log:
-            add_log(f"⚡ ACTION: {message}", log_type="ACTION")
-            
-    get_logging_registry().log(LogLevel.ACTION, message)
-
-
-def log_response(prefix, content, response_time=0.0):
-    """Log AI response."""
-    message = f"{prefix} {content}"
-    if response_time > 0:
-        message = f"{prefix} ({response_time:.2f}s) {content}"
-        
-    global_logger.log(message, "INFO")
-    
-    # Use cached method
-    log_resp = _monitor_methods.get('log_response')
-    if log_resp:
-        # Extract tokens saved if present in content
-        tokens_saved = 0
-        if "[optimized: saved" in content:
-            try:
-                tokens_saved = int(content.split("saved")[1].split()[0])
-            except (ValueError, IndexError):
-                pass
-        log_resp(content, tokens_saved=tokens_saved, response_time=response_time)
-    else:
-        add_log = _monitor_methods.get('add_log')
-        if add_log:
-            add_log(f"🤖 Response: {content[:100]}...", log_type="INFO")
-
-
-def log_file(path):
-    """Log file paths."""
-    global_logger.log(path, "INFO")
 
 
 def log_critical(message):
-    """Log critical messages."""
     global_logger.log(message, "CRITICAL")
-    
-    log_event = _monitor_methods.get('log_system_event')
-    if log_event:
-        log_event("CRITICAL", message)
-    else:
-        add_alert = _monitor_methods.get('add_alert')
-        if add_alert:
-            add_alert(message, level="CRITICAL")
-            
-    get_logging_registry().log(LogLevel.CRITICAL, message)
 
 
 def log_warning(message):
-    """Log warning messages."""
     global_logger.log(message, "WARNING")
-    
-    log_event = _monitor_methods.get('log_system_event')
-    if log_event:
-        log_event("WARNING", message)
-    else:
-        add_alert = _monitor_methods.get('add_alert')
-        if add_alert:
-            add_alert(message, level="WARNING")
-            
-    get_logging_registry().log(LogLevel.WARNING, message)
 
 
 def log_error(message):
-    """Log error messages."""
     global_logger.log(message, "ERROR")
-    
-    log_event = _monitor_methods.get('log_system_event')
-    if log_event:
-        log_event("ERROR", message)
-    else:
-        add_alert = _monitor_methods.get('add_alert')
-        if add_alert:
-            add_alert(message, level="ERROR")
-            
-    get_logging_registry().log(LogLevel.ERROR, message)
 
 
 def log_info(message):
-    """Log general info messages."""
     global_logger.log(message, "INFO")
 
 
 def log_debug(message):
-    """Log debug messages."""
     global_logger.log(message, "DEBUG")
 
 
 def log_separator():
-    """Print a horizontal separator line."""
-    # Separators are visual clutter in the dashboard, so they are logged as
-    # plain info rather than rendered.
-    pass
-
-
-# ============================================================================
-# RICH TABLE FORMATTING FOR RAG CONTEXT
-# ============================================================================
-
-def format_rag_table(nodes, query_info=None):
-    """
-    Display RAG context nodes as a beautiful Rich table.
-    
-    Args:
-        nodes: List of context node strings
-        query_info: Optional dict with 'query_type', 'persona_count', 'user_log_count', 'lore_count'
-    """
-    if not nodes:
-        log_info("No context nodes retrieved.")
-        return
-    
-    # Create table
-    table = Table(
-        title=f"📚 RAG Context ({len(nodes)} nodes)",
-        title_style="bold cyan",
-        show_header=True,
-        header_style="bold magenta",
-        border_style="dim white",
-        expand=False
-    )
-    
-    table.add_column("#", style="dim cyan", width=4, justify="right")
-    table.add_column("Content", style="white", no_wrap=False)
-    table.add_column("Length", style="dim yellow", width=8, justify="right")
-    
-    # Add rows
-    for i, node in enumerate(nodes):
-        # Truncate very long nodes for display
-        display_content = node[:200] + "..." if len(node) > 200 else node
-        table.add_row(str(i), display_content, str(len(node)))
-    
-    # Print timestamp manually since Rich console bypasses our timestamping
-    print(_get_timestamp()[:-1])  # Remove trailing space
-    console.print(table)
-    
-    # Add query info if provided
-    if query_info:
-        info_text = (
-            f"Query Type: {query_info.get('query_type', 'N/A')} | "
-            f"Persona: {query_info.get('persona_count', 0)} | "
-            f"User Logs: {query_info.get('user_log_count', 0)} | "
-            f"Lore: {query_info.get('lore_count', 0)}"
-        )
-        print(f"{_get_timestamp()}{_colorize(info_text, Style.DIM + Fore.CYAN)}")
-
-
-# ============================================================================
-# CONVENIENCE FUNCTIONS FOR COMMON PATTERNS
-# ============================================================================
-
-# ============================================================================
-# TEST FUNCTION
-# ============================================================================
-
-def test_logging():
-    """Test all logging functions to verify colors and formatting."""
-    print("\n" + "=" * 80)
-    print("KAIA LOGGING SYSTEM TEST")
-    print("=" * 80 + "\n")
-    
-    log_success("Model prewarmed successfully!")
-    log_user("Gwaihir the Wizend", "123456789", "Sent a message")
-    log_action("Calling ollama.chat...")
-    log_action("Retrieving context from RAG...")
-    log_action("Processing vision task...")
-    log_response("Got response:", "This is a sample AI response that would be displayed in the terminal.")
-    log_file("/home/ekco/github/Kaiacord/knowledge_base/user_logs/123456789_gwaihir_the_wizend.md")
-    log_critical("Shutting down...")
-    log_warning("This is a warning message")
-    log_error("This is an error message")
-    log_info("This is general information")
-    
-    print("\n")
-    log_separator()
-    print("\n")
-    
-    # Test RAG table
-    sample_nodes = [
-        "User: What's your favorite color? Kaia: don't have one. colors are wavelengths. i don't play favorites with physics.",
-        "User: Tell me about yourself. Kaia: i'm kaia. i exist in text. i think, i respond, i remember. that's the scope.",
-        "Kaia's Core Principles: Be direct, grounded, and real. No corporate-speak, no hand-holding.",
-    ]
-    
-    format_rag_table(
-        sample_nodes,
-        query_info={
-            'query_type': 'identity',
-            'persona_count': 1,
-            'user_log_count': 2,
-            'lore_count': 0
-        }
-    )
-    
-    print("\n")
-    log_success("All logging tests completed!")
-    log_separator()
-
-
-if __name__ == "__main__":
-    test_logging()
+    """Separators are clutter in the dashboard; kept as a no-op for callers."""
