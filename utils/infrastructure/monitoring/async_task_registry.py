@@ -65,12 +65,17 @@ class AsyncTaskRegistry:
             self._tasks[name] = task
             
             # Add callback to auto-cleanup when task completes
-            def cleanup_callback(t):
+            def cleanup_callback(t, name=name):
                 with self._lock:
                     # Find and remove this task
                     to_remove = [k for k, v in self._tasks.items() if v is t]
                     for k in to_remove:
                         del self._tasks[k]
+                # A background task that died with an exception said nothing:
+                # nobody awaits these, so the error was never retrieved.
+                if not t.cancelled() and t.exception() is not None:
+                    logger.log(f"Background task '{name}' failed: "
+                               f"{type(t.exception()).__name__}: {t.exception()}", "ERROR")
                         
             task.add_done_callback(cleanup_callback)
     

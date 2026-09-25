@@ -13,6 +13,11 @@ ctx = None
 _last_log_rss = 0.0
 _first_run = True
 
+# The bot's own RSS above which it collects garbage and says so. A constant:
+# it was read through getattr on the config object, which has no such
+# attribute, so no setting ever reached it.
+MEMORY_CRITICAL_MB = 12000
+
 # Counter for full hourly scans (every 12th tick of a 5-minute loop = 60 min)
 _rag_tick_count = 0
 
@@ -83,8 +88,7 @@ async def memory_audit_task():
         else:
             log_debug(f"Memory Audit: RSS {rss_mb:.1f} MB")
         
-        # Memory cleanup thresholds (in MB)
-        NORMAL_THRESHOLD_MB = getattr(ctx.config, 'memory_critical_threshold_mb', 12000)
+        NORMAL_THRESHOLD_MB = MEMORY_CRITICAL_MB
         
         if rss_mb > NORMAL_THRESHOLD_MB:
             # This is the bot's own RAM. The GPU is Ollama's, and the bot holds

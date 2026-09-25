@@ -71,3 +71,22 @@ def test_cleanup_drops_idle_users(monkeypatch):
     monkeypatch.setattr(time, "time", lambda: now + 3600)
     rl.cleanup()
     assert 1 not in rl.requests or not rl.requests[1]
+
+
+def test_a_failed_background_task_is_reported(monkeypatch):
+    import asyncio
+    from utils.infrastructure.monitoring import async_task_registry as reg
+    seen = []
+    monkeypatch.setattr(reg.logger, "log", lambda msg, level="INFO": seen.append((level, msg)))
+    registry = reg.AsyncTaskRegistry()
+
+    async def boom():
+        raise ValueError("nope")
+
+    async def run():
+        t = asyncio.create_task(boom())
+        registry.register("boom_task", t)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    asyncio.run(run())
+    assert ("ERROR", "Background task 'boom_task' failed: ValueError: nope") in seen
