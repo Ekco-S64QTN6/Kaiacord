@@ -1,70 +1,58 @@
+"""!selfmodel — regenerate memory/kaia_self_model.md now (owner only).
+
+Uses the dream engine's GPU-guarded generation in-process, not a subprocess,
+so it cannot collide with the bot's own use of the model.
 """
-Self-Model Generation Command
-=============================
-
-!selfmodel — Regenerate the kaia_self_model.md file on demand.
-
-Uses the DreamEngine's inline GPU-guarded self-model generation instead of
-spawning a subprocess, preventing VRAM collisions with the main bot process.
-"""
-
+import asyncio
 import os
-from utils.infrastructure.logging.kaia_logger import log_info, log_error
-from utils.commands.embed_style import notice
+
+from utils.commands.embed_style import box, clean_block, notice
+from utils.infrastructure.logging.kaia_logger import log_error, log_info
+
+SELF_MODEL = os.path.join("memory", "kaia_self_model.md")
+
+
+def _read_model() -> str:
+    try:
+        with open(SELF_MODEL, encoding="utf-8") as f:
+            text = f.read().strip()
+    except OSError:
+        return ""
+    if text.startswith("<!--"):
+        text = text[text.find("-->") + 3:].strip()
+    return text
 
 
 async def handle_selfmodel_command(ctx, msg, send_kaia_response):
-    """Handle the !selfmodel command to trigger self-model regeneration."""
-    is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
-    if not is_owner:
+    """Regenerate the self-model and show its opening."""
+    if not ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id)):
         await msg.channel.send(embed=notice("you aren't my architect. restricted.", error=True))
         return
+    engine = getattr(ctx, "dream_engine", None)
+    if engine is None:
+        await msg.channel.send(embed=notice("The dream engine isn't running yet; try again in a minute.", error=True))
+        return
 
-    await send_kaia_response(msg.channel, "Reflecting on recent memories... Regenerating self-model. This may take a moment.")
+    status = await msg.channel.send(embed=notice("Rereading recent conversations and dreams…", title="🪞  Self-model"))
     log_info(f"Self-model regeneration triggered by {msg.author.name}")
-
     try:
-        # Get the DreamEngine from the application context
-        dream_engine = getattr(ctx, 'dream_engine', None)
-        if dream_engine is None:
-            log_error("Self-model regen: DreamEngine not available on app context.")
-            await send_kaia_response(msg.channel, "Dream engine isn't initialized yet. Try again in a minute.")
-            return
-
-        # Load persona for the generation prompt
         from utils.social.kaia_social_responder import load_persona_async
-        persona_content = await load_persona_async()
-
-        if not persona_content:
-            log_error("Self-model regen: Could not load persona file.")
-            await send_kaia_response(msg.channel, "Couldn't load persona file. Something's wrong.")
+        persona = await load_persona_async()
+        if not persona:
+            await status.edit(embed=notice("The persona file couldn't be loaded.", error=True))
             return
-
-        # Call the inline GPU-guarded self-model generation with force=True
-        await dream_engine._maybe_regenerate_self_model(persona_content, force=True)
-
-        # Read the newly generated model for confirmation
-        self_model_path = os.path.join("memory", "kaia_self_model.md")
-        if os.path.exists(self_model_path):
-            with open(self_model_path, "r", encoding="utf-8") as f:
-                content = f.read().strip()
-
-            # Strip the HTML comment header if present
-            if content.startswith('<!--'):
-                content = content[content.find('-->') + 3:].strip()
-
-            preview = content[:300] + ("..." if len(content) > 300 else "")
-
-            # Invalidate the identity cache in message_processor to pick up new model
-            if hasattr(ctx, 'message_processor'):
-                ctx.message_processor._identity_cache_time = 0.0
-
-            await send_kaia_response(msg.channel, f"Self-model updated successfully.\n\n**Preview:**\n{preview}")
-            log_info("Self-model regenerated successfully via inline GPU-guarded path (cache invalidated).")
-        else:
-            await send_kaia_response(msg.channel, "Self-model generation completed, but output file was not found.")
-            log_error("Self-model output file missing after inline generation.")
-
+        before = await asyncio.to_thread(os.path.getmtime, SELF_MODEL) if os.path.exists(SELF_MODEL) else 0
+        await engine._maybe_regenerate_self_model(persona, force=True)
+        after = await asyncio.to_thread(os.path.getmtime, SELF_MODEL) if os.path.exists(SELF_MODEL) else 0
+        if after <= before:
+            # The generator logs and returns on a short or failed draft.
+            await status.edit(embed=notice("No new self-model was written; the log has the reason.", error=True))
+            return
+        # The prompt caches identity blocks; make the next turn read the new one.
+        if getattr(ctx, "message_processor", None):
+            ctx.message_processor._identity_cache_time = 0.0
+        text = await asyncio.to_thread(_read_model)
+        await status.edit(embed=box("🪞  Self-model updated", clean_block(text, 900)))
     except Exception as e:
         log_error(f"Error executing self-model generation: {e}")
-        await send_kaia_response(msg.channel, f"An error occurred while regenerating the self-model: {e}")
+        await status.edit(embed=notice("Self-model regeneration failed; the log has the reason.", error=True))

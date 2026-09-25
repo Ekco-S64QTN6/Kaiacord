@@ -3,86 +3,83 @@ RAG Reindex Command
 ===================
 
 !reindex           — Incremental: scan for new/changed/deleted files only.
-!reindex --full    — Full wipe: clear manifest, re-embed everything from scratch.
-                     WARNING: slow. use only to fix orphaned/corrupt index nodes.
+!reindex --full    — Remove every node and re-embed everything from scratch.
+                     Slow; for an index that is orphaned or corrupt.
 """
 
 import time
-from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info, log_success
+
 from utils.commands.embed_style import box, notice
+from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info, log_success
+
+
+def _wipe(rag) -> int:
+    """Delete every node from every index and clear the manifest. Returns nodes removed.
+
+    Clearing the manifest alone made every file look new, and new files are
+    indexed without deleting what they already had: a full reindex doubled
+    the index.
+    """
+    removed = 0
+    with rag._data_lock:
+        for itype, index in rag.indices.items():
+            ids = list(index.storage_context.docstore.docs.keys())
+            if ids:
+                removed += rag._delete_nodes(itype, ids)
+            rag.bm25_cache.pop(itype, None)
+        rag.indexed_files.clear()
+        file_nodes = getattr(rag, '_file_to_nodes', None)
+        if file_nodes is not None:
+            file_nodes.clear()
+        rag.persist_needed = True
+    return removed
 
 
 async def handle_reindex_command(ctx, msg, send_kaia_response):
     """Handle the !reindex command (Admin only)."""
-
-    is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
-    if not is_owner:
+    if not ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id)):
         await msg.channel.send(embed=notice("restricted. admins only.", error=True))
         return
 
     rag = ctx.rag
     if not rag or not getattr(rag, '_initialized', False):
-        await msg.channel.send(embed=notice("RAG not initialized yet. try again in a moment.", error=True))
+        await msg.channel.send(embed=notice("Retrieval isn't initialised yet; try again in a moment.", error=True))
+        return
+    lock = getattr(rag, '_index_lock', None)
+    if lock is not None and lock.locked():
+        # refresh_knowledge_base would only queue itself and return, and the
+        # command would report a reindex that never ran.
+        await msg.channel.send(embed=notice(
+            "An index refresh is already running. Try again when it finishes.", error=True))
         return
 
-    parts = msg.content.strip().split()
-    full_wipe = "--full" in parts
-
-    if full_wipe:
-        status_msg = await msg.channel.send(
-            "⚠️ **Full reindex initiated.** Clearing manifest and re-embedding all files. "
-            "This will take several minutes..."
-        )
-    else:
-        status_msg = await msg.channel.send(
-            "🔄 **Incremental reindex started.** Scanning for new/changed/deleted files..."
-        )
-
+    full_wipe = "--full" in msg.content.split()
+    status = await msg.channel.send(embed=notice(
+        "Removing every node and re-embedding all files. This takes several minutes."
+        if full_wipe else "Scanning for new, changed and deleted files.",
+        title="🔄  Full reindex" if full_wipe else "🔄  Reindex"))
     log_action(f"!reindex triggered by {msg.author.display_name} (full={full_wipe})")
 
     try:
-        start_time = time.time()
-
+        import asyncio
+        start = time.time()
         if full_wipe:
-            # Clear the manifest so _find_changed_files() treats everything as new
-            with rag._data_lock:
-                before_count = len(rag.indexed_files)
-                rag.indexed_files.clear()
-                file_nodes = getattr(rag, '_file_to_nodes', None)
-                if file_nodes is not None:
-                    file_nodes.clear()
-            log_info(f"Manifest cleared ({before_count} entries wiped). Starting full re-index...")
-
-        # Capture manifest size before refresh for delta reporting
+            removed = await asyncio.to_thread(_wipe, rag)
+            log_info(f"Full reindex: {removed} nodes removed, manifest cleared.")
         before = len(rag.indexed_files)
 
-        # Run the actual refresh (scans disk, indexes new/changed, removes deleted)
         from utils.core.rag_executor import run_rag
         await run_rag(rag.refresh_knowledge_base)
-
-        # Persist updated indices to disk
         if getattr(rag, 'persist_needed', False):
             await rag.persist_async()
 
         after = len(rag.indexed_files)
-        elapsed = int(time.time() - start_time)
-        delta = after - before
-
-        if full_wipe:
-            summary = (
-                f"Full reindex complete in {elapsed}s.\n"
-                f"Indexed: {after} files total."
-            )
-        else:
-            added = max(0, delta)
-            summary = (
-                f"Incremental reindex complete in {elapsed}s.\n"
-                f"Files in manifest: {after} (+{added} new/changed)."
-            )
-
-        await status_msg.edit(content=None, embed=box("✅  Reindex complete", summary))
-        log_success(f"!reindex complete — {summary.replace(chr(10), ' ')}")
-
+        elapsed = int(time.time() - start)
+        summary = (f"Full reindex complete in {elapsed}s: {after} files indexed." if full_wipe else
+                   f"Incremental reindex complete in {elapsed}s: {after} files in the manifest "
+                   f"({max(0, after - before)} new or changed).")
+        await status.edit(embed=box("✅  Reindex complete", summary))
+        log_success(f"!reindex complete — {summary}")
     except Exception as e:
         log_error(f"!reindex failed: {e}")
-        await status_msg.edit(content=None, embed=notice(f"reindex failed: {type(e).__name__}: {e}", error=True))
+        await status.edit(embed=notice(f"The reindex failed: {type(e).__name__}. The log has the details.", error=True))

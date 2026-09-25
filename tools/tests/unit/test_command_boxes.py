@@ -212,3 +212,22 @@ def test_snapshot_writes_local_times_and_names_not_mention_ids(tmp_path, monkeyp
     assert "<@123>" not in text and "@Starkind" in text
     assert f"[{when.astimezone().strftime('%H:%M')}] Ekco:" in text
     assert msg.channel.send.call_args.kwargs["embed"].title == "📸  Snapshot"
+
+
+def test_a_full_reindex_removes_every_node_before_re_embedding():
+    """Clearing only the manifest made every file look new, and new files are
+    indexed without removing what they had: --full doubled the index."""
+    import threading
+    from types import SimpleNamespace
+    from utils.commands.reindex_handler import _wipe
+    deleted = {}
+    index = lambda ids: SimpleNamespace(storage_context=SimpleNamespace(
+        docstore=SimpleNamespace(docs={i: None for i in ids})))
+    rag = SimpleNamespace(
+        _data_lock=threading.RLock(), indices={"knowledge": index(["a", "b"]), "logs": index(["c"])},
+        bm25_cache={"knowledge": object()}, indexed_files={"/x.md": {}}, _file_to_nodes={"/x.md": ["a"]},
+        persist_needed=False,
+        _delete_nodes=lambda itype, ids: deleted.setdefault(itype, list(ids)) and len(ids))
+    assert _wipe(rag) == 3
+    assert deleted == {"knowledge": ["a", "b"], "logs": ["c"]}
+    assert rag.indexed_files == {} and rag._file_to_nodes == {} and rag.bm25_cache == {}
