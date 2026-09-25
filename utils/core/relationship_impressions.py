@@ -48,7 +48,7 @@ def impression_note(user_id: str, user_name: str) -> str:
 
 def _event_lines(events: List[rm.RelationshipEvent]) -> str:
     marks = {"positive": "+", "friction": "~", "repair": "!", "milestone": "*",
-             "disagreement": "≠", "neutral": "·"}
+             "disagreement": "≠", "insight": "?", "neutral": "·"}
     return "\n".join(
         f"{time.strftime('%Y-%m-%d', time.localtime(e.timestamp))} "
         f"({marks.get(e.event_type, '·')} {e.event_type}) {e.summary[:160]}"
@@ -59,7 +59,8 @@ def build_prompt(name: str, events: List[rm.RelationshipEvent], stage: str) -> s
     return (
         f"You are Kaia. Below is what has happened between you and {name} "
         f"(relationship stage: {stage}), oldest first. "
-        "+ good moments, ~ friction, ! they corrected you, ≠ you disagreed and held, * milestones.\n\n"
+        "+ good moments, ~ friction, ! they corrected you, ≠ you disagreed and held, "
+        "? something you realised about them in a dream, * milestones.\n\n"
         f"{_event_lines(events)}\n\n"
         f"In one or two sentences, lowercase, first person, say how you see {name} — what they're "
         "like with you, what you value or find hard. A characterisation, not a list of events; "

@@ -183,7 +183,7 @@ def format_for_injection(events: List[RelationshipEvent]) -> str:
     for e in events[:3]:
         type_emoji = {
             'positive': '+', 'friction': '~', 'repair': '!',
-            'milestone': '*', 'neutral': '·', 'disagreement': '≠'
+            'milestone': '*', 'neutral': '·', 'disagreement': '≠', 'insight': '?'
         }.get(e.event_type, '·')
         parts.append(f"({type_emoji}) {e.summary}")
 

@@ -241,9 +241,11 @@ class DreamEngine:
                 "quest completed": 0.6
             }
             
+            # Whole words: as substrings "sad" counted every "said" and
+            # "agree" every "disagree", which lifted nearly every log.
             content_lower = content.lower()
             for word, weight in indicators.items():
-                count = content_lower.count(word)
+                count = len(re.findall(rf"\b{re.escape(word)}\b", content_lower))
                 if count > 0:
                     score += weight * min(3, count)  # cap repeat count impact
                     
@@ -702,7 +704,12 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             try:
                 if self.GROWTH_LOG_PATH.exists():
                     text = await asyncio.to_thread(self.GROWTH_LOG_PATH.read_text, encoding='utf-8')
-                    lines = text.strip().splitlines()
+                    # The last few *changes*: most lines are observation seeds
+                    # and relationship insights, so the last five lines usually
+                    # held none of these and the prompt had nothing concrete.
+                    lines = [l for l in text.strip().splitlines()
+                             if '"belief_formed"' in l or '"belief_revised"' in l
+                             or '"relationship_milestone"' in l]
                     recent_events = []
                     for line in lines[-5:]:
                         try:
@@ -828,6 +835,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     model=self.chat_model,
                     messages=[{"role": "user", "content": extraction_prompt}],
                     options=options,
+                    format="json",
                     keep_alive=-1
                 )
 
@@ -885,9 +893,10 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                             f"'{rel_insight.get('user_name')}' is not a known user."
                         )
                     else:
+                        # An insight, not a good moment: many are critical.
                         event = RelationshipEvent(
                             timestamp=time.time(),
-                            event_type='positive',
+                            event_type='insight',
                             summary=rel_insight.get('summary', '')[:200],
                             emotional_weight=0.5,
                             topics=[]
@@ -917,6 +926,10 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     # stored as a global anchor (user_id=None) instead — still
                     # retrievable, just not user-boosted.
                     anchor_user_id = resolve_user_id(anchor_user)
+                    if not anchor_user_id:
+                        # A book character or a stranger: not someone she
+                        # "remembers talking about" anything.
+                        anchor_user = None
 
                     # Base weight is 0.7, but emotionally salient dreams scale it up to 0.9!
                     init_weight = min(0.9, 0.6 + (salience / 10.0))
@@ -1049,7 +1062,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 
             refreshed_count = 0
             for user_dir in user_logs_dir.iterdir():
-                if not user_dir.is_dir():
+                # Forum profiles have their own tool (compact_forum_profiles);
+                # Kaia- folders are her own channel logs, not a person.
+                if not user_dir.is_dir() or user_dir.name.startswith(('forum_', 'Kaia-', '.', '_')):
                     continue
 
                 profile_path = user_dir / "user_profile.md"
@@ -1135,23 +1150,32 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 logs_text = ""
                 user_logs_dir = self.kb_dir / "user_logs"
                 if user_logs_dir.exists():
+                    # The newest conversations, whoever they were with, and the
+                    # end of each day. Walking folders alphabetically took the
+                    # first people in the alphabet, and the head of each file
+                    # was frontmatter and the morning.
+                    recent = []
+                    for user_folder in user_logs_dir.iterdir():
+                        # Her own conversations: not scraped forum threads or her
+                        # own channel log.
+                        if not user_folder.is_dir() or user_folder.name.startswith(('forum_', '.', '_', 'Kaia-')):
+                            continue
+                        for log_file in user_folder.glob("interactions_*.md"):
+                            try:
+                                recent.append((log_file.stat().st_mtime, user_folder, log_file))
+                            except OSError:
+                                continue
                     log_chunks = []
                     total_chars = 0
-                    for user_folder in sorted(user_logs_dir.iterdir()):
-                        # Her own conversations: not the scraped forum threads.
-                        if not user_folder.is_dir() or user_folder.name.startswith(('forum_', '.')):
-                            continue
+                    for _, user_folder, log_file in sorted(recent, key=lambda r: r[0], reverse=True):
                         user_name = user_folder.name.rsplit("_", 1)[0].replace("_", " ")
-                        for log_file in sorted(user_folder.glob("interactions_*.md"), reverse=True)[:3]:
-                            try:
-                                content = log_file.read_text(encoding='utf-8', errors='ignore')
-                                chunk = f"[{user_name} — {log_file.name}]\n{content[:2000]}"
-                                log_chunks.append(chunk)
-                                total_chars += len(chunk)
-                                if total_chars > 15000:
-                                    break
-                            except Exception:
-                                continue
+                        try:
+                            content = log_file.read_text(encoding='utf-8', errors='ignore')
+                        except Exception:
+                            continue
+                        chunk = f"[{user_name} — {log_file.name}]\n{content[-2000:]}"
+                        log_chunks.append(chunk)
+                        total_chars += len(chunk)
                         if total_chars > 15000:
                             break
                     logs_text = "\n\n---\n\n".join(log_chunks)
