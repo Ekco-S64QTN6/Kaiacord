@@ -495,3 +495,23 @@ def test_the_monologue_attributes_only_what_the_speaker_typed(monkeypatch):
     asyncio.run(InnerMonologue().generate_thought(memory, None, SimpleNamespace(chat=chat), "m"))
     assert "Ekco: what do you make of this?" in prompts[0]
     assert "cheese" not in prompts[0]
+
+
+def test_a_long_message_is_cut_at_a_word_and_marked():
+    """Cut at 120 characters, "…and interact with llm systems" reached the
+    model as "…and interact with l". She posted it as a quote, then explained
+    it as a user named "l"."""
+    said = ("Both have good points, the question demands more research for sure, i prefer to punt "
+            "on the question and interact with llm systems as I more could be going on under the "
+            "hood than we currently understand and to be kind, polite, respectful")
+    prompt = _observe(InnerMonologue(), {"111111111111111111": _turns(("Ekco", said, 1.0, None))})
+    line = next(l for l in prompt.splitlines() if l.startswith("Ekco: "))
+    assert line.endswith("…")
+    assert said.startswith(line[len("Ekco: "):-1]) and said[len(line) - len("Ekco: ") - 1] == " "
+
+
+def test_excerpt_never_ends_mid_word():
+    from utils.core.sanitizer import excerpt
+    assert excerpt("short enough", 50) == "short enough"
+    assert excerpt("one two three four", 12) == "one two…"
+    assert excerpt("x" * 40, 10) == "x" * 9 + "…"

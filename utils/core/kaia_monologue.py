@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from utils.core.sanitizer import user_authored_text
+from utils.core.sanitizer import excerpt, user_authored_text
 from utils.infrastructure.logging.kaia_logger import log_debug, log_info
 from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
@@ -111,7 +111,7 @@ class InnerMonologue:
                     name, sep, said = content.partition(": ")
                     if not sep:
                         name, said = "someone", content
-                    text = user_authored_text(said)[:120]
+                    text = excerpt(user_authored_text(said), 160)
                     if not text:
                         continue
                     try:

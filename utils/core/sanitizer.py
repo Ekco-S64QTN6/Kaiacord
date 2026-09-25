@@ -93,6 +93,20 @@ def summarize_link_context(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
 
+def excerpt(text: str, limit: int) -> str:
+    """At most `limit` characters, cut at a word boundary and marked with "…".
+
+    For someone's words quoted into a prompt. A plain slice ends mid-word, and
+    the model reads the stub as what they said: "…and interact with l" came
+    back as a quote, then as a user named "l".
+    """
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:-")
+    return (cut or text[: limit - 1]) + "…"
+
+
 def user_authored_text(text: str) -> str:
     """Just the words the user typed, with every enricher block removed.
 
