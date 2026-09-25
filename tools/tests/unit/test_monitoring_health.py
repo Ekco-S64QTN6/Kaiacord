@@ -67,3 +67,10 @@ def test_sysmon_never_lets_sudo_ask_for_a_password():
     assert _noninteractive(["sudo", "tail", "-n", "6", "/var/log/auth.log"])[:2] == ["sudo", "-n"]
     assert _noninteractive(["sudo", "-n", "ss"]) == ["sudo", "-n", "ss"]
     assert _noninteractive(["uptime"]) == ["uptime"]
+
+
+def test_sysmon_snapshots_stay_out_of_the_knowledge_base():
+    """They list ports, firewall state and SSH activity; anything under
+    knowledge_base/ can be retrieved into a public reply."""
+    from utils.commands import sysmon_handler
+    assert "knowledge_base" not in str(sysmon_handler._SYSMON_LOG_DIR)

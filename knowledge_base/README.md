@@ -19,7 +19,7 @@ time, and the shape no longer said anything about the contents: `corrupt_files`
 | `transcripts/` | Podcast and talk transcripts | `<Topic> - <Title>.md` |
 | `kaia_dreams/` | Her own reflections. `consolidated/` holds one document per subject | see below |
 | `user_logs/` | Per-user interaction history and profiles | `interactions_<date>.md` |
-| `runtime/` | What the running bot wrote about itself: `snapshots/`, `system_logs/` | timestamped |
+| `runtime/` | What the running bot wrote about itself: `snapshots/` (`system_logs/` is retired — `!sysmon` writes `memory/sysmon/`, which is not indexed) | timestamped |
 
 `kaia_persona.md` and `identity_registry.json` sit at the root and are special —
 the persona is never truncated and never indexed as a document.

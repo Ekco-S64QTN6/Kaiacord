@@ -3,8 +3,10 @@
 =======================
 
 Owner-only. Displays live system metrics, UFW status, open ports,
-and recent SSH activity in a premium Discord Embed card. Also writes
-a snapshot to the knowledge base so Kaia can recall historical anomalies via RAG.
+and recent SSH activity in a Discord embed. Each run appends a snapshot to
+memory/sysmon/ — not the knowledge base: ports, firewall state and SSH activity
+must never be retrievable into a public reply, and hardware readouts are what
+her grounding rules say she doesn't have.
 """
 
 import os
@@ -27,8 +29,8 @@ from utils.infrastructure.monitoring.stats_poller import stats_poller
 from utils.infrastructure.monitoring.stats_tracker import stats_tracker
 from utils.commands.embed_style import notice
 
-# Where snapshots go for RAG indexing
-_SYSMON_LOG_DIR = Path("knowledge_base/runtime/system_logs")
+# Outside knowledge_base/: never indexed.
+_SYSMON_LOG_DIR = Path("memory/sysmon")
 
 
 def _count_recent_hallucinations(log_path: str = "memory/hallucination_log.jsonl", seconds: int = 86400) -> int:
@@ -129,15 +131,15 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
             if bot_state:
                 coherence_ema = getattr(bot_state, 'kaia_coherence', 0.85)
 
-            h_count = _count_recent_hallucinations()
+            h_count = await asyncio.to_thread(_count_recent_hallucinations)
 
             # 4. Generate traditional markdown report to write to RAG system logs
             traditional_report = await build_sysmon_report_async()
-            _write_sysmon_snapshot(traditional_report)
+            await asyncio.to_thread(_write_sysmon_snapshot, traditional_report)
 
         except Exception as e:
             log_error(f"!sysmon diagnostics failed: {e}")
-            await send_kaia_response(msg.channel, "system monitor diagnostics failed.")
+            await msg.channel.send(embed=notice("System diagnostics failed; the log has the reason.", error=True))
             return
 
     # Build the Embed layout
@@ -216,9 +218,10 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
     rel_cnt = p_stats.get('relationship_count', 0)
     dreams_cnt = p_stats.get('dreams_count', 0)
 
+    from utils.core.memory_anchors import MAX_ANCHORS
     cog_str = (
-        f"• **Beliefs:** `{beliefs_cnt}/50`\n"
-        f"• **Memory Anchors:** `{anchors_cnt}/50`\n"
+        f"• **Beliefs:** `{beliefs_cnt}/100`\n"
+        f"• **Memory Anchors:** `{anchors_cnt}/{MAX_ANCHORS}`\n"
         f"• **Relationships:** `{rel_cnt} users`\n"
         f"• **Dreams Count:** `{dreams_cnt} mems`"
     )
@@ -316,8 +319,7 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
 
 def _write_sysmon_snapshot(report: str):
     """
-    Write a timestamped snapshot to knowledge_base/runtime/system_logs/
-    so Kaia can recall system history through RAG.
+    Append a timestamped snapshot to memory/sysmon/sysmon_<date>.md.
     """
     try:
         _SYSMON_LOG_DIR.mkdir(parents=True, exist_ok=True)
