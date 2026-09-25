@@ -431,6 +431,18 @@ class RAGQueryMixin:
 
         return target_itypes, retrieve_count
 
+    async def pre_warm(self):
+        """Build every index's BM25 now rather than on its first query (--eager-rag-warm)."""
+        for itype, index in list(self.indices.items()):
+            if self.bm25_cache.get(itype):
+                continue
+            nodes = list(index.storage_context.docstore.docs.values())
+            if nodes:
+                retriever = SimpleBM25Retriever(nodes)
+                await retriever.initialize_async()
+                self.bm25_cache[itype] = retriever
+        log_success("BM25 built for every index.")
+
     async def _execute_hybrid_retrieval(self, itype: str, query: str, retrieve_count: int, _retry_count: int = 0):
         """Perform hybrid (Vector + BM25) retrieval for a specific index type."""
         try:
