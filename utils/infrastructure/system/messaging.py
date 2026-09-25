@@ -22,7 +22,7 @@ def _split_text_into_safe_chunks(text: str, limit: int) -> List[str]:
         # If single line itself exceeds limit, split it by words or characters
         if len(line) > limit:
             if current_chunk.strip():
-                chunks.append(current_chunk.strip())
+                chunks.append(current_chunk.strip("\n"))
                 current_chunk = ""
             
             # Sub-split long line
@@ -49,15 +49,39 @@ def _split_text_into_safe_chunks(text: str, limit: int) -> List[str]:
 
         if len(current_chunk) + len(line) + 1 > limit:
             if current_chunk.strip():
-                chunks.append(current_chunk.strip())
+                chunks.append(current_chunk.strip("\n"))
             current_chunk = line + '\n'
         else:
             current_chunk += line + '\n'
 
     if current_chunk.strip():
-        chunks.append(current_chunk.strip())
+        chunks.append(current_chunk.strip("\n"))
 
     return [c for c in chunks if c.strip()]
+
+
+_FENCE_LINE = __import__("re").compile(r"^\s*```([\w+#.-]*)")
+
+
+def _close_split_fences(chunks: List[str]) -> List[str]:
+    """Close a code fence a split left open, and reopen it in the next part.
+
+    Split mid-block, the first message ends inside an unclosed fence and the
+    second renders the rest of the code as prose.
+    """
+    out, open_lang = [], None
+    for chunk in chunks:
+        reopened = open_lang
+        for line in chunk.split("\n"):
+            m = _FENCE_LINE.match(line)
+            if m:
+                open_lang = None if open_lang is not None else m.group(1)
+        if reopened is not None:
+            chunk = f"```{reopened}\n{chunk}"
+        if open_lang is not None:
+            chunk += "\n```"
+        out.append(chunk)
+    return out
 
 
 async def send_kaia_response(channel, text, use_code_block=False):
@@ -72,14 +96,17 @@ async def send_kaia_response(channel, text, use_code_block=False):
     # Use 1980 for code blocks to leave room for ```\n and \n```
     # Use 1990 for plain text for a small safety margin.
     limit = 1980 if use_code_block else 1990
-    
-    chunks = _split_text_into_safe_chunks(text_clean, limit)
+
+    # Room for closing and reopening a code fence at a split.
+    chunks = _close_split_fences(_split_text_into_safe_chunks(text_clean, limit - 24))
     if not chunks:
         return
 
-    for chunk in chunks:
+    for n, chunk in enumerate(chunks):
         if not chunk:
             continue
+        if n:
+            await asyncio.sleep(0.5)  # between parts only, against rate limiting
         try:
             if use_code_block:
                 payload = f"```\n{chunk}\n```"
@@ -90,7 +117,6 @@ async def send_kaia_response(channel, text, use_code_block=False):
                 await channel.send(chunk[:1990])
         except Exception as e:
             log_error(f"Failed to send Discord message payload (len={len(chunk)}): {e}")
-        await asyncio.sleep(0.5) # Prevent rate limiting
 
 # ─────────────────────────────────────────────
 # MOCKING INFRASTRUCTURE

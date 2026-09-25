@@ -40,3 +40,12 @@ def test_the_safety_pipeline_is_given_the_speakers_words():
     src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
     assert "query=getattr(ctx, 'sanitized_content'" not in src
     assert "strip_echoed_query(\n            ctx.response_text, ctx.own_words)" in src
+
+
+def test_a_long_code_reply_splits_into_closed_blocks():
+    from utils.infrastructure.system.messaging import _close_split_fences, _split_text_into_safe_chunks
+    text = "intro\n\n```python\n" + "\n".join(f"    x{i} = {i}" for i in range(300)) + "\n```\nbye"
+    parts = _close_split_fences(_split_text_into_safe_chunks(text, 1966))
+    assert len(parts) > 1 and all(p.count("```") % 2 == 0 for p in parts)
+    assert parts[1].startswith("```python\n    x")      # reopened, indentation kept
+    assert max(map(len, parts)) <= 1990
