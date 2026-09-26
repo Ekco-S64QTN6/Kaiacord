@@ -11,9 +11,9 @@ In a working checkout:
 
 | Path *(local only)* | Contents |
 |:--|:--|
-| `docs/reports/STATUS.md` | Where every subsystem stands today |
-| `docs/reports/DECISIONS.md` | Everything proposed and not built, for the operator to decide |
-| `docs/reports/log/engineering-log.md` | Phase-by-phase engineering log, Phase 67 onward (`history-phases-1-66.md` before that) |
+| `docs/reports/master_report.md` | Where every subsystem stands today, and the roadmap of everything proposed and not built |
+| `docs/reports/audit_report.md` | The review checklist: which files were verified, by which commit |
+| `docs/reports/history.md` | The chronological engineering log, Phase 1 to now |
 | `docs/reports/README.md` | Index of the whole tree |
 
 For changes that are public, `git log` is the record — commit messages in this

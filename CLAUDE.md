@@ -1126,9 +1126,12 @@ it here.
 
 > `docs/reports/` is **git-ignored** — it contains transcript excerpts and runtime telemetry. It
 > exists in a working checkout but not on GitHub, so do not link it from tracked documentation.
-> Start at `STATUS.md` (where each subsystem stands) and `DECISIONS.md` (the only list of unbuilt
-> work — anything you find and do not fix goes there, with an ID). Record what you did as a new
-> phase in `log/engineering-log.md`, and update `STATUS.md` when a subsystem's state changes.
+> It holds three reports. `master_report.md` is the source of truth: Part 1 is where each
+> subsystem stands, Part 2 is the roadmap, the only list of unbuilt work (anything you find and do
+> not fix goes there, with an ID). `audit_report.md` is verification: the file-by-file review
+> checklist and what to do next session. `history.md` is the chronological log. Record what you
+> did as a new phase at the bottom of `history.md`, and update `master_report.md` when a
+> subsystem's state changes.
 
 ---
 
