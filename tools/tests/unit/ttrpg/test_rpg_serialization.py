@@ -77,3 +77,36 @@ def test_a_button_handler_serialises_without_the_dispatcher():
                              cast(None, inter, "99", "Q", False))
     asyncio.run(go())
     assert overlaps[0] == 2          # 42 twice in sequence, 99 alongside
+
+
+def test_two_open_mail_menus_cannot_claim_the_same_package_twice(monkeypatch):
+    import copy
+    from unittest.mock import AsyncMock, MagicMock
+    from utils.ttrpg import rpg_views
+    disk = {"42": {"user_id": "42", "character_name": "P", "gil": 0, "inventory": [],
+                   "mailbox": [{"from_name": "Q", "item": "tonic", "gil": 100}]}}
+
+    async def load(uid):
+        return copy.deepcopy(disk.get(str(uid)))
+
+    async def save(sheet):
+        disk[str(sheet["user_id"])] = copy.deepcopy(sheet)
+    monkeypatch.setattr(rpg_views, "load", load)
+    monkeypatch.setattr(rpg_views, "save", save)
+    monkeypatch.setattr(rpg_views, "_make_status_view", lambda *a, **k: None)
+
+    def inter():
+        i = MagicMock()
+        i.user.id = 42
+        i.response.defer = AsyncMock()
+        i.response.send_message = AsyncMock()
+        i.followup.send = AsyncMock()
+        return i
+
+    async def go():
+        a = rpg_views.MailMenuView(None, None, "42", "P", False, copy.deepcopy(disk["42"]))
+        b = rpg_views.MailMenuView(None, None, "42", "P", False, copy.deepcopy(disk["42"]))
+        await a.check_mail.callback(inter())
+        await b.check_mail.callback(inter())
+    asyncio.run(go())
+    assert disk["42"]["gil"] == 100 and disk["42"]["inventory"] == ["tonic"] and disk["42"]["mailbox"] == []

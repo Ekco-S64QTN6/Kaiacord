@@ -1729,13 +1729,24 @@ class MailMenuView(discord.ui.View):
     @discord.ui.button(label="Check Mail", emoji="📬", style=discord.ButtonStyle.primary)
     async def check_mail(self, interaction: discord.Interaction, button: discord.ui.Button):
         if str(interaction.user.id) != self.uid: return
-        
-        mailbox = self.sheet.get("mailbox", [])
-        if not mailbox:
-            return await interaction.response.send_message("Kupo! Nothing here but dust bunnies.", ephemeral=True)
-        
-        await interaction.response.defer()
-        
+
+        # The sheet as it is now, under the player's lock — not the copy taken
+        # when this menu opened. Two open mail menus each held the same
+        # mailbox, and claiming in both paid every package twice.
+        from utils.ttrpg.session_manager import get_action_lock
+        async with await get_action_lock(f"user:{self.uid}"):
+            fresh = await load(self.uid)
+            if fresh:
+                self.sheet = fresh
+            mailbox = self.sheet.get("mailbox", [])
+            if not mailbox:
+                return await interaction.response.send_message("Kupo! Nothing here but dust bunnies.", ephemeral=True)
+            await interaction.response.defer()
+            mail_lines = self._claim(mailbox)
+            await save(self.sheet)
+        await self._after_claim(interaction, mail_lines)
+
+    def _claim(self, mailbox: list) -> list:
         total_gil = 0
         mail_lines = []
         for entry in mailbox:
@@ -1755,8 +1766,9 @@ class MailMenuView(discord.ui.View):
         
         self.sheet["gil"] += total_gil
         self.sheet["mailbox"] = []
-        await save(self.sheet)
-        
+        return mail_lines
+
+    async def _after_claim(self, interaction, mail_lines: list):
         res = "Kupo! You received:\n" + "\n".join(mail_lines)
         
         embed = discord.Embed(description=res, color=0x44aa44)
@@ -1844,31 +1856,37 @@ class MailSendView(discord.ui.View):
 
     async def dispatch_callback(self, interaction: discord.Interaction):
         if not self.selected_recipient_id: return
-        
-        # Final validation
-        if self.gil_to_send > self.sheet.get("gil", 0):
-            return await interaction.response.send_message("Kupo! You don't have enough gil!", ephemeral=True)
-        if self.selected_item and self.selected_item not in self.sheet.get("inventory", []):
-            return await interaction.response.send_message("Kupo? That item seems to have vanished from your bag! Dispatch cancelled.", ephemeral=True)
+        from utils.ttrpg.session_manager import get_action_lock
 
-        await interaction.response.defer()
-        
-        # Deduct from sender
-        if self.selected_item: self.sheet["inventory"].remove(self.selected_item)
-        self.sheet["gil"] -= self.gil_to_send
-        await save(self.sheet)
-        
-        # Add to recipient
-        target_sheet = await load(self.selected_recipient_id)
-        if target_sheet:
-            if "mailbox" not in target_sheet: target_sheet["mailbox"] = []
-            target_sheet["mailbox"].append({
-                "from_name": self.sheet["character_name"],
-                "item": self.selected_item,
-                "gil": self.gil_to_send,
-                "timestamp": time.time()
-            })
-            await save(target_sheet)
+        # Validate and deduct against the sheet as it is now, under the
+        # sender's lock. The copy from when this menu opened was being saved
+        # back, undoing whatever the player had done since.
+        async with await get_action_lock(f"user:{self.uid}"):
+            fresh = await load(self.uid)
+            if fresh:
+                self.sheet = fresh
+            if self.gil_to_send > self.sheet.get("gil", 0):
+                return await interaction.response.send_message("Kupo! You don't have enough gil!", ephemeral=True)
+            if self.selected_item and self.selected_item not in self.sheet.get("inventory", []):
+                return await interaction.response.send_message("Kupo? That item seems to have vanished from your bag! Dispatch cancelled.", ephemeral=True)
+            await interaction.response.defer()
+            if self.selected_item: self.sheet["inventory"].remove(self.selected_item)
+            self.sheet["gil"] -= self.gil_to_send
+            await save(self.sheet)
+
+        # The recipient under their own lock, after the sender's is released:
+        # two players mailing each other at once can't deadlock.
+        async with await get_action_lock(f"user:{self.selected_recipient_id}"):
+            target_sheet = await load(self.selected_recipient_id)
+            if target_sheet:
+                if "mailbox" not in target_sheet: target_sheet["mailbox"] = []
+                target_sheet["mailbox"].append({
+                    "from_name": self.sheet["character_name"],
+                    "item": self.selected_item,
+                    "gil": self.gil_to_send,
+                    "timestamp": time.time()
+                })
+                await save(target_sheet)
             
         success_msg = f"📩 **Mail Dispatched!**\n*The moogle takes your package with a sharp salute and flies off toward {target_sheet['character_name'] if target_sheet else 'the horizon'}.*\n"
         if self.selected_item: 
