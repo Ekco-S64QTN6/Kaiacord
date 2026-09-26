@@ -68,15 +68,16 @@ def start_social_tasks(app_ctx, on_message):
     quip_task = idle_quip_task.start()
     task_registry.register("idle_quip_task", quip_task)
     
-    # Start the mention poller only when a platform is enabled. Checking the
-    # flags inside the loop instead keeps a scheduled, network-capable task alive
-    # on `social.poll_interval_minutes` to do nothing.
-    if config.bluesky_enabled or config.x_enabled:
+    # Start the mention poller only when a platform both is enabled and replies
+    # to mentions. Posting alone (bluesky.enabled with reply_to_mentions off)
+    # needs no poller; checking inside the loop kept one ticking to do nothing.
+    if (config.bluesky_enabled and config.bluesky_reply_to_mentions) or \
+            (config.x_enabled and config.x_reply_to_mentions):
         mention_task = social_mention_task.start()
         social_mention_task.change_interval(minutes=config.get('social.poll_interval_minutes', 3))
         task_registry.register("social_mention_task", mention_task)
     else:
-        log_action("Social mention polling disabled — no social platform is enabled.")
+        log_action("Social mention polling disabled — no platform replies to mentions.")
     
     # Start forum background tasks
     from utils.social.forum_tasks import start_forum_tasks
