@@ -1046,6 +1046,27 @@ itself is right there.
 retention. A page-number stripper compiled with `re.IGNORECASE` silently deleted prose lines;
 word-count comparison caught it.
 
+**The reports are part of "done".** A change is not finished when it is committed; it is
+finished when `docs/reports/` says so. In the same session as the commit, before telling the
+user it's done:
+
+- **`master_report.md` Part 2:** move the item's row from the open table to *Closed* with the date
+  and commit hash, and delete its detail section. A roadmap item that shipped and still reads as
+  open is the most expensive line in this repo — the next session re-verifies it from scratch.
+- **`master_report.md` Part 1:** in the subsystem's section, rewrite *Works* and *Known issues* to
+  match. Search the whole file for the item's ID and for the problem's wording; the same issue is
+  often listed in two places.
+- **`audit_report.md`:** mark reviewed files ✓ with the commit; update *Next session* so it lists
+  only what is still actually waiting.
+- **`history.md`:** a phase at the bottom saying what changed, with hashes.
+
+The converse is the reading rule: **trust the reports for anything dated and hashed.** An item
+closed with a commit hash does not need re-checking. An item listed as open that you find already
+built is a report bug — fix the report in the same breath, name it in `history.md`, and don't
+spend a session proving it again. On 26 Sept a "known issue" (`!download` unsearchable for an
+hour, BM25 in a pickle) had been fixed two days earlier and re-investigated anyway, because
+Part 1 was never updated when the roadmap closed it.
+
 **Scope containment.** If asked to update a specific file (e.g. a report), do not modify other
 files. Document proposed fixes in the report; apply them only when asked.
 
@@ -1131,9 +1152,8 @@ it here.
 > It holds three reports. `master_report.md` is the source of truth: Part 1 is where each
 > subsystem stands, Part 2 is the roadmap, the only list of unbuilt work (anything you find and do
 > not fix goes there, with an ID). `audit_report.md` is verification: the file-by-file review
-> checklist and what to do next session. `history.md` is the chronological log. Record what you
-> did as a new phase at the bottom of `history.md`, and update `master_report.md` when a
-> subsystem's state changes.
+> checklist and what to do next session. `history.md` is the chronological log. Updating all
+> three is part of finishing any change — see *The reports are part of "done"* in §11.
 
 ---
 
