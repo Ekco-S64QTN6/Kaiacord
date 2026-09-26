@@ -141,8 +141,10 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         # Clear combat, mark room cleared
         del state["active_combat"]
         state["rooms"][room_key]["cleared"] = True
-        xp_gain = int(monster.get("xp", 25) * (2 if is_boss else 1))
-        gil_gain = int(monster.get("gil", 5) * (2 if is_boss else 1))
+        # The day's multipliers (weather, world events) apply to a dungeon kill
+        # as they do to one in the overworld.
+        xp_gain = int(monster.get("xp", 25) * (2 if is_boss else 1) * world_state.get("xp_mult", 1.0))
+        gil_gain = int(monster.get("gil", 5) * (2 if is_boss else 1) * world_state.get("gil_mult", 1.0))
         
         # ── Calendar Special Day Buffs ─────────────────────────────────────
         from utils.ttrpg.calendar import get_special_day
