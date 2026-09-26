@@ -224,21 +224,6 @@ def _extract_recap_hours(text: str) -> int:
 
     return 24  # True fallback
 
-def _has_word(text: str, words) -> bool:
-    """Whole-word membership test, with the ordinary English inflections.
-
-    `any(w in text for w in words)` is a substring test: "pro" hits inside
-    "compromise", "process" and "approach"; "agree" hits inside "disagree";
-    "anti" hits inside "anticipate". Polarity detection built on that is not
-    reliable enough to drive a correction.
-    """
-    if not text:
-        return False
-    return any(
-        re.search(rf"\b{re.escape(w)}(?:s|d|es|ed|ing)?\b", text)
-        for w in words
-    )
-
 
 # A turn that asks about the news, whatever the intent parser made of it.
 _NEWS_CUE = re.compile(r"\b(?:news|headlines?|current events)\b", re.IGNORECASE)
@@ -2388,34 +2373,32 @@ class MessageProcessor:
                         return json.load(bf)
                 all_beliefs = await asyncio.to_thread(_read_beliefs)
                 
-                resp_lower = response_text.lower()
-                for b in all_beliefs:
-                    if b.get('confidence', 0.5) >= 0.8:
-                        topic = b.get('topic', '').lower()
-                        position = b.get('position', '').lower()
-                        
+                # Capitulation, not polarity. The old test compared love/hate
+                # words in her position with words in the reply, and her
+                # positions aren't phrased that way: "recognizing the danger…
+                # avoid amplifying" read as negative, any reply with "good" in
+                # it as a reversal, and every production firing was false.
+                # What is worth catching is giving ground on a belief she holds
+                # strongly because the speaker pushed.
+                from utils.core.relationship_manager import CONCEDES, is_pushback
+                own = ctx.own_words or ""
+                if is_pushback(own) and CONCEDES.search(response_text):
+                    own_lower = own.lower()
+                    own_words = set(re.findall(r"[a-z]{4,}", own_lower))
+                    for b in all_beliefs:
+                        if b.get('confidence', 0.5) < 0.8:
+                            continue
+                        topic = (b.get('topic') or '').lower()
                         aliases = [topic] + [a.lower() for a in b.get('aliases', []) if a]
-                        # Whole words: the topic "art" is not in "start".
-                        matched_alias = next((a for a in aliases if a and re.search(
-                            rf"\b{re.escape(a)}\b", resp_lower)), None)
-                        if matched_alias:
-                            # Whole words only. As substring tests these invert
-                            # polarity: "pro" matches inside "compromise", and
-                            # "disagree" contains "agree" so a disagreeing stance
-                            # registers as both at once. The watchdog applies a
-                            # deterministic stance correction on the result, so an
-                            # inverted reading makes her contradict herself in the
-                            # name of consistency.
-                            pos_positive = _has_word(position, ("love", "like", "agree", "support", "good", "great", "favor", "pro"))
-                            pos_negative = _has_word(position, ("hate", "dislike", "disagree", "oppose", "bad", "avoid", "anti"))
-
-                            resp_negative = ("don't like" in resp_lower) or _has_word(
-                                resp_lower, ("hate", "disagree", "oppose", "bad", "dislike"))
-                            resp_positive = _has_word(resp_lower, ("love", "like", "agree", "support", "good", "great"))
-                            
-                            if (pos_positive and resp_negative) or (pos_negative and resp_positive):
-                                contradiction_detected = True
-                                reasons.append(f"Belief conflict on topic '{topic}': Stance='{position}' vs Response polarities")
+                        # Topics are phrases nobody types whole ("information
+                        # verification & online narratives"): three of its words will do;
+                        # two matched by coincidence on every sample of her log.
+                        topic_words = set(re.findall(r"[a-z]{4,}", topic)) - {"with", "from", "about", "their"}
+                        if any(a and re.search(rf"\b{re.escape(a)}\b", own_lower) for a in aliases) \
+                                or len(topic_words & own_words) >= 3:
+                            contradiction_detected = True
+                            reasons.append(f"Conceded on '{topic}' under pushback "
+                                           f"(held: '{(b.get('position') or '')[:120]}')")
             
             # 2. Check against last 10 messages in channel memory for direct self-contradiction
             history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))

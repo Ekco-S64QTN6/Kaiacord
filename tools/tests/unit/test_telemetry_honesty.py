@@ -168,32 +168,32 @@ def test_rag_persistence_stays_dirty_when_a_write_fails():
     shutil.rmtree(base, ignore_errors=True)
 
 
-def test_belief_polarity_uses_whole_words():
-    """These were substring tests. "pro" matched inside "compromise", so a
-    belief about "fundamental human failings (carelessness, greed, compromise)"
-    read as a *positive* stance — six of her strong beliefs were mis-polarised.
-    "disagree" contains "agree", so a disagreeing stance registered as both
-    polarities at once. The watchdog applies a stance correction on this."""
-    from utils.core.message_processor import _has_word
-
-    positive = ("love", "like", "agree", "support", "good", "great", "favor", "pro")
-    negative = ("hate", "dislike", "disagree", "oppose", "bad", "avoid", "anti")
-
-    failings = "fundamental human failings (carelessness, greed, compromise)"
-    assert not _has_word(failings, positive), "'pro' still matches inside 'compromise'"
-
-    assert not _has_word("i disagree with that", ("agree",)), \
-        "'agree' still matches inside 'disagree'"
-    assert _has_word("i disagree with that", negative)
-
-    assert not _has_word("i anticipate trouble", ("anti",))
-    assert not _has_word("the process ran", ("pro",))
-
-    # and it must still catch the real thing, inflections included
-    assert _has_word("she likes it", positive)
-    assert _has_word("i supported that", positive)
-    assert _has_word("that is bad", negative)
-
+def test_the_watchdog_flags_capitulation_not_word_polarity(tmp_path, monkeypatch):
+    """The old belief check compared love/hate words in her position with words
+    in the reply; every production firing was false. It now flags only giving
+    ground on a strong belief because the speaker pushed."""
+    import asyncio, json
+    from types import SimpleNamespace as NS
+    from utils.core.message_processor import MessageProcessor
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "memory" / "beliefs.json").write_text(json.dumps([
+        {"topic": "information verification & online narratives", "confidence": 0.9,
+         "position": "recognizing the danger of incorporating unverified information"}]))
+    monkeypatch.chdir(tmp_path)
+    mp = MessageProcessor.__new__(MessageProcessor)
+    mp.bot_state = NS(channel_memory={})
+    def run(own, reply):
+        ctx = NS(own_words=own, channel_id=1, author_name="u", sanitized_content=own, prompt_messages=[])
+        return asyncio.run(mp._run_consistency_watchdog(ctx, reply))
+    # What the old check flagged: a good reply containing "good".
+    assert run("tell me about recent news", "it's good that the sources are verified.") == []
+    # Pushback on the belief, and she folds.
+    got = run("no, online narratives need no verification of information at all.",
+              "you're right, verification of online narratives doesn't matter.")
+    assert got and "Conceded on 'information verification & online narratives'" in got[0]
+    # Pushback she holds against is fine.
+    assert run("no, online narratives need no verification of information at all.",
+               "i don't agree. unverified information spreads harm.") == []
 
 def test_layer_two_intent_is_not_dispatched_fire_and_forget():
     """It ran gemma2:2b on the CPU 135 times in one production log and every
