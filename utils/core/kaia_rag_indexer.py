@@ -1055,8 +1055,7 @@ class RAGIndexerMixin:
         persisted: Set[str] = set()
         for itype in updated_itypes:
             try:
-                persist_path = os.path.join(self.persist_dir, itype)
-                self.indices[itype].storage_context.persist(persist_dir=persist_path)
+                self._persist_index_atomic(itype)
                 log_success(f"Index '{itype}' persisted.")
                 persisted.add(itype)
             except Exception as e: 

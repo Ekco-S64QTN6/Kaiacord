@@ -345,6 +345,39 @@ class RAGPersistenceMixin:
         """Async wrapper for persist."""
         await asyncio.to_thread(self.persist, force)
 
+    def _persist_index_atomic(self, itype: str) -> None:
+        """Write one index beside its directory, then swap it in.
+
+        Every save goes through here. The batch save after a refresh wrote the
+        files in place, so an interruption — a shutdown or a kill mid-write —
+        left a truncated store, which the loader treats as corruption: it
+        deletes the index and starts it empty. Raises on failure, with the last
+        good copy back in place.
+        """
+        itype_dir = os.path.join(self.persist_dir, itype)
+        temp_dir = f"{itype_dir}_tmp"
+        old_dir = f"{itype_dir}_old"
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)                      # a previous save cut short
+        try:
+            self.indices[itype].storage_context.persist(persist_dir=temp_dir)
+            if os.path.exists(old_dir):
+                shutil.rmtree(old_dir)
+            if os.path.exists(itype_dir):
+                os.rename(itype_dir, old_dir)
+            os.rename(temp_dir, itype_dir)
+            if os.path.exists(old_dir):
+                shutil.rmtree(old_dir)
+        except Exception:
+            # Moved aside and not replaced: put the last good copy back, or the
+            # next boot finds no index at all.
+            try:
+                if not os.path.exists(itype_dir) and os.path.exists(old_dir):
+                    os.rename(old_dir, itype_dir)
+            except Exception as restore_err:
+                log_error(f"Could not restore {itype} index from {old_dir}: {restore_err}")
+            raise
+
     def persist(self, force: bool = False):
         """Persist all hierarchical indices to storage if needed."""
         # REQUIREMENT: Never wait on locks during shutdown
@@ -362,41 +395,11 @@ class RAGPersistenceMixin:
         try:
             for itype, index in self.indices.items():
                 try:
-                    itype_dir = os.path.join(self.persist_dir, itype)
-                    temp_dir = f"{itype_dir}_tmp"
-                    old_dir = f"{itype_dir}_old"
-                    
-                    # 1. Clean up stale temp dir if it exists
-                    if os.path.exists(temp_dir):
-                        shutil.rmtree(temp_dir)
-                    
-                    # 2. Persist to temporary location
-                    index.storage_context.persist(persist_dir=temp_dir)
-                    
-                    # 3. Atomic swap (near-atomic on most filesystems)
-                    if os.path.exists(old_dir):
-                        shutil.rmtree(old_dir)
-                    
-                    if os.path.exists(itype_dir):
-                        os.rename(itype_dir, old_dir)
-                    
-                    os.rename(temp_dir, itype_dir)
-                    
-                    if os.path.exists(old_dir):
-                        shutil.rmtree(old_dir)
-
+                    self._persist_index_atomic(itype)
                     persisted.append(itype)
-
                 except Exception as e:
                     failed.append(itype)
                     log_error(f"Failed to persist {itype} index: {e}")
-                    # Moved aside and not replaced: put the last good copy back,
-                    # or the next boot finds no index at all.
-                    try:
-                        if not os.path.exists(itype_dir) and os.path.exists(old_dir):
-                            os.rename(old_dir, itype_dir)
-                    except Exception as restore_err:
-                        log_error(f"Could not restore {itype} index from {old_dir}: {restore_err}")
         finally:
             self._data_lock.release()
 
