@@ -8,9 +8,20 @@ Run this script to reset PyTorch's CUDA allocator without restarting the bot.
 import gc
 
 
+def _torch_if_loaded():
+    """torch, only if something in this process already imported it.
+
+    A process that never imported torch holds no CUDA context through it, so
+    there is nothing to clear — and importing it just to find that out cost
+    the bot about 450 MB of RAM for the life of the process."""
+    import sys
+    return sys.modules.get("torch")
+
+
 def clear_gpu_memory(silent: bool = False):
     """Aggressively clear all GPU memory"""
-    # Lazy import to avoid Python 3.14 startup hang from torch.quantization
+    if _torch_if_loaded() is None:
+        return
     try:
         import torch
     except ImportError:
@@ -62,6 +73,8 @@ def force_clear_gpu() -> bool:
     Returns:
         True if cleanup was successful, False otherwise
     """
+    if _torch_if_loaded() is None:
+        return True  # torch never loaded here = nothing to clear = success
     try:
         import torch
     except ImportError:
