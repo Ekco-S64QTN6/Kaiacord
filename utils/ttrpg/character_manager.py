@@ -329,23 +329,14 @@ async def get_active_town_defenders(town_locations=None, within_hours=48):
     now = time.time()
     cutoff = now - within_hours * 3600
     
-    # Active within 48h window and alive in town
-    defenders = [
+    # Active within the window and alive in town. A fallback here used to
+    # draft every living character whenever fewer than all were active —
+    # nearly always — so players gone for weeks fought (and lost) the noon
+    # raids. With nobody active, each event has its own undefended outcome.
+    return [
         s for s in sheets
         if s.get("location") in town_locations
         and s.get("hp", {}).get("current", 0) > 0
         and s.get("last_updated", 0) >= cutoff
     ]
-    
-    # If fewer than 2 or to support small testing group, draft all living characters in town
-    if len(defenders) < len(sheets):
-        all_town = [
-            s for s in sheets
-            if s.get("location", "oakhaven") in town_locations
-            and s.get("hp", {}).get("current", 0) > 0
-        ]
-        if all_town:
-            defenders = all_town
-        
-    return defenders
 

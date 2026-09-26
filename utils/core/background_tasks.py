@@ -4819,10 +4819,16 @@ async def run_iron_magpies_heist(bot_ctx, channel):
     defenders = await get_active_town_defenders()
     
     if not defenders:
-        # Penalty: steal 5% of bank gil from all active characters (true percentage sink)
+        # Penalty: steal 5% of bank gil from characters active in the last
+        # 48 hours (true percentage sink). It took from every sheet, so an
+        # undefended heist emptied the accounts of players who weren't there.
+        import time as _time
+        _cutoff = _time.time() - 48 * 3600
         all_sheets = await load_all()
         stolen_details = []
         for s in all_sheets:
+            if s.get("last_updated", 0) < _cutoff:
+                continue
             bal = s.get("bank_balance", 0)
             if bal > 0:
                 stolen = max(1, int(bal * 0.05))
