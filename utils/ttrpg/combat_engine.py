@@ -87,6 +87,13 @@ def _compute_player_defense(sheet: dict, def_mod_global: int = 0, pet_bonuses: d
     head_def   = head["defense_bonus"]      if head      else 0
     boots_def  = boots_eq["defense_bonus"]  if boots_eq  else 0
     acc_def    = accessory["defense_bonus"] if accessory else 0
+    # Hemlock's rework (utils/ttrpg/enhancement.py) adds to the raw gear
+    # defence, so the soft-cap and the global cap below still bound it.
+    from utils.ttrpg.enhancement import defence_bonus as _enh_def
+    if armor:     armor_def += _enh_def(sheet, _eq_key(eq.get("armor")))
+    if head:      head_def  += _enh_def(sheet, _eq_key(eq.get("head")))
+    if boots_eq:  boots_def += _enh_def(sheet, _eq_key(eq.get("boots")))
+    if accessory: acc_def   += _enh_def(sheet, _eq_key(eq.get("accessory")))
 
     dex_val = sheet.get("stats", {}).get("dex", 10)
     if armor:
@@ -170,6 +177,11 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     weapon_atk     = weapon["attack_bonus"]    if weapon    else 0
     weapon_dmg_die = weapon["damage_die"]      if weapon    else 4
     weapon_dmg_bonus = weapon.get("damage_bonus", 0) if weapon else 0
+    if weapon:
+        from utils.ttrpg.enhancement import weapon_bonus as _enh_wpn
+        _e_atk, _e_dmg = _enh_wpn(sheet, _eq_key(eq.get("weapon")))
+        weapon_atk += _e_atk
+        weapon_dmg_bonus += _e_dmg
     accessory = ACCESSORIES.get(_eq_key(eq.get("accessory"))) or None
     acc_atk        = accessory.get("attack_bonus", 0) if accessory else 0
 

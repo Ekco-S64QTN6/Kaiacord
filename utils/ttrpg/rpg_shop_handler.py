@@ -144,6 +144,53 @@ async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
         await msg.channel.send(embed=discord.Embed(description=purchase_msg, color=0xcc4444))
 
 
+async def _handle_enhance(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg enhance [slot] — Hemlock reworks equipped gear, +1 to +5."""
+    from utils.ttrpg import enhancement
+    sheet = await load(uid)
+    if not sheet: return await no_character(msg)
+    if sheet.get("location") != "hemlocks_store":
+        return await msg.channel.send(embed=discord.Embed(
+            description="Hemlock does the reworking, at his store. `!rpg go hemlocks_store`", color=0xcc4444))
+    slot = rest.strip().lower()
+    if not slot:
+        rows = enhancement.summary(sheet)
+        lines = [f"`{slot_:<9}` **{name}** +{n}  ·  " + (f"next: {price:,}g" if price else "maxed")
+                 for slot_, name, n, price in rows] or ["Nothing equipped."]
+        return await msg.channel.send(embed=discord.Embed(
+            title="🔨 Hemlock's Rework",
+            description="\n".join(lines) + f"\n\n`!rpg enhance <slot>` · on hand: {sheet.get('gil', 0):,}g",
+            color=0xaa8844))
+    ok, text = enhancement.enhance(sheet, slot)
+    if ok:
+        await save(sheet)
+    await msg.channel.send(embed=discord.Embed(description=text, color=0x44aa44 if ok else 0xcc4444))
+
+
+async def _handle_donate(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg donate [amount] — pool gil into Oakhaven's walls."""
+    from utils.ttrpg import town_projects
+    from utils.ttrpg.world_state import load_world_state, async_save_world_state
+    sheet = await load(uid)
+    if not sheet: return await no_character(msg)
+    wstate = load_world_state()
+    arg = rest.strip().replace(",", "").lower()
+    if not arg:
+        return await msg.channel.send(embed=discord.Embed(
+            title="🧱 Oakhaven's Walls", description=town_projects.status(wstate) +
+            "\n\n`!rpg donate <amount>` at the town square.", color=0xaa8844))
+    if sheet.get("location") != town_projects.DONATE_AT:
+        return await msg.channel.send(embed=discord.Embed(
+            description="Donations are taken at the town square. `!rpg go oakhaven`", color=0xcc4444))
+    if not arg.isdigit():
+        return await msg.channel.send(embed=discord.Embed(description="Donate how much? `!rpg donate 5000`", color=0xcc4444))
+    ok, text = town_projects.donate(sheet, wstate, int(arg))
+    if ok:
+        await save(sheet)
+        await async_save_world_state(wstate)
+    await msg.channel.send(embed=discord.Embed(description=text, color=0x44aa44 if ok else 0xcc4444))
+
+
 async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import process_sell, find_item as _find_item
     

@@ -2571,7 +2571,8 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
     embed.add_field(name="🏪 Hemlock's Store", value=(
         "`!rpg shop` — browse stock\n"
         "`!rpg buy <item>`\n"
-        "`!rpg sell <item>`"
+        "`!rpg sell <item>`\n"
+        "`!rpg enhance [slot]` — rework gear, +1 to +5"
     ), inline=True)
 
     embed.add_field(name="⛩️ Shrine", value=(
@@ -2592,7 +2593,8 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
     ), inline=True)
 
     embed.add_field(name="🏦 Oakhaven", value=(
-        "`!rpg bank` — deposit/withdraw\n"
+        "`!rpg bank` — balance; deposit/withdraw at the bank\n"
+        "`!rpg donate <gil>` — reinforce the walls\n"
         "`!rpg notices` — notice board\n"
         "`!rpg quests` — quest log\n"
         "`!rpg mail` — moogle mail\n"

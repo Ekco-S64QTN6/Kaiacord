@@ -53,6 +53,8 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "rumor":     cor._handle_rumor,
         "buy":       sho._handle_buy,
         "sell":      sho._handle_sell,
+        "enhance":   sho._handle_enhance,
+        "donate":    sho._handle_donate,
         "sell_gear": sho._handle_sell_all_gear,
         "sell_all":  sho._handle_sell_all_gear,
         "shop":      sho._handle_shop,

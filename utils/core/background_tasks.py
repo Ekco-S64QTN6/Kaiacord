@@ -2458,7 +2458,8 @@ async def run_village_raid(bot_ctx, channel):
     
     wstate = load_world_state()
     world_atk_mod = wstate.get("atk_mod", 0)
-    world_def_mod = wstate.get("def_mod", 0)
+    from utils.ttrpg.town_projects import raid_def_bonus
+    world_def_mod = wstate.get("def_mod", 0) + raid_def_bonus(wstate)
     
     for idx, s in enumerate(defenders):
         attacker = attackers[idx % len(attackers)].copy()
@@ -3624,7 +3625,8 @@ async def run_construct_breach(bot_ctx, channel):
     
     wstate = load_world_state()
     world_atk_mod = wstate.get("atk_mod", 0)
-    world_def_mod = wstate.get("def_mod", 0)
+    from utils.ttrpg.town_projects import raid_def_bonus
+    world_def_mod = wstate.get("def_mod", 0) + raid_def_bonus(wstate)
     
     for idx, s in enumerate(defenders):
         attacker = attackers[idx % len(attackers)].copy()
@@ -3864,7 +3866,8 @@ async def run_caravan_ambush(bot_ctx, channel):
     player_defeated_count = 0
     
     world_atk_mod = wstate.get("atk_mod", 0)
-    world_def_mod = wstate.get("def_mod", 0)
+    from utils.ttrpg.town_projects import raid_def_bonus
+    world_def_mod = wstate.get("def_mod", 0) + raid_def_bonus(wstate)
     
     for idx, s in enumerate(defenders):
         attacker = attackers[idx % len(attackers)].copy()
@@ -4263,7 +4266,8 @@ async def run_construct_incursion(bot_ctx, channel):
 
     wstate = load_world_state()
     world_atk_mod = wstate.get("atk_mod", 0)
-    world_def_mod = wstate.get("def_mod", 0)
+    from utils.ttrpg.town_projects import raid_def_bonus
+    world_def_mod = wstate.get("def_mod", 0) + raid_def_bonus(wstate)
 
     for idx, s in enumerate(defenders):
         attacker = attackers[idx % len(attackers)].copy()
@@ -4884,7 +4888,8 @@ async def run_iron_magpies_heist(bot_ctx, channel):
 
     wstate = load_world_state()
     world_atk_mod = wstate.get("atk_mod", 0)
-    world_def_mod = wstate.get("def_mod", 0)
+    from utils.ttrpg.town_projects import raid_def_bonus
+    world_def_mod = wstate.get("def_mod", 0) + raid_def_bonus(wstate)
     
     # ── Pooled Party Combat (All defenders focus single thief entity) ──
     max_rounds = 5
