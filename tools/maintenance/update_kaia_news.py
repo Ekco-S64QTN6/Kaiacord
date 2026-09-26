@@ -17,6 +17,19 @@ from utils.core.atomic_write import write_atomic  # noqa: E402
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / '.env')
 
+def story_count(brief: str) -> int:
+    """Real news items in a brief: bullets that are neither a quote nor "No
+    verified developments"."""
+    n, in_body = 0, False
+    for line in brief.splitlines():
+        line = line.strip()
+        in_body = in_body or line.startswith("## ")     # frontmatter keywords are "- " lines too
+        if in_body and line.startswith("- ") and not line[2:].upper().startswith("QUOTE:") \
+                and "no verified developments" not in line.lower():
+            n += 1
+    return n
+
+
 class KaiaNewsUpdater:
     def __init__(self, gemini_api_key: str):
         """Initialize with Gemini API key"""
@@ -39,7 +52,7 @@ class KaiaNewsUpdater:
         """Generate news brief using Gemini with Google Search grounding for accuracy"""
         date_to_use = target_date or self.today
         
-        prompt = f"""You are a news aggregator. Search for and compile REAL news stories from today ({date_to_use}).
+        prompt = f"""You are a news aggregator. Search for and compile REAL news stories published in the 24 hours up to {date_to_use}.
 
 CRITICAL: You MUST use Google Search to find actual news. Do NOT invent or hallucinate any stories.
 Only include news items that you can verify from your search results.
@@ -155,6 +168,11 @@ RULES:
                     else:
                         raise ValueError("Empty response feedback (no candidates)")
                 
+                if story_count(brief) == 0:
+                    # Every section "No verified developments": the search came
+                    # back empty, not the world. Saved, it blocks the day's
+                    # retries and tells her nothing happened.
+                    raise ValueError("the brief has no stories in any section")
                 return brief
                 
             except (ServerError, APIError) as e:
