@@ -107,8 +107,10 @@ class HistoryView(discord.ui.View):
 
 
 def _recorded(limit: int = 25) -> list[dict]:
-    from utils.radio import ledger
-    return [e for e in ledger.recent(200, kinds=("voice", "data")) if e.get("clip")][:limit]
+    from utils.radio import ledger, scanner
+    folder = scanner._clips_dir()                  # the clip folder keeps the newest 300
+    return [e for e in ledger.recent(200, kinds=("voice", "data"))
+            if e.get("clip") and (folder / e["clip"]).is_file()][:limit]
 
 
 class ScannerView(discord.ui.View):

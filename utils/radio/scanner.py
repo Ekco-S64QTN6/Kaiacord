@@ -177,7 +177,8 @@ def within_hours(now: Optional[datetime] = None) -> bool:
 
 def _clips_dir() -> Path:
     from utils.radio import log as radio_log
-    d = radio_log.clips_dir().parent / "local_clips"
+    shared = radio_log.clips_dir()               # clips/ or, under pytest, clips.test/
+    d = shared.parent / ("local_clips.test" if shared.name.endswith(".test") else "local_clips")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -239,12 +240,21 @@ _transcribed = {"date": "", "count": 0}
 
 QUIET_CHANNEL_HITS = 8       # catches with no voice before a channel is transcribed only now and then
 RECHECK_EVERY = 10
+_pinned: Optional[dict] = None   # the net being watched, while one is
+
+
+def _on_net(freq_hz: int) -> bool:
+    return _pinned is not None and abs(freq_hz - _pinned["freq_hz"]) <= 5000
 
 
 def classify(catch) -> None:
     """A catch from the waterfall → the ledger: voice if Whisper finds words,
     data if it has a digital mode's shape, otherwise a bare carrier. Runs on
-    the watcher's worker thread."""
+    the scanner-classify thread, fed from the watcher's child process.
+
+    A catch on a net being watched is always transcribed and always clipped:
+    the nightly budget and the quiet-channel rule are for the open scan, and a
+    net is exactly what someone will want to play back."""
     if catch.seconds < MIN_CATCH_S or len(catch.audio) < rtl.SAMPLE_RATE:
         return                                   # a kerchunk
     if not _NAMED_CACHE.get("rows"):
@@ -254,18 +264,20 @@ def classify(catch) -> None:
     known = ledger.channel(catch.freq_hz) or {}
     # A channel that keys up every minute with no words (telemetry, a trunked
     # system's data) would spend the night's transcriptions in an hour.
-    quiet_channel = known.get("hits", 0) >= QUIET_CHANNEL_HITS and not known.get("voice") \
+    net = _on_net(catch.freq_hz)
+    quiet_channel = not net and known.get("hits", 0) >= QUIET_CHANNEL_HITS and not known.get("voice") \
         and known.get("hits", 0) % RECHECK_EVERY
     kind, transcript = ("data" if m.digital else "carrier"), ""
     today = datetime.now().strftime("%Y-%m-%d")
     if _transcribed["date"] != today:
         _transcribed.update(date=today, count=0)
-    if not m.digital and not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT:
-        _transcribed["count"] += 1
+    if net or (not m.digital and not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT):
+        if not net:
+            _transcribed["count"] += 1
         text = _transcribe(catch.audio)
         if looks_like_speech(text):
             kind, transcript = "voice", text
-    clip = _save_clip(catch.audio, catch.freq_hz, catch.started) if kind != "carrier" else None
+    clip = _save_clip(catch.audio, catch.freq_hz, catch.started) if kind != "carrier" or net else None
     ledger.record(catch.freq_hz, kind, round(catch.seconds, 1), m.rms, m.hf_ratio, clip, transcript,
                   _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started)
     label = (ledger.channel(catch.freq_hz) or {}).get("label") or _service_of(catch.freq_hz)
@@ -427,8 +439,9 @@ async def _watch(net: Optional[dict] = None) -> None:
     import multiprocessing as mp
     import threading
     from utils.radio import waterfall
-    global _running, _failed_at, _stop_event
+    global _running, _failed_at, _stop_event, _pinned
     _running = True
+    _pinned = net
     # fork, not spawn: spawn re-imports the main module, and Kaiacord.py imports
     # the whole bot at top level. The child touches only numpy, ctypes and the
     # watcher — no logging or other lock another thread might hold.
@@ -497,6 +510,7 @@ async def _watch(net: Optional[dict] = None) -> None:
         transcribe.release_if_idle()
         _running = False
         _stop_event = None
+        _pinned = None
 
 
 async def shutdown() -> None:

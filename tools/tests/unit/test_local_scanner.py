@@ -82,13 +82,16 @@ def test_business_radio_is_not_labelled_frs():
     assert scanner._service_of(151_820_000) == "MURS"
 
 
-def test_history_offers_recorded_catches_to_play(monkeypatch):
+def test_history_offers_recorded_catches_to_play(monkeypatch, tmp_path):
     import asyncio
     from unittest.mock import AsyncMock
     from utils.commands import scanner_handler as sh
+    monkeypatch.setattr(scanner, "_clips_dir", lambda: tmp_path)
     monkeypatch.setattr(scanner, "_transcribe", lambda a: "net control, this is kilo five, over")
     audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
     scanner.classify(_catch(146_860_000, audio))
+    assert sh._recorded() == []                  # the clip isn't on disk: nothing to play
+    (tmp_path / "clip.ogg").write_bytes(b"x")
     catches = sh._recorded()
     assert catches and catches[0]["clip"] == "clip.ogg"
 
@@ -140,3 +143,18 @@ def test_a_channel_that_never_carries_voice_stops_being_transcribed(monkeypatch)
     assert len(calls) == scanner.QUIET_CHANNEL_HITS           # then quiet…
     scanner.classify(_catch(462_275_000, audio, seconds=6))
     assert len(calls) == scanner.QUIET_CHANNEL_HITS + 1       # …until every tenth catch rechecks
+
+
+def test_a_net_is_transcribed_and_clipped_whatever_the_nights_budget(monkeypatch):
+    """The overnight scan spends the same date's allowance; a net at 20:15 must still be heard."""
+    calls, clips = [], []
+    monkeypatch.setattr(scanner, "_transcribe", lambda a: calls.append(1) or "")
+    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
+    monkeypatch.setitem(scanner._transcribed, "date", datetime.now().strftime("%Y-%m-%d"))
+    monkeypatch.setitem(scanner._transcribed, "count", scanner.TRANSCRIBE_PER_NIGHT)
+    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
+    scanner.classify(_catch(147_570_000, audio, seconds=6))
+    assert calls == [] and clips == []                    # open scan: budget spent, a carrier, no clip
+    monkeypatch.setattr(scanner, "_pinned", {"freq_hz": 147_570_000, "label": "net", "until": 0})
+    scanner.classify(_catch(147_570_000, audio, seconds=6))
+    assert calls == [1] and clips == [147_570_000]        # on the net: transcribed, and kept to listen to
