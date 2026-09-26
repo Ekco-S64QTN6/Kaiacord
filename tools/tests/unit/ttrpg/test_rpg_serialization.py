@@ -165,3 +165,39 @@ def test_only_the_first_advancement_button_counts(monkeypatch):
     bonus = get_advanced_options(base)[chosen].get("bonuses", {}).get("hp_bonus", 0)
     assert store["42"]["hp"]["max"] == 50 + bonus
     assert cor.save.await_count == 1
+
+
+def test_the_estate_upgrade_confirms_once_against_the_current_estate(monkeypatch):
+    """The confirm button saved the housing dict captured when the dialog
+    opened, wiping anything placed since, and a second click paid again."""
+    import copy
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.housing as H
+    import utils.ttrpg.rpg_housing_handler as hh
+
+    tiers = list(H.HOUSING_TIERS)
+    sheets = {"9": {"user_id": "9", "character_name": "P", "level": 99, "gil": 10**7}}
+    homes = {"9": {"user_id": "9", "tier": tiers[0], "furniture": ["old"]}}
+    monkeypatch.setattr(hh, "load", AsyncMock(side_effect=lambda uid: copy.deepcopy(sheets[uid])))
+    monkeypatch.setattr(hh, "save", AsyncMock(side_effect=lambda s: sheets.__setitem__(s["user_id"], copy.deepcopy(s))))
+    monkeypatch.setattr(H, "load_housing", lambda uid: copy.deepcopy(homes[uid]))
+    monkeypatch.setattr(H, "_write_housing", lambda uid, data: homes.__setitem__(uid, data))
+    monkeypatch.setattr(H, "_serialise_housing", copy.deepcopy)
+    monkeypatch.setattr(hh, "_log_world_event", AsyncMock())
+    monkeypatch.setattr(hh, "_handle_my_home", AsyncMock())
+
+    async def go():
+        send = AsyncMock()
+        await hh._handle_upgrade_house.__wrapped__(None, types.SimpleNamespace(channel=None), send, "", "9", "p", False)
+        homes["9"]["furniture"].append("placed after the dialog opened")
+        confirm = next(b for b in send.call_args.kwargs["view"].children if "Confirm" in (b.label or ""))
+        for _ in range(2):
+            inter = MagicMock()
+            inter.user.id = "9"
+            inter.response.send_message = AsyncMock()
+            await confirm.callback(inter)
+    asyncio.run(go())
+
+    assert homes["9"]["tier"] == tiers[1]
+    assert 10**7 - sheets["9"]["gil"] == H.HOUSING_TIERS[tiers[1]]["cost"]
+    assert "placed after the dialog opened" in homes["9"]["furniture"]

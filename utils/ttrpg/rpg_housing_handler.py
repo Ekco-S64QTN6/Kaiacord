@@ -24,7 +24,7 @@ from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_ch
 
 
 from utils.ttrpg.rpg_views import *
-from utils.ttrpg.session_manager import serialize_user_action
+from utils.ttrpg.session_manager import player_locked, serialize_user_action
 
 async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg seed_shop — Buy seeds from Sister Maren."""
@@ -65,6 +65,7 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
     view = discord.ui.View(timeout=120)
     sel = discord.ui.Select(placeholder="🌱 Select seeds to buy...", options=options, row=0)
 
+    @player_locked(uid)
     async def _buy_seed_cb(interaction: discord.Interaction):
         if str(interaction.user.id) != uid:
             await interaction.response.send_message("not yours.", ephemeral=True)
@@ -401,17 +402,26 @@ async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
     
     view = discord.ui.View(timeout=60)
     confirm_btn = discord.ui.Button(label=f"Confirm Upgrade ({tier_data['cost']}g)", style=discord.ButtonStyle.green)
+    from_tier = housing["tier"]
+
+    @player_locked(uid)
     async def _confirm_cb(interaction):
         if str(interaction.user.id) != uid: return
+        from utils.ttrpg.housing import load_housing_async, save_housing_async
         s = await load(uid)
-        can_u, e = can_afford_upgrade(s, housing)
+        # Reloaded, not the dialog's copy: saving that would put back whatever the
+        # estate held when the dialog opened, and a second click would pay again.
+        h = await load_housing_async(uid)
+        if not s or not h or h.get("tier") != from_tier:
+            return await interaction.response.send_message("your estate has already changed; run the upgrade again.", ephemeral=True)
+        can_u, e = can_afford_upgrade(s, h)
         if not can_u:
             return await interaction.response.send_message(e, ephemeral=True)
-            
+
         s["gil"] -= tier_data["cost"]
         await save(s)
-        housing["tier"] = next_tier
-        save_housing(housing)
+        h["tier"] = next_tier
+        await save_housing_async(h)
         
         await _log_world_event(f"🏰 **{s['character_name']}** has upgraded their estate to a **{tier_data['name']}**.")
         

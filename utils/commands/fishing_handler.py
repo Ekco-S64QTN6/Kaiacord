@@ -99,16 +99,18 @@ class FishingMenuView(discord.ui.View):
         if str(interaction.user.id) != self._uid:
             await interaction.response.send_message("not yours.", ephemeral=True)
             return
-        sheet = await load(self._uid)
+        async with await _player_lock(self._uid):
+            sheet = await load(self._uid)
+            if sheet:
+                stats = sheet.setdefault("fishing_stats", {})
+                # migrate legacy
+                if "bait_count" in stats:
+                    old_bt = stats.get("bait", "earthworm")
+                    stats.setdefault("bait_stock", {})[old_bt] = stats.pop("bait_count", 0)
+                    await save(sheet)
         if not sheet:
             await interaction.response.send_message("No character found.", ephemeral=True)
             return
-        stats = sheet.setdefault("fishing_stats", {})
-        # migrate legacy
-        if "bait_count" in stats:
-            old_bt = stats.get("bait", "earthworm")
-            stats.setdefault("bait_stock", {})[old_bt] = stats.pop("bait_count", 0)
-            await save(sheet)
         bait_stock = stats.get("bait_stock", {})
         owned = {k: v for k, v in bait_stock.items() if v > 0 and k in BAIT}
         if not owned:
