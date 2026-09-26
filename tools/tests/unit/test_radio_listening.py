@@ -344,3 +344,12 @@ def test_a_recorder_that_quits_with_nothing_is_a_failure(tmp_path, monkeypatch):
     r = _fake_kiwiclient(tmp_path, monkeypatch, mode="--crash")
     with pytest.raises(FeedError, match="stopped early: FileNotFoundError"):
         asyncio.run(kiwi.record(r, 8423, "usb", 30, tmp_path / "work", label="e11"))
+
+
+def test_uvb76_samples_fall_due_at_night_once():
+    now = datetime(2026, 9, 26, 0, 2, tzinfo=timezone.utc)
+    jobs = [j for j in watch.due_jobs(now, [], done=set()) if j["kind"] == "uvb76"]
+    assert len(jobs) == 1 and jobs[0]["region"] == "ne" and jobs[0]["khz"] == 4625.0
+    assert not [j for j in watch.due_jobs(now, [], done={jobs[0]["key"]}) if j["kind"] == "uvb76"]
+    noon = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
+    assert not [j for j in watch.due_jobs(noon, [], done=set()) if j["kind"] == "uvb76"]

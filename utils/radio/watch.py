@@ -50,10 +50,15 @@ NUMBERS_RECORD_S = 7 * 60
 MIN_TRANSMISSION_S = 25        # an EAM broadcast runs well over a minute
 SQUELCH_DB = 12
 STATE_CACHE = "watch_state"
+# UVB-76 calibration samples: a buzz-break detector has to be built against a
+# real buzz, and 4625 kHz only carries at night in Europe. Collected, not posted.
+UVB76_KHZ = 4625.0
+UVB76_SAMPLE_TIMES = ["21:00", "00:00", "03:00"]      # UTC
+UVB76_SAMPLE_S = 120
 
 #: One listen of each kind at a time: an HFGCS watch holds its lock for twenty
 #: minutes, and a number station falling inside it must not be skipped.
-_busy = {"hfgcs": asyncio.Lock(), "numbers": asyncio.Lock()}
+_busy = {"hfgcs": asyncio.Lock(), "numbers": asyncio.Lock(), "uvb76": asyncio.Lock()}
 
 
 def _lock_for(job: dict) -> asyncio.Lock:
@@ -87,6 +92,14 @@ def due_jobs(now: datetime, schedule_items: list, done: set[str]) -> list[dict]:
                 jobs.append({"key": key, "kind": "hfgcs", "station": "HFGCS", "khz": HFGCS_KHZ,
                              "mode": "usb", "seconds": 60 * int(_cfg("hfgcs_window_minutes", DEFAULT_WINDOW_MIN)),
                              "region": "na", "squelch": SQUELCH_DB})
+        if _cfg("uvb76_samples", True):
+            for hhmm in UVB76_SAMPLE_TIMES:
+                h, m = (int(x) for x in hhmm.split(":"))
+                start = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                key = f"uvb76:{start:%Y-%m-%dT%H:%M}"
+                if start <= now < start + timedelta(minutes=5) and key not in done:
+                    jobs.append({"key": key, "kind": "uvb76", "station": "UVB-76", "khz": UVB76_KHZ,
+                                 "mode": "usb", "seconds": UVB76_SAMPLE_S, "region": "ne", "squelch": None})
         follow = [s.upper() for s in _cfg("follow", DEFAULT_FOLLOW)]
         today, last = _numbers_done(done, now)
         if sum(today.values()) < int(_cfg("numbers_per_day", NUMBERS_PER_DAY)):
@@ -205,10 +218,50 @@ async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: dateti
     return entry
 
 
+async def sample_uvb76(job: dict) -> Optional[Path]:
+    """Two minutes of S-meter readings and a clip from a north-eastern European
+    receiver, kept in memory/radio/uvb76/ for calibrating a buzz detector.
+    Returns the sample's JSON path, or None."""
+    import json
+    folder = radio_log.clips_dir().parent / "uvb76"
+    folder.mkdir(parents=True, exist_ok=True)
+    started = datetime.now(timezone.utc)
+    for r in kiwi.choose(await kiwi.directory(), job["khz"], job["region"], n=4):
+        try:
+            readings = await kiwi.smeter(r, job["khz"], "usb", job["seconds"])
+            wavs = await kiwi.record(r, job["khz"], "usb", 60, folder / "work", label="uvb76")
+        except FeedError as e:
+            log_warning(f"[radio] UVB-76 sample: {e}; trying the next receiver")
+            continue
+        stem = f"{started:%Y%m%dT%H%M}"
+        clip = None
+        if wavs:
+            clip = await asyncio.to_thread(_to_opus, wavs[0], folder / f"{stem}.ogg")
+            for w in wavs:
+                w.unlink(missing_ok=True)
+        out = folder / f"{stem}.json"
+        from utils.core.atomic_write import write_atomic
+        write_atomic(out, json.dumps({
+            "started": started.isoformat(), "khz": job["khz"], "receiver": r.host,
+            "receiver_location": r.location,
+            "clip": clip.name if clip else None,
+            "readings": [[t.isoformat(), dbm] for t, dbm in readings]}, indent=1))
+        levels = [dbm for _, dbm in readings]
+        log_info(f"[radio] UVB-76 sample from {r.location or r.host}: {len(levels)} readings, "
+                 f"{min(levels):.0f} to {max(levels):.0f} dBm")
+        return out
+    log_warning("[radio] UVB-76 sample: no north-east European receiver gave readings")
+    return None
+
+
 async def run_job(job: dict, poster=None) -> list[dict]:
     """Record, process, post. One job at a time across the process."""
     if not kiwi.available():
         log_debug("[radio] kiwiclient not installed; skipping a scheduled listen")
+        return []
+    if job["kind"] == "uvb76":
+        async with _lock_for(job):
+            await sample_uvb76(job)
         return []
     async with _lock_for(job):
         receivers = kiwi.choose(await kiwi.directory(), job["khz"], job["region"])

@@ -40,6 +40,7 @@ SAMPLE_RATE = 12000          # what a Kiwi sends in audio mode
 REGIONS = {
     "na": (24.0, 55.0, -125.0, -60.0),     # HFGCS is loudest in North America
     "eu": (35.0, 62.0, -10.0, 30.0),       # most number stations are European or Russian
+    "ne": (50.0, 68.0, 18.0, 45.0),        # north-east Europe: UVB-76 on 4625 kHz carries here at night
 }
 
 
