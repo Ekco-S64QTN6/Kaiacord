@@ -115,6 +115,24 @@ async def get_random_memories(limit=20):
 
     return await asyncio.to_thread(_fetch_memories)
 
+_NEWS_SOURCE = re.compile(r"(?:news_brief|news_summary|tech_digest)_(\d{8})")
+NEWS_FRESH_DAYS = 3
+
+
+def _stale_news(source: str, today=None) -> bool:
+    """A dream about a news brief older than a few days: posted now, it reads
+    as today's news."""
+    from datetime import date, datetime
+    hit = _NEWS_SOURCE.search(source or "")
+    if not hit:
+        return False
+    try:
+        filed = datetime.strptime(hit[1], "%Y%m%d").date()
+    except ValueError:
+        return False
+    return ((today or date.today()) - filed).days > NEWS_FRESH_DAYS
+
+
 async def get_random_dream_reflection(limit=5):
     """Pick a random dream file and extract Kaia's Reflection.
     
@@ -149,19 +167,24 @@ async def get_random_dream_reflection(limit=5):
                         if "Source: " in content:
                             source = content.split("Source: ")[1].split("\n")[0].strip()
                         
-                        # Extract original fragment
-                        fragment = ""
-                        if "## Original Fragment" in content and "## Kaia's Reflection" in content:
-                            fragment = content.split("## Original Fragment")[1].split("## Kaia's Reflection")[0].strip()
-                            if fragment.startswith(">"):
-                                fragment = fragment.replace(">", "").strip()
-                        
-                        if fragment:
+                        # Her reflection, not the fragment it was about: the
+                        # fragment is source text — a news brief with its
+                        # headers, someone else's chat lines — and a quip seeded
+                        # with it came back as that text, posted as her thought.
+                        if _stale_news(f"{source} {dream_file.name}"):
+                            continue
+                        reflection = ""
+                        if "## Kaia's Reflection" in content:
+                            reflection = content.split("## Kaia's Reflection", 1)[1].split("\n## ", 1)[0]
+                            reflection = re.sub(r"^\s*#+\s.*$", "", reflection, flags=re.M)
+                            reflection = " ".join(reflection.split())
+
+                        if len(reflection) >= 30:
                             reflections.append({
-                                "text": fragment,
+                                "text": reflection,
                                 "source": source,
                                 "category": dream_file.parent.name,
-                                "type": "dream_fragment"
+                                "type": "dream_reflection"
                             })
                 except Exception:
                     continue
