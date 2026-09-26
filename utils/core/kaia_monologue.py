@@ -100,8 +100,8 @@ class InnerMonologue:
                 except Exception:
                     pass
             for msg in list(messages)[-5:]:
-                if msg.get("external"):
-                    continue  # a forum/social turn, not her Discord server
+                if msg.get("external") or msg.get("private"):
+                    continue  # a forum/social turn, or a DM: not for a public thought
                 role = msg.get("role", "")
                 content = msg.get("content", "")
                 if role == "user" and content:

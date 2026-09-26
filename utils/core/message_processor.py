@@ -2617,14 +2617,23 @@ class MessageProcessor:
                     log_warning(f"Style-drift detected ({', '.join(_drift_details)}). "
                                 f"Skipping channel_memory AND RAG log to break feedback loop.")
                 else:
-                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author, "timestamp": time.time()})
-                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response, "timestamp": time.time()})
+                    # A DM's turns are marked private so nothing that reads
+                    # across channels (the monologue) carries them into public.
+                    _mark = {"private": True} if getattr(ctx, "is_dm", False) else {}
+                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author, "timestamp": time.time(), **_mark})
+                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response, "timestamp": time.time(), **_mark})
                 # ----------------------------------------------------
                 
                 await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, bot_response)
                 
+                # A DM stays private: its own log under memory/, which nothing
+                # indexes or quotes (utils/core/dm_log.py).
+                if getattr(ctx, "is_dm", False):
+                    from utils.core import dm_log
+                    await asyncio.to_thread(dm_log.record, ctx.author_id, ctx.author_name,
+                                            ctx.own_words, bot_response)
                 # Log for RAG — SKIP if style-drifted to prevent poisoning disk logs
-                if not _is_style_drifted:
+                elif not _is_style_drifted:
                     # The enricher's blocks belong in the prompt, not the
                     # transcript: logged verbatim they read as things the user
                     # typed, and the log feeds both RAG and the fine-tune corpus.

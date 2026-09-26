@@ -518,3 +518,11 @@ def test_excerpt_never_ends_mid_word():
     assert excerpt("short enough", 50) == "short enough"
     assert excerpt("one two three four", 12) == "one two…"
     assert excerpt("x" * 40, 10) == "x" * 9 + "…"
+
+
+def test_a_direct_message_never_reaches_a_thought():
+    turns = _turns(("Starkind", "this is private, between us", 5.0, None))
+    for t in turns:
+        t["private"] = True
+    prompt = _observe(InnerMonologue(), {"111111111111111111": turns})
+    assert prompt is None or "between us" not in prompt
