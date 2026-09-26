@@ -60,7 +60,21 @@ def release_if_idle() -> None:
     with _lock:
         if _model is not None and time.time() - _last_used > IDLE_UNLOAD_S:
             _model = None
+            _return_memory()
             log_debug("[radio] speech model released")
+
+
+def _return_memory() -> None:
+    """Hand the freed model back to the OS. Dropping the reference freed about
+    200 MB of the ~2.3 GB it took; glibc kept the rest mapped, and the bot sat
+    at 7 GB until a restart. malloc_trim returns it."""
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 
 
 def prepare(src: Path, dst: Path) -> Path:

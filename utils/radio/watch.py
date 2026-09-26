@@ -11,8 +11,12 @@ something is expected:
   recording from a European receiver from a minute before Priyom's scheduled
   start.
 
-Each keeper is converted to Opus, transcribed on the CPU, parsed (EAMs),
-logged to memory/radio/, and posted to #kaia-opolis. EAM transcriptions are
+Each keeper is converted to Opus, logged to memory/radio/ and posted to
+#kaia-opolis. HFGCS catches are also transcribed on the CPU and parsed.
+Number stations are not: Whisper on a station reading digit groups through
+HF fading loops on its own output ("8-1-4-0-8-0-0" forty times, "thank you",
+"he was born on the hill"), so a number-station catch is posted as a
+recording, with the clip, and no transcript. EAM transcriptions are
 later matched with eam.watch's human copy of the same message; the accuracy
 is recorded, not assumed.
 """
@@ -138,10 +142,9 @@ async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: dateti
         return None
     entry_id = f"{started:%Y%m%dT%H%M%S}-{job['station'].lower()}-{secrets.token_hex(2)}"
     transcript = ""
-    if transcribe.available():
-        lang = "en" if job["kind"] == "hfgcs" or job["station"].upper().startswith("E") else None
+    if job["kind"] == "hfgcs" and transcribe.available():
         try:
-            transcript = await transcribe.transcribe(wav, language=lang)
+            transcript = await transcribe.transcribe(wav, language="en")
         except Exception as e:
             log_warning(f"[radio] transcription failed for {wav.name}: {e}")
     parsed = None

@@ -202,10 +202,17 @@ RADIO_USAGE = ("`!radio hfgcs` · `!radio buzzer` · `!radio <kHz> [usb|lsb|am|c
                "`!radio <station>` for a number station on `!numbers` · `!radio log` · `!radio listen` · `!radio off`")
 
 
+def _transcript(e: dict) -> str:
+    """Entries logged before number stations stopped being transcribed carry
+    Whisper's loops; those are not shown."""
+    return "" if e.get("kind") == "numbers" else (e.get("transcript") or "")
+
+
 def _entry_line(i: int, e: dict) -> str:
     when = datetime.fromisoformat(e["started"])
     parsed = e.get("parsed") or {}
-    what = f"`{parsed['message']}`" if parsed.get("message") else clean(e.get("transcript") or "(no transcript)", 90)
+    what = (f"`{parsed['message']}`" if parsed.get("message")
+            else clean(_transcript(e), 90) if _transcript(e) else f"recorded {e['seconds'] / 60:.0f} min")
     who = parsed.get("callsign") or e.get("station", "")
     check = e.get("check")
     mark = f" · ✔ {check['accuracy']:.0%}" if check else ""
@@ -256,8 +263,12 @@ def read_cache_safe(name):
 def entry_embed(e: dict):
     parsed = e.get("parsed") or {}
     title = f"📡  {e['station']} · {e['khz']:g} kHz {e['mode'].upper()}"
-    desc = f"`{parsed['message']}`" if parsed.get("message") else clean(e.get("transcript") or "", 1500)
-    embed = box(title, desc or "(no transcript)", COLOR_RADIO,
+    desc = f"`{parsed['message']}`" if parsed.get("message") else clean(_transcript(e), 1500)
+    if not desc:
+        desc = (f"I recorded {e['seconds'] / 60:.0f} minutes of {e['station']} — the clip is attached. "
+                "Number stations read digit groups through HF fading, and I can't transcribe that "
+                "reliably, so I don't try." if e.get("kind") == "numbers" else "(no transcript)")
+    embed = box(title, desc, COLOR_RADIO,
                 footer=f"via {e.get('receiver_location') or e['receiver']} (KiwiSDR) · `?` = not sure\n{_others('radio')}")
     add_field(embed, "Heard", f"{datetime.fromisoformat(e['started']):%d %b %H:%M}Z", inline=True)
     add_field(embed, "Length", f"{e['seconds']:.0f} s", inline=True)

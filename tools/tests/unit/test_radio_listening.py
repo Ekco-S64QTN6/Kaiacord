@@ -218,6 +218,29 @@ def test_without_a_transcript_an_hfgcs_opening_is_not_kept(tmp_path):
                                          p, rec, datetime.now(timezone.utc))) is None
 
 
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+def test_a_number_station_is_kept_as_a_recording_without_a_transcript(tmp_path):
+    """Whisper looped on E11's digit groups — "8-1-4-0-8-0-0" forty times,
+    "he was born on the hill". The catch is posted as a recording instead."""
+    from utils.commands import radio_handler as rh
+    p = tmp_path / "e11.wav"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=40",
+                    "-ar", "12000", str(p)], check=True)
+    rec = kiwi.Receiver("h", 8073, "n", "loc", 0, 0, 0, 8, 10, 0, 30_000_000)
+    job = {"kind": "numbers", "station": "E11", "khz": 9951.0, "mode": "usb"}
+    with patch.object(watch.transcribe, "available", return_value=True), \
+         patch.object(watch.transcribe, "transcribe", AsyncMock(return_value="8-1-4-0-8-0-0")) as tr:
+        entry = asyncio.run(watch.process(job, p, rec, datetime.now(timezone.utc)))
+    tr.assert_not_awaited()
+    assert entry["transcript"] == "" and (radio_log.clips_dir() / entry["clip"]).is_file()
+    assert "minutes of E11 — the clip is attached" in rh.entry_embed(entry).description
+    assert "recorded" in rh._entry_line(1, entry)
+    old = {**entry, "transcript": "Thank you. 8-1-4-0-8-0-0 8-1-4-0-8-0-0"}
+    assert "8-1-4" not in rh._entry_line(1, old) and "8-1-4" not in rh.entry_embed(old).description
+    (radio_log.clips_dir() / entry["clip"]).unlink()
+    radio_log.log_path().unlink(missing_ok=True)
+
 def test_a_recorder_dies_with_the_process_that_started_it(tmp_path):
     """A recorder holds a slot on someone else's receiver. Orphaned by a crash
     or a killed script, two kept their slots for six hours."""
