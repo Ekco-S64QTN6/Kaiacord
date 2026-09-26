@@ -1122,6 +1122,17 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8g1. Live sky data when the speaker asks about it — space weather,
+        # launches, asteroids, quakes, who is in orbit (utils/core/sky_facts.py).
+        # Without it she invented storms the feeds did not show.
+        try:
+            from utils.core import sky_facts
+            _sky = await sky_facts.note_for(ctx.own_words)
+            if _sky:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{_sky}"
+        except Exception:
+            pass
+
         # 8h. Micro-mood expressions: deliberately absent. Mood reaches the
         # prompt through two non-overlapping signals only —
         # get_kaia_state_line() (activity/memory/dream, at 8.) and
