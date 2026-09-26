@@ -30,8 +30,10 @@ class IdentityRegistry:
             "display_names": {},     # discord_id -> the name a human uses
         }
         self._load()
-        # Older files predate these keys.
-        for k, default in (("self_forum_ids", []), ("display_names", {})):
+        # Older files predate some keys; a file missing one raised KeyError on
+        # the first link or lookup.
+        for k, default in (("discord_to_forum", {}), ("forum_to_discord", {}), ("mappings", {}),
+                           ("self_forum_ids", []), ("display_names", {})):
             self.data.setdefault(k, default)
 
     def _load(self):

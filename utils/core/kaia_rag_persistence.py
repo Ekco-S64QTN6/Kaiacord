@@ -216,7 +216,8 @@ class RAGPersistenceMixin:
         if HallucinationDetector.contains_hallucination(bot_response):
             if not config.is_owner(user_name, user_id=str(user_id)):
                 log_warning(f"Hallucination detected in response for {user_name}. Cleaning before logging.")
-                bot_response = HallucinationDetector.clean_response(bot_response)
+                # None when every line matched; the user's turn is still logged.
+                bot_response = HallucinationDetector.clean_response(bot_response) or ""
             else:
                 log_debug(f"Hallucination pattern detected in owner response ({user_name}), but skipping clean.")
 

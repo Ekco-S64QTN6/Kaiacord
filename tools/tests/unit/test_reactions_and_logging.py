@@ -383,3 +383,16 @@ def test_a_failed_index_swap_puts_the_last_good_copy_back(tmp_path, monkeypatch)
     obj.persist()
     assert (live / "docstore.json").read_text() == "good"
     assert obj.persist_needed is True
+
+
+def test_a_fully_cleaned_reply_still_logs_the_users_turn(tmp_path):
+    """clean_response returns None when every line matches; assigned straight to
+    bot_response it raised, and the user's message went unlogged with it."""
+    from unittest.mock import MagicMock, patch
+    from utils.core.kaia_rag_persistence import RAGPersistenceMixin
+    obj = RAGPersistenceMixin.__new__(RAGPersistenceMixin)
+    with patch("utils.core.kaia_rag_persistence.config") as cfg:
+        cfg.is_owner.return_value = False
+        args = obj._sanitize_and_prepare(str(tmp_path / "log.md"), "hello kaia",
+                                         "<recorded_knowledge> leak", "Starkind", 519557167779676160)
+    assert "Starkind: hello kaia" in args["text"]
