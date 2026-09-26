@@ -18,6 +18,13 @@ def test_a_verdict_needs_a_verbatim_quote_with_a_different_fact():
     assert sc.accept(claim, PASSAGE, {"contradicts": False, "quote": "a 1984 science fiction novel"}) is None
 
 
+def test_a_quote_that_repeats_the_claims_numbers_agrees_with_it():
+    """Posted on 25 Sept as a correction; the source said the same thing."""
+    passage = "so we're not planning uh big 300 megawatts, 1 gigawatt data centers anymore"
+    assert sc.accept("a 1 gigawatt data center cancelled.", passage,
+                     {"contradicts": True, "quote": "we're not planning uh big 300 megawatts, 1 gigawatt"}) is None
+
+
 def test_only_factual_sentences_are_recorded():
     reply = "honestly it's a great read. neuromancer came out in 1986, which surprises people."
     assert sc.fact_sentences(reply) == ["neuromancer came out in 1986, which surprises people."]

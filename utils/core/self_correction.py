@@ -5,12 +5,13 @@ repaired a claim once it was out. This does, under rules that keep it honest:
 
 - Only claims that were grounded in the first place: a reply whose retrieval
   held reference material (books, documents, knowledge) is recorded with its
-  source files, one sentence per checkable fact (a number or a proper name).
+  source files, one sentence per checkable fact. Replies reach this lowercased,
+  so in practice that means a sentence with a number in it.
 - The contradiction comes from a document. The model is shown the claim and
   the source passage that best matches it and asked whether the passage
   contradicts it — never "were you wrong?". A verdict counts only when it
-  quotes the passage verbatim and the quote carries a number or name the
-  claim doesn't.
+  quotes the passage verbatim, the quote carries a number or name the claim
+  doesn't, and it doesn't also repeat every number the claim has.
 - At most MAX_PER_DAY a day, and never twice on the same claim.
 - The correction names what she said and what the source says.
 
@@ -23,6 +24,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 import uuid
 from typing import List, Optional
@@ -38,6 +40,7 @@ MIN_AGE_SECONDS = 1800
 MAX_PER_DAY = 1
 MAX_CHECKS_PER_RUN = 6
 MIN_OVERLAP = 3
+_claims_lock = threading.Lock()          # an append must not land between prune's read and rewrite
 
 _FACT = re.compile(r"\b\d[\d,.]*\b|\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b")
 _WORD = re.compile(r"[a-z]{4,}")
@@ -65,7 +68,7 @@ def record_claim(channel_id, author: str, question: str, response: str, sources:
     sources = sorted({s for s in sources if s and os.path.isfile(s)})
     if not facts or not sources:
         return
-    with open(CLAIMS, "a", encoding="utf-8") as f:
+    with _claims_lock, open(CLAIMS, "a", encoding="utf-8") as f:
         for fact in facts:
             f.write(json.dumps({"ts": time.time(), "channel_id": channel_id, "author": author,
                                 "question": question[:200], "claim": fact, "id": _id(fact),
@@ -118,6 +121,10 @@ def accept(claim: str, passage: str, verdict: dict) -> Optional[str]:
     # words is in the claim ("the Hugo Award" / "the hugo").
     words = set(re.findall(r"[a-z]+", claim.lower()))
     numbers = {n.rstrip(".,") for n in re.findall(r"\d[\d,.]*", claim)}
+    # A quote that repeats every number the claim has is restating it, not
+    # contradicting it ("300 megawatts, 1 gigawatt" against "a 1 gigawatt").
+    if numbers and numbers <= {n.rstrip(".,") for n in re.findall(r"\d[\d,.]*", quote)}:
+        return None
     new = [f for f in _FACT.findall(quote)
            if (f.rstrip(".,") not in numbers if f[0].isdigit()
                else not words & set(f.lower().split()))]
@@ -147,9 +154,12 @@ async def check(ctx, now: Optional[float] = None) -> int:
     """Check recent grounded claims against their sources. Returns corrections made."""
     from utils.infrastructure.gpu.gpu_manager import GPUTaskPriority, chat_options, gpu_memory_manager
     now = now or time.time()
-    claims = await asyncio.to_thread(_read_jsonl, CLAIMS)
-    claims = [c for c in claims if now - c.get("ts", 0) <= KEEP_DAYS * 86400]
-    await asyncio.to_thread(write_atomic, CLAIMS, "".join(json.dumps(c) + "\n" for c in claims))
+    def _prune():
+        with _claims_lock:
+            kept = [c for c in _read_jsonl(CLAIMS) if now - c.get("ts", 0) <= KEEP_DAYS * 86400]
+            write_atomic(CLAIMS, "".join(json.dumps(c) + "\n" for c in kept))
+            return kept
+    claims = await asyncio.to_thread(_prune)
     done = await asyncio.to_thread(_read_jsonl, CORRECTIONS)
     seen = {d["id"] for d in done}
     today = time.strftime("%Y-%m-%d", time.localtime(now))
