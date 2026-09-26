@@ -131,7 +131,7 @@ def test_the_guard_is_wired_into_the_response_path():
     from utils.core.message_processor import MessageProcessor
     src = inspect.getsource(MessageProcessor)
     assert "correct_stated_time" in src, "the time guard is not called"
-    assert "is_time_query" in src, "the guard would run on every turn"
+    assert "asks_the_time_here" in src, "the guard would run on every turn"
 
 
 def test_the_reported_failure_now_answers_correctly():
@@ -140,3 +140,25 @@ def test_the_reported_failure_now_answers_correctly():
     true_time, _, _ = _get_user_time_info("Ekco", message_instant(_Msg(SENT)))
     assert P.correct_stated_time("it’s 5:21 am cdt. still dark.", true_time) \
         == "it’s 5:14 am cdt. still dark."
+
+
+@pytest.mark.parametrize("asked,here", [
+    ("what time is it", True),
+    ("kaia what's the time", True),
+    ("got the time?", True),
+    ("what time is it in tokyo?", False),
+    ("what time does the starship launch go?", False),
+    ("time for bed kaia", False),
+    ("when is it midnight in london", False),
+])
+def test_only_a_question_about_the_time_here_and_now_is_corrected(asked, here):
+    """The guard overwrote "it's 1:30 pm in tokyo" and a launch time with the
+    speaker's local clock."""
+    from utils.core.timezone_helper import asks_the_time_here
+    assert asks_the_time_here(asked) is here
+
+
+def test_a_corrected_time_keeps_the_sentence_end():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    assert P.correct_stated_time("it's 11:52 pm. sleep well.", "11:40 PM CDT") == "it's 11:40 pm cdt. sleep well."
+    assert P.correct_stated_time("it's 11:52 p.m. now", "11:40 PM CDT") == "it's 11:40 pm cdt now"

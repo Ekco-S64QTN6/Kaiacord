@@ -2461,8 +2461,8 @@ class MessageProcessor:
         # cdt". Python owns the fact (CLAUDE.md §4); this asserts it rather than
         # adding a fourth instruction she can ignore.
         try:
-            from utils.core.timezone_helper import is_time_query
-            if is_time_query(_asked):
+            from utils.core.timezone_helper import asks_the_time_here
+            if asks_the_time_here(_asked):
                 _true_time, _, _ = _get_user_time_info(
                     ctx.author_name, message_instant(ctx.message))
                 ctx.response_text = PostGenerationSafetyPipeline.correct_stated_time(

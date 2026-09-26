@@ -132,7 +132,9 @@ class PostGenerationSafetyPipeline:
     # is a fact about a time and must survive a correction aimed at "it's 5:21".
     # A bare leading "5:21 AM CDT." counts too — that is how she answers when
     # the addressee guard has taken the name off the front.
-    _CLOCK = r"(?P<h>\d{1,2}):(?P<m>\d{2})\s*(?P<ap>[ap])\.?\s*m\.?(?:\s+(?P<tz>[A-Za-z]{2,5}T|UTC|GMT))?"
+    # "p.m." takes its own final dot; "pm." leaves it, because that dot ends
+    # the sentence and the replacement would otherwise swallow it.
+    _CLOCK = r"(?P<h>\d{1,2}):(?P<m>\d{2})\s*(?P<ap>[ap])(?:\.m\.|\s*m)(?:\s+(?P<tz>[A-Za-z]{2,5}T|UTC|GMT))?"
     _STATED_CLOCK = re.compile(
         # `['\u2019]?` — she writes curly apostrophes. A straight-quote-only
         # pattern matched none of her actual output.

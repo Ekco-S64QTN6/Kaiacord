@@ -176,6 +176,32 @@ def is_time_query(text: str) -> bool:
     return bool(text) and any(p.search(text.lower()) for p in _TIME_QUERY_PATTERNS)
 
 
+_NOW_PATTERNS = re.compile(
+    r"\bwhat(?:['’]s|\s+is)\s+the\s+time\b|\bwhat\s+time\s+(?:is\s+it|it\s+is)\b|\bcurrent\s+time\b|"
+    r"\btime\s+check\b|\bgot\s+the\s+time\b|\bknow\s+what\s+time\s+it\s+is\b|"
+    r"\b(?:tell|give)\s+me\s+the\s+time\b|\b(?:local|your)\s+time\b|\btime\s+at\s+your\s+(?:location|end)\b",
+    re.IGNORECASE)
+_ABOUT_AN_EVENT = re.compile(
+    r"\bwhat\s+time\s+(?:does|did|will|would|should|was|were|are|do(?!\s+you\s+have))\b|"
+    r"\b(?:when|until|till|since)\b",
+    re.IGNORECASE)
+
+
+def asks_the_time_here(text: str) -> bool:
+    """A question about the time right now, where the speaker is.
+
+    Narrower than `is_time_query`, which only decides whether to inject the
+    clocks and may be generous. This one decides whether a time in her answer
+    is overwritten with the speaker's local time, so "what time is it in
+    tokyo?", "what time does the launch go?" and "time for bed" must not
+    count: each answer carries a different time on purpose.
+    """
+    if not text or not _NOW_PATTERNS.search(text) or _ABOUT_AN_EVENT.search(text):
+        return False
+    low = text.lower()
+    return not any(re.search(r"\b" + re.escape(k) + r"\b", low) for k in LOCATION_TIMEZONE_MAP)
+
+
 def resolve_time_queries(text: str, now_utc: Optional[datetime] = None) -> str:
     """
     Detect time queries in text and produce deterministic 12-hour real-time facts
