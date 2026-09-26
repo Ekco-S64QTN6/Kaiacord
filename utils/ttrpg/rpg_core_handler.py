@@ -1778,6 +1778,9 @@ async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
     ), view=view)
 
 
+GAMBLE_DAILY_WIN_CAP = 100
+
+
 async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg gamble — dice game at the Stone Hearth. 10 gil buy-in."""
 
@@ -1792,6 +1795,19 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         ))
 
     BUY_IN = 10
+    # The Trickster's two dice make the table worth +1.6 gil a roll with no
+    # limit on rolls. The perk stays; what it can take in a day does not grow
+    # without bound. Losses count against the day's total.
+    from datetime import date as _date
+    _today = _date.today().isoformat()
+    if sheet.get("gamble_day") != _today:
+        sheet["gamble_day"], sheet["gamble_net"] = _today, 0
+    if sheet.get("gamble_net", 0) >= GAMBLE_DAILY_WIN_CAP:
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"You're {sheet['gamble_net']} gil up tonight.\n*The weathered man sweeps the dice "
+                        f"off the table. \"Come back tomorrow.\"*",
+            color=0xcc4444
+        ))
     if sheet.get("gil", 0) < BUY_IN:
         return await msg.channel.send(embed=discord.Embed(
             description=f"The buy-in is {BUY_IN} gil. you have {sheet.get('gil', 0)}g.\n*A weathered man across the table doesn't look up from his cards.*",
@@ -1826,18 +1842,21 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         winnings = BUY_IN * 2 * _fools_mult
         sheet["gil"] += winnings
         net = BUY_IN * _fools_mult
+        sheet["gamble_net"] = sheet.get("gamble_net", 0) + net
         fools_tag = " 🎭" if _fools_mult > 1 else ""
         result_line = f"🎲 You rolled **{player_roll}**, they rolled **{house_roll}**. You win!{fools_tag}"
         gil_line = f"+{net} gil (net). Total: {sheet['gil']}g"
     elif player_roll < house_roll:
         extra_loss = BUY_IN * (_fools_mult - 1)
         sheet["gil"] = max(0, sheet["gil"] - extra_loss)
+        sheet["gamble_net"] = sheet.get("gamble_net", 0) - BUY_IN * _fools_mult
         fools_tag = " 🎭" if _fools_mult > 1 else ""
         result_line = f"🎲 You rolled **{player_roll}**, they rolled **{house_roll}**. You lose.{fools_tag}"
         gil_line = f"-{BUY_IN * _fools_mult} gil. Total: {sheet['gil']}g"
     else:
         extra_loss = BUY_IN * (_fools_mult - 1)
         sheet["gil"] = max(0, sheet["gil"] - extra_loss)
+        sheet["gamble_net"] = sheet.get("gamble_net", 0) - BUY_IN * _fools_mult
         fools_tag = " 🎭" if _fools_mult > 1 else ""
         result_line = f"🎲 You both rolled **{player_roll}**. House takes ties.{fools_tag}"
         gil_line = f"-{BUY_IN * _fools_mult} gil. Total: {sheet['gil']}g"
