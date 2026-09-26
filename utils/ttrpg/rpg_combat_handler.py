@@ -42,6 +42,7 @@ from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_ch
 
 
 from utils.ttrpg.rpg_views import *
+from utils.ttrpg.session_manager import serialize_user_action
 
 # Same load / resolve / await / save shape as the overworld handlers,
 # reached from the dungeon view's Attack button — so the same race.
@@ -567,6 +568,7 @@ async def _handle_hunts(ctx, msg, send, rest, uid, uname, is_owner):
     ), view=view)
 
 
+@serialize_user_action
 async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
     from utils.ttrpg.monster_registry import get as get_monster

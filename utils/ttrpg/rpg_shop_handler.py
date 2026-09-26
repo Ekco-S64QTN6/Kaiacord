@@ -20,6 +20,7 @@ from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_ch
 
 
 from utils.ttrpg.rpg_views import *
+from utils.ttrpg.session_manager import serialize_user_action
 
 async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import get_shop_inventory
@@ -89,6 +90,7 @@ async def _handle_shop(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_buy(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import process_purchase
     
@@ -191,6 +193,7 @@ async def _handle_donate(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=discord.Embed(description=text, color=0x44aa44 if ok else 0xcc4444))
 
 
+@serialize_user_action
 async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import process_sell, find_item as _find_item
     
@@ -231,6 +234,7 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
         await msg.channel.send(embed=discord.Embed(description=resp_msg, color=0xcc4444))
 
 
+@serialize_user_action
 async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
     """Sell all unequipped, non-consumable inventory items at once."""
     from utils.ttrpg.shop import find_item as _find_item

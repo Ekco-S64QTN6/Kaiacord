@@ -83,6 +83,23 @@ def serialize_combat_action(fn):
     return wrapper
 
 
+def serialize_user_action(fn):
+    """The player's lock only, for a handler that changes their sheet but not a
+    shared session — a purchase, a sale, a cast. The same `user:` lock combat
+    takes, so the two can't interleave; no channel lock, which a combat round
+    holds through its narration. Called from buttons as well as commands, so
+    the lock is taken here rather than in the dispatcher."""
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        _, uid = _action_keys(fn, args, kwargs)
+        if not uid:
+            return await fn(*args, **kwargs)
+        async with await get_action_lock(f"user:{uid}"):
+            return await fn(*args, **kwargs)
+    wrapper._serialized = True
+    return wrapper
+
+
 async def get_session_lock(channel_id: str) -> asyncio.Lock:
     """Guards a single session file read or write."""
     async with _chan_global_lock:

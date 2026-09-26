@@ -39,6 +39,7 @@ from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_ch
 
 
 from utils.ttrpg.rpg_views import *
+from utils.ttrpg.session_manager import serialize_user_action
 
 async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
@@ -1347,6 +1348,7 @@ async def _handle_inventory(ctx, msg, send, rest, uid, uname, is_owner):
     await _send_page(0)
 
 
+@serialize_user_action
 async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
     sheet = await load(uid)

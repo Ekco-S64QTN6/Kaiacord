@@ -32,6 +32,9 @@ async def _handle_sell_catch_cmd(ctx, msg, send, rest, uid, uname, is_owner):
     await _sell_catch_inner(ctx, fake, uid, uname, is_owner)
 
 
+_handle_sell_catch_cmd._serialized = True      # the inner handler takes the player's lock
+
+
 async def handle_rpg_command(ctx, msg, send_kaia_response):
     """Main !rpg dispatcher."""
     parts = msg.content.strip().split(maxsplit=2)

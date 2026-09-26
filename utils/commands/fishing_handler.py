@@ -32,6 +32,7 @@ from utils.ttrpg.fishing_engine import (
 )
 from utils.ttrpg.calendar import get_season
 from utils.commands.embed_style import notice
+from utils.ttrpg.session_manager import serialize_user_action
 
 POND_COLOR = 0x3a8fc1  # deep pond blue
 
@@ -786,6 +787,7 @@ async def _handle_check_bag(ctx, interaction: discord.Interaction, uid: str, una
     await interaction.followup.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_sell_catch(ctx, interaction: discord.Interaction, uid: str, uname: str, is_owner: bool):
     """Sell all fish in bag to Gregor."""
     sheet = await load(uid)
