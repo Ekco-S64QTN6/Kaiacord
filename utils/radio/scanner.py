@@ -117,11 +117,20 @@ def snap_channel(freq_hz: int) -> int:
             return c
     # A channel already heard, within a grid step: a wide signal straddles the
     # grid and would otherwise alternate between two neighbouring rows.
-    heard = [c["freq_hz"] for c in ledger.channels() if c["hits"] and abs(c["freq_hz"] - freq_hz) <= 4000]
+    # Only rows on the grid (or listed) count: an off-grid row written before
+    # snapping would otherwise keep attracting its own catches.
+    def on_grid(c: dict) -> bool:
+        f = c["freq_hz"]
+        return c.get("source") == "listed" or _snap(f, _step(f)) == f
+    heard = [c["freq_hz"] for c in ledger.channels()
+             if c["hits"] and abs(c["freq_hz"] - freq_hz) <= 4000 and on_grid(c)]
     if heard:
         return min(heard, key=lambda f: abs(f - freq_hz))
-    step = 5000 if _service_of(freq_hz) == "amateur" else 6250
-    return _snap(freq_hz, step)
+    return _snap(freq_hz, _step(freq_hz))
+
+
+def _step(freq_hz: int) -> int:
+    return 5000 if _service_of(freq_hz) == "amateur" else 6250
 
 
 _NAMED_CACHE: dict = {}

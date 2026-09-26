@@ -127,6 +127,8 @@ def test_one_transmitter_is_one_row():
     assert scanner.snap_channel(462_563_000) == 462_562_500          # FRS/GMRS ch 1
     ledger.record(463_225_000, "carrier", 5, 3000, 0.3)
     assert scanner.snap_channel(463_221_000) == 463_225_000          # a channel already heard
+    ledger.record(463_727_500, "carrier", 5, 3000, 0.3)              # an off-grid row from before snapping
+    assert scanner.snap_channel(463_727_500) == 463_725_000          # does not attract its own catches
 
 
 def test_a_channel_that_never_carries_voice_stops_being_transcribed(monkeypatch):
