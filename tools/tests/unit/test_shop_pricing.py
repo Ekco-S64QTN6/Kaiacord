@@ -14,9 +14,9 @@ from utils.ttrpg.shop import find_item, get_buy_price, get_sell_price, process_p
 
 @pytest.fixture
 def item():
-    from utils.ttrpg.equipment_registry import WEAPONS
-    key = "steel_longsword" if "steel_longsword" in WEAPONS else next(iter(WEAPONS))
-    return find_item(key)
+    # Something Hemlock actually stocks: a purchase is refused otherwise.
+    from utils.ttrpg.equipment_registry import HEMLOCK_STOCK_WEAPONS
+    return find_item(max(HEMLOCK_STOCK_WEAPONS, key=lambda k: find_item(k)["value"]))
 
 
 def _sheet(gil=999_999):
@@ -80,3 +80,36 @@ def test_buy_price_is_not_the_sell_price(item):
 
 def test_unknown_item_does_not_crash_the_label():
     assert find_item("no_such_item_key") is None
+
+
+def test_only_what_the_merchant_stocks_can_be_bought():
+    """find_item searches every registry, so any item — drop-only endgame gear
+    included — could be bought from Hemlock by typing its name."""
+    from utils.ttrpg.equipment_registry import WEAPONS
+    from utils.ttrpg.shop import get_shop_inventory
+    stock = set().union(*(set(d) for d in get_shop_inventory("hemlocks_store")))
+    drop_only = next(k for k, v in WEAPONS.items() if v.get("droppable_only") and k not in stock)
+    sheet = _sheet(gil=10**9)
+    ok, msg, after = process_purchase(sheet, drop_only)
+    assert not ok and "doesn't sell" in msg
+    assert after["gil"] == 10**9 and drop_only not in after["inventory"]
+
+
+def test_a_refused_caravan_purchase_does_not_spend_the_days_gear_buy(monkeypatch):
+    from utils.ttrpg import shop
+    from utils.ttrpg.equipment_registry import WEAPONS
+    key = next(iter(WEAPONS))
+    monkeypatch.setattr(shop, "get_shop_inventory", lambda loc: ({key: WEAPONS[key]}, {}, {}, {}, {}, {}))
+    sheet = {**_sheet(gil=0), "location": "caravan"}
+    ok, _, after = process_purchase(sheet, key)
+    assert not ok and not after["flags"].get("caravan_gear_bought")
+    sheet["gil"] = 10**9
+    ok, _, after = process_purchase(sheet, key)
+    assert ok and after["flags"]["caravan_gear_bought"]
+
+
+@pytest.mark.parametrize("qty", [0, -5])
+def test_a_non_positive_quantity_is_refused(item, qty):
+    sheet = _sheet(gil=100)
+    ok, _, after = process_purchase(sheet, item["key"], qty)
+    assert not ok and after["gil"] == 100

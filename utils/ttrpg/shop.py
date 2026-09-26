@@ -194,18 +194,26 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     if loc == "hemlocks_store" and reputation < -50:
         return False, "Hemlock glares at you. 'I don't trade with outlaws. Get out.'", sheet
     
+    if not isinstance(quantity, int) or quantity < 1:
+        return False, "Buy how many?", sheet
+
     item = find_item(item_key)
     if not item:
         return False, f"Item `{item_key}` not found.", sheet
 
-    # Caravan specific logic: 1 gear item limit
-    if loc == "caravan":
-        if item["category"] in ("weapon", "armor", "head", "boots", "accessory"):
-            if sheet.get("flags", {}).get("caravan_gear_bought"):
-                return False, "*The merchant shakes his head.*\n\n\"One piece of gear, friend. I need stock for the next town.\"", sheet
-            sheet.setdefault("flags", {})["caravan_gear_bought"] = True
-    
+    # Only what this merchant actually sells. find_item searches every
+    # registry, so without this any item — drop-only endgame gear included —
+    # could be bought by name from Hemlock.
     real_key = item["key"]
+    stock = set().union(*(set(d) for d in get_shop_inventory(loc)))
+    if real_key not in stock:
+        who = "The merchant" if loc == "caravan" else "Hemlock"
+        return False, f"{who} doesn't sell {item['name']}.", sheet
+
+    # Caravan specific logic: 1 gear item limit
+    is_caravan_gear = loc == "caravan" and item["category"] in ("weapon", "armor", "head", "boots", "accessory")
+    if is_caravan_gear and sheet.get("flags", {}).get("caravan_gear_bought"):
+        return False, "*The merchant shakes his head.*\n\n\"One piece of gear, friend. I need stock for the next town.\"", sheet
 
     val = get_buy_price(item, loc, reputation=reputation, cha_mod=cha_mod, quantity=quantity)
     gil = sheet.get("gil", 0)
@@ -219,7 +227,11 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
         return False, f"Your inventory has too many unique item types. Cannot purchase {quantity}x {item['name']}. Cap: {INVENTORY_LIMIT} unique types (currently holding {len(current_unique)}).", sheet
 
     sheet["gil"] -= val
-    
+    # Spent only by a purchase that happened: set before the gil and
+    # inventory checks, a refused sale used up the caravan's one gear buy.
+    if is_caravan_gear:
+        sheet.setdefault("flags", {})["caravan_gear_bought"] = True
+
     if "inventory" not in sheet:
         sheet["inventory"] = []
         
