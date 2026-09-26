@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import sys
 import json
 import datetime
@@ -16,6 +17,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from utils.core.atomic_write import write_atomic  # noqa: E402
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / '.env')
+
+def with_frontmatter(brief: str, date: str) -> str:
+    """The brief with its frontmatter, written at creation: its executive
+    summary as the summary and its section names as keywords. Filed bare, it
+    sat in the index unsummarised until the nightly enrichment reached it."""
+    if brief.lstrip().startswith("---"):
+        return brief
+    from utils.core.frontmatter import dump_frontmatter
+    summary = ""
+    m = re.search(r"^## EXECUTIVE_SUMMARY\s*\n(.+?)(?=\n## |\Z)", brief, re.S | re.M)
+    if m:
+        summary = " ".join(m.group(1).split())[:400]
+    sections = [x.replace("_", " ").lower() for x in re.findall(r"^## ([A-Z_]+)\s*$", brief, re.M)
+                if x != "EXECUTIVE_SUMMARY"]
+    front = dump_frontmatter({"title": f"News Brief - {date}", "category": "news",
+                              "document_type": "reference", "summary": summary,
+                              "keywords": ["news brief", date] + sections[:8]})
+    return front + brief.lstrip()
+
 
 def story_count(brief: str) -> int:
     """Real news items in a brief: bullets that are neither a quote nor "No
@@ -200,8 +220,8 @@ RULES:
         # Create daily file
         filename = f"news_brief_{date_to_use.replace('-', '')}.md"
         filepath = self.knowledge_dir / filename
-        
-        write_atomic(filepath, brief)
+
+        write_atomic(filepath, with_frontmatter(brief, date_to_use))
         
         print(f"[DEBUG] Saved daily brief to: {filepath}")
         
