@@ -211,12 +211,6 @@ async def handle_art_command(ctx, msg, send_kaia_response):
         return
 
     try:
-        from utils.core.kaia_desires import desire_engine
-        desire_engine.observe_creation()
-    except Exception:
-        pass
-
-    try:
         await asyncio.to_thread(_save, image, params, intent)
     except Exception as e:
         log_warning(f"[art] Failed to save art to disk: {e}")

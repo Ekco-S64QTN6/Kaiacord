@@ -773,6 +773,11 @@ class CoreTaskManager:
                         persona_content = await load_persona_async()
                         await self.ctx.dream_engine.nightly_dream_processing(persona_content)
                         try:
+                            from utils.core.kaia_desires import desire_engine
+                            desire_engine.observe_creation()           # a dream is something made
+                        except Exception:
+                            pass
+                        try:
                             from utils.core import relationship_impressions
                             await relationship_impressions.refresh_all(self.ctx)
                         except Exception as imp_err:

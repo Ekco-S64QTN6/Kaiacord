@@ -196,3 +196,14 @@ def test_a_missing_or_corrupt_state_file_yields_defaults(tmp_path):
 
 def test_rise_hours_are_all_positive():
     assert all(h > 0 for h in RISE_HOURS.values())
+
+
+def test_making_something_discharges_the_creative_need(tmp_path, monkeypatch):
+    """Only !art did, so creative sat at 1.0 and every chat turn said 'it itches'."""
+    from utils.core import kaia_desires, kaia_expression
+    engine = kaia_desires.DesireEngine(path=str(tmp_path / "desires.json"))
+    engine.state.creative = 1.0
+    monkeypatch.setattr(kaia_desires, "desire_engine", engine)
+    monkeypatch.setattr(kaia_expression, "telemetry_path", lambda p: str(tmp_path / "growth.jsonl"))
+    kaia_expression.remember("music", "[i played a trance set]")
+    assert engine.state.creative < 0.5

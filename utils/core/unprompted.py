@@ -576,6 +576,12 @@ async def speak(ctx, channel, source: str, text: str = "", *,
         except Exception as e:
             log_warning(f"[unprompted] X cross-post failed: {e}")
 
+    if source == "quip":
+        try:
+            from utils.core.kaia_desires import desire_engine
+            desire_engine.satisfy("creative", 0.25)    # a quip is a small thing made
+        except Exception as e:
+            log_debug(f"[unprompted] creative need not discharged: {e}")
     if not manual and bot_state is not None:
         record(bot_state, source=source)
     where = "" if bluesky is None else (" + Bluesky" if bluesky else " (Bluesky failed)")

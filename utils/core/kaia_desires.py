@@ -12,7 +12,7 @@ This supplies that. Four needs rise while unmet and fall when satisfied:
 
     social        contact with people
     intellectual  something with substance in it
-    creative      making something — art, a quip, a dream
+    creative      making something — art, a music set, a quip, a dream
     rest          accumulated fatigue; raised by activity, recovered by
                   silence — the one need that is met by doing nothing
 
@@ -31,8 +31,9 @@ import time
 from dataclasses import dataclass, asdict, field
 
 from utils.infrastructure.logging.kaia_logger import log_debug
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
-STATE_PATH = os.path.join("memory", "desires.json")
+STATE_PATH = telemetry_path(os.path.join("memory", "desires.json"))
 
 # Hours for a fully-satisfied need to become pressing again — except `rest`,
 # where the figure is how long full fatigue takes to clear. Creative builds
@@ -116,11 +117,8 @@ class DesireEngine:
 
     def save(self) -> None:
         try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            tmp = self.path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(asdict(self.state), f, indent=2)
-            os.replace(tmp, self.path)
+            from utils.core.atomic_write import write_atomic
+            write_atomic(self.path, json.dumps(asdict(self.state), indent=2))
         except Exception as e:
             log_debug(f"Desire state save failed (non-fatal): {e}")
 

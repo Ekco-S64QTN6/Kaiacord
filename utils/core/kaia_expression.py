@@ -5,8 +5,9 @@ saved to disk and the set was logged, but neither reached anything she reads.
 Asked about it a minute later, she had no idea she had made anything.
 
 `remember` writes a first-person line into the channel's conversation memory
-(so it is in her history on the next turn) and an event into the growth log
-(the long-term ledger the presence status and dream prompts read).
+(so it is in her history on the next turn), an event into the growth log
+(the long-term ledger the presence status and dream prompts read), and
+discharges her creative need.
 """
 from __future__ import annotations
 
@@ -37,6 +38,12 @@ def remember(kind: str, line: str, *, channel_id: Optional[int] = None,
                                        "timestamp": time.time()})
         except Exception as e:
             log_debug(f"[expression] channel memory not updated: {e}")
+
+    try:
+        from utils.core.kaia_desires import desire_engine
+        desire_engine.observe_creation()
+    except Exception as e:
+        log_debug(f"[expression] creative need not discharged: {e}")
 
     try:
         event = {"type": "creation", "kind": kind, "title": title,
