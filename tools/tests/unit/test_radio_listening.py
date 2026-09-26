@@ -218,7 +218,10 @@ def test_no_radio_subprocess_writes_to_the_bots_terminal():
     from pathlib import Path
     root = Path(__file__).resolve().parents[3] / "utils" / "radio"
     live_src = (root / "live.py").read_text(encoding="utf-8")
-    assert "stderr=subprocess.DEVNULL" in live_src
+    # A real file: discord.py calls .fileno() on it, and subprocess.DEVNULL
+    # (an int) sent it down a thread that crashed on .write() every play.
+    assert "stderr=_DEVNULL" in live_src and "open(_os.devnull" in live_src
+    assert "FFmpegPCMAudio(" in live_src and "stderr=subprocess.DEVNULL" not in live_src
     for name in ("watch.py", "transcribe.py"):
         src = (root / name).read_text(encoding="utf-8")
         for call in src.split("subprocess.run(")[1:]:
@@ -353,3 +356,27 @@ def test_uvb76_samples_fall_due_at_night_once():
     assert not [j for j in watch.due_jobs(now, [], done={jobs[0]["key"]}) if j["kind"] == "uvb76"]
     noon = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
     assert not [j for j in watch.due_jobs(noon, [], done=set()) if j["kind"] == "uvb76"]
+
+
+def _wav(tmp_path, name, audio, rate=12000):
+    import wave
+    import numpy as np
+    p = tmp_path / name
+    with wave.open(str(p), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+        w.writeframes(np.asarray(audio, dtype=np.int16).tobytes())
+    return p
+
+
+def test_a_number_station_recording_of_static_is_not_kept(tmp_path):
+    """E07 on 18287 kHz recorded seven minutes of noise and posted it."""
+    import numpy as np
+    noise = np.random.default_rng(0).normal(size=12000 * 10) * 3000
+    morse = np.sin(2 * np.pi * 800 * np.arange(12000 * 10) / 12000) * 8000 * (np.arange(12000 * 10) // 3000 % 2)
+    with patch.object(watch.transcribe, "available", return_value=True), \
+         patch.object(watch.transcribe, "transcribe_speech", return_value=""):
+        assert watch.numbers_signal(_wav(tmp_path, "static.wav", noise)) == ""
+        assert watch.numbers_signal(_wav(tmp_path, "morse.wav", morse + noise * 0.1)) == "tones"
+    with patch.object(watch.transcribe, "available", return_value=True), \
+         patch.object(watch.transcribe, "transcribe_speech", return_value="one two three four five one two three"):
+        assert watch.numbers_signal(_wav(tmp_path, "voice.wav", noise)) == "speech"

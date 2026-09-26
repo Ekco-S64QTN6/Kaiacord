@@ -20,6 +20,12 @@ from utils.infrastructure.system.yaml_config import config
 from utils.radio import kiwi
 
 _sessions: dict[int, "LiveSession"] = {}
+# A real file for FFmpeg's stderr. discord.py calls .fileno() on what it's
+# given; subprocess.DEVNULL is the int -3, so it fell back to piping stderr
+# through a thread that called .write() on that int — "Write error for
+# FFmpegPCMAudio: 'int' object has no attribute 'write'" on every play.
+import os as _os
+_DEVNULL = open(_os.devnull, "wb")
 STALL_S = 30
 
 
@@ -102,7 +108,7 @@ async def start(channel, khz: float, mode: str, region: str, label: str, request
     # (fd 2, beneath the logging redirect) and its warnings land on the curses
     # dashboard, which then cannot redraw.
     source = discord.FFmpegPCMAudio(reader, pipe=True, before_options="-f s16le -ar 12000 -ac 1",
-                                    stderr=subprocess.DEVNULL)
+                                    stderr=_DEVNULL)
     vc = channel.guild.voice_client
     if vc and vc.is_connected():
         await vc.move_to(channel)
@@ -133,10 +139,10 @@ async def start_local(channel, freq_hz: int, label: str, requested_by: str, gain
         proc = rtl.open_stream(freq_hz, gain)
         if not await asyncio.to_thread(kiwi.first_audio, proc):
             kiwi.close_stream(proc)
-            raise RuntimeError("the RTL-SDR didn't start streaming")
+            raise RuntimeError("the RTL-SDR didn't start streaming — another program may be using it")
         reader = _CountingReader(proc.stdout)
         source = discord.FFmpegPCMAudio(reader, pipe=True, before_options=f"-f s16le -ar {rtl.SAMPLE_RATE} -ac 1",
-                                        stderr=subprocess.DEVNULL)
+                                        stderr=_DEVNULL)
         vc = channel.guild.voice_client
         if vc and vc.is_connected():
             await vc.move_to(channel)
@@ -180,7 +186,7 @@ async def play_clip(channel, path, label: str, requested_by: str) -> None:
                 await vc.disconnect(force=True)
         asyncio.run_coroutine_threadsafe(_leave(), loop)
 
-    vc.play(discord.FFmpegPCMAudio(str(path), stderr=subprocess.DEVNULL), after=_done)
+    vc.play(discord.FFmpegPCMAudio(str(path), stderr=_DEVNULL), after=_done)
     log_action(f"[radio] playing clip {path.name} ({label}) in {channel.name} for {requested_by}")
 
 

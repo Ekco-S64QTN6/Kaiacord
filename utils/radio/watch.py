@@ -181,6 +181,49 @@ def looks_like_eam(transcript: str) -> bool:
     return sum(c in low for c in cues) >= 2
 
 
+def _tonal(wav: Path) -> bool:
+    """A steady narrowband tone in the speech band — Morse, a buzzer, a
+    signalling tone: in a good share of half-second frames, one bin stands
+    20 dB over the frame's median."""
+    import wave as _wave
+    import numpy as np
+    try:
+        with _wave.open(str(wav), "rb") as w:
+            rate = w.getframerate()
+            a = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(float)
+    except Exception:
+        return False
+    n = rate // 2
+    hits = frames = 0
+    for i in range(0, len(a) - n, n):
+        spec = np.abs(np.fft.rfft(a[i:i + n] * np.hanning(n))) ** 2
+        f = np.fft.rfftfreq(n, 1 / rate)
+        band = spec[(f > 300) & (f < 3000)]
+        if len(band) == 0:
+            continue
+        frames += 1
+        if 10 * np.log10(band.max() / (np.median(band) + 1e-9)) > 20:
+            hits += 1
+    return frames > 0 and hits / frames > 0.15
+
+
+def numbers_signal(wav: Path) -> str:
+    """Why a number-station recording is worth keeping — "tones" or "speech" —
+    or '' for static. A scheduled station that doesn't show, or doesn't
+    propagate, records seven minutes of noise, and that was being posted."""
+    if _tonal(wav):
+        return "tones"
+    if transcribe.available():
+        try:
+            text = transcribe.transcribe_speech(wav, language=None)
+        except Exception as e:
+            log_warning(f"[radio] speech check failed for {wav.name}: {e}")
+            return "unchecked"
+        if len(text.split()) >= 3 and len(set(text.lower().split())) / len(text.split()) >= 0.3:
+            return "speech"
+    return ""
+
+
 async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: datetime) -> Optional[dict]:
     """One recording → a log entry, or None if it was noise."""
     seconds = await asyncio.to_thread(_seconds, wav)
@@ -194,6 +237,12 @@ async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: dateti
             transcript = await transcribe.transcribe(wav, language="en")
         except Exception as e:
             log_warning(f"[radio] transcription failed for {wav.name}: {e}")
+    if job["kind"] == "numbers":
+        heard = await asyncio.to_thread(numbers_signal, wav)
+        if not heard:
+            log_info(f"[radio] {job['station']} on {job['khz']:g} kHz: nothing but static — not kept")
+            wav.unlink(missing_ok=True)
+            return None
     parsed = None
     if job["kind"] == "hfgcs":
         # Without a transcript nothing separates an EAM from a burst of noise,

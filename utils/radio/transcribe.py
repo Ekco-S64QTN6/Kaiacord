@@ -108,6 +108,36 @@ def transcribe_file(path: Path, language: Optional[str] = "en") -> str:
     return _strip_hallucinations(text)
 
 
+# What Whisper writes on static from its subtitle training data: credits
+# ("Teksting av Nicolai Winther" arrived three times off VHF carriers in one
+# hour), outros, and caption boilerplate.
+_NOISE_PHRASES = ("teksting av", "tekstet av", "subtitles by", "subtitled by", "captions by", "amara.org",
+                  "untertitel", "sous-titres", "sottotitoli", "thanks for watching", "thank you for watching",
+                  "please subscribe", "like and subscribe")
+
+
+def transcribe_speech(path: Path, language: Optional[str] = "en") -> str:
+    """Stricter than transcribe_file, for audio that may be nothing but a
+    carrier: keeps only segments Whisper itself scores as speech (no-speech
+    probability under 0.5, mean log-probability over -1.0, compression ratio
+    under 2.4 — above it is a loop), and drops subtitle-credit phrases."""
+    global _last_used
+    with _lock:
+        clean = path.with_suffix(".16k.wav")
+        try:
+            prepare(path, clean)
+            segments, _info = _load().transcribe(
+                str(clean), language=language, beam_size=5, vad_filter=False,
+                condition_on_previous_text=False, temperature=0.0)
+            kept = [s.text.strip() for s in segments
+                    if s.no_speech_prob < 0.5 and s.avg_logprob > -1.0 and s.compression_ratio < 2.4]
+        finally:
+            clean.unlink(missing_ok=True)
+            _last_used = time.time()
+    text = " ".join(k for k in kept if not any(p in k.lower() for p in _NOISE_PHRASES))
+    return _strip_hallucinations(text)
+
+
 # Whisper's training-data tics: YouTube outros it appends to audio that ends
 # in noise.
 _OUTROS = ("thanks for watching", "thank you for watching", "please subscribe",

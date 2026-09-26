@@ -161,7 +161,9 @@ def _transcribe(audio) -> str:
             w.setsampwidth(2)
             w.setframerate(rtl.SAMPLE_RATE)
             w.writeframes(audio.tobytes())
-        return transcribe.transcribe_file(p, language=None).strip()
+        # English, not auto-detect: on static, auto-detect picked Norwegian and
+        # Whisper produced a subtitle credit. radio.local.language overrides.
+        return transcribe.transcribe_speech(p, language=_cfg("language", "en")).strip()
 
 
 MIN_CATCH_S = 1.5
@@ -176,7 +178,10 @@ def looks_like_speech(text: str) -> bool:
         return False
     if len(set(words)) / len(words) < 0.5:
         return False
-    return text.strip().lower().rstrip(".") not in ("thank you", "thanks for watching", "you")
+    low = text.strip().lower()
+    if any(p in low for p in ("teksting av", "subtitles by", "amara.org", "nicolai winther")):
+        return False
+    return low.rstrip(".") not in ("thank you", "thanks for watching", "you")
 TRANSCRIBE_PER_NIGHT = 60
 _transcribed = {"date": "", "count": 0}
 
