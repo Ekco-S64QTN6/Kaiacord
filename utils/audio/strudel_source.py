@@ -24,6 +24,7 @@ from utils.audio.strudel_engine import FRAME_BYTES, StrudelEngine
 from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 
 SILENCE = b"\x00" * FRAME_BYTES
+MAX_RESTARTS = 20
 
 
 class StrudelAudioSource(_AudioSource):
@@ -70,7 +71,14 @@ class StrudelAudioSource(_AudioSource):
                 if self._stop.is_set():
                     return
                 self.restarts += 1
+                if self.restarts > MAX_RESTARTS:
+                    log_warning(f"[music] capture died {self.restarts} times; giving up — the set plays silence")
+                    return
                 log_warning(f"[music] capture died ({exc}); restarting (#{self.restarts})")
+                # A capture that dies as soon as it opens would otherwise be
+                # restarted in a tight loop, a warning per turn, forever.
+                if self._stop.wait(min(2 ** (self.restarts - 1), 10)):
+                    return
                 try:
                     self._proc = self.engine.open_capture()
                 except Exception as exc2:
