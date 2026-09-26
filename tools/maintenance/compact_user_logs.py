@@ -142,14 +142,22 @@ def split_flattened(text: str) -> tuple[str, int]:
     speakers = {"Kaia"} | {speaker_of(m.group(0)) for m in TURN_MARKER.finditer(text)}
     splits = 0
     out = []
+    prev = None
     for line in text.split("\n"):
         head = TURN_MARKER.match(line)
-        if not head:
+        if head:
+            prev = datetime.strptime(line[1:20], "%Y-%m-%d %H:%M:%S")
+            # From the head's own trailing space: an empty turn ("[ts] Starkind: ")
+            # can be followed directly by the next marker.
+            search_from = head.end() - 1
+        elif prev is not None:
+            # A continuation line of a multi-line turn, with the reply appended.
+            search_from = 0
+        else:
             out.append(line)
             continue
-        prev = datetime.strptime(line[1:20], "%Y-%m-%d %H:%M:%S")
         cuts = []
-        for m in INLINE_MARKER.finditer(line, head.end()):
+        for m in INLINE_MARKER.finditer(line, search_from):
             ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
             if prev <= ts <= prev + timedelta(days=1) and m.group(2).strip() in speakers:
                 cuts.append(m.start())
@@ -252,7 +260,10 @@ def main() -> int:
         if args.apply:
             dest = BACKUP / f.parent.name
             dest.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(f, dest / f.name)
+            # Never over an earlier backup: that copy is the original, and a
+            # second run replaced it with the first run's output.
+            if not (dest / f.name).exists():
+                shutil.copy2(f, dest / f.name)
             write_atomic(f, new_text)
     print(f"scanned {files} transcripts, {touched} would change" if not args.apply
           else f"scanned {files} transcripts, {touched} changed")
