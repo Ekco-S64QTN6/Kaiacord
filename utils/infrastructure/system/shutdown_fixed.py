@@ -127,6 +127,12 @@ class CleanShutdown:
         except Exception as e:
             log_warning(f"  ⚠️  Failed to stop live radio: {e}")
 
+        try:
+            from utils.radio import scanner
+            await scanner.shutdown()
+        except Exception as e:
+            log_warning(f"  ⚠️  Failed to stop the scanner: {e}")
+
         # 1. Cancel all registered tasks via registry (STOP EVERYTHING FIRST)
         try:
             from utils.infrastructure.monitoring.async_task_registry import task_registry

@@ -64,10 +64,24 @@ def active() -> list[LiveSession]:
     return list(_sessions.values())
 
 
+async def free_voice(guild) -> None:
+    """Stop whatever radio audio this guild's voice connection is playing — a
+    live session, a scanner listen-along, a clip — so the next thing can play.
+    One connection per guild, and discord.py refuses a second play()."""
+    await stop(guild.id)
+    try:
+        from utils.radio import scanner
+        await scanner.stop_listen_along(guild.id, disconnect=False)
+    except Exception as e:
+        log_debug(f"[radio] listen-along not stopped: {e}")
+    vc = guild.voice_client
+    if vc and vc.is_connected() and vc.is_playing():
+        vc.stop()
+
+
 async def start(channel, khz: float, mode: str, region: str, label: str, requested_by: str) -> LiveSession:
     guild_id = channel.guild.id
-    if guild_id in _sessions:
-        await stop(guild_id)
+    await free_voice(channel.guild)
     receivers = kiwi.choose(await kiwi.directory(), khz, region, n=4)
     if not receivers:
         raise RuntimeError(f"no free receiver covers {khz:g} kHz right now")
@@ -107,8 +121,7 @@ async def start_local(channel, freq_hz: int, label: str, requested_by: str, gain
     dongle for the session, so the nightly scanner pauses until it ends."""
     from utils.radio import rtl
     guild_id = channel.guild.id
-    if guild_id in _sessions:
-        await stop(guild_id)
+    await free_voice(channel.guild)
     rtl.YIELD.set()                      # the waterfall watch gives the dongle up within a hop
     try:
         await asyncio.wait_for(rtl.DEVICE.acquire(), 90)
@@ -149,12 +162,9 @@ async def play_clip(channel, path, label: str, requested_by: str) -> None:
     if not path.is_file():
         raise RuntimeError("that recording is no longer on disk")
     guild_id = channel.guild.id
-    if guild_id in _sessions:
-        await stop(guild_id)
+    await free_voice(channel.guild)
     vc = channel.guild.voice_client
     if vc and vc.is_connected():
-        if vc.is_playing():
-            vc.stop()
         await vc.move_to(channel)
     else:
         vc = await channel.connect(timeout=30.0, reconnect=True)

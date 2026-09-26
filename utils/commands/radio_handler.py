@@ -185,6 +185,14 @@ async def handle_numbers_command(ctx, msg, send_kaia_response=None):
         await msg.channel.send(embed=box("🔢  Numbers", "Something went wrong reading the schedule. It's in the log.", COLOR_ERROR))
 
 
+async def _off_air(guild_id: int) -> bool:
+    """"Off" means every radio sound in the guild: a live receiver or the
+    scanner's listen-along."""
+    from utils.radio import live, scanner
+    stopped = await live.stop(guild_id)
+    return await scanner.stop_listen_along(guild_id) or stopped
+
+
 # ── !radio ──────────────────────────────────────────────────────────────────
 
 LIVE_PRESETS = {
@@ -335,7 +343,7 @@ async def handle_radio_command(ctx, msg, send_kaia_response=None):
             await msg.channel.send(embed=embed)
             return
         if verb == "off":
-            stopped = msg.guild and await live.stop(msg.guild.id)
+            stopped = msg.guild and await _off_air(msg.guild.id)
             await msg.channel.send(embed=box("📡  Radio", "off the air." if stopped else "nothing was playing.", COLOR_RADIO))
             return
         if verb == "listen":
@@ -485,7 +493,7 @@ async def handle_buzzer_command(ctx, msg, send_kaia_response=None):
     parts = msg.content.strip().split()
     if len(parts) > 1 and parts[1].lower() == "off":
         from utils.radio import live
-        stopped = msg.guild and await live.stop(msg.guild.id)
+        stopped = msg.guild and await _off_air(msg.guild.id)
         await msg.channel.send(embed=box("📡  Radio", "off the air." if stopped else "nothing was playing.", COLOR_RADIO))
         return
     try:

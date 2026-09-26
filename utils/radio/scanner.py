@@ -210,6 +210,9 @@ def classify(catch) -> None:
 
 
 _running = False
+_failed_at = 0.0
+FAIL_BACKOFF_S = 15 * 60          # an unplugged dongle is retried every 15 min, not every minute
+_stop_event = None                # the running watcher's stop flag, for shutdown
 
 # ── Listen along ────────────────────────────────────────────────────────────
 # Someone in a voice channel hearing the scan as it happens: a tick per hop and
@@ -268,36 +271,61 @@ class ScanAudio:
 async def start_listen_along(voice_channel, text_channel, requested_by: str) -> None:
     import discord
     guild = voice_channel.guild
+    from utils.audio.strudel_session import get_session as music_session
+    if music_session(guild.id):
+        raise RuntimeError("the music's playing — `!music off` first")
     from utils.radio import live
-    await live.stop(guild.id)
+    await live.free_voice(guild)
     vc = guild.voice_client
     if vc and vc.is_connected():
-        if vc.is_playing():
-            vc.stop()
         await vc.move_to(voice_channel)
     else:
         vc = await voice_channel.connect(timeout=30.0, reconnect=True)
     while not _audio.empty():
         _audio.get_nowait()
     vc.play(discord.PCMAudio(_PcmStream(ScanAudio())))
-    _along[guild.id] = {"vc": vc, "text": text_channel, "loop": asyncio.get_running_loop()}
+    _along[guild.id] = {"vc": vc, "text": text_channel, "loop": asyncio.get_running_loop(),
+                        "started": time.time()}
     log_info(f"[scanner] {requested_by} is listening along in {voice_channel.name}")
+    from utils.infrastructure.monitoring.async_task_registry import task_registry
+    task_registry.register(f"scanner_along_watch_{guild.id}", asyncio.create_task(_along_watchdog(guild.id)))
     if not _running and rtl.available() and not rtl.DEVICE.locked():
         from utils.infrastructure.monitoring.async_task_registry import task_registry
         ledger.seed(seed_channels())
         task_registry.register(f"scanner_watch_{int(time.time())}", asyncio.create_task(_watch()))
 
 
-async def stop_listen_along(guild_id: int) -> bool:
+async def stop_listen_along(guild_id: int, disconnect: bool = True) -> bool:
+    """End a listen-along. `disconnect=False` when something else is about to
+    play on the same connection."""
     entry = _along.pop(guild_id, None)
     if not entry:
         return False
     vc = entry["vc"]
     if vc.is_playing():
         vc.stop()
-    if vc.is_connected():
+    if disconnect and vc.is_connected():
         await vc.disconnect(force=True)
+    log_info("[scanner] listen-along ended")
     return True
+
+
+async def _along_watchdog(guild_id: int) -> None:
+    """End a listen-along when the channel has been empty 40 s or it has run
+    radio.live_max_minutes — otherwise it, and an out-of-hours watch, run on
+    for nobody."""
+    limit = float(config.get("radio.live_max_minutes", 60)) * 60
+    empty = 0
+    while guild_id in _along:
+        await asyncio.sleep(20)
+        entry = _along.get(guild_id)
+        if not entry:
+            return
+        humans = [m for m in (getattr(entry["vc"].channel, "members", []) or []) if not m.bot]
+        empty = empty + 1 if not humans else 0
+        if empty >= 2 or time.time() - entry["started"] > limit:
+            await stop_listen_along(guild_id)
+            return
 
 
 class _PcmStream:
@@ -326,9 +354,10 @@ async def _watch() -> None:
     listen asks for it."""
     import threading
     from utils.radio.waterfall import Watcher
-    global _running
+    global _running, _failed_at, _stop_event
     _running = True
     stop = threading.Event()
+    _stop_event = stop
     try:
         async with rtl.DEVICE:
             rtl.YIELD.clear()
@@ -343,17 +372,34 @@ async def _watch() -> None:
             await job
             log_info(f"[scanner] waterfall watch stopped after {watcher.passes} passes")
     except Exception as e:
-        log_warning(f"[scanner] waterfall watch failed: {type(e).__name__}: {e}")
+        _failed_at = time.time()
+        log_warning(f"[scanner] waterfall watch failed: {type(e).__name__}: {e} — retrying in 15 minutes")
     finally:
         from utils.radio import transcribe
         transcribe.release_if_idle()
         _running = False
+        _stop_event = None
+
+
+async def shutdown() -> None:
+    """Stop the watcher thread and any listen-along. A watcher left running on
+    its executor thread holds the dongle and keeps the process from exiting."""
+    if _stop_event is not None:
+        _stop_event.set()
+    for guild_id in list(_along):
+        await stop_listen_along(guild_id)
+    for _ in range(80):                       # a hold can run to 60 s
+        if not _running:
+            return
+        await asyncio.sleep(1)
 
 
 def tick(now: Optional[datetime] = None) -> bool:
     """Start the watch if it's scanning hours and the dongle is free. Called
     every minute by the radio task. Returns whether it started."""
     if _running or not _cfg("enabled", True) or not rtl.available() or rtl.DEVICE.locked():
+        return False
+    if time.time() - _failed_at < FAIL_BACKOFF_S:
         return False
     if not within_hours(now):
         return False

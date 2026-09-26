@@ -323,6 +323,14 @@ async def start_session(channel, *, genre: str, requested_by: str,
     # Let the first section come up before Discord starts pulling frames.
     await asyncio.sleep(float(_cfg("prime_seconds", 6.0)))
 
+    # Radio (a live receiver, the scanner's listen-along, a clip) gives way to
+    # music: one voice connection per guild, and a second play() raises.
+    try:
+        from utils.radio import live
+        await live.free_voice(channel.guild)
+    except Exception as e:
+        log_error(f"[music] could not stop the radio: {e}")
+
     vc = channel.guild.voice_client
     if vc and vc.is_connected():
         await vc.move_to(channel)

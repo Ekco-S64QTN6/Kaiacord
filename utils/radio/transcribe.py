@@ -56,12 +56,19 @@ def _load():
 
 
 def release_if_idle() -> None:
+    """Called on the event loop every minute. Never waits: a transcription on
+    another thread holds the lock for up to a minute, and waiting for it here
+    froze the whole bot for that long."""
     global _model
-    with _lock:
+    if not _lock.acquire(blocking=False):
+        return
+    try:
         if _model is not None and time.time() - _last_used > IDLE_UNLOAD_S:
             _model = None
             _return_memory()
             log_debug("[radio] speech model released")
+    finally:
+        _lock.release()
 
 
 def _return_memory() -> None:
