@@ -38,8 +38,10 @@ def main() -> int:
         return 1
 
     print("→ Chromium for Playwright")
-    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
-                   check=False)
+    if subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
+                      check=False).returncode != 0:
+        print("!! Playwright could not install Chromium — the engine has no browser to drive.")
+        return 1
 
     missing = [t for t in ("ffmpeg", "pactl") if not shutil.which(t)]
     if missing:
