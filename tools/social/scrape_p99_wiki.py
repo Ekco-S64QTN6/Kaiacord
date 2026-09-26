@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
+"""Fetch the Project 1999 wiki pages below into knowledge_base/wiki/.
+
+Dry run by default: lists what it would fetch. --apply fetches and writes.
+A page whose URL is already filed (a 'Source: <url>' line in any wiki file)
+is skipped, since the filed copies were renamed and given frontmatter and a
+second copy under the scraper's own filename would duplicate them in the index.
+"""
+import argparse
 import requests
 from bs4 import BeautifulSoup
 from pathlib import Path
 import os
+import re
 import sys
 
 # Add project root to path
@@ -11,10 +20,8 @@ from utils.core.atomic_write import write_atomic
 from utils.infrastructure.logging.kaia_logger import log_info, log_error
 
 WIKI_URLS = [
-    "https://wiki.project1999.com/Everquest_Titanium_Installation_Guide",
     "https://wiki.project1999.com/Tech_Support",
     "https://wiki.project1999.com/Getting_Started",
-    "https://wiki.project1999.com/WinEQ",
     "https://wiki.project1999.com/Camp_Rules",
     "https://wiki.project1999.com/Camp_Rules_FAQ",
     "https://wiki.project1999.com/Install",
@@ -22,7 +29,7 @@ WIKI_URLS = [
     "https://wiki.project1999.com/Players:Technical",
     "https://wiki.project1999.com/Players:Technical/Affinity",
     "https://wiki.project1999.com/Play_Nice_Policy",
-    "https://wiki.project1999.com/Linux",
+    "https://wiki.project1999.com/EverQuest_in_Linux_Guide",
     "https://wiki.project1999.com/Mac",
     "https://wiki.project1999.com/Enchanter",
     "https://wiki.project1999.com/Resurrection",
@@ -48,18 +55,39 @@ WIKI_URLS = [
 MIN_ARTICLE_WORDS = 60
 
 
-def scrape_wiki():
+def filed_sources(output_dir):
+    """Every URL named by a 'Source:' line in the wiki folder."""
+    found = set()
+    for path in output_dir.glob("*.md"):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        found.update(u.rstrip(".,)'\"") for u in re.findall(r"Source:\s*(https?://\S+)", text))
+    return found
+
+
+def scrape_wiki(apply=False):
     print("--- Scraping P99 Wiki for Technical Knowledge ---")
     
     output_dir = Path("./knowledge_base/wiki")
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    filed = filed_sources(output_dir)
+    todo = [u for u in WIKI_URLS if u not in filed]
+    print(f"{len(WIKI_URLS) - len(todo)} of {len(WIKI_URLS)} already filed")
+    if not apply:
+        for url in todo:
+            print(f"would fetch {url}")
+        print("Dry run. Re-run with --apply.")
+        return
     
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     })
     
-    for url in WIKI_URLS:
+    for url in todo:
         print(f"Fetching {url}...")
         try:
             resp = session.get(url, timeout=15)
@@ -125,4 +153,6 @@ def scrape_wiki():
             print(f"  ✗ Error scraping {url}: {e}")
             
 if __name__ == "__main__":
-    scrape_wiki()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--apply", action="store_true", help="fetch and write (default: dry run)")
+    scrape_wiki(apply=parser.parse_args().apply)

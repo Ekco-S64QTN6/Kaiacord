@@ -8,8 +8,12 @@ Converts manual news briefs into Kaia's standard format.
 - Normalizes headers to '## CATEGORY_NAME' for NewsManager compatibility
 - Generates summaries using Ollama (gemma3:12b)
 - Triggers RAG reindex
+
+Dry run by default: prints what it would change. --apply writes, renames,
+deletes and summarises.
 """
 
+import argparse
 import os
 import re
 import datetime
@@ -22,11 +26,46 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import ollama
 
 from utils.core.atomic_write import write_atomic
+from utils.core.frontmatter import parse_frontmatter
 
 KNOWLEDGE_DIR_DAILY = Path("./knowledge_base/news/daily")
 KNOWLEDGE_DIR_WEEKLY = Path("./knowledge_base/news/weekly")
 
-def ingest_manual_news():
+_HEADER_RE = re.compile(r'^([A-Z][A-Z0-9_ ]{3,30})$')
+
+
+def normalize(content, is_weekly, target_date):
+    """The brief with its title line and '## CATEGORY' headers in place.
+    Frontmatter is kept at the top and the body below it is normalised."""
+    front = ""
+    if content.startswith("---"):
+        try:
+            data, body = parse_frontmatter(content)
+        except Exception:
+            data, body = {}, content
+        if data:
+            front, content = content[:len(content) - len(body)], body
+
+    lines = content.split('\n')
+    normalized_lines = []
+    title_pattern = "# NEWS_BRIEF:" if not is_weekly else "# WEEKLY NEWS SUMMARY:"
+    if not content.strip().startswith(title_pattern):
+        normalized_lines.append(f"{title_pattern} {target_date}")
+        normalized_lines.append("")
+        # A title written without the '#' is replaced, not kept beneath the new one.
+        if content.strip().startswith("WEEKLY_NEWS_BRIEF:") or content.strip().startswith("NEWS_BRIEF:"):
+            lines = content.strip().split('\n')[1:]
+
+    for line in lines:
+        stripped = line.strip()
+        if _HEADER_RE.match(stripped) and not stripped.startswith('#'):
+            normalized_lines.append(f"## {stripped}")
+        else:
+            normalized_lines.append(line.rstrip())
+    return front + '\n'.join(normalized_lines)
+
+
+def ingest_manual_news(apply=False):
     KNOWLEDGE_DIR_DAILY.mkdir(parents=True, exist_ok=True)
     KNOWLEDGE_DIR_WEEKLY.mkdir(parents=True, exist_ok=True)
     
@@ -93,31 +132,7 @@ def ingest_manual_news():
                 print(f"❌ Failed to read {file.name}: {e}")
                 continue
                 
-        # --- NORMALIZE HEADERS ---
-        lines = content.split('\n')
-        normalized_lines = []
-        
-        # 1. Primary Title
-        title_pattern = "# NEWS_BRIEF:" if not is_weekly else "# WEEKLY NEWS SUMMARY:"
-        if not content.strip().startswith(title_pattern):
-            normalized_lines.append(f"{title_pattern} {target_date}")
-            normalized_lines.append("")
-            # If original started with the title without #, skip first line
-            if content.strip().startswith("WEEKLY_NEWS_BRIEF:") or content.strip().startswith("NEWS_BRIEF:"):
-                lines = lines[1:]
-
-        # 2. Sub-headers (Normalize to ## CATEGORY for NewsManager)
-        # Matches uppercase words like TECH_OUTAGES_AND_FAILURES or SECURITY_INCIDENTS
-        header_re = re.compile(r'^([A-Z][A-Z0-9_ ]{3,30})$')
-        
-        for line in lines:
-            stripped = line.strip()
-            if header_re.match(stripped) and not stripped.startswith('#'):
-                normalized_lines.append(f"## {stripped}")
-            else:
-                normalized_lines.append(line.rstrip())
-        
-        content = '\n'.join(normalized_lines)
+        content = normalize(content, is_weekly, target_date)
         
         # Write back to the proper location ONLY if content changed
         has_changed = True
@@ -130,7 +145,13 @@ def ingest_manual_news():
             except Exception:
                 pass
         
-        if has_changed:
+        if has_changed and not apply:
+            ingested_count += 1
+            print(f"would ingest {file.name} -> {dest_path}")
+        elif not apply:
+            if file.absolute() != dest_path.absolute():
+                print(f"would remove {file.name} (same content as {dest_filename})")
+        elif has_changed:
             ingested_count += 1
             print(f"\n📄 Ingesting: {file.name}")
             # Atomic, per §4 — this lands in the indexed news corpus.
@@ -173,6 +194,9 @@ def ingest_manual_news():
             pass
 
         summarized_count += 1
+        if not apply:
+            print(f"would summarise {brief_path.name} -> {summary_filename}")
+            continue
         print(f"🧠 Generating summary for: {brief_path.name}")
         try:
             with open(brief_path, 'r', encoding='utf-8') as f:
@@ -181,6 +205,10 @@ def ingest_manual_news():
         except Exception as e:
             print(f"❌ Failed to process {brief_path.name}: {e}")
             
+    if not apply:
+        print(f"\nDry run: {ingested_count} to ingest, {summarized_count} to summarise. Re-run with --apply.")
+        return
+
     # Trigger reindex if work was done
     if ingested_count > 0 or summarized_count > 0:
         from utils.core.rag_utils import request_reindex
@@ -262,4 +290,6 @@ def generate_summary(full_brief, target_date, summary_path):
         print("Created fallback summary from bullets.")
 
 if __name__ == "__main__":
-    ingest_manual_news()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    parser.add_argument("--apply", action="store_true", help="write the changes (default: dry run)")
+    ingest_manual_news(apply=parser.parse_args().apply)
