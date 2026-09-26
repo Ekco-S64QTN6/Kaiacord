@@ -840,6 +840,18 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=combat_view)
 
 
+def pick_target(monsters: list, uid: str, target_key: str):
+    """(index, monster) to attack: your own fight first — the one you named, if
+    you named one — then someone else's you're helping with by name. One pass
+    took whichever came first in the channel's list, so naming a goblin hit
+    another player's goblin before your own."""
+    mine = [(i, m) for i, m in enumerate(monsters) if m.get("aggro_uid") == uid]
+    named = [(i, m) for i, m in enumerate(monsters) if target_key and target_key in m.get("key", "")]
+    own_named = [p for p in mine if target_key and target_key in p[1].get("key", "")]
+    pick = own_named or named or mine
+    return pick[0] if pick else None
+
+
 @serialize_combat_action
 async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.combat_engine import _resolve_combat
@@ -862,13 +874,9 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     monster = None
     monster_idx = -1
-    for i, m in enumerate(s["monsters"]):
-        # Prioritize engaging enemies aggro'd onto THIS player
-        m_key = m.get("key", "")
-        if m.get("aggro_uid") == uid or (target_key and target_key in m_key):
-            monster = m
-            monster_idx = i
-            break
+    picked = pick_target(s["monsters"], uid, target_key)
+    if picked:
+        monster_idx, monster = picked
             
     if not monster:
         return await msg.channel.send(embed=discord.Embed(description="Cannot identify monster.", color=0xcc4444))
