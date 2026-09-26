@@ -178,7 +178,7 @@ Settings resolve in order: environment variables, then `config/kaia.yaml` (your 
 | `desires.gate_enabled` / `initiate_threshold` | `true` | Whether, and how readily, she speaks first. |
 | `bluesky.enabled` / `x_twitter.enabled` | `false` | Turns each integration on. Credentials alone do nothing. |
 | `sky.location` | unset | `"lat, lon"`; a city is enough. ISS passes and `!sky` need it. |
-| `radio.hfgcs_windows_utc` / `radio.follow` | four windows / `["E11"]` | When she records the HFGCS net, and which number stations she tunes in for. |
+| `radio.hfgcs_windows_utc` / `radio.follow` | four windows / E07, V07, S11a, M12, E11 | When she records the HFGCS net, and which number stations she tunes in for — one recording per station a day, six in all, rotating. |
 | `radio.overnight_time` | `08:30` | When the morning write-up of her night shift is posted. |
 | `radio.poll_hours` | `6` | How often the volunteer radio feeds are polled. |
 

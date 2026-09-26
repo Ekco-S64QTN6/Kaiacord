@@ -7,9 +7,11 @@ something is expected:
   8992 kHz USB from a North American KiwiSDR. The squelch writes one file per
   transmission; anything too short or without the shape of an EAM broadcast
   is dropped as noise.
-- **Number stations Kaia follows** (`radio.follow`, E11 by default). A
-  recording from a European receiver from a minute before Priyom's scheduled
-  start.
+- **Number stations Kaia follows** (`radio.follow`; E07, V07, S11a, M12 and
+  E11 by default). A recording from a European receiver from a minute before
+  Priyom's scheduled start — at most one per station a day and six in all,
+  preferring whichever she has gone longest without, so a day rotates rather
+  than filling up with E11's null messages.
 
 Each keeper is converted to Opus, logged to memory/radio/ and posted to
 #kaia-opolis. HFGCS catches are also transcribed on the CPU and parsed.
@@ -38,7 +40,12 @@ from utils.radio.fetch import FeedError, read_cache, write_cache
 HFGCS_KHZ = 8992.0
 DEFAULT_WINDOWS = ["03:10", "09:10", "15:10", "21:10"]      # UTC
 DEFAULT_WINDOW_MIN = 20
-DEFAULT_FOLLOW = ["E11"]
+# Voice and Morse stations that carry real traffic, E11 last: it is mostly
+# null messages ("000 000"). Digital stations record as noise, and V13 beams
+# at East Asia, out of reach of the European receivers used here.
+DEFAULT_FOLLOW = ["E07", "V07", "S11A", "M12", "E11"]
+NUMBERS_PER_DAY = 6            # recordings a day across every station
+NUMBERS_PER_STATION_DAY = 1    # so a day's listening rotates between stations
 NUMBERS_RECORD_S = 7 * 60
 MIN_TRANSMISSION_S = 25        # an EAM broadcast runs well over a minute
 SQUELCH_DB = 12
@@ -80,17 +87,44 @@ def due_jobs(now: datetime, schedule_items: list, done: set[str]) -> list[dict]:
                 jobs.append({"key": key, "kind": "hfgcs", "station": "HFGCS", "khz": HFGCS_KHZ,
                              "mode": "usb", "seconds": 60 * int(_cfg("hfgcs_window_minutes", DEFAULT_WINDOW_MIN)),
                              "region": "na", "squelch": SQUELCH_DB})
-        follow = {s.upper() for s in _cfg("follow", DEFAULT_FOLLOW)}
-        for t in schedule_items:
-            if t.station.upper() not in follow or not t.khz:
-                continue
-            key = f"num:{t.station}:{t.start:%Y-%m-%dT%H:%M}:{t.khz:g}"
-            lead = t.start - timedelta(seconds=60)
-            if lead <= now < t.start + timedelta(minutes=2) and key not in done:
-                jobs.append({"key": key, "kind": "numbers", "station": t.station, "khz": t.khz,
-                             "mode": (t.mode or "usb").lower(), "seconds": NUMBERS_RECORD_S,
-                             "region": "eu", "squelch": None})
+        follow = [s.upper() for s in _cfg("follow", DEFAULT_FOLLOW)]
+        today, last = _numbers_done(done, now)
+        if sum(today.values()) < int(_cfg("numbers_per_day", NUMBERS_PER_DAY)):
+            numbers = []
+            for t in schedule_items:
+                station = t.station.upper()
+                if station not in follow or not t.khz:
+                    continue
+                if today.get(station, 0) >= NUMBERS_PER_STATION_DAY:
+                    continue
+                key = f"num:{t.station}:{t.start:%Y-%m-%dT%H:%M}:{t.khz:g}"
+                lead = t.start - timedelta(seconds=60)
+                if lead <= now < t.start + timedelta(minutes=2) and key not in done:
+                    numbers.append({"key": key, "kind": "numbers", "station": t.station, "khz": t.khz,
+                                    "mode": (t.mode or "usb").lower(), "seconds": NUMBERS_RECORD_S,
+                                    "region": "eu", "squelch": None})
+            # One number-station job starts per tick; make it the station she
+            # has gone longest without, then the follow list's order.
+            numbers.sort(key=lambda j: (last.get(j["station"].upper(), ""),
+                                        follow.index(j["station"].upper())))
+            jobs += numbers
     return jobs
+
+
+def _numbers_done(done: set[str], now: datetime) -> tuple[dict, dict]:
+    """({station: recordings today}, {station: last recording date}) from the
+    done keys, "num:<station>:<YYYY-MM-DDTHH:MM>:<khz>"."""
+    today, last = {}, {}
+    day = f"{now:%Y-%m-%d}"
+    for key in done:
+        parts = key.split(":")
+        if len(parts) < 3 or parts[0] != "num":
+            continue
+        station, when = parts[1].upper(), parts[2]
+        if when.startswith(day):
+            today[station] = today.get(station, 0) + 1
+        last[station] = max(last.get(station, ""), when)
+    return today, last
 
 
 def _done() -> set[str]:

@@ -94,9 +94,34 @@ def test_scheduled_jobs_fall_due_once():
     e11 = priyom.parse({"summary": "E11 8423kHz USB", "start": {"dateTime": "2026-09-24T09:13:00Z"}})
     s11 = priyom.parse({"summary": "S11a 8597kHz USB", "start": {"dateTime": "2026-09-24T09:13:00Z"}})
     jobs = watch.due_jobs(now, [e11, s11], done=set())
-    kinds = {(j["kind"], j["station"]) for j in jobs}
-    assert kinds == {("hfgcs", "HFGCS"), ("numbers", "E11")}    # 09:10 window; E11 is followed, S11a is not
+    assert [(j["kind"], j["station"]) for j in jobs] == [
+        ("hfgcs", "HFGCS"), ("numbers", "S11a"), ("numbers", "E11")]   # E11 last: mostly null messages
     assert watch.due_jobs(now, [e11], done={j["key"] for j in jobs}) == []
+
+
+def _num(station, hhmm, khz=8000):
+    from utils.radio import priyom
+    return priyom.parse({"summary": f"{station} {khz}kHz USB", "start": {"dateTime": f"2026-09-24T{hhmm}:00Z"}})
+
+
+def test_a_station_is_recorded_once_a_day():
+    now = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+    done = {"num:E07:2026-09-24T08:00:8000"}
+    assert watch.due_jobs(now, [_num("E07", "12:01")], done) == []
+    assert watch.due_jobs(now, [_num("E07", "12:01")], {"num:E07:2026-09-23T08:00:8000"})
+
+
+def test_the_day_stops_at_its_cap():
+    now = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+    done = {f"num:X{i}:2026-09-24T0{i}:00:8000" for i in range(watch.NUMBERS_PER_DAY)}
+    assert watch.due_jobs(now, [_num("E07", "12:01")], done) == []
+
+
+def test_the_station_heard_longest_ago_goes_first():
+    now = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+    done = {"num:E07:2026-09-23T08:00:8000", "num:V07:2026-09-20T08:00:8000"}
+    jobs = watch.due_jobs(now, [_num("E07", "12:01"), _num("V07", "12:01", 9000)], done)
+    assert [j["station"] for j in jobs if j["kind"] == "numbers"] == ["V07", "E07"]
 
 
 def test_a_transcription_is_checked_against_eam_watch():
