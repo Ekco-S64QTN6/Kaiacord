@@ -42,7 +42,7 @@ Write my memories under these headings (use ## for each):
 ## Notable Opinions or Beliefs
 (What does this user believe or advocate for based on our discussions?)
 ## Relationship with Me
-(How do I feel about my relationship with this user? Am I close to them, skeptical, or still warming up?)
+(How do I feel about this user? As warm, or as mixed, as what we've actually said to each other shows — no more guarded than the logs give me reason to be.)
 ## QUICK REFERENCE
 (A 2-3 sentence internal summary I can use at a glance to remember who they are)
 
@@ -101,6 +101,15 @@ SELF_PROFILE = (
 )
 
 
+def display_name(folder: str) -> str:
+    """The name a person goes by, from their log folder: "Tenno_Henka_9197…" is
+    Tenno Henka and "forum_Aetherwyn_317392" is Aetherwyn. The folder name
+    itself, id and all, was what the profile called them — and so, in turn,
+    what she could call them."""
+    m = re.match(r"^(?:forum_)?(.+?)_(\d+)$", folder)
+    return (m.group(1) if m else folder).replace("_", " ")
+
+
 async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
     import ollama as _ollama
     username = user_dir.name
@@ -139,7 +148,7 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
         return False
 
     log_content = "\n\n".join(combined)[:8000]
-    prompt = PROMPT_TEMPLATE.format(username=username, log_content=log_content)
+    prompt = PROMPT_TEMPLATE.format(username=display_name(username), log_content=log_content)
 
     print(f"  Generating profile for {username}...")
     if dry_run:
@@ -173,7 +182,7 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
             # Who this is on Discord, when the registry knows. Without it the
             # document has nothing tying a forum account to the person behind it.
             f"{identity_lines}---\n\n"
-            f"# INTERNAL MEMORY: {username}{header_suffix}\n\n"
+            f"# INTERNAL MEMORY: {display_name(username)}{header_suffix}\n\n"
         )
         write_atomic(profile_path, header + profile_text)
         print(f"  ✔ Wrote {profile_path}")
