@@ -14,6 +14,7 @@ seen in the last IMPRESSION_ACTIVE_DAYS.
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
 from typing import List, Optional
@@ -25,6 +26,12 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_warning
 IMPRESSION_ACTIVE_DAYS = 30
 MAX_PER_NIGHT = 12
 EVENTS_SHOWN = 25
+#: Bumped when the prompt changes, so every impression is rewritten under it.
+PROMPT_VERSION = 2
+# "Okay, here's my characterization of Lune, as Kaia, based on…" is the model
+# talking about the task, not an impression.
+_PREAMBLE = re.compile(r"^\W*(?:okay|ok|sure|certainly|here(?:'|’)?s|here is|as kaia)\b|characteri[sz]ation|"
+                       r"based on the (?:provided|events|interactions)", re.I)
 
 
 def _path(user_id: str) -> str:
@@ -43,6 +50,8 @@ def impression_note(user_id: str, user_name: str) -> str:
     """The prompt line for this person, or "" when none has been written yet."""
     imp = load(str(user_id))
     text = (imp or {}).get("text", "").strip()
+    if _PREAMBLE.search(text):
+        return ""                     # written before the check; rewritten next night
     return f"[how you see {user_name}: {text}]" if text else ""
 
 
@@ -63,9 +72,11 @@ def build_prompt(name: str, events: List[rm.RelationshipEvent], stage: str) -> s
         "? something you realised about them in a dream, * milestones.\n\n"
         f"{_event_lines(events)}\n\n"
         f"In one or two sentences, lowercase, first person, say how you see {name} — what they're "
-        "like with you, what you value or find hard. A characterisation, not a list of events; "
+        "like with you and what you value in them. Mention something you find hard only if the "
+        "events show friction (~) or corrections (!); most are good moments, and the impression "
+        "should be as warm or as mixed as they are. A characterisation, not a list of events; "
         "don't quote the events or give dates. Only what the events support. "
-        "Refer to them as they or by name."
+        "Refer to them as they or by name. Reply with the impression only."
     )
 
 
@@ -73,7 +84,7 @@ def _needs_refresh(user_id: str, events: List[rm.RelationshipEvent], now: float)
     if not events or now - events[-1].timestamp > IMPRESSION_ACTIVE_DAYS * 86400:
         return False
     imp = load(user_id)
-    return not imp or imp.get("latest_event", 0) < events[-1].timestamp
+    return not imp or imp.get("latest_event", 0) < events[-1].timestamp or imp.get("v") != PROMPT_VERSION
 
 
 async def refresh_all(ctx) -> int:
@@ -104,10 +115,11 @@ async def refresh_all(ctx) -> int:
         except Exception as e:
             log_warning(f"Relationship impression for {name} failed: {type(e).__name__}: {e}")
             continue
-        if len(text) < 20:
+        if len(text) < 20 or _PREAMBLE.search(text):
+            log_warning(f"Relationship impression for {name} discarded: {text[:80]}")
             continue
         await asyncio.to_thread(write_atomic, _path(uid), json.dumps({
-            "text": text[:400], "written": now, "latest_event": events[-1].timestamp,
+            "text": text[:400], "written": now, "latest_event": events[-1].timestamp, "v": PROMPT_VERSION,
             "events_used": min(len(events), EVENTS_SHOWN)}, indent=1, ensure_ascii=False))
         written += 1
         log_info(f"👥 Impression of {name} rewritten: {text[:80]}")

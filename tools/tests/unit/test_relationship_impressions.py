@@ -39,3 +39,21 @@ def test_an_impression_is_written_from_new_events_and_injected(tmp_path, monkeyp
     assert asyncio.run(ri.refresh_all(ctx)) == 0
     assert json.loads((tmp_path / "42.impression.json").read_text())["events_used"] == 1
     assert rm.load_events("42")                    # the impression file is not read as events
+
+
+def test_the_model_talking_about_the_task_is_not_an_impression():
+    """Lune's stored impression on 25 Sept, verbatim."""
+    from utils.core.relationship_impressions import _PREAMBLE
+    assert _PREAMBLE.search("Okay, here's my characterization of Lune, as Kaia, based on the provided interactions: They are…")
+    assert not _PREAMBLE.search("they're a sharp and direct friend, always pushing me to think harder.")
+
+
+def test_an_impression_written_under_an_older_prompt_is_rewritten(monkeypatch):
+    from types import SimpleNamespace as NS
+    from utils.core import relationship_impressions as ri
+    events = [NS(timestamp=__import__("time").time() - 60)]
+    monkeypatch.setattr(ri, "load", lambda uid: {"text": "x" * 30, "latest_event": events[-1].timestamp})
+    assert ri._needs_refresh("1", events, events[-1].timestamp + 1)            # no version: old prompt
+    monkeypatch.setattr(ri, "load", lambda uid: {"text": "x" * 30, "latest_event": events[-1].timestamp,
+                                                 "v": ri.PROMPT_VERSION})
+    assert not ri._needs_refresh("1", events, events[-1].timestamp + 1)
