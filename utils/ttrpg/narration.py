@@ -74,7 +74,8 @@ def fit_embed_description(text: str, wrapper_chars: int = 2) -> str:
     text = (text or "").strip()
     if len(text) <= limit:
         return text
-    return finish_cleanly(text[:limit])
+    # finish_cleanly may close with "…"; cut one short so that still fits.
+    return finish_cleanly(text[:limit - 1])[:limit]
 
 
 def raid_token_budget(participant_count: int,

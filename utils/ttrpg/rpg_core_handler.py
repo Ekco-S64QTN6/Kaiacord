@@ -2475,7 +2475,7 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
         title_suffix = f" · *{char_title}*" if char_title != "Adventurer" else ""
         adv_class = s.get("advanced_class", "") or s.get("class", "?")
         loc_key = s.get("location", "oakhaven")
-        loc_icon = LOCATION_ICONS.get(loc_key, "🗟a️")
+        loc_icon = LOCATION_ICONS.get(loc_key, "🗺️")
         loc_name = LOCATION_DATA.get(loc_key, {}).get("name", loc_key.replace("_", " ").title())
         deaths = s.get("deaths", 0)
         race = s.get("race", "Unknown")
