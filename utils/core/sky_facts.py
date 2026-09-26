@@ -22,8 +22,10 @@ TOPICS = {
         r"\b(?:space\s*weather|solar\s+(?:flare|storm|wind|activity|cycle)|flares?|aurora[sl]?|"
         r"northern\s+lights|geomagnetic|kp(?:\s*index)?|cmes?|coronal|sunspots?|"
         r"propagation|band\s+conditions)\b", re.I),
-    "launches": re.compile(r"\b(?:launch(?:es)?|rocket|starship|falcon\s*9|spacex|lift-?off)\b", re.I),
-    "asteroids": re.compile(r"\b(?:asteroids?|near[- ]earth|close\s+approach|neos?)\b", re.I),
+    "launches": re.compile(r"\b(?:(?:rocket|next|upcoming|space|satellite|any|recent|tonight'?s|today'?s)\s+launch(?:es)?|launch\s+(?:window|pad|schedule)|"
+                           r"starship|falcon\s*9|lift-?off)\b", re.I),
+    # "NEO" only in capitals: lowercase it is the Matrix.
+    "asteroids": re.compile(r"\b(?:[Aa]steroids?|[Nn]ear[- ][Ee]arth|[Cc]lose\s+approach|NEOs?)\b"),
     "quakes": re.compile(r"\b(?:earthquakes?|quakes?|seismic|tremors?)\b", re.I),
     "iss": re.compile(r"\b(?:iss|space\s+station|astronauts?|people(?:\s+\w+){0,2}\s+in\s+(?:space|orbit))\b", re.I),
 }
@@ -133,14 +135,13 @@ async def note_for(own_words: str) -> str:
     wanted = topics(own_words)
     if not wanted:
         return ""
-    lines = []
-    for name in wanted:
+    async def _one(name):
         try:
-            line = await _BUILDERS[name]()
+            return await _BUILDERS[name]()
         except Exception:
-            line = None
-        if line:
-            lines.append(f"- {line}")
+            return None
+    # Concurrently: each feed has its own timeout, and the turn waits for the slowest, not the sum.
+    lines = [f"- {line}" for line in await asyncio.gather(*(_one(n) for n in wanted)) if line]
     if not lines:
         return ""
     return ("[LIVE DATA — the real current readings for what was just asked. State these; "

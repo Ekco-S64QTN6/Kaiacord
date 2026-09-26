@@ -35,3 +35,11 @@ def test_no_feed_no_note():
          patch("utils.radio.fetch.read_cache", return_value={}):
         assert asyncio.run(sky_facts.note_for("space weather?")) == ""
     assert asyncio.run(sky_facts.note_for("hello there")) == ""
+
+
+def test_everyday_words_are_not_sky_topics():
+    """Real lines: the Matrix's Neo and launching an app are not the sky."""
+    from utils.core.sky_facts import topics
+    assert topics("the conversation between Neo and Ramachandra") == []
+    assert topics("have people launch an app that listens in to them all day") == []
+    assert topics("any NEOs passing close this week?") == ["asteroids"]
