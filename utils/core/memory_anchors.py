@@ -30,6 +30,12 @@ DECAY_RATE = 0.1        # weight reduction per 30-day period
 DECAY_PERIOD = 30 * 86400  # 30 days in seconds
 MATCH_THRESHOLD = 0.15  # minimum overlap score to trigger injection
 MIN_OVERLAP = 2         # distinct content words the message and anchor share
+# Eviction takes old, rarely recalled anchors first, then new ones; old ones
+# she keeps recalling go last, so a memory that keeps coming up survives long
+# enough to fade (see _evict).
+PROTECT_NEW_S = 14 * 86400
+RECALLED = 2           # recalls that make an anchor worth keeping as it fades
+FADED_BELOW = 0.4       # effective weight under which a recalled anchor is half-remembered
 
 _lock = threading.RLock()
 
@@ -177,14 +183,33 @@ def save_anchor(
             'keywords': sorted(_tokenize(f"{theme} {anchor_text}")),
         })
 
-        # Cap enforcement — evict the weakest after decay, not the oldest: an
-        # old anchor she keeps recalling outranks last night's passing one.
         if len(anchors) > MAX_ANCHORS:
-            anchors = sorted(_apply_decay(anchors), key=lambda a: a.get('effective_weight', 0),
-                             reverse=True)[:MAX_ANCHORS]
+            anchors = _evict(_apply_decay(anchors), now)
 
         _save_anchors(anchors)
     log_debug(f"Saved new anchor: {theme} for user {user_name or user_id}")
+
+
+def _evict(anchors: List[Dict], now: float) -> List[Dict]:
+    """Down to MAX_ANCHORS, in this order: old anchors she has rarely
+    recalled, then new ones, weakest first; old ones she keeps recalling go
+    last of all.
+
+    Evicting the weakest outright turned the store over every two weeks —
+    the oldest of 100 was 16 days old against a 30-day decay period — so no
+    anchor ever lived long enough to fade, and faded recall could not happen.
+    """
+    excess = len(anchors) - MAX_ANCHORS
+    if excess <= 0:
+        return anchors
+    weight = lambda a: a.get('effective_weight', 0)
+    is_old = lambda a: now - a.get('created_at', now) >= PROTECT_NEW_S
+    recalled = lambda a: a.get('access_count', 0) >= RECALLED
+    order = (sorted([a for a in anchors if is_old(a) and not recalled(a)], key=weight)
+             + sorted([a for a in anchors if not is_old(a)], key=weight)
+             + sorted([a for a in anchors if is_old(a) and recalled(a)], key=weight))
+    drop = {id(a) for a in order[:excess]}
+    return [a for a in anchors if id(a) not in drop]
 
 
 def find_matching_anchors(
@@ -274,6 +299,18 @@ def format_anchor_injection(anchor: Dict) -> str:
         time_ref = "a couple weeks ago"
     else:
         time_ref = f"about {days_ago // 30} month{'s' if days_ago > 60 else ''} ago"
+
+    # Faded: an old anchor she has let go of. Only a fragment is offered, so
+    # what she says is the half-memory, not a reconstruction of the rest.
+    if anchor.get('effective_weight', 1.0) < FADED_BELOW:
+        words = text.split()
+        fragment = " ".join(words[:6]) + ("…" if len(words) > 6 else "")
+        who = f" with {user_name}" if user_name else ""
+        return (
+            f"[faded memory: something about {theme}{who}, {time_ref}. most of it is gone — "
+            f"all that's left is \"{fragment}\". if it connects, say it the way a person half-remembers "
+            f"something, and don't fill in the rest.]"
+        )
 
     # Most anchors come from dreams about reading, not about a person, and
     # have no user. Those printed "you remember None talking about ...".

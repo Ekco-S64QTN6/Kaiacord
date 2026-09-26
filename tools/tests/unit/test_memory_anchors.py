@@ -77,3 +77,35 @@ def test_an_updated_anchor_is_dated_by_its_update():
     anchor = {"theme": "boats", "anchor_text": "x", "created_at": time.time() - 90 * 86400,
               "updated_at": time.time() - 3600}
     assert "earlier today" in ma.format_anchor_injection(anchor)
+
+
+def test_eviction_spares_the_new_and_keeps_what_she_recalls():
+    """Evicting the weakest turned the store over every two weeks, so nothing
+    lived long enough to fade."""
+    import time
+    from utils.core import memory_anchors as ma
+    now = time.time()
+    old = now - 60 * 86400
+    anchors = ([{"anchor_text": f"recalled {i}", "created_at": old, "access_count": 5, "effective_weight": 0.3}
+                for i in range(40)]
+               + [{"anchor_text": f"never {i}", "created_at": old, "access_count": 0, "effective_weight": 0.9}
+                  for i in range(40)]
+               + [{"anchor_text": f"new {i}", "created_at": now, "access_count": 0, "effective_weight": 0.2}
+                  for i in range(30)])
+    kept = ma._evict(anchors, now)
+    assert len(kept) == ma.MAX_ANCHORS
+    texts = {a["anchor_text"] for a in kept}
+    assert all(f"recalled {i}" in texts for i in range(40))
+    assert all(f"new {i}" in texts for i in range(30))
+
+
+def test_a_faded_anchor_is_offered_as_a_fragment():
+    import time
+    from utils.core.memory_anchors import format_anchor_injection
+    faded = {"theme": "boats", "anchor_text": "we talked about the old wooden boat on the lake at dawn",
+             "user_name": "Ekco", "created_at": time.time() - 200 * 86400, "effective_weight": 0.3}
+    line = format_anchor_injection(faded)
+    assert line.startswith("[faded memory:") and "don't fill in the rest" in line
+    assert "at dawn" not in line
+    fresh = dict(faded, effective_weight=0.8)
+    assert format_anchor_injection(fresh).startswith("[memory anchor:")
