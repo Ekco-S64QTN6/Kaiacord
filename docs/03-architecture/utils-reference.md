@@ -9,7 +9,7 @@ Core utility modules used by Kaiacord.
 | `kaia_rag.py` | RAG facade — delegates to query, indexer, persistence, and retriever modules |
 | `kaia_rag_query.py` | Hybrid BM25+vector retrieval, dynamic scoring, and identity resolution |
 | `kaia_rag_indexer.py` | Document ingestion, BM25 indexing, and parallel background updates |
-| `kaia_rag_persistence.py` | RAG state persistence (JSON manifest + BM25 pickle) and pre-warming |
+| `kaia_rag_persistence.py` | RAG state persistence (JSON manifest and the llama_index stores) and pre-warming |
 | `kaia_rag_retriever.py` | Shared RAG utilities and thread-safe lock decorators |
 | `kaia_intelligence.py` | Intelligence facade — coordinates intent matching, budgeting and enrichment |
 | `intent_classifier.py` | Intent detection by regex. No model — the `gemma2:2b` second pass was removed in Sept 2026 because its verdict was never read |

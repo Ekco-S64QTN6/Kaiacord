@@ -42,7 +42,7 @@ When a user queries Kaia, the system performs a hybrid search:
 - **JSON Manifest**: Tracks each file's mtime, size and node ids (logs also a byte offset and a hash of the indexed prefix). Nodes are only re-indexed if the file changes; a log rewritten in place is re-indexed whole.
 - **Reconcile**: every refresh removes nodes with no embedding, no source file, a deleted or excluded file, or persona text — see CLAUDE.md §10, *The index*.
 - **Consolidated Storage**: All indices are stored in `memory/rag_storage/`.
-- **Pre-warming**: On startup, indices are loaded into memory and the BM25 pickle is hydrated to ensure the first query is fast.
+- **Pre-warming**: On startup, indices are loaded into memory. BM25 lives in memory only (no pickle): it is built from the docstore on first use, in a worker thread, and dropped from `bm25_cache` whenever its index changes.
 
 ### 5. Smart Filtering & Hallucination Guard
 - **Fiction Filter**: Regex-based blocks for fictional story patterns during ingestion.

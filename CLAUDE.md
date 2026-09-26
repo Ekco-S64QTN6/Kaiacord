@@ -905,8 +905,10 @@ retrieval never reported:
   docstore was old versions and removed files, and 3,852 nodes were superseded persona text.
   `_reconcile_indices()` runs on every refresh and removes any node with no embedding, no
   source file, a deleted or excluded file, or persona text; a second pass should find nothing.
-- **Any index change deletes that index's BM25 pickle.** Its freshness check is file mtimes,
-  and a deletion changes none.
+- **Any index change drops that index's BM25 retriever from `bm25_cache`.** BM25 lives in
+  memory only, rebuilt from the docstore on the next query; a stale entry would keep serving
+  removed nodes. (It was a pickle whose freshness check was file mtimes, which a deletion never
+  changes — and which, it turned out, had never once been written.)
 - **Directory and file exclusions are separate predicates.** `_is_excluded_dir` for walking,
   `_is_excluded_path` for files. Asking the file rule about a forum user's folder excluded the
   whole folder, so their `user_profile.md` was indexed once and never refreshed.
