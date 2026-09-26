@@ -80,7 +80,7 @@ timeouts:
 
   chat_generation_seconds: 180.0
   llm_request_seconds: 120.0
-  rag_retrieval_seconds: 45.0
+  rag_retrieval_seconds: 60.0
   embedding_request_seconds: 90.0
 
 # ============================================================================
