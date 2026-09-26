@@ -19,10 +19,15 @@ from utils.infrastructure.logging.kaia_logger import log_action, log_error
 COLOR_SCANNER = 0x2F7D6D
 MHZ = 1_000_000
 ABOUT = ("An RTL-SDR attached to the bot listens to the local airwaves — ham repeaters, "
-         "walkie-talkies on FRS/GMRS/MURS, NOAA weather, business and marine radio. Every night from "
-         "midnight to 6 it sweeps the bands, listens wherever something is transmitting, and writes "
+         "walkie-talkies on FRS/GMRS/MURS, NOAA weather, business and marine radio. Every night "
+         "({hours}) it sweeps the bands, listens wherever something is transmitting, and writes "
          "down what it heard and when. Pick a frequency and I'll play it in your voice channel, or "
          "listen along and hear me scan.")
+
+
+def _hours() -> str:
+    from utils.infrastructure.system.yaml_config import config
+    return str(config.get("radio.local.hours", "00:00-06:00")).replace("-", "–")
 
 
 def _label(ch: dict) -> str:
@@ -38,8 +43,8 @@ def panel_embed() -> discord.Embed:
     status = ("scanning now, with listeners" if scanner.listening_along() else
               "scanning now" if scanner.running() else
               "listening live" if any(s.local for s in live.active()) else
-              "scans nightly 00:00–06:00" if rtl.available() else "RTL-SDR not found")
-    embed = box("📻  Local scanner", ABOUT, COLOR_SCANNER,
+              f"scans nightly {_hours()}" if rtl.available() else "RTL-SDR not found")
+    embed = box("📻  Local scanner", ABOUT.format(hours=_hours()), COLOR_SCANNER,
                 footer="!scanner history · !scanner off · pick a preset, then ▶ Listen")
     add_field(embed, "Status", status, inline=True)
     add_field(embed, "Ledger", f"{len(chans)} channels · {len(heard)} heard · {len(voice)} with voice", inline=True)

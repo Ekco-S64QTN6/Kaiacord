@@ -1,4 +1,4 @@
-"""The local RTL-SDR: sweep, probe, record and stream, one user at a time.
+"""The local RTL-SDR: the one-device lock, catch measurements, and live streams.
 
 A dongle serves one process. The nightly waterfall watch holds DEVICE while it
 runs; a live `!scanner` listen sets YIELD, the watcher stops within a hop, and
