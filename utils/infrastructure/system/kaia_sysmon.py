@@ -18,6 +18,10 @@ from typing import Optional
 
 import psutil
 
+# cpu_percent(interval=None) measures since the previous call in this process;
+# the first call has nothing to compare against and always answers 0.0.
+psutil.cpu_percent(interval=None)
+
 
 
 # ---------------------------------------------------------------------------
