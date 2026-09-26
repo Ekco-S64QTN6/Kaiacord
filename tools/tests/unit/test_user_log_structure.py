@@ -12,6 +12,7 @@ so removed the three things the retrieval layer runs on:
   * the speaker's name, which scopes a log to its user.
 """
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -227,6 +228,12 @@ def test_each_active_user_folder_has_a_readable_index():
         if not d.is_dir() or d.name.startswith("forum_"):
             continue
         if not any(d.glob("interactions_*.md")):
+            continue
+        # The index is written by the weekly curation task: a person who first
+        # spoke since its last run has no README yet, and that is correct.
+        days = [m.group(1) for f in d.glob("interactions_*.md")
+                if (m := re.match(r"interactions_(\d{8})\.md$", f.name))]
+        if days and min(days) >= (datetime.now() - timedelta(days=8)).strftime("%Y%m%d"):
             continue
         readme = d / "README.md"
         assert readme.exists(), f"{d.name} has no README.md"
