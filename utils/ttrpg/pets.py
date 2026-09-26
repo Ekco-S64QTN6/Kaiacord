@@ -146,9 +146,41 @@ def get_pet_passive(housing: dict) -> dict:
             bonuses[extra] = bonuses.get(extra, 0) + extra_val
     return bonuses
 
+MOGNET_EVERY_FED_DAYS = 7
+MOGNET_VALUE = (10, 300)                     # gil value of what a delivery can hold
+_NOT_DELIVERABLE = {"adventurers_pack", "mognet_letter", "spine_memory"}
+
+
 def reset_daily_pets(housing: dict) -> dict:
-    """Call on daily reset — clear fed_today flags."""
+    """Call on daily reset — clear fed_today flags.
+
+    A House Moogle fed on seven days queues one Mognet delivery
+    (`mognet_deliveries`), handed to the player's mailbox by `deliver_mognet`
+    on their next daily reset. The passive was advertised and never paid."""
     for pet in housing.get("pets", []):
+        if pet.get("key") == "moogle" and pet.get("fed_today"):
+            pet["fed_days"] = pet.get("fed_days", 0) + 1
+            if pet["fed_days"] >= MOGNET_EVERY_FED_DAYS:
+                pet["fed_days"] = 0
+                housing["mognet_deliveries"] = housing.get("mognet_deliveries", 0) + 1
         pet["fed_today"] = False
         pet["days_owned"] = pet.get("days_owned", 0) + 1
     return housing
+
+
+def deliver_mognet(sheet: dict, housing: dict) -> int:
+    """Move queued Mognet deliveries into the sheet's mailbox, one random
+    consumable each. Mutates both; returns how many were delivered."""
+    n = int(housing.get("mognet_deliveries") or 0)
+    if n <= 0:
+        return 0
+    import secrets
+    from utils.ttrpg.equipment_registry import CONSUMABLES
+    lo, hi = MOGNET_VALUE
+    pool = sorted(k for k, v in CONSUMABLES.items()
+                  if k not in _NOT_DELIVERABLE and lo <= v.get("value", 0) <= hi)
+    for _ in range(n):
+        sheet.setdefault("mailbox", []).append(
+            {"from_name": "your House Moogle (Mognet)", "item": secrets.choice(pool), "gil": 0})
+    housing["mognet_deliveries"] = 0
+    return n

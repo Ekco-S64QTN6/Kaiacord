@@ -66,3 +66,4 @@ def test_the_sheet_shows_the_rework_combat_uses(monkeypatch):
     reworked = render(dict(base, enhancements={key: 2}))
     assert f"{WEAPONS[key]['name']} +2" in reworked and f"{WEAPONS[key]['name']} +2" not in plain
     assert plain != reworked.replace(" +2", "")         # the attack figure moved too
+

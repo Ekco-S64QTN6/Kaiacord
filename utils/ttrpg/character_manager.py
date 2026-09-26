@@ -154,6 +154,11 @@ async def load(user_id: str) -> Optional[Dict[str, Any]]:
                 from utils.ttrpg.housing import load_housing
                 housing = await asyncio.to_thread(functools.partial(load_housing, str(sheet.get("user_id", ""))))
                 sheet = check_and_reset_hunts(sheet, housing=housing)
+                if housing:
+                    from utils.ttrpg.housing import save_housing
+                    from utils.ttrpg.pets import deliver_mognet
+                    if deliver_mognet(sheet, housing):
+                        await asyncio.to_thread(save_housing, housing)
                 await asyncio.to_thread(functools.partial(_save_sync, sheet))
         return sheet
 
