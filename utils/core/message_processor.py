@@ -1144,6 +1144,19 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8g3. Where this conversation is — a fresh start after hours of quiet,
+        # well along, or being closed by an explicit goodbye
+        # (utils/core/conversation_arc.py). Discord only.
+        try:
+            if not ctx.is_social and self.bot_state:
+                from utils.core import conversation_arc
+                _turns = list(self.bot_state.channel_memory.get(ctx.channel_id, []) or [])
+                _arc = conversation_arc.note_for(_turns, ctx.own_words)
+                if _arc:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{_arc}"
+        except Exception:
+            pass
+
         # 8h. Micro-mood expressions: deliberately absent. Mood reaches the
         # prompt through two non-overlapping signals only —
         # get_kaia_state_line() (activity/memory/dream, at 8.) and
