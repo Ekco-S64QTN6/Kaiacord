@@ -4,6 +4,9 @@
 Each floor uses one of 5 hand-crafted room templates, but monster_key values
 are randomized per-room from the zone's encounter pool in ENCOUNTER_TABLES.
 This ensures every floor has a unique set of creatures.
+
+The file is the live dungeon, and every run re-rolls every room, so without
+--write this only prints the variety report.
 """
 import json, os, sys, secrets
 
@@ -543,7 +546,7 @@ def get_dynamic_lore(floor_num, base_meta, base_flav):
 
     return meta, flav
 
-def main():
+def main(write=False):
     floors = {}
     base_configs = [
         (F1R, F1C, F1M, "The Working Tunnels", "Abandoned mine shafts. Timber supports creak. The lanterns are still lit."),
@@ -617,11 +620,18 @@ def main():
     for zone, creatures in zone_creature_counts.items():
         print(f"  {zone}: {len(creatures)} unique creatures across its floors")
 
+    if not write:
+        print("\nDry run: spine_layouts.json not written. --write replaces the live dungeon.")
+        return
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    with open(os.path.join(root, "utils", "ttrpg", "spine_layouts.json"), "w") as f:
-        json.dump(floors, f, indent=2)
+    sys.path.insert(0, root)
+    from utils.core.atomic_write import write_atomic
+    write_atomic(os.path.join(root, "utils", "ttrpg", "spine_layouts.json"), json.dumps(floors, indent=2))
     print(f"\nWrote spine_layouts.json for 77 floors")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--write", action="store_true", help="replace utils/ttrpg/spine_layouts.json")
+    main(write=parser.parse_args().write)
