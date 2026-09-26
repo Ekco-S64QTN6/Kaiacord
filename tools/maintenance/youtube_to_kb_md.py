@@ -289,6 +289,25 @@ def safe_filename(title: str) -> str:
     return f"Transcript - {stem or 'YouTube Video'}.md"
 
 
+def transcript_summary(title: str, channel: str, opening: str, limit: int = 400) -> str:
+    """The title and channel, then the first complete sentence of the talk.
+
+    The opening paragraph alone was the summary, and a video's cold open
+    starts mid-conversation: "for our friends and censored models and give
+    them access for bitcoins…" summarised a security podcast. The title is
+    the most informative line there is; a sentence is quoted only whole."""
+    head = f"{title}" + (f", from {channel}" if channel else "") + "."
+    text = " ".join((opening or "").split())
+    if text and not text[0].isupper():                       # starts mid-sentence
+        m = re.search(r"[.!?]\s+(?=[A-Z])", text)
+        text = text[m.end():] if m else ""
+    m = re.match(r"(.+?[.!?])(?=\s|$)", text)
+    sentence = m.group(1) if m else ""
+    if sentence and len(head) + 1 + len(sentence) <= limit:
+        return f"{head} {sentence}"
+    return head[:limit]
+
+
 def to_markdown(video_id: str, meta: dict, snippets, language: str) -> tuple[str, dict]:
     """Render the knowledge-base document. Returns (markdown, stats)."""
     paragraphs = build_paragraphs(snippets)
@@ -301,9 +320,7 @@ def to_markdown(video_id: str, meta: dict, snippets, language: str) -> tuple[str
     url = f"https://www.youtube.com/watch?v={video_id}"
     duration = paragraphs[-1][0]
 
-    summary = " ".join(paragraphs[0][1].split())[:400].rstrip()
-    if len(paragraphs[0][1]) > 400:
-        summary = summary.rsplit(". ", 1)[0] + "."
+    summary = transcript_summary(title, channel, paragraphs[0][1])
 
     lines = ["---", f"title: {yaml_escape(title)}"]
     if channel:
