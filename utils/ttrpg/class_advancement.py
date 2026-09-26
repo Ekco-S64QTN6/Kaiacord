@@ -50,6 +50,13 @@ _UNDEAD_NAMES = {
     "necrophobe", "shadow dancer",
 }
 
+
+def is_undead(monster: dict) -> bool:
+    """By name, ignoring a quoted nickname: Felix "Ghost-Hand" Pryce is a man."""
+    import re
+    name = re.sub(r'"[^"]*"', " ", str(monster.get("name", ""))).lower()
+    return any(u in name for u in _UNDEAD_NAMES)
+
 PROC_EMOJIS = {
     "Warrior":      "⚔️",
     "Ranger":       "🎯",
@@ -103,8 +110,7 @@ def resolve_class_proc(sheet: dict, weapon_die: int, player_crit: bool, monster:
 
     # Undead procs: only fire against undead — check before rolling RNG
     if proc_type == "undead":
-        m_name = monster.get("name", "").lower()
-        if not any(u in m_name for u in _UNDEAD_NAMES):
+        if not is_undead(monster):
             return result
 
     # Roll proc chance
@@ -445,12 +451,11 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
     if not bonuses:
         return result
 
-    m_name_lower = monster.get("name", "").lower()
-    is_undead = any(u in m_name_lower for u in _UNDEAD_NAMES)
+    undead = is_undead(monster)
 
     # Paladin — smite undead, heal on kill
     if advanced == "Paladin":
-        if player_hit and is_undead and bonuses.get("atk_vs_undead"):
+        if player_hit and undead and bonuses.get("atk_vs_undead"):
             result["player_damage_bonus"] += bonuses["atk_vs_undead"]
             result["extra_log"].append(f"✝️ *Paladin's smite: +{bonuses['atk_vs_undead']} vs undead.*")
         if monster_defeated and bonuses.get("heal_on_kill"):
@@ -466,7 +471,7 @@ def apply_advanced_class_to_combat(sheet: dict, player_damage: int,
 
     # Necromancer — devastate undead
     elif advanced == "Necromancer":
-        if player_hit and is_undead and bonuses.get("atk_vs_undead"):
+        if player_hit and undead and bonuses.get("atk_vs_undead"):
             result["player_damage_bonus"] += bonuses["atk_vs_undead"]
             result["extra_log"].append(f"💀 *Death mastery: +{bonuses['atk_vs_undead']} vs undead.*")
 

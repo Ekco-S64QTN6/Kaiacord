@@ -20,3 +20,4 @@ def test_a_fed_house_moogle_delivers_weekly():
         pets.reset_daily_pets(unfed)
     assert not unfed.get("mognet_deliveries")
 
+

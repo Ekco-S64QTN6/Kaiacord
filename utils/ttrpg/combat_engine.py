@@ -59,9 +59,8 @@ TIER_DAMAGE = {
 
 
 def _is_undead(monster: dict) -> bool:
-    from utils.ttrpg.class_advancement import _UNDEAD_NAMES
-    name = str(monster.get("name", "")).lower()
-    return any(u in name for u in _UNDEAD_NAMES)
+    from utils.ttrpg.class_advancement import is_undead
+    return is_undead(monster)
 
 
 def _compute_player_defense(sheet: dict, def_mod_global: int = 0, pet_bonuses: dict = None) -> int:
