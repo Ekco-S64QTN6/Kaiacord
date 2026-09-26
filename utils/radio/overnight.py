@@ -120,9 +120,10 @@ async def gather(since: Optional[datetime] = None) -> list[Fact]:
     b = beacons.recent()
     if b and datetime.fromisoformat(b["at"]) >= since:
         heard = [c for c, _, db in b["beacons"] if db >= beacons.HEARD_DB]
-        facts.append(Fact("beacons", f"**{len(heard)} of 18** heard on {b['khz'] / 1000:.3f} MHz"
+        of = len(b["beacons"])                   # the slots the listen covered, not always all 18
+        facts.append(Fact("beacons", f"**{len(heard)} of {of}** heard on {b['khz'] / 1000:.3f} MHz"
                                      + (f" · {', '.join(heard[:5])}" if heard else ""),
-                          f"on the beacon chain at {b['khz'] / 1000:.3f} MHz you heard {len(heard)} of 18"
+                          f"on the beacon chain at {b['khz'] / 1000:.3f} MHz you heard {len(heard)} of {of}"
                           + (f" ({', '.join(heard[:5])})" if heard else "")))
 
     try:
@@ -131,7 +132,11 @@ async def gather(since: Optional[datetime] = None) -> list[Fact]:
         facts.append(Fact("sun", f"{kp_icon(kp)} Kp **{kp:.1f}** · {feeds.kp_words(kp)}\n🌞 Solar flux **{flux}**",
                           f"the planetary K index is {kp:.1f} ({feeds.kp_words(kp)}), solar flux {flux}"))
         flare = w.get("flare") or {}
-        if flare.get("max_class", "").startswith(("M", "X")):
+        try:                                     # the latest flare can be days old
+            peaked = datetime.fromisoformat(str(flare.get("max_time", "")).replace("Z", "+00:00"))
+        except ValueError:
+            peaked = None
+        if flare.get("max_class", "").startswith(("M", "X")) and peaked and peaked >= since:
             facts.append(Fact("sun", f"💥 **{flare['max_class']}** flare",
                               f"the sun put out a {flare['max_class']} flare"))
     except Exception as e:
