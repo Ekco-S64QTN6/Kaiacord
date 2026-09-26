@@ -1,3 +1,4 @@
+import re
 import secrets
 
 from utils.ttrpg.equipment_registry import WEAPONS, ARMOR as ARMOR_DATA, HEADGEAR, BOOTS, ACCESSORIES
@@ -56,6 +57,11 @@ TIER_DAMAGE = {
     "boss":    (3, 6),
     "deadly":  (3, 6),
 }
+
+
+_FIRE_ADJACENT = re.compile(
+    r"\b(salamander|fire|flame|ember|magma|cinder|ash|furnace|lava|inferno|pyre|blaze|bomb|scorch|burning|molten|smoulder|smolder|ifrit)",
+    re.I)
 
 
 def _is_undead(monster: dict) -> bool:
@@ -425,6 +431,11 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         # overworld distance (dist_mult) before entering combat resolution.
         _tier = monster.get("tier", "medium")
         monster_attack_mod = monster.get("attack", 0)
+        # A dry wind makes fire-adjacent monsters more aggressive (+ATK).
+        from utils.ttrpg.calendar import weather_mod
+        _wind = weather_mod("fire_atk")
+        if _wind and _FIRE_ADJACENT.search(str(monster.get("name", ""))):
+            monster_attack_mod += int(_wind.get("value", 0))
 
         monster_raw_hit = secrets.randbelow(20) + 1
         monster_total_hit = monster_raw_hit + monster_attack_mod
@@ -443,7 +454,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 dmg_rolls = [die_size] * num_dice
             else:
                 dmg_rolls = [secrets.randbelow(die_size) + 1 for _ in range(num_dice)]
-            monster_damage = max(1, sum(dmg_rolls) + (monster["attack"] // 2))
+            monster_damage = max(1, sum(dmg_rolls) + (monster_attack_mod // 2))
             
 
             adv_mods = apply_advanced_class_to_combat(

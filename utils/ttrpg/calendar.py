@@ -350,17 +350,17 @@ WEATHER_TABLES = {
     "spring": [
         # (weight, key, name, desc, emoji, effect)
         (30, "overcast",     "Overcast",       "Low cloud sits on the Whisperwood. The treeline is grey.",              "☁️",  None),
-        (25, "rain",         "Raining",        "Steady rain. The Tricklebrook is swollen. The mud is worse.",           "🌧️",  {"type": "encounter_mod", "desc": "+10% chance of forest events (creatures seek shelter, paths change)", "value": 10}),
+        (25, "rain",         "Raining",        "Steady rain. The Tricklebrook is swollen. The mud is worse.",           "🌧️",  {"type": "encounter_mod", "mod": "forest_event_pct", "desc": "+10% chance of forest events (creatures seek shelter, paths change)", "value": 10}),
         (20, "clear",        "Clear",          "Bright spring morning. The forest smells like wet earth and new growth.","🌤️",  None),
         (15, "fog",          "Foggy",          "Thick fog off the Whisperwood. The Watchtower can see nothing.",        "🌫️",  {"type": "scout_blocked", "desc": "!rpg scout unavailable — fog obscures the canopy", "value": 0}),
-        (10, "storm",        "Storming",       "Thunder from the Spine of the World. The Trade Road is dangerous.",     "⛈️",  {"type": "encounter_mod", "desc": "Trade Road encounters +1 tier today", "value": 1}),
+        (10, "storm",        "Storming",       "Thunder from the Spine of the World. The Trade Road is dangerous.",     "⛈️",  {"type": "encounter_mod", "mod": "tier_shift", "locations": ["trade_road"], "desc": "Trade Road encounters +1 tier today", "value": 1}),
     ],
     "summer": [
         (35, "clear",        "Clear",          "Bright and dry. The Whisperwood hums. Good day for a hunt.",           "☀️",  None),
         (25, "hot",          "Sweltering",     "Heavy heat. Moving in plate armor today would be a mistake.",          "🌡️",  {"type": "armor_penalty", "desc": "Mail and plate cost 2 DEF today", "value": -2}),
         (20, "overcast",     "Overcast",       "High cloud, no shade. Warm and grey.",                                "⛅",  None),
         (15, "rain",         "Rain",           "Brief summer rain. The dust settles. Paths are muddier.",              "🌦️",  None),
-        (5,  "drought_wind", "Dry Wind",       "Hot wind from the west. The Whisperwood is restless. Fire risk.",      "💨",  {"type": "encounter_mod", "desc": "Fire-adjacent monsters more aggressive — +2 ATK for Salamanders and similar", "value": 2}),
+        (5,  "drought_wind", "Dry Wind",       "Hot wind from the west. The Whisperwood is restless. Fire risk.",      "💨",  {"type": "encounter_mod", "mod": "fire_atk", "desc": "Fire-adjacent monsters more aggressive — +2 ATK for Salamanders and similar", "value": 2}),
     ],
     "autumn": [
         (30, "overcast",     "Overcast",       "Heavy cloud. The light is flat. The forest looks older.",              "☁️",  None),
@@ -370,13 +370,23 @@ WEATHER_TABLES = {
         (10, "wind",         "High Wind",      "Wind off the Spine. The Watchtower crew came down. Smart.",            "🌬️",  {"type": "scout_blocked", "desc": "!rpg scout unavailable — tower is unsafe", "value": 0}),
     ],
     "winter": [
-        (30, "snow",         "Snowing",        "Fresh snow on Oakhaven. The Trade Road is passable but slow.",         "❄️",  {"type": "encounter_mod", "desc": "+15% chance of winter seasonal creatures", "value": 15}),
+        (30, "snow",         "Snowing",        "Fresh snow on Oakhaven. The Trade Road is passable but slow.",         "❄️",  {"type": "encounter_mod", "mod": "seasonal_weight_pct", "desc": "+15% chance of winter seasonal creatures", "value": 15}),
         (25, "blizzard",     "Blizzard",       "White-out conditions. The Whisperwood is impassable above level 4.",   "🌨️",  {"type": "level_gate", "desc": "Whisperwood Deep requires level 6 today — the storm turns back weaker hunters", "value": 6, "locations": ["whisperwood_deep"]}),
         (20, "clear",        "Clear",          "Cold and bright. The snow reflects everything. Quiet.",                "🌨️✨", None),
         (15, "overcast",     "Overcast",       "Flat winter light. Grey sky, grey town. Hemlock's fire is welcome.",   "☁️",  None),
         (10, "frost",        "Hard Frost",     "Everything is ice. The Tricklebrook is frozen solid.",                 "🧊",  {"type": "gil_bonus", "desc": "+20% Gil from monster kills — pelts are worth more in hard frost", "value": 20}),
     ],
 }
+
+
+def weather_mod(mod: str, today=None) -> Optional[dict]:
+    """Today's weather effect if it is the encounter modifier `mod`, else None.
+
+    Four weathers announced an encounter_mod to players and nothing applied
+    any of them; each now names what it changes, and the code that owns that
+    roll asks here."""
+    effect = (get_weather(today) or {}).get("effect") or {}
+    return effect if effect.get("type") == "encounter_mod" and effect.get("mod") == mod else None
 
 
 def get_weather(today=None) -> dict:

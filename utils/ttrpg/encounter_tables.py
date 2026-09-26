@@ -100,6 +100,18 @@ def random_encounter(location: str, player_level: int = 1) -> str:
     max_idx = TIER_ORDER.index(max_tier)
 
     tier_shift = special_mod.get("tier_shift", 0)
+
+    # Weather: a storm pushes the Trade Road up a tier; snow brings more of
+    # the season's creatures.
+    from utils.ttrpg.calendar import SEASONAL_MONSTERS, get_season, weather_mod
+    storm = weather_mod("tier_shift")
+    if storm and location in storm.get("locations", [location]):
+        tier_shift += int(storm.get("value", 0))
+    snow = weather_mod("seasonal_weight_pct")
+    if snow:
+        extra = [(k, max(1, round(w * snow.get("value", 0) / 100)))
+                 for k, w in SEASONAL_MONSTERS.get(get_season(), {}).get(location, [])]
+        table = list(table) + extra
     
     # Time-of-day encounter modification (night: 18:00 - 06:00)
     from datetime import datetime
@@ -142,6 +154,10 @@ def roll_for_event(location: str) -> bool:
     from utils.ttrpg.world_state import load_world_state
     wstate = load_world_state()
     chance += int(wstate.get("forest_event_bonus", 0.0) * 100)
+    from utils.ttrpg.calendar import weather_mod
+    rain = weather_mod("forest_event_pct")
+    if rain:
+        chance += int(rain.get("value", 0))
     return secrets.randbelow(100) < chance
 
 
