@@ -52,3 +52,13 @@ def test_a_verdict_moves_confidence_within_bounds(store):
     assert b["position"] == "Offices matter for juniors." and b["confidence"] == 0.6
     assert event["old_position"] == "Offices are overrated."
     assert cb.apply_verdict("remote work", {"verdict": "keep"}) is None
+
+
+def test_an_ordinary_word_alias_alone_is_not_the_belief():
+    """'knowledge' is an alias of 'expertise'; a line about loading a truck is not an argument about it."""
+    from utils.core.conversation_beliefs import _mentions
+    belief = {"topic": "expertise", "aliases": ["knowledge", "skill", "domain mastery"]}
+    assert not _mentions(belief, "i was gonna send a sunset but it's a crap one, plus common knowledge says so")
+    assert _mentions(belief, "expertise is overrated because anyone can learn")
+    assert _mentions(belief, "domain mastery takes years, since practice compounds")
+    assert _mentions(belief, "knowledge without skill is useless, because you can't apply it")

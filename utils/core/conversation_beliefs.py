@@ -46,8 +46,17 @@ _ARGUED = re.compile(
 
 
 def _mentions(belief: dict, text: str) -> bool:
-    names = [belief.get("topic", "")] + [a for a in belief.get("aliases", []) if len(a) >= 4]
-    return any(n and re.search(rf"\b{re.escape(n.lower())}\b", text) for n in names)
+    """The topic itself, a multi-word alias, or two different one-word aliases.
+
+    One-word aliases are mostly ordinary words ("knowledge", "boundaries",
+    "beauty"); alone, over real user lines, they matched everyday talk 20 times
+    in 24 and would have fed the nightly review arguments nobody made."""
+    def said(n: str) -> bool:
+        return bool(n) and bool(re.search(rf"\b{re.escape(n.lower())}\b", text))
+    aliases = [a for a in belief.get("aliases", []) if len(a) >= 4]
+    if said(belief.get("topic", "")) or any(said(a) for a in aliases if " " in a.strip()):
+        return True
+    return sum(1 for a in aliases if " " not in a.strip() and said(a)) >= 2
 
 
 def note_argument(user_id, user_name: str, own_words: str, beliefs: Optional[List[dict]] = None) -> List[str]:
