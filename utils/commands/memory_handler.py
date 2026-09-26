@@ -4,7 +4,7 @@ import json
 import asyncio
 import discord
 from utils.infrastructure.logging.kaia_logger import log_action
-from utils.commands.embed_style import notice
+from utils.commands.embed_style import clean, notice
 
 async def handle_memory_command(msg, sanitized_content, run_rag, rag):
     """Handle the 'kaia remember' command"""
@@ -85,12 +85,10 @@ async def handle_memory_cmd(ctx, msg, send_kaia_response):
         for i, b in enumerate(beliefs, 1):
             topic = b.get('topic', 'unknown')
             conf = b.get('confidence', 0.5)
-            pos = b.get('position', '')
-            if len(pos) > 180:
-                pos = pos[:177] + "..."
-            
+            pos = clean(b.get('position', ''), 180)
+
             embed.add_field(
-                name=f"{i}. {topic.upper()} (Confidence: {conf:.2f})",
+                name=f"{i}. {clean(topic, 120).upper()} (Confidence: {conf:.2f})",
                 value=f"*{pos}*",
                 inline=False
             )
@@ -127,13 +125,11 @@ async def handle_memory_cmd(ctx, msg, send_kaia_response):
             theme = a.get('theme', 'unknown')
             user = a.get('user_name') or 'general'
             weight = a.get('effective_weight') or a.get('weight', 0.5)
-            text = a.get('anchor_text', '')
-            if len(text) > 180:
-                text = text[:177] + "..."
-                
+            text = clean(a.get('anchor_text', ''), 180)
+
             embed.add_field(
                 name=f"{i}. Theme: {theme} (Weight: {weight:.2f})",
-                value=f"**User:** {user}\n*\"{text}\"*",
+                value=f"**User:** {clean(user, 60)}\n*\"{text}\"*",
                 inline=False
             )
             shown_count += 1
