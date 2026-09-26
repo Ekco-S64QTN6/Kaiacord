@@ -570,7 +570,9 @@ async def _handle_hunts(ctx, msg, send, rest, uid, uname, is_owner):
     ), view=view)
 
 
-@serialize_user_action
+# The channel's lock as well as the player's: a hunt adds its monster to the
+# channel's shared session, and two players hunting at once could lose one spawn.
+@serialize_combat_action
 async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
     from utils.ttrpg.monster_registry import get as get_monster
