@@ -24,6 +24,7 @@ from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_ch
 
 
 from utils.ttrpg.rpg_views import *
+from utils.ttrpg.session_manager import serialize_user_action
 
 async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg seed_shop — Buy seeds from Sister Maren."""
@@ -114,6 +115,7 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
     from utils.ttrpg.alchemy import brew, get_recipe
@@ -363,11 +365,13 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_buy_house(ctx, msg, send, rest, uid, uname, is_owner):
     """The first purchase is offered by `!rpg home`, with its confirm button."""
     await _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner)
 
 
+@serialize_user_action
 async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.housing import load_housing, save_housing, HOUSING_TIERS, get_next_tier, can_afford_upgrade
     
@@ -526,6 +530,7 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_farm_treat(ctx, msg, send, rest, uid, uname, is_owner):
     """Treat blighted crop plots with herbal medicine."""
     sheet = await load(uid)
@@ -597,6 +602,7 @@ async def _handle_farm_treat(ctx, msg, send, rest, uid, uname, is_owner):
     await _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner)
 
 
+@serialize_user_action
 async def _handle_plant_crop(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.housing import load_housing, save_housing, get_tier_data
     from utils.ttrpg.farming import CROPS
@@ -659,6 +665,7 @@ async def _handle_plant_crop(ctx, msg, send, rest, uid, uname, is_owner):
     await _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner)
 
 
+@serialize_user_action
 async def _handle_water_crops(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.housing import load_housing, save_housing
     housing = load_housing(uid)
@@ -685,6 +692,7 @@ async def _handle_water_crops(ctx, msg, send, rest, uid, uname, is_owner):
     await _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner)
 
 
+@serialize_user_action
 async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.housing import load_housing, save_housing
     from utils.ttrpg.farming import is_harvestable, harvest_crop
@@ -767,6 +775,7 @@ async def _handle_pet_shop(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_buy_pet(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.pets import PET_REGISTRY
     from utils.ttrpg.housing import load_housing, save_housing, get_tier_data
@@ -814,6 +823,7 @@ async def _handle_buy_pet(ctx, msg, send, rest, uid, uname, is_owner):
     await send(msg.channel, f"🐾 **{pet_data['name']} adopted!** It seems happy to follow you home.")
 
 
+@serialize_user_action
 async def _handle_feed_pet(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.pets import PET_REGISTRY
     from utils.ttrpg.housing import load_housing, save_housing
@@ -915,6 +925,7 @@ async def _handle_furniture_shop(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_buy_furniture(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.furniture import FURNITURE
     from utils.ttrpg.housing import load_housing, save_housing, get_tier_data
@@ -1017,6 +1028,7 @@ async def _handle_visit_plots(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_rename_house(ctx, msg, send, rest, uid, uname, is_owner):
     # Left intact as a fallback for text command "!rpg rename_house <name>"
     from utils.ttrpg.housing import load_housing, save_housing
@@ -1032,6 +1044,7 @@ async def _handle_rename_house(ctx, msg, send, rest, uid, uname, is_owner):
     await send(msg.channel, f"🏡 House renamed to **{housing['house_name']}**.")
 
 
+@serialize_user_action
 async def _handle_home_training(ctx, msg, send, rest, uid, uname, is_owner):
     """Bonus daily hunt from training dummy."""
     from utils.ttrpg.housing import load_housing, save_housing
