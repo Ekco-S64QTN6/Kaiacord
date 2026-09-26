@@ -28,11 +28,32 @@ def nasa_key() -> str:
     return os.getenv("NASA_API_KEY") or "DEMO_KEY"
 
 
+#: After a failed refresh, a feed is not asked again for this long, and its
+#: last good copy is served meanwhile.
+RETRY_AFTER_S = 15 * 60
+_failed_at: dict[str, float] = {}
+
+
 async def _cached(name: str, max_age_s: float, fetch, force: bool = False) -> dict:
+    """The feed's cached copy while fresh; otherwise a refresh. A failed
+    refresh serves the stale copy if there is one and waits RETRY_AFTER_S
+    before trying again: Launch Library answered 429, and retrying on every
+    request — each !launch, each chat turn naming a launch — kept it at 429
+    while a copy from the night before sat unused."""
+    import time as _time
     cache = read_cache(name)
     if not force and "data" in cache and not is_stale(cache, max_age_s):
         return cache
-    data = await fetch()
+    if not force and "data" in cache and _time.time() - _failed_at.get(name, 0) < RETRY_AFTER_S:
+        return cache
+    try:
+        data = await fetch()
+    except FeedError:
+        _failed_at[name] = _time.time()
+        if "data" in cache:
+            return cache
+        raise
+    _failed_at.pop(name, None)
     write_cache(name, {"data": data})
     return read_cache(name)
 

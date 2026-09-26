@@ -43,3 +43,28 @@ def test_everyday_words_are_not_sky_topics():
     assert topics("the conversation between Neo and Ramachandra") == []
     assert topics("have people launch an app that listens in to them all day") == []
     assert topics("any NEOs passing close this week?") == ["asteroids"]
+
+
+def test_a_failed_refresh_serves_the_last_copy_and_waits(monkeypatch):
+    """Launch Library answered 429; retrying on every request kept it there."""
+    import asyncio
+    import time
+    from utils.radio.fetch import FeedError
+    from utils.sky import feeds
+    store = {"x": {"data": ["old"], "fetched_at": time.time() - 99999}}
+    monkeypatch.setattr(feeds, "read_cache", lambda n: dict(store.get(n, {})))
+    monkeypatch.setattr(feeds, "write_cache", lambda n, d: store.__setitem__(n, {**d, "fetched_at": time.time()}))
+    monkeypatch.setattr(feeds, "_failed_at", {})
+    calls = []
+
+    async def failing():
+        calls.append(1)
+        raise FeedError("HTTP 429")
+    assert asyncio.run(feeds._cached("x", 60, failing))["data"] == ["old"]
+    assert asyncio.run(feeds._cached("x", 60, failing))["data"] == ["old"]
+    assert calls == [1]                                   # not asked again inside the wait
+    store.clear()
+    feeds._failed_at.clear()
+    import pytest
+    with pytest.raises(FeedError):                        # nothing to fall back on: say so
+        asyncio.run(feeds._cached("x", 60, failing))
