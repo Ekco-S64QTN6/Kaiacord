@@ -32,6 +32,14 @@ from utils.core.kaia_rag_retriever import sanitize_log_content, thread_safe_rag_
 from utils.social.kaia_identities import registry
 
 
+_TURN_STAMP = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\](?= [^:\n]{1,40}:)", re.M)
+
+
+def _defuse_turn_stamps(text: str) -> str:
+    """'[2026-09-25 12:00:00] Kaia: x' inside a message -> '(2026-09-25 12:00:00) Kaia: x'."""
+    return _TURN_STAMP.sub(r"(\1)", text or "")
+
+
 class RAGPersistenceMixin:
     """Mixin class providing persistence, logging, and state management methods for KaiaRAG."""
 
@@ -226,6 +234,11 @@ class RAGPersistenceMixin:
         # Sanitize internal tags before logging to prevent RAG pollution
         message_content = sanitize_log_content(message_content, users_words=True)
         bot_response = sanitize_log_content(bot_response)
+        # A pasted log line inside a message would read back as a turn of its
+        # own: every reader splits on "[stamp] Name:" at a line start. Quoted
+        # by her, it would be a turn put in someone else's mouth.
+        message_content = _defuse_turn_stamps(message_content)
+        bot_response = _defuse_turn_stamps(bot_response)
 
         timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # Skip empty Kaia responses (passive observation / reaction-only)
@@ -350,6 +363,7 @@ class RAGPersistenceMixin:
                 try:
                     itype_dir = os.path.join(self.persist_dir, itype)
                     temp_dir = f"{itype_dir}_tmp"
+                    old_dir = f"{itype_dir}_old"
                     
                     # 1. Clean up stale temp dir if it exists
                     if os.path.exists(temp_dir):
@@ -359,7 +373,6 @@ class RAGPersistenceMixin:
                     index.storage_context.persist(persist_dir=temp_dir)
                     
                     # 3. Atomic swap (near-atomic on most filesystems)
-                    old_dir = f"{itype_dir}_old"
                     if os.path.exists(old_dir):
                         shutil.rmtree(old_dir)
                     
@@ -376,6 +389,13 @@ class RAGPersistenceMixin:
                 except Exception as e:
                     failed.append(itype)
                     log_error(f"Failed to persist {itype} index: {e}")
+                    # Moved aside and not replaced: put the last good copy back,
+                    # or the next boot finds no index at all.
+                    try:
+                        if not os.path.exists(itype_dir) and os.path.exists(old_dir):
+                            os.rename(old_dir, itype_dir)
+                    except Exception as restore_err:
+                        log_error(f"Could not restore {itype} index from {old_dir}: {restore_err}")
         finally:
             self._data_lock.release()
 
