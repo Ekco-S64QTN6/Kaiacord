@@ -156,7 +156,11 @@ def _tonight(here: Observer) -> dict:
     today = datetime.now(timezone.utc)
     showers = []
     for name, (m, d), window, zhr in SHOWERS:
-        peak = today.replace(month=m, day=d, hour=0, minute=0, second=0, microsecond=0)
+        # The nearest year's peak: the Quadrantids peak on 3 Jan and are
+        # already active on 31 Dec, which this year's peak put 362 days away.
+        peaks = [today.replace(year=today.year + k, month=m, day=d, hour=0, minute=0, second=0, microsecond=0)
+                 for k in (-1, 0, 1)]
+        peak = min(peaks, key=lambda p: abs((today - p).days))
         delta = (today - peak).days
         if abs(delta) <= window:
             showers.append((name, peak, zhr, delta))
