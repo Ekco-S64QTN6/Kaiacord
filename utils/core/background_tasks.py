@@ -978,11 +978,17 @@ class CoreTaskManager:
                                 sheet["flags"]["caravan_gear_bought"] = False
                                 modified = True
 
-                            # Clear stale calendar buff flags
-                            for stale_key in ("_winter_resolve_applied", "_new_year_applied"):
-                                if stale_key in sheet:
-                                    sheet.pop(stale_key)
-                                    modified = True
+                            # Clear stale calendar buff flags. First Day of Winter's
+                            # max HP is "+5 today": take it back with its flag.
+                            if sheet.pop("_winter_resolve_applied", None):
+                                from utils.ttrpg.calendar import SPECIAL_DAYS
+                                _wr = next((d.get("buff_value", 0) for d in SPECIAL_DAYS.values()
+                                            if d.get("buff") == "winter_resolve"), 0)
+                                sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - _wr)
+                                sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
+                                modified = True
+                            if sheet.pop("_new_year_applied", None) is not None:
+                                modified = True
 
                             # Clear temporary conditions at dawn
                             from utils.ttrpg.progression import PERMANENT_CONDITIONS
