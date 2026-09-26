@@ -57,8 +57,20 @@ def measure(audio: np.ndarray, freq_hz: int) -> Probe:
     return Probe(freq_hz, float(np.sqrt((a ** 2).mean())), float(spec[f > 3000].sum() / total))
 
 
+def ppm() -> int:
+    """The dongle's frequency correction (radio.local.ppm)."""
+    from utils.infrastructure.system.yaml_config import config
+    try:
+        return int(config.get("radio.local.ppm", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _fm_cmd(freq_hz: int, gain: int = DEFAULT_GAIN, mode: str = "fm") -> list[str]:
-    return ["rtl_fm", "-f", str(int(freq_hz)), "-M", mode, "-s", str(SAMPLE_RATE), "-g", str(gain), "-"]
+    cmd = ["rtl_fm", "-f", str(int(freq_hz)), "-M", mode, "-s", str(SAMPLE_RATE), "-g", str(gain)]
+    if ppm():
+        cmd += ["-p", str(ppm())]
+    return cmd + ["-"]
 
 
 def open_stream(freq_hz: int, gain: int = DEFAULT_GAIN, mode: str = "fm") -> subprocess.Popen:

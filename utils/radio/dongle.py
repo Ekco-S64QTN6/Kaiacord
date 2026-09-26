@@ -27,6 +27,7 @@ def _lib():
     lib.rtlsdr_set_tuner_gain_mode.argtypes = [p, ctypes.c_int]
     lib.rtlsdr_set_tuner_gain.argtypes = [p, ctypes.c_int]
     lib.rtlsdr_set_agc_mode.argtypes = [p, ctypes.c_int]
+    lib.rtlsdr_set_freq_correction.argtypes = [p, ctypes.c_int]
     lib.rtlsdr_reset_buffer.argtypes = [p]
     lib.rtlsdr_read_sync.argtypes = [p, ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
     return lib
@@ -35,7 +36,7 @@ def _lib():
 class Dongle:
     """One RTL-SDR, opened for the life of the object."""
 
-    def __init__(self, index: int = 0, sample_rate: int = 2_400_000, gain_db: float = 40.0):
+    def __init__(self, index: int = 0, sample_rate: int = 2_400_000, gain_db: float = 40.0, ppm: int = 0):
         self.lib = _lib()
         if self.lib.rtlsdr_get_device_count() < 1:
             raise RuntimeError("no RTL-SDR found")
@@ -44,6 +45,10 @@ class Dongle:
             raise RuntimeError("the RTL-SDR is busy or could not be opened")
         self.sample_rate = sample_rate
         self.lib.rtlsdr_set_sample_rate(self.dev, sample_rate)
+        # The crystal's error, in parts per million (radio.local.ppm): a cheap
+        # dongle can sit tens of kHz off at UHF without it.
+        if ppm:
+            self.lib.rtlsdr_set_freq_correction(self.dev, int(ppm))
         self.lib.rtlsdr_set_agc_mode(self.dev, 0)
         self.lib.rtlsdr_set_tuner_gain_mode(self.dev, 1)          # manual
         self.lib.rtlsdr_set_tuner_gain(self.dev, int(gain_db * 10))

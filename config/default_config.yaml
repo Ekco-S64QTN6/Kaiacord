@@ -774,6 +774,10 @@ radio:
     enabled: true
     hours: "00:00-06:00"
     gain: 40
+    # The dongle's crystal error in parts per million. A generic RTL2832U can
+    # sit tens of ppm off (50 ppm is 22 kHz at 444 MHz); measure it against a
+    # known carrier such as NOAA and set it here.
+    ppm: 0
     # Local repeaters to name in the ledger (RepeaterBook lists yours):
     #   - {mhz: 146.94, label: "W1XYZ repeater (FM, 100.0)", mode: fm}
     #   - {mhz: 443.4, label: "W1XYZ repeater (DMR)", mode: digital}

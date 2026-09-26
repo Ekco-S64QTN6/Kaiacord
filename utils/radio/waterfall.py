@@ -210,7 +210,8 @@ class Watcher:
         worker = threading.Thread(target=self._worker, name="scanner-catches", daemon=True)
         worker.start()
         try:
-            with Dongle(sample_rate=FS, gain_db=self.gain_db) as d:
+            from utils.radio.rtl import ppm
+            with Dongle(sample_rate=FS, gain_db=self.gain_db, ppm=ppm()) as d:
                 while not self.stop.is_set():
                     for center in self._schedule():
                         if self.stop.is_set():
