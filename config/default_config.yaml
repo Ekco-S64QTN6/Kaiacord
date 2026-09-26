@@ -742,3 +742,39 @@ filters:
     - gymconserve
     - kristinoemnclature
     - gnowmaticflux
+
+# ============================================================================
+# Radio — shortwave feeds, KiwiSDR listening, and the local RTL-SDR scanner
+# ============================================================================
+radio:
+  # Master switch for !skyking, !numbers, !radio and the scheduled listens.
+  enabled: true
+  # Feeds (eam.watch, Priyom) are fetched at most this often.
+  poll_hours: 6
+  # Scheduled KiwiSDR recordings: HFGCS windows (UTC) and number stations.
+  listen: true
+  hfgcs_windows_utc: ["03:10", "09:10", "15:10", "21:10"]
+  hfgcs_window_minutes: 20
+  # Number stations followed, rotated: one recording per station a day.
+  follow: ["E07", "V07", "S11A", "M12", "E11"]
+  numbers_per_day: 6
+  # UVB-76 calibration samples at night, kept in memory/radio/uvb76/.
+  uvb76_samples: true
+  # Catches are posted here; set post_clips false to keep them to the log.
+  post_channel: kaia-opolis
+  post_clips: true
+  live_max_minutes: 60
+  overnight_log: true
+  overnight_time: "08:30"
+
+  # The local RTL-SDR (utils/radio/scanner.py): a waterfall watch over the
+  # voice bands during these local hours, writing what it catches to
+  # memory/radio/local_ledger.sqlite3. !scanner shows it and plays presets.
+  local:
+    enabled: true
+    hours: "00:00-06:00"
+    gain: 40
+    # Local repeaters to name in the ledger (RepeaterBook lists yours):
+    #   - {mhz: 146.94, label: "W1XYZ repeater (FM, 100.0)", mode: fm}
+    #   - {mhz: 443.4, label: "W1XYZ repeater (DMR)", mode: digital}
+    channels: []

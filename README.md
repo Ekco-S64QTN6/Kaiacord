@@ -281,7 +281,7 @@ captured into Discord voice. No model is involved and no VRAM is used.
 
 ### Night shift: radio and sky
 
-`!nightshift` lists every command in this set.
+`!nightshift` opens a control panel with a button for every one of these, including the live receivers; `!nightshift list` lists the commands.
 
 | Command | What it does |
 |:--|:--|
@@ -292,6 +292,7 @@ captured into Discord voice. No model is involved and no VRAM is used.
 | `!tacamo` | Whether the E-6B and E-4B relay aircraft are broadcasting their position |
 | `!beacons` | Which continents she can hear on the worldwide beacon chain |
 | `!overnight` | A write-up of what her night shift saw (she also posts one each morning) |
+| `!scanner` | The local RTL-SDR, if one is attached: a waterfall watch over the local voice bands from midnight to 6, a ledger of every frequency it hears and when, presets to play live in voice, and recordings to replay |
 | `!iss` | The station, its crew, and its next visible pass over you |
 | `!nasa` · `!earth` | The astronomy picture of the day, the Deep Space Network, and the whole sunlit Earth |
 | `!spaceweather` | The sun, geomagnetic storms and HF conditions |

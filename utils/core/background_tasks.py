@@ -1946,6 +1946,12 @@ class CoreTaskManager:
             except Exception as e:
                 log_error(f"[radio] scheduled listen failed to start: {e}")
             transcribe.release_if_idle()
+            # The local RTL-SDR's nightly waterfall watch (utils/radio/scanner.py).
+            try:
+                from utils.radio import scanner
+                scanner.tick()
+            except Exception as e:
+                log_error(f"[scanner] tick failed: {e}")
             try:
                 from utils.radio import overnight
                 if bot and config.get("radio.overnight_log", True) and \

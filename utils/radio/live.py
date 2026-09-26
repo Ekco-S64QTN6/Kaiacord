@@ -49,6 +49,7 @@ class LiveSession:
     started: float = field(default_factory=time.time)
     watchdog: Optional[asyncio.Task] = None
     reader: Optional[_CountingReader] = None
+    local: bool = False          # the local RTL-SDR, whose device lock this session holds
 
     @property
     def minutes(self) -> float:
@@ -101,6 +102,78 @@ async def start(channel, khz: float, mode: str, region: str, label: str, request
     return session
 
 
+async def start_local(channel, freq_hz: int, label: str, requested_by: str, gain: int = 40) -> LiveSession:
+    """Play the local RTL-SDR on `freq_hz` into a voice channel. Holds the
+    dongle for the session, so the nightly scanner pauses until it ends."""
+    from utils.radio import rtl
+    guild_id = channel.guild.id
+    if guild_id in _sessions:
+        await stop(guild_id)
+    rtl.YIELD.set()                      # the waterfall watch gives the dongle up within a hop
+    try:
+        await asyncio.wait_for(rtl.DEVICE.acquire(), 90)
+    except asyncio.TimeoutError:
+        raise RuntimeError("the scanner is mid-recording; try again in a minute")
+    finally:
+        rtl.YIELD.clear()
+    try:
+        proc = rtl.open_stream(freq_hz, gain)
+        if not await asyncio.to_thread(kiwi.first_audio, proc):
+            kiwi.close_stream(proc)
+            raise RuntimeError("the RTL-SDR didn't start streaming")
+        reader = _CountingReader(proc.stdout)
+        source = discord.FFmpegPCMAudio(reader, pipe=True, before_options=f"-f s16le -ar {rtl.SAMPLE_RATE} -ac 1",
+                                        stderr=subprocess.DEVNULL)
+        vc = channel.guild.voice_client
+        if vc and vc.is_connected():
+            await vc.move_to(channel)
+        else:
+            vc = await channel.connect(timeout=30.0, reconnect=True)
+        vc.play(source, after=lambda e: log_error(f"[radio] playback error: {e}") if e else None)
+    except Exception:
+        rtl.DEVICE.release()
+        raise
+    session = LiveSession(guild_id, vc, proc, None, freq_hz / 1e3, "fm", label, requested_by,
+                          reader=reader, local=True)
+    session.watchdog = asyncio.create_task(_watch(session))
+    _sessions[guild_id] = session
+    log_action(f"[radio] local {label} {freq_hz / 1e6:.4f} MHz in {channel.name} for {requested_by}")
+    return session
+
+
+async def play_clip(channel, path, label: str, requested_by: str) -> None:
+    """Play a recorded clip into a voice channel, then leave. A live session
+    in that guild is stopped first."""
+    from pathlib import Path as _Path
+    path = _Path(path)
+    if not path.is_file():
+        raise RuntimeError("that recording is no longer on disk")
+    guild_id = channel.guild.id
+    if guild_id in _sessions:
+        await stop(guild_id)
+    vc = channel.guild.voice_client
+    if vc and vc.is_connected():
+        if vc.is_playing():
+            vc.stop()
+        await vc.move_to(channel)
+    else:
+        vc = await channel.connect(timeout=30.0, reconnect=True)
+    loop = asyncio.get_running_loop()
+
+    def _done(err):
+        if err:
+            log_error(f"[radio] clip playback error: {err}")
+        # Leave once the clip ends, unless something else started playing.
+        async def _leave():
+            await asyncio.sleep(2)
+            if vc.is_connected() and not vc.is_playing() and guild_id not in _sessions:
+                await vc.disconnect(force=True)
+        asyncio.run_coroutine_threadsafe(_leave(), loop)
+
+    vc.play(discord.FFmpegPCMAudio(str(path), stderr=subprocess.DEVNULL), after=_done)
+    log_action(f"[radio] playing clip {path.name} ({label}) in {channel.name} for {requested_by}")
+
+
 async def _watch(s: LiveSession) -> None:
     limit = float(config.get("radio.live_max_minutes", 60))
     empty_checks = 0
@@ -139,6 +212,10 @@ async def stop(guild_id: int) -> bool:
             await s.vc.disconnect(force=True)
         if s.watchdog and s.watchdog is not asyncio.current_task():
             s.watchdog.cancel()
+        if s.local:
+            from utils.radio import rtl
+            if rtl.DEVICE.locked():
+                rtl.DEVICE.release()
     log_action(f"[radio] live session ended after {s.minutes:.0f} min")
     return True
 

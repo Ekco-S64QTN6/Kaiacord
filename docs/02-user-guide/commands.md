@@ -17,9 +17,10 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!radio [hfgcs \| <kHz> \| <station> \| log [n] \| listen \| off]` | What Kaia has heard on shortwave; play a receiver live in voice | All |
 | `!tacamo` | Are the EAM relay planes (E-6B, E-4B) broadcasting on ADS-B? | All |
 | `!buzzer [off]` | UVB-76, The Buzzer, live in your voice channel (`!uvb76`) | All |
-| `!nightshift` | Every radio and sky command in one list | All |
+| `!nightshift` | A control panel: a button for every radio and sky feature, live receivers included (`!nightshift list` for the commands) | All |
 | `!beacons [20\|17\|15\|12\|10]` | Kaia listens to the worldwide HF beacon chain; which continents she can hear | All |
 | `!overnight` | Kaia writes up what her night shift saw, from real data, now | All |
+| `!scanner` | The local RTL-SDR scanner: what it caught overnight, presets to play live in voice, recordings to replay | All |
 | `!iss` | Where the space station is, who's in orbit, the next visible pass | All |
 | `!nasa` | NASA's picture of the day; who the Deep Space Network is talking to now (`!apod`, `!dsn`) | All |
 | `!earth` | The latest full-Earth image from DSCOVR | All |
