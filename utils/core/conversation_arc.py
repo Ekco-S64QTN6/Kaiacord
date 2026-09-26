@@ -61,7 +61,10 @@ def _stamps(turns: Iterable[dict]) -> list[float]:
 
 def _minutes(seconds: float) -> str:
     m = int(seconds // 60)
-    return f"{m} minutes" if m < 90 else f"{m // 60} hours"
+    if m < 90:
+        return f"{m} minutes"
+    h = round(m / 60)
+    return f"{h} hour{'s' if h != 1 else ''}"
 
 
 def note_for(turns: Iterable[dict], own_words: str, now: Optional[float] = None) -> str:
