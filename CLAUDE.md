@@ -27,7 +27,7 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 | **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X, each behind its own enable flag. |
 | **Monitoring** | `utils/infrastructure/monitoring/` | Curses dashboard (`btop_dashboard_v2.py`). |
 | **News** | `utils/news/` | Daily briefs filed into `knowledge_base/news/`. The generator (`tools/maintenance/update_kaia_news.py`) calls the Gemini API with Google Search grounding — the only path that sends anything *of hers* off the machine. `utils/news/` itself only reads what was filed. |
-| **Radio** | `utils/radio/` | `!skyking` (military EAMs from eam.watch), `!numbers` (number-station schedule from Priyom), `!radio` (scheduled KiwiSDR recording, CPU transcription, live listening in voice). Feeds polled every `radio.poll_hours` (6); history in `memory/radio/`. See §7. |
+| **Radio** | `utils/radio/` | `!skyking` (military EAMs from eam.watch), `!numbers` (number-station schedule from Priyom), `!radio` (scheduled KiwiSDR recording, CPU transcription, live listening in voice), `!scanner` (a local RTL-SDR's nightly waterfall watch and frequency ledger). Feeds polled every `radio.poll_hours` (6); history in `memory/radio/`. `!nightshift` is a button panel over all of it. See §7. |
 | **Sky** | `utils/sky/` | `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`. Public feeds fetched on request and cached per feed; passes and the night sky computed locally (Skyfield). Every radio/sky box ends with the theme's small print from `utils/commands/nightshift.py`. |
 | **LoRA fine-tune** | `finetune/` | Numbered pipeline (`01_convert_logs.py` → `05c_evaluate_persona.py`), driven by `scripts/run_finetune.sh`. Trains a persona adapter on her own logs and exports GGUF for Ollama. Off the runtime path — see [§16](#16-fine-tuning). |
 
@@ -62,8 +62,9 @@ number has been stale in three files at once — CLAUDE.md, README and CONTRIBUT
 different one. Run it and read the tail; what matters is that nothing *failed*, not that the count
 matches a doc.
 
-The no-external-services invocation is the default because only **4** of ~1,790 tests need Ollama
-or a GPU. The rest of what it deselects is the 82 marked `slow`. Two of the four were unmarked
+The no-external-services invocation is the default because only **2** of ~2,450 tests need Ollama
+or a GPU (checked 26 Sept 2026 — take the figure from `--collect-only -m "ollama or gpu"`, not
+here). The rest of what it deselects is the ~46 marked `slow`. Two such tests were once unmarked
 until September 2026 and ran on every "no external services" invocation, embedding through the
 bot's own live Ollama — Ollama's journal (`journalctl -u ollama`) is where that showed up. A test
 that touches the daemon is marked `ollama`, whatever else it does. The full `pytest -q` additionally
@@ -250,6 +251,13 @@ quoting Kaia's own lines back as theirs, and memory anchors injecting "you remem
 
 The 2000-character cap in `sanitize_prompt` applies to what the user typed. Enricher blocks
 carry their own caps (`url_max_content_length`); cutting the whole string cut the page.
+
+### Direct messages stay private
+
+A DM is answered, but it is logged to `memory/dm_logs/<user id>.md` (`utils/core/dm_log.py`), never to
+`knowledge_base/user_logs/`, which retrieval serves to every public reply and the proactive engine
+quotes into the busiest channel. DM turns in channel memory carry `"private": True`, and anything
+that reads across channels (the monologue) must skip them.
 
 ### Token budget
 
@@ -531,6 +539,28 @@ against eam.watch's human copies (`watch.cross_check`), not claimed. Small and m
 models, raw audio and the VAD filter all hallucinated on HF audio; don't "optimise" to them
 without re-running that comparison.
 
+**The local scanner** (`utils/radio/scanner.py`, `waterfall.py`, `ledger.py`, `dongle.py`) drives an
+RTL-SDR attached to the bot. During `radio.local.hours` it hops the voice bands (a pass every ~2 s),
+holds on anything standing 10 dB over its own rolling floor, records it, and classifies it — voice,
+data or carrier — into `memory/radio/local_ledger.sqlite3`. `radio.local.nets` pins it to one channel
+for a net's window. Rules, each from something that broke:
+
+- **The watcher runs in a forked child with fds 1 and 2 on /dev/null.** librtlsdr prints its tuner
+  chatter from C straight to fd 2, beneath Python's logging, and destroyed the curses dashboard.
+  Fork, not spawn: spawn re-imports `Kaiacord.py`, which imports the whole bot.
+- **librtlsdr through ctypes, not pyrtlsdr.** pyrtlsdr 0.4/0.5 need `rtlsdr_set_dithering`, which the
+  distribution's librtlsdr 2.0.3 does not export.
+- **One dongle.** `rtl.DEVICE` is held by the watch; a live listen sets `rtl.YIELD` and the watch
+  gives it up within a hop. Local repeaters and nets are deployment facts and live in config,
+  never in code or docs.
+- **Transcription on FM static hallucinates.** Auto-detected language on a bare carrier produced a
+  Norwegian subtitle credit three times in an hour. The scanner transcribes in English through
+  `transcribe.transcribe_speech`, which keeps only segments Whisper scores as speech. Human repeater
+  voice has not yet been measured against the 90% bar; NOAA scored 100% on every sentence present in
+  the NWS text.
+- **discord.py needs a real file for FFmpeg's stderr.** `subprocess.DEVNULL` is an int; it fails
+  `.fileno()` and gets piped through a thread that crashes on `.write()` every play.
+
 Strudel is AGPL-3.0 and is **not vendored**. `tools/maintenance/fetch_music_assets.py` fetches it
 as its own unmodified bundle at install time (needs `ffmpeg` and `pactl`), and this project only
 drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source into the tree.
@@ -620,6 +650,10 @@ Every `!` command answers in the embed box `!help` uses — `utils/commands/embe
 around such text is one fence away from breaking: `!explain 1` on a query that contained a
 pasted ```` ```ansi ```` block closed the block early and rendered the rest as escape codes.
 `test_command_handlers_reply_in_the_box_not_raw_code_blocks` keeps new ones out.
+
+`!nightshift` and `!scanner` are button panels (`discord.ui.View`). A button runs the same handler
+the typed command does, with a message-shaped stand-in for the click (`nightshift._Click`), so a
+feature has one code path whether it is clicked or typed.
 
 ---
 
@@ -736,7 +770,8 @@ message actually sent, a guard's verdict against its own return value.
 - **Layout is documented in `knowledge_base/README.md`** — read it before adding a folder. The
   top level was flattened from sixteen folders to twelve in September 2026 (`corrupt_files` +
   `quarantine` → `_quarantine`, `snapshots` + `system_logs` → `runtime`, `blogs` and
-  `deep_dive_reports` → `documents`, `documents/tech_updates` → `news/tech_updates`). A new folder
+  `deep_dive_reports` → `documents`, `documents/tech_updates` → `news/tech_updates`); `kaia_notes/`
+  (her own notes, deliberately not an ingress destination) later made thirteen. A new folder
   has to be named in `process_ingress.ALLOWED_FOLDERS`, `knowledge_boundary` and
   `enrich_metadata.knowledge_dirs` or it half-works silently — a sidecar naming a folder absent
   from the allow-list is discarded and the file is filed as a document instead. That is not

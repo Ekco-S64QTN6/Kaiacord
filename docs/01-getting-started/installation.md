@@ -18,6 +18,8 @@ Complete installation guide for Kaiacord v2.0.
 ### Optional
 - **Gemini API Key**: For news generation feature
 - **SSD Storage**: Recommended for faster model loading
+- **ffmpeg, pactl**: `!music` and live radio in voice; `python tools/maintenance/fetch_music_assets.py` and `fetch_radio_assets.py` fetch Strudel and kiwiclient
+- **An RTL-SDR dongle** and the `rtl-sdr` package (librtlsdr, `rtl_fm`): the local `!scanner`. Name your local repeaters and nets under `radio.local` in `kaia.yaml`
 
 ---
 

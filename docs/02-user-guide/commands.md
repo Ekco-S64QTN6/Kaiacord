@@ -59,16 +59,19 @@ Displays Kaia's gamified memory analytics, affinity bond scores, active beliefs,
 Generates a fractal flame artwork using the Electric Sheep algorithm (CPU-rendered, NumPy/SciPy). Kaia provides commentary on each piece. Features 20 variation functions, 10 color palettes, and adaptive density estimation.
 
 ### ⚔️ RPG & Fishing (`!rpg`)
-Opens the Aethelgard TTRPG interface — a full persistent RPG with turn-based combat, 10 advanced classes, a 77-floor mega-dungeon, housing, farming, pets, alchemy, and a 253-species fishing minigame. Python handles all game math; Kaia narrates outcomes.
+Opens the Aethelgard TTRPG interface — a full persistent RPG with turn-based combat, 10 advanced classes, a 77-floor mega-dungeon, housing, farming, pets, alchemy, and a 248-species fishing minigame. Python handles all game math; Kaia narrates outcomes.
 
 Key subcommands:
-- `!rpg new <Name> <Class>` — Create a character (Warrior/Ranger/Mage/Rogue/Cleric)
+- `!rpg new <Name> <Race> <Class>` — Create a character (Warrior/Ranger/Mage/Rogue/Cleric)
 - `!rpg sheet` — View character sheet
 - `!rpg hunt` — Hunt for monsters in current region
-- `!rpg move <direction>` — Travel the world map
+- `!rpg go <place>` — Travel (`!rpg map` for the world map)
 - `!rpg dungeon enter` — Enter a dungeon or Spine of the World floor
-- `!rpg buy/sell` — Shop interactions across Hemlock, Pell's, and Caravan
-- `!rpg home/farm/pet` — Estate, crop harvesting, and companion management
+- `!rpg buy/sell` — Shop at Hemlock's store and the traveling caravan (each sells only its own stock)
+- `!rpg enhance [slot]` — At Hemlock's: rework equipped gear +1 to +5 for escalating gil
+- `!rpg bank` / `bank_deposit` / `bank_withdraw` — Balance anywhere; deposits and withdrawals at the Oakhaven Bank, or at home with a vault chest
+- `!rpg donate <gil>` — At the town square: pool gil toward reinforcing the walls (a week of +2 defence in noon raids)
+- `!rpg home` — Your estate; farming and pets open from its buttons (`farm_view`, `plant_crop`, `pet_shop`)
 - `!rpg fish` / `!rpg fish_shop` / `!rpg sell_catch` — Rod-based fishing economy
 
 ### 📰 News (`!news [category]`)
@@ -106,7 +109,11 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   posts one to `#kaia-opolis` on her own: what she recorded and copied, what eam.watch logged,
   the sun, the closest asteroid. Only facts gathered in Python go in; a draft containing a number
   no fact has is rejected.
-- `!nightshift` — the whole theme in one box.
+- `!nightshift` — a panel with a button for every command here, including the live receivers.
+- `!scanner` — the local RTL-SDR, if one is attached: from midnight to 6 it hops the local voice bands
+  and records anything that keys up into a ledger of frequencies and active hours. The panel has a
+  presets dropdown, ▶ Listen (live in voice), 🎧 Listen along (hear her scan), and History with
+  recordings to replay. Nets listed in `radio.local.nets` are watched for their whole window.
 
 Recording and transcription need a one-time `python tools/maintenance/fetch_radio_assets.py`.
 
@@ -125,7 +132,7 @@ distances, light-time, asteroid sizes — is computed, not narrated.
 
 `!iss` passes and `!sky` need `sky.location: "lat, lon"` in `config/kaia.yaml` — a city is enough;
 nothing guesses a location. `NASA_API_KEY` in `.env` is optional (the demo key is rate-limited).
-`!nightshift` lists every command in this theme.
+`!nightshift` has a button for each of these.
 
 ### 📥 Download (`!download <url>`)
 Fetches content from a URL, converts it to Markdown, and **stages** it in
@@ -253,7 +260,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!beacons`, `!overnight`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!quip`, `!forum link` |
+| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!scanner`, `!beacons`, `!overnight`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!quip`, `!forum link` |
 | **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!stance`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).

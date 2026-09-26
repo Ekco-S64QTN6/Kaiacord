@@ -163,13 +163,13 @@ All navigation is button-driven. Players use the HUD buttons or `!rpg go <locati
 
 | Location | Key Services |
 |:--|:--|
-| **Oakhaven** | Look, map, calendar, weather, notices, quests, deliver |
-| **Stone Hearth** | Rest (5g), drink (+3 temp HP, 2g), gamble (10g), rumor, talk NPCs |
-| **Hemlock's Store** | Shop, buy, sell, inventory, talk |
+| **Oakhaven** | Look, map, calendar, weather, notices, quests, deliver, `donate` (town walls) |
+| **Stone Hearth** | Rest (5g), drink (+3 temp HP, 2g), gamble (10g; net winnings capped at 100g a day), rumor, talk NPCs |
+| **Hemlock's Store** | Shop (only what he stocks), buy, sell, `enhance` (+1 to +5), inventory, talk |
 | **Shrine** | Pray (Blessed), offer Gil→XP, fountain (full heal 1/day), look flame/altar |
 | **Watchtower** | Scout (1/day), talk guard |
 | **Maren's Hut** | Brew alchemy recipes, talk Maren |
-| **Bank** | Deposit, withdraw (protects Gil from blackout loss) |
+| **Bank** | Deposit, withdraw (protects Gil from blackout loss). Only here, or at home with an Ironbound Vault Chest; the balance can be checked anywhere. |
 | **Housing District** | Buy a home, `!rpg home` (Farming, Pets, Decorate) |
 | **Tricklebrook Pond** | `!rpg fish`, `!rpg fish_shop` (Buy bait/poles) |
 | **Grimstone (Lore-only)** | Unimplemented overworld location |
@@ -292,7 +292,7 @@ A massive 77-floor mega-dungeon located past Grimstone. Unlike procedural dungeo
 **Every dungeon is guaranteed ≥1 shrine room.** If RNG doesn't roll one, an empty room converts.
 
 ### Secret Shrine (Quest)
-Some shrine rooms contain a **sealed Aeridorian shrine** with a three-flame seal. Players who've studied the flame and altar at the Oakhaven Shrine (`look flame`, `look altar`) can interact.
+Some shrine rooms contain a **sealed Aeridorian shrine** with a three-flame seal. Players who've studied the flame and altar at the Oakhaven Shrine (`look at the flame` and `look at the altar` both count) can interact.
 
 ### Boss Scaling & Encounters
 Boss stats scale to player level: `0.45x at L1 → 1.0x at L15`. Dungeon Boss ATK caps are tightly calibrated to ensure a ~50-55% hit rate.
@@ -352,6 +352,21 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Warding Salve | Grants `Warded` (reduces next damage hit by 5) |
 | Frenzy Draught | Grants `Frenzied` (+1 extra attack, -2 DEF for one entire combat encounter) |
 | Trap Kit | Lay down a trap in a dungeon room, dealing 2d8 physical damage to next monster |
+
+---
+
+## Endgame Gil Sinks
+
+Most characters reach level 15 with far more gil than anything costs; two sinks stay worth paying for.
+
+- **Hemlock's rework** (`!rpg enhance [slot]`, `utils/ttrpg/enhancement.py`): equipped gear goes
+  +1 to +5. Each level costs half the item's value (at least 1,000g) times the level being bought —
+  top gear to +5 is 150,000g. Armour, headgear, boots and accessories gain +1 DEF per level, through
+  the gear soft-cap and the global DEF cap; weapons alternate +1 ATK and +1 damage. Levels belong to
+  the item key, so they survive unequipping.
+- **The town walls** (`!rpg donate <gil>` at the town square, `utils/ttrpg/town_projects.py`): gil
+  pooled from everyone. At 250,000g the walls are reinforced for 7 days and every noon raid is fought
+  with +2 DEF; a second project extends the week.
 
 ---
 
@@ -443,15 +458,15 @@ NPC dialogue is LLM-generated using `build_npc_prompt()` with context: season, t
 | Sister Maren's Request | Maren | 4 | Kill bandit, talk maren | 200 XP, 50 Gil, potion recipe, silverleaf |
 | The Aeridorian Signal | Elara | 5 | Complete dungeon, talk elara | 500 XP, 200 Gil, lightstone |
 | What Sleeps Beneath | Guard | 7 | Kill frost_wolf, kill_owlbear, talk guard | 1200 XP, 350 Gil, ironbark_tonic |
-| The Merchant's Gambit (Lore-only) | Pell | 8 | Kill bandit, talk Pell | 800 XP, 300 Gil, potion_standard |
-| Shadows Over Grimstone (Lore-only) | Valdric | 9 | Complete dungeon, talk Valdric | 1000 XP, 400 Gil, ironbark_tonic |
+| The Merchant's Gambit | Traveling merchant | 8 | Kill bandit, talk merchant | 800 XP, 300 Gil, potion_standard |
+| Shadows Over Grimstone | Watchtower guard | 9 | Complete dungeon, talk guard | 1000 XP, 400 Gil, ironbark_tonic |
 | The Tithe Collector | Elara | 10 | Kill tithe collector, talk Elara | 1400 XP, 600 Gil, void_band |
 | The Final Silence | Elara | 9 | Pray at shrine, complete dungeon, talk elara | 1500 XP, 500 Gil, amulet_health |
 | The Waking Metal | Elara | 11 | Kill iron_golem, talk elara | 2500 XP, 800 Gil, void_band |
 | The Darkening | Guard | 13 | Kill shadow_lich, talk guard | 3500 XP, 1500 Gil, mox_pearl |
 | The Last Guardian | Elara | 15 | Complete dungeon, talk elara | 5000 XP, 5000 Gil, the_end |
 
-*Note: This is the complete list of 12 quests in the database. Note that the 2 Grimstone-based quests (The Merchant's Gambit, Shadows Over Grimstone) are currently lore-only/inactive as Grimstone is unimplemented.*
+*Note: This is the complete list of 12 quests in the database. The two Grimstone quests were given by Pell and Valdric, who are not NPCs anyone can talk to; since 26 Sept they are offered by the traveling merchant and the Watchtower guard, and a test holds every quest to a real NPC.*
 
 ---
 
@@ -484,7 +499,7 @@ At 12:00 PM (Noon) daily, a random dynamic world event is selected from the acti
 
 | Event | Code Key | Type / Impact | Description |
 |:--|:--|:--|:--|
-| 🔔 Village Alarm | `raid` / `invasion` | Combat (Defense) | Scaled raid on Oakhaven by waves of random themed monsters. Present players defend to earn XP/Gil. |
+| 🔔 Village Alarm | `raid` / `invasion` | Combat (Defense) | Scaled raid on Oakhaven by waves of random themed monsters. Players in town and active in the last 48 hours defend to earn XP/Gil. |
 | 👁️ A Veiled Elder Appears | `oracle` | Buff | Grants a random class check buff (STR +1, DEX +1/2, INT +2, WIS +2, etc.) to present players. |
 | 📬 Moogle Mail Drop | `moogle` / `mail` | Items | Moogles drop random items (Healing Herb, Bandage, Tonic, Aeridor Shard, Lucky Charm) to present players. |
 | 💎 Aeridorian Tremor | `tremor` / `aeridor` | XP | Ruin resonance tremor grants all present players +50 XP. |
@@ -508,7 +523,7 @@ At 12:00 PM (Noon) daily, a random dynamic world event is selected from the acti
 | 📜 Caelindra's Lost Verse | `caelindras_lost_verse` | XP / Lore | Caelindra recites an ancient Aeridorian verse, granting Stone Hearth patrons +15 XP. |
 | 🔭 The Watchtower's Silence | `watchtower_silence` | Scout Mod | On-edge guards share detailed logs; scouts visiting the Watchtower get enhanced scouting reports until the next noon event. |
 | 🧪 Silvani Antidote Run | `silvani_antidote_run` | Items | A Silvani hunter slips into town and leaves a free bandage for each present adventurer. |
-| 🕳️ Bank Alarm — Vault Breach | `iron_magpies_heist` | Combat / Penalty | Bank alarm sounds as an Iron Magpies master thief (Darek Shadow-Bound, Garrett the Vault-Creeper, or Felix "Ghost-Hand" Pryce) breaches the vault. Town defenders pool damage against the boss. Repelling the operative secures the vaults and awards XP/Gil; failing or ignoring the heist results in 5% of all active bank balances stolen as an uncapped Gil sink. |
+| 🕳️ Bank Alarm — Vault Breach | `iron_magpies_heist` | Combat / Penalty | Bank alarm sounds as an Iron Magpies master thief (Darek Shadow-Bound, Garrett the Vault-Creeper, or Felix "Ghost-Hand" Pryce) breaches the vault. Town defenders pool damage against the boss. Repelling the operative secures the vaults and awards XP/Gil; failing or ignoring the heist takes 5% of the bank balance of every character active in the last 48 hours, as an uncapped Gil sink. |
 | 🍃 Whisperwood Boundary Shift | `boundary_shift` | Mechanics Mod | Border stakes shifted; Whisperwood Edge solo hunts shift up by 1 tier (increased difficulty/loot) until the next noon event. |
 | 🫙 The Sealed Wax Jar | `sealed_wax_jar` | Shop Special | Hemlock opens a wax jar, offering Lucky Charms at a special discount (20 Gil) until the next noon event. |
 | 🌙 Elara's Private Ritual | `elaras_private_ritual` | XP / Lore | Oakhaven residents witness Elara performing a shrine ritual, granting +10 XP. |

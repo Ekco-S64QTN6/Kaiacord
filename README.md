@@ -91,8 +91,13 @@ flowchart TD
 - **Relationships.** Per-person event logs across five familiarity stages, from stranger to
   inner circle.
 - **Beliefs.** A store of up to 100 positions with confidence, formed and revised overnight.
-- **Memory anchors.** Up to 100 weighted episodic memories that fade over time, so she can bring
-  up something from weeks ago.
+- **Memory anchors.** Up to 100 weighted episodic memories. The ones she keeps recalling are kept
+  as they age, and one that has faded comes back as a fragment ("something about a boat — I've
+  lost the rest") rather than a reconstruction.
+- **Notes.** When she says she's adding something to her notes, she writes one — what was shared
+  and what she made of it — into `knowledge_base/kaia_notes/`, where retrieval finds it again.
+- **Open threads.** Ideas she has wondered about on more than one day come back in her passing
+  thoughts, and colour her interest when a conversation touches them.
 - **Dreams.** Between 03:00 and 05:00 she reads over the day, writes reflections, extracts
   beliefs and updates a rolling identity journal.
 
@@ -104,10 +109,13 @@ passing thought, and a morning write-up of what her night shift saw. All of thes
 gate with one daily limit, one minimum gap and one set of posting hours, configured in a single
 `unprompted:` block. Each post carries a short label that fits it (*Unspooling* when she revisits
 an earlier view, *Down the rabbit hole* for something she read), and you choose which kinds also
-go to her Bluesky feed.
+go to her Bluesky feed. A dream or a passing thought about someone can become how she opens a
+conversation with them — once a day at most, and only while they're around.
 
-A consistency check compares each reply with her strongest beliefs and her own recent messages,
-and corrects a reply that simply caves before it is sent.
+A consistency check flags a reply that concedes one of her strongest beliefs just because someone
+pushed back, and strips the capitulation before it is sent. Asked about space weather, launches or
+the ISS, she answers from the live feeds; asked for a favourite, from the books and music she has
+actually spent time with.
 
 ---
 
@@ -123,6 +131,7 @@ and corrects a reply that simply caves before it is sent.
 | **[Ollama](https://ollama.com)** | Local inference runtime |
 | **pandoc**, **poppler** | Optional, for importing EPUB and PDF into the knowledge base |
 | **ffmpeg**, **pactl** | Optional, for `!music` and `!radio` in voice |
+| **RTL-SDR** + `rtl-sdr` package | Optional, for `!scanner` (any RTL2832U dongle; librtlsdr and `rtl_fm`) |
 
 ### Setup
 
@@ -181,6 +190,8 @@ Settings resolve in order: environment variables, then `config/kaia.yaml` (your 
 | `radio.hfgcs_windows_utc` / `radio.follow` | four windows / E07, V07, S11a, M12, E11 | When she records the HFGCS net, and which number stations she tunes in for — one recording per station a day, six in all, rotating. |
 | `radio.overnight_time` | `08:30` | When the morning write-up of her night shift is posted. |
 | `radio.poll_hours` | `6` | How often the volunteer radio feeds are polled. |
+| `radio.local.hours` / `gain` / `ppm` | `00:00-06:00` / `40` / `0` | When the local scanner watches (local time), the dongle's gain, and its frequency correction. |
+| `radio.local.channels` / `nets` | empty | Local repeaters to name in the ledger, and nets to sit on for their whole window. |
 
 ### Hardware budget
 
@@ -191,6 +202,7 @@ the chat model and its context.
 |:--|:--|:--:|:--|
 | `gemma3:12b` | Chat, narration, vision | GPU | about 9.1 GB at 24,576 context, 9.4 GB at 32,768 (q8_0 KV cache) |
 | `nomic-embed-text-cpu` | Retrieval embeddings | CPU | about 500 MB of RAM |
+| faster-whisper `large-v3` | Radio transcription (int8) | CPU | about 2.3 GB of RAM while loaded; released after 15 idle minutes |
 
 ---
 
@@ -252,6 +264,9 @@ change; the model only narrates.
 - 369 monsters (44 bosses), 395 pieces of gear across seven tiers plus 58 consumables, 248 fish
   and 12 quests.
 - Ten advanced classes with passives and combat procs; housing, farming, pets and alchemy.
+- Endgame gil sinks: Hemlock reworks gear +1 to +5, and players pool gil into the town walls for
+  a week of stronger defence against the noon raids. Only players active in the last two days are
+  drafted into those raids.
 
 See [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md).
 

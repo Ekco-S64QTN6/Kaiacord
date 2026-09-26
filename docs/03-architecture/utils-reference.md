@@ -33,13 +33,20 @@ Core utility modules used by Kaiacord.
 | `kaia_mood.py` | Persistent emotional state vector (valence/arousal/energy) with 6h decay |
 | `kaia_desires.py` | Needs vector (social/intellectual/creative/rest) driving whether she initiates |
 | `kaia_monologue.py` | Private thought stream from passive channel observation |
-| `kaia_proactive.py` | Autonomous conversation initiation (9-source trigger engine, gated by `kaia_desires`) |
+| `kaia_proactive.py` | Autonomous conversation initiation (10-source trigger engine, gated by `kaia_desires`; `private_thought` opens with someone a dream or thought was about) |
 | `unprompted.py` | The one gate, label picker and sender for everything she says unasked (daily cap, gap, quiet hours, Bluesky cross-post) |
 | `kaia_presence.py` | Mood-aware Discord status driven by emotional arc |
-| `memory_anchors.py` | Dream-extracted thematic anchors (100-cap) for cross-session callbacks |
+| `memory_anchors.py` | Dream-extracted thematic anchors (100-cap) for cross-session callbacks; recalled ones kept as they age, faded ones offered as fragments |
 | `beliefs_store.py` | The single reader/writer of `memory/beliefs.json` (dream engine and chat share one lock) |
 | `relationship_manager.py` | Per-user relationship event store and staging (100-event cap) |
 | `curiosity_scanner.py` | Unresolved mention detection and follow-up generation |
+| `open_threads.py` | Ideas she has wondered about on several days (not about people), fed back to the monologue and to turns that touch them |
+| `conversation_arc.py` | Where a conversation is: a fresh start, well along, or an explicit goodbye |
+| `kaia_tastes.py` | Her real favourites — most-reflected books, sets played, pieces made — for turns that ask |
+| `kaia_notes.py` | Writes `knowledge_base/kaia_notes/<name>.md` when a reply says she is keeping a note |
+| `sky_facts.py` | Live space-weather, launch, asteroid, quake and ISS readings for turns that ask about them |
+| `architecture_claims.py` | Notices a user stating how she works, and adds a soft note |
+| `dm_log.py` | Direct messages logged to `memory/dm_logs/`, never to the shared user logs |
 
 ## Infrastructure (`utils/infrastructure/`)
 
@@ -122,11 +129,15 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `kiwi.py` | KiwiSDR directory, receiver choice, recording, S-meter and live streams |
 | `watch.py` | Scheduled listening: HFGCS windows and followed stations, cross-checked against eam.watch |
 | `transcribe.py`, `phonetic.py` | CPU faster-whisper, and phonetic readbacks merged with `?` where they disagree |
-| `live.py` | `!radio`/`!buzzer` live in a voice channel |
+| `live.py` | `!radio`/`!buzzer`/`!scanner` live in a voice channel, clip playback, and `free_voice` so features hand the connection over |
 | `beacons.py` | The NCDXF beacon chain, judged from the S-meter |
 | `adsb.py` | E-6B/E-4B sightings on adsb.lol |
 | `overnight.py` | The morning write-up: facts gathered in Python, one model call, invented numbers rejected |
 | `log.py` | `memory/radio/log.json` and the clips |
+| `scanner.py` | The local RTL-SDR: nightly schedule, nets, classification (voice/data/carrier), listen-along |
+| `waterfall.py` | The hopping waterfall watch and NBFM demodulator, run in a forked child with its output on /dev/null |
+| `ledger.py` | `memory/radio/local_ledger.sqlite3`: channels with an hour-of-day histogram, and every catch |
+| `dongle.py`, `rtl.py` | librtlsdr through ctypes; the device lock, `rtl_fm` streams and audio measurement |
 
 ## Sky (`utils/sky/`)
 
@@ -158,7 +169,8 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `monster_registry.py` | Monster stat blocks (369 / 44 boss-tier at time of writing — verify with `exec()` + `len(MONSTERS)`) |
 | `equipment_registry.py`| 395 pieces of gear across 7 tiers, plus 58 consumables |
 | `fishing.py` & `fishing_engine.py` | 248 fish species, rods, bait, and fishing economy |
-| `shop.py` | Merchant inventory and pricing (Hemlock, Pell's, Caravan) |
+| `shop.py` | Merchant inventory and pricing (Hemlock, the caravan); a merchant sells only its stock |
+| `enhancement.py` & `town_projects.py` | Endgame gil sinks: gear rework +1..+5, and pooled gil for the town walls |
 | `housing.py`, `farming.py`, `pets.py`, `alchemy.py` | Estate management, harvesting, companions, brewing |
 | `calendar.py` | Seasons, dynamic weather, and 13 special calendar holidays |
 | `quest_registry.py` | 12 progressive quests (L1–L15) |

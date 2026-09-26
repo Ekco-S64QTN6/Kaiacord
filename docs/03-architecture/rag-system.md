@@ -22,7 +22,8 @@ flowchart TD
 The ingestion pipeline handles the processing of files in `knowledge_base/`.
 - **Parallel Processing**: Ingestion runs in a background thread to avoid blocking the Discord loop.
 - **Text Extraction**: Converts PDFs and DOCX files to Markdown using `LlamaIndex` readers.
-- **Chunking**: Splits text into configurable chunks (`config.rag_node_chunk_size`, default 1024) with overlap.
+- **Chunking**: Splits text into configurable chunks (`config.rag_node_chunk_size`, default 1024) with overlap. Smaller book chunks were measured on 26 Sept 2026 (`tools/maintenance/compare_book_chunking.py`): 12/16 known answers in the top five at 1024, 13/16 at 512, 11/16 at 256 — not enough to justify a rebuild.
+- **Her own notes**: `knowledge_base/kaia_notes/` is indexed like the rest of the corpus and reaches the prompt labelled `YOUR OWN NOTE`, so she treats it as something she wrote, not something she read.
 - **Embedding**: Generates vector embeddings using `nomic-embed-text` on **CPU** (`num_gpu: 0`). Zero GPU impact.
 - **Indexing**: Synchronizes both a vector index and a BM25 keyword index.
 

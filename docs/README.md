@@ -23,7 +23,7 @@ Design specifications, system architecture, maintenance procedures, and developm
 *   [System Overview](03-architecture/overview.md) — Monolithic overview of the orchestrator and AppContext dependency hub.
 *   [GPU & VRAM Management](03-architecture/gpu-management.md) — VRAM budgeting constraints, KV cache limits, and CPU model pinning.
 *   [Grounding & RAG Subsystem](03-architecture/rag-system.md) — BM25, dense vector search, Reciprocal Rank Fusion, and custom index storage.
-*   [Intelligence & Decision Layer](03-architecture/intelligence-layer.md) — Dual-path intent classification and self-healing LLM loops.
+*   [Intelligence & Decision Layer](03-architecture/intelligence-layer.md) — Regex intent matching (no classifier model) and self-healing LLM loops.
 *   [Utilities Library](03-architecture/utils-reference.md) — Developer reference to standard helpers and modules.
 
 ### 💻 [04 — Development & Testing](04-development/)

@@ -56,7 +56,7 @@ Kaiacord/
 │   ├── news/                # Reading the filed news briefs
 │   ├── ttrpg/               # Aethelgard: combat, registries, world
 │   ├── audio/               # !music: Strudel engine, tracks, DJ
-│   ├── radio/               # !skyking, !numbers, !radio
+│   ├── radio/               # !skyking, !numbers, !radio, !scanner (local RTL-SDR)
 │   └── sky/                 # !iss, !nasa, !sky and the other sky commands
 ├── config/                  # default_config.yaml and your kaia.yaml overrides
 ├── knowledge_base/          # The corpus: books, documents, news, user logs, dreams
@@ -134,7 +134,7 @@ Kaiacord/
 
 ---
 
-### 7. Cognitive Pipeline (28 Features)
+### 7. Cognitive Pipeline
 
 **Responsibility**: Autonomous personality systems that create the illusion of inner life.
 
@@ -142,7 +142,7 @@ Kaiacord/
 |:-------|:--------|
 | `kaia_mood.py` | Persistent emotional state vector (valence/arousal/energy) with 6h decay |
 | `kaia_monologue.py` | Private thought stream from passive channel observation |
-| `kaia_proactive.py` | Autonomous conversation initiation (9 candidate sources plus the absence check, gated by `kaia_desires`) |
+| `kaia_proactive.py` | Autonomous conversation initiation (10 candidate sources plus the absence check, gated by `kaia_desires`) |
 | `unprompted.py` | The one gate, label picker and sender for everything she says unasked (daily cap, gap, quiet hours, Bluesky cross-post) |
 | `memory_anchors.py` | Dream-extracted thematic anchors (100-cap) for cross-session callbacks |
 | `beliefs_store.py` | The single reader/writer of `memory/beliefs.json` (dream engine and chat share one lock) |
@@ -150,6 +150,7 @@ Kaiacord/
 | `bot_state.py` | Relationship stages (stranger→inner_circle), 100-cap beliefs, user dossiers |
 | `timezone_helper.py` | 4-clock Newsroom Wall timezone engine (12-hour format, IANA DST/leap-year safety) |
 | `curiosity_scanner.py` | Unresolved mention detection and follow-up generation |
+| `open_threads.py`, `conversation_arc.py`, `kaia_tastes.py`, `kaia_notes.py`, `sky_facts.py`, `architecture_claims.py` | Open threads, conversation shape, real favourites, notes she keeps, live sky data, claims about how she works — see [utils-reference](utils-reference.md) |
 
 **Design rule**: Every cognitive injection is wrapped in `try/except Exception: pass`. Cognitive failures never block message generation.
 
@@ -162,7 +163,8 @@ Kaiacord/
 **Features**:
 - Deterministic game math handled entirely by Python; LLM handles narration only.
 - Per-user async locks prevent race conditions during combat or item generation.
-- Full registry system (369 monsters with 44 bosses, 453 equipment items across 7 tiers, 253 fish species) integrated with procedural dungeon generation.
+- Full registry system (369 monsters with 44 bosses, 453 equipment items across 7 tiers, 248 fish species) integrated with procedural dungeon generation.
+- Endgame gil sinks: gear enhancement (+1..+5) and pooled town-wall projects (`enhancement.py`, `town_projects.py`).
 
 ### 9. Project 1999 Forum Client (`utils/social/kaia_forum.py`)
 

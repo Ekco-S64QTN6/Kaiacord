@@ -31,6 +31,7 @@ nobody is talking to her.
 | `repair_kb_book_structure.py` | Repairs structure in already-converted books. |
 | `triage_dreams.py` | Quarantines anything in `kaia_dreams/` that is not a reflection. |
 | `consolidate_dreams.py` | Merges nightly reflections into one document per subject. |
+| `compare_book_chunking.py` | Read-only: scores book retrieval at several chunk sizes on questions with known answers, before any rebuild. |
 | `tidy_troubleshooting.py` | Regenerates frontmatter on the generated troubleshooting guides. |
 
 **User logs and profiles**

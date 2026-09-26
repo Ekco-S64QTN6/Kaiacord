@@ -33,7 +33,7 @@ otherwise, and why the failure surfaces hours later somewhere unrelated.
 ```bash
 # The default invocation — no Ollama, no GPU
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-24: 1,957 passed, 9 skipped, 88 deselected, 1 xfailed.
+# 2026-09-26: 2,407 passed, 1 skipped, 48 deselected, 1 xfailed. Take the count from your own run.
 # Re-run rather than trusting this line — the count moves every phase.
 
 # One file, or one test
