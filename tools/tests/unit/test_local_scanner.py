@@ -65,7 +65,7 @@ def test_scanning_hours(hhmm, inside):
 def test_the_panel_and_presets_render():
     from utils.commands.scanner_handler import history_embed, panel_embed
     embed = panel_embed()
-    assert "Local scanner" in embed.title and "midnight to 6" in embed.description
+    assert "Local scanner" in embed.title and "00:00–06:00" in embed.description
     assert len(ledger.presets()) == 25
     assert "Nothing yet" in history_embed().description
 
