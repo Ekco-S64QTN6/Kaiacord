@@ -10,7 +10,8 @@ from utils.ttrpg.combat_engine import _resolve_combat
 
 
 
-def test_reputation_shop_pricing():
+@patch("utils.ttrpg.shop._in_stock", return_value=True)
+def test_reputation_shop_pricing(_stocked):
     """Test that reputation correctly affects shop prices."""
     sheet = {"gil": 100, "inventory": [], "class": "Warrior", "reputation": 0}
     

@@ -32,7 +32,8 @@ def test_world_state_persistence():
 # 2. Reputation & Shop Tests
 # ============================================================================
 
-def test_shop_reputation_modifiers():
+@patch("utils.ttrpg.shop._in_stock", return_value=True)
+def test_shop_reputation_modifiers(_stocked):
     """Verify reputation affects prices and trade availability."""
     sheet = {"gil": 100, "inventory": [], "reputation": 0, "class": "Warrior"}
     item_id = "iron_sword" # Base value 50

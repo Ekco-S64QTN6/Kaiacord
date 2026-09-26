@@ -2,6 +2,13 @@ import pytest
 from unittest.mock import patch
 from utils.ttrpg.shop import process_purchase, get_shop_inventory
 
+
+@pytest.fixture(autouse=True)
+def _stocked():
+    """These test the one-gear limit, not what the caravan carries today."""
+    with patch("utils.ttrpg.shop._in_stock", return_value=True):
+        yield
+
 def test_caravan_gear_limit():
     """Verify that only one gear item can be bought at the caravan."""
     sheet = {

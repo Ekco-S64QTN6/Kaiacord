@@ -187,6 +187,11 @@ def get_buy_price(item: dict, loc: str = "hemlocks_store", reputation: int = 0,
     return int(base_value * quantity * price_mult)
 
 
+def _in_stock(loc: str, key: str) -> bool:
+    """Whether the merchant at `loc` sells `key` today."""
+    return key in set().union(*(set(d) for d in get_shop_inventory(loc)))
+
+
 def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: int = 0, cha_mod: int = 0) -> tuple[bool, str, dict]:
     """Processes a purchase. Returns (Success, Message, Updated Sheet)"""
     loc = sheet.get("location", "hemlocks_store")
@@ -205,8 +210,7 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     # registry, so without this any item — drop-only endgame gear included —
     # could be bought by name from Hemlock.
     real_key = item["key"]
-    stock = set().union(*(set(d) for d in get_shop_inventory(loc)))
-    if real_key not in stock:
+    if not _in_stock(loc, real_key):
         who = "The merchant" if loc == "caravan" else "Hemlock"
         return False, f"{who} doesn't sell {item['name']}.", sheet
 
