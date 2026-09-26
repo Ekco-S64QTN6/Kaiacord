@@ -262,8 +262,8 @@ class BiteView(discord.ui.View):
         cat = fish.get("category", "common")
         cat_emoji = CATEGORY_EMOJIS.get(cat, "⚪")
         fish_name = fish.get("name", self._fish_key)
-        is_world_record = update_world_records(
-            self._fish_key, self._fish_weight,
+        is_world_record = await asyncio.to_thread(
+            update_world_records, self._fish_key, self._fish_weight,
             sheet["character_name"], self._uid
         )
 
