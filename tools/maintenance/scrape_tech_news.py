@@ -205,11 +205,15 @@ class TechNewsScraper:
         # Generate summary using the formatted body content
         exec_summary = self.generate_executive_summary(body_content)
         
-        # Frontmatter at creation, so the file is never in the corpus without
-        # it; the nightly enrichment still refines summary and keywords.
+        # Frontmatter at creation, with the executive summary as its summary:
+        # the day's digest is rewritten on every scrape, so a summary left for
+        # the nightly enrichment to fill was wiped again a few hours later.
         from utils.core.frontmatter import dump_frontmatter
-        front = dump_frontmatter({"title": f"Tech Digest: {self.today}", "summary": "",
-                                  "keywords": [], "document_type": "Technical Summary"})
+        titles = [i.get("title", "") for i in items[:count]]
+        front = dump_frontmatter({"title": f"Tech Digest: {self.today}",
+                                  "summary": " ".join(exec_summary.split())[:400],
+                                  "keywords": _keywords(titles),
+                                  "document_type": "Technical Summary"})
         header_lines = [
             front,
             f"# Tech Digest: {self.today}",
@@ -239,6 +243,18 @@ class TechNewsScraper:
         write_atomic(output_file, markdown_content)
             
         print(f"💾 Saved {count} technical digest entries to {output_file}")
+
+_KW_STOP = set("""the a an and or of to in on for with from by at is are was be how why what who your you
+we our it its this that these those new now not no vs via about into over after more than show ask hn""".split())
+
+
+def _keywords(titles: list, n: int = 8) -> list:
+    """The most repeated substantive words across the day's headlines."""
+    from collections import Counter
+    words = Counter(w for t in titles for w in {re.sub(r"['’]s$", "", x.strip(".,:;!?\"'()").lower()) for x in t.split()}
+                    if len(w) > 3 and w not in _KW_STOP and not w.isdigit())
+    return [w for w, c in words.most_common(n) if c > 1] or [w for w, _ in words.most_common(3)]
+
 
 if __name__ == "__main__":
     scraper = TechNewsScraper()
