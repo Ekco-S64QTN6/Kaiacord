@@ -1496,6 +1496,7 @@ class DungeonView(discord.ui.View):
         self.add_item(map_btn)
 
         leave_btn = discord.ui.Button(label="🏃 Leave", style=discord.ButtonStyle.danger, row=3)
+        @player_locked(self._uid)
         async def _leave_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
                 try: await interaction.response.send_message("Not your dungeon.", ephemeral=True)
@@ -1503,9 +1504,13 @@ class DungeonView(discord.ui.View):
                 return
             await interaction.response.defer()
             if dungeon.get("is_spine"):
-                from utils.ttrpg.spine_dungeon import save_spine_dungeon
-                dungeon["active"] = False
-                await save_spine_dungeon(self._uid, dungeon)
+                from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon
+                # The floor as it is now: this room's copy is from when its message
+                # was posted, and saving it would undo every room cleared since.
+                current = await load_spine_dungeon(self._uid)
+                if current:
+                    current["active"] = False
+                    await save_spine_dungeon(self._uid, current)
             else:
                 from utils.ttrpg.dungeon import clear_dungeon
                 await clear_dungeon(self._uid)

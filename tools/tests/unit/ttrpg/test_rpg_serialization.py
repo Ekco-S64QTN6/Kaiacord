@@ -201,3 +201,35 @@ def test_the_estate_upgrade_confirms_once_against_the_current_estate(monkeypatch
     assert homes["9"]["tier"] == tiers[1]
     assert 10**7 - sheets["9"]["gil"] == H.HOUSING_TIERS[tiers[1]]["cost"]
     assert "placed after the dialog opened" in homes["9"]["furniture"]
+
+
+def test_leaving_from_an_old_room_message_keeps_the_floor_as_it_is(monkeypatch, tmp_path):
+    """Leave saved the dungeon captured when its room was posted, undoing every
+    room cleared since; the stairs resume that floor."""
+    import copy
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.spine_dungeon as sd
+    import utils.ttrpg.rpg_views as rv
+    monkeypatch.setattr(sd, "SPINE_DIR", str(tmp_path))
+
+    async def go():
+        floor = sd.generate_spine_floor(1, 5)
+        await sd.save_spine_dungeon("42", floor)
+        old_view = rv.DungeonView(None, "42", "p", False, copy.deepcopy(floor))
+        uncleared = next(k for k, r in floor["rooms"].items() if not r.get("cleared"))
+        now = await sd.load_spine_dungeon("42")
+        now["rooms"][uncleared]["cleared"] = True
+        await sd.save_spine_dungeon("42", now)
+
+        leave = next(b for b in old_view.children if "Leave" in (b.label or ""))
+        inter = MagicMock()
+        inter.user.id = "42"
+        inter.response.defer = AsyncMock()
+        inter.followup.send = AsyncMock()
+        await leave.callback(inter)
+        return uncleared
+
+    uncleared = asyncio.run(go())
+    saved = asyncio.run(sd.load_spine_dungeon("42", target_floor=1))
+    assert saved["active"] is False
+    assert saved["rooms"][uncleared]["cleared"] is True
