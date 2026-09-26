@@ -52,3 +52,17 @@ def test_the_demodulator_recovers_the_tone():
     spec = np.abs(np.fft.rfft(audio[wf.AUDIO_FS // 5:]))
     peak = np.fft.rfftfreq(len(audio[wf.AUDIO_FS // 5:]), 1 / wf.AUDIO_FS)[np.argmax(spec[5:]) + 5]
     assert abs(peak - 1000) < 30
+
+
+def test_cooldown_covers_the_channel_and_lengthens_for_a_constant_carrier(monkeypatch):
+    w = wf.Watcher(on_catch=lambda c: None)
+    center = 147_000_000
+    d = FakeDongle(146_860_000, on_after_reads=wf.WARM_VISITS + 1)
+    for _ in range(wf.WARM_VISITS + 3):
+        w._visit(d, center)
+    w.cooldown[146_857_500] = __import__("time").time() + 60      # a neighbouring 2.5 kHz step
+    assert w._visit(d, center) is None
+    monkeypatch.setattr(wf, "MAX_HOLD_S", 0.4)
+    w.cooldown.clear()
+    catch = w._hold(d, center, 146_860_000, 20.0)
+    assert catch.seconds >= 0.4 and w.cooldown[146_860_000] - __import__("time").time() > 600

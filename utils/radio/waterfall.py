@@ -36,6 +36,8 @@ PERSIST = 2
 SILENCE_S = 2.0
 MAX_HOLD_S = 60.0
 COOLDOWN_S = 30.0
+LONG_COOLDOWN_S = 30 * 60        # after a hold that ran the whole MAX_HOLD_S: a near-constant carrier
+COOLDOWN_SPAN_HZ = 12_500        # one channel, whichever 2.5 kHz step a wide signal rounds to
 AUDIO_FS = 12_000
 
 MHZ = 1_000_000
@@ -168,7 +170,8 @@ class Watcher:
             return None
         best = ready[np.argmax(over[ready])]
         freq = int(round(_bin_freqs(center)[best] / 2500) * 2500)
-        if time.time() - self.cooldown.get(freq, 0) < COOLDOWN_S:
+        now = time.time()
+        if any(abs(f - freq) <= COOLDOWN_SPAN_HZ and now < until for f, until in self.cooldown.items()):
             return None
         return freq, float(over[best])
 
@@ -189,7 +192,10 @@ class Watcher:
             quiet = quiet + 0.2 if level < GATE_DB - 3 else 0.0
             if quiet >= SILENCE_S:
                 break
-        self.cooldown[freq] = time.time()
+        held = time.time() - started
+        # Held the whole time: something near-constant (425.950 ran the full
+        # minute eight times in an hour). Leave it for half an hour.
+        self.cooldown[freq] = time.time() + (LONG_COOLDOWN_S if held >= MAX_HOLD_S - 0.5 else COOLDOWN_S)
         s.persist = None
         audio = np.concatenate(chunks) if chunks else np.zeros(0, np.int16)
         return Catch(freq, started, time.time() - started, peak_db, audio)
