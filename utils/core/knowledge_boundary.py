@@ -7,7 +7,11 @@ from utils.infrastructure.logging.kaia_logger import (
 )
 
 class KnowledgeBoundary:
-    """Prevents Kaia from making up information she doesn't know"""
+    """Flags identifiers in the user's message that nothing she knows contains.
+
+    Log-only: the result is stored on the turn (`knowledge_boundary_check`)
+    and nothing reads it. It checks what the user wrote, not what she replies,
+    so it cannot catch her inventing something either."""
     
     def __init__(self, knowledge_base_dir="./knowledge_base", config_path="./config"):
         self.kb_path = knowledge_base_dir
