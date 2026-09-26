@@ -300,12 +300,32 @@ def _file_preformatted(md_path: Path, raw: str, meta: dict, dry_run: bool) -> tu
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     write_atomic(dest, document)
+    _record_name_corrections(dest, meta)
 
     md_path.unlink()
     side = md_path.with_suffix(".meta.json")
     if side.exists():
         side.unlink()
     return True, f"filed as {dest.relative_to(KB)} (preformatted, {len(raw.split())} words)"
+
+
+def _record_name_corrections(dest: Path, meta: dict) -> None:
+    """Keep what !youtube changed from the captions once the sidecar is gone.
+
+    The sidecar carried `name_corrections` so a bad correction could be found
+    and reversed, and filing deleted it — along with the only record of what
+    had been changed."""
+    fixes = meta.get("name_corrections") or {}
+    if not fixes:
+        return
+    import json as _json
+    from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+    try:
+        with open(telemetry_path("memory/transcript_name_corrections.jsonl"), "a", encoding="utf-8") as f:
+            f.write(_json.dumps({"ts": time.time(), "file": str(dest.relative_to(KB)),
+                                 "source_url": meta.get("source_url", ""), "corrections": fixes}) + "\n")
+    except OSError as e:
+        print(f"  ! name corrections for {dest.name} not recorded: {e}")
 
 
 def process_one(md_path: Path, dry_run: bool = False) -> tuple[bool, str]:
