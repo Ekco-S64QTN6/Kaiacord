@@ -149,3 +149,17 @@ def test_idempotent():
     text = "*sighs* the piece in *The Washington Post* covers it (mostly)."
     once = B.harden(text)
     assert B.harden(once) == once
+
+
+def test_a_bold_label_keeps_its_closing_marker():
+    """"**order vs. chaos:** the sandwich" was read as an empty pair after the
+    colon; every label in a list Starkind asked for lost its closing marker,
+    and Discord paired the openers across items."""
+    from utils.core.response_filter import BotSpeakFilter
+    listing = ("the chain, as a list.\n\n"
+               "*   **the pork sandwich (trigger):** a mundane meal.\n"
+               "*   **order vs. chaos:** a symbol of imposed structure.\n"
+               "*   **simplicity and elegance:** early protocols were simple.")
+    out = BotSpeakFilter.harden(listing)
+    assert out.count("**") % 2 == 0
+    assert "**order vs. chaos:** a symbol" in out

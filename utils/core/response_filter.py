@@ -702,9 +702,10 @@ class BotSpeakFilter:
     # so we don't leave things like 'sighs yeah' instead of 'yeah'.
     RE_ASTERISK_BLOCK = re.compile(r' ?(?<!\*)\*(?!\*)([^\*]+?)\*(?!\*) ?', re.IGNORECASE)
     
-    # An empty pair left behind by a strip, not a '**' doing a job: bold
-    # markers and Python's '**kwargs' both butt against a word character.
-    RE_EMPTY_ASTERISKS = re.compile(r'(?<![\*\w])\*\s*\*(?![\*\w])')
+    # An empty pair left behind by a strip, not a '**' doing a job: it stands
+    # alone between whitespace. A closing bold marker follows punctuation
+    # ("**label:** text") and '**kwargs' butts against a word.
+    RE_EMPTY_ASTERISKS = re.compile(r'(?:(?<=\s)|^)\*\s*\*(?=\s|$)', re.MULTILINE)
     RE_DOUBLE_SPACES = re.compile(r' +')
     # A space an excision left between a word and its punctuation. Only after a
     # word, and only horizontal: a row of dots (". .. ...") is content, and a
