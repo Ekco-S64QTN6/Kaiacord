@@ -850,22 +850,27 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
         from utils.ttrpg.look_targets import LOCATION_LOOK_TARGETS
         loc_targets = LOCATION_LOOK_TARGETS.get(loc, {})
         result = loc_targets.get(look_target)
+        matched = look_target if result else None
         if not result:
             # fuzzy match — "the flame" → "flame", "offering" → "offering bowl"
             for key in loc_targets:
                 if key in look_target or look_target in key:
                     result = loc_targets[key]
+                    matched = key
                     break
         if result:
             if callable(result):
                 result = result(sheet)
             embed = discord.Embed(description=result, color=LOCATION_COLORS.get(loc, 0x888888))
             
-            # Secret puzzle trigger
-            if loc == "shrine" and look_target in ("flame", "altar"):
+            # Secret puzzle trigger. Keyed on what matched, not what was typed:
+            # "look at the flame" showed the flame and its "Acquired" line but
+            # recorded nothing, so the secret could only be found by typing
+            # the bare word.
+            if loc == "shrine" and matched in ("flame", "altar"):
                 secrets = sheet.setdefault("secrets", [])
-                if f"look_{look_target}" not in secrets:
-                    secrets.append(f"look_{look_target}")
+                if f"look_{matched}" not in secrets:
+                    secrets.append(f"look_{matched}")
                     embed.set_footer(text="A piece of the pattern clicks into place.")
                     await save(sheet)
                     
