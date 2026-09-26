@@ -1157,6 +1157,16 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8g4. Something she has kept wondering about, when this turn touches
+        # it (utils/core/open_threads.py). Never framed as an answer owed.
+        try:
+            from utils.core import open_threads
+            _open = await asyncio.to_thread(open_threads.note_for, ctx.own_words)
+            if _open:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{_open}"
+        except Exception:
+            pass
+
         # 8h. Micro-mood expressions: deliberately absent. Mood reaches the
         # prompt through two non-overlapping signals only —
         # get_kaia_state_line() (activity/memory/dream, at 8.) and

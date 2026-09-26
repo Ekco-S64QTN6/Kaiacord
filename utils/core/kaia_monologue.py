@@ -139,12 +139,23 @@ class InnerMonologue:
             return None
 
         context_block = "\n".join(window)
+        # Now and then a thought returns to something she hasn't settled
+        # (utils/core/open_threads.py) instead of only reacting to the room.
+        unsettled = ""
+        try:
+            import secrets
+            from utils.core import open_threads
+            if secrets.randbelow(4) == 0:
+                unsettled = open_threads.for_monologue()
+        except Exception:
+            unsettled = ""
         prompt = (
             "You are Kaia, observing recent conversation activity in your Discord server. "
             "Generate ONE brief internal thought — something you've noticed, a pattern, "
             "a connection, or a quiet observation. This is your private inner monologue, "
             "not a message to send.\n\n"
             f"Recent activity:\n{context_block}\n\n"
+            + (f"{unsettled}\n\n" if unsettled else "") +
             "Rules:\n"
             "- One sentence only, lowercase, no quotes\n"
             "- Be specific — reference what you actually observed\n"
