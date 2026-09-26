@@ -229,3 +229,25 @@ forum:
 sky:
   # Observer for visible ISS passes and tonight's sky: a city is enough.
   location: "32.78, -96.80"   # Dallas, Texas
+
+# ============================================================================
+# Radio — the local RTL-SDR scanner
+# ============================================================================
+radio:
+  local:
+    # Local repeaters named in the scanner's ledger (from RepeaterBook).
+    channels:
+      - {mhz: 146.8600, label: "WA5TV repeater (FM, 110.9)", mode: fm}
+      - {mhz: 147.1400, label: "K5SLD repeater (Fusion)", mode: digital}
+      - {mhz: 223.9000, label: "KB5WB repeater (FM, 110.9)", mode: fm}
+      - {mhz: 224.8000, label: "K5SLD repeater (FM, 110.9)", mode: fm}
+      - {mhz: 441.3375, label: "KF5UGN repeater (DMR)", mode: digital}
+      - {mhz: 441.3500, label: "NR5E repeater (FM)", mode: fm}
+      - {mhz: 443.4000, label: "WA5TV repeater (DMR)", mode: digital}
+      - {mhz: 443.6750, label: "AI5TX repeater (FM)", mode: fm}
+      - {mhz: 443.8500, label: "WA5VHU repeater (FM / AllStar)", mode: fm}
+      - {mhz: 444.2000, label: "K5SLD repeater (Fusion)", mode: digital}
+      - {mhz: 444.3750, label: "N5GI repeater (FM, 127.3)", mode: fm}
+      - {mhz: 444.5500, label: "W5PSB repeater (FM)", mode: fm}
+      - {mhz: 927.1500, label: "WA5TV repeater (FM)", mode: fm}
+      - {mhz: 927.7375, label: "W5PSB repeater (FM)", mode: fm}
