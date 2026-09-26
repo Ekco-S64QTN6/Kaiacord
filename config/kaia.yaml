@@ -251,3 +251,14 @@ radio:
       - {mhz: 444.5500, label: "W5PSB repeater (FM)", mode: fm}
       - {mhz: 927.1500, label: "WA5TV repeater (FM)", mode: fm}
       - {mhz: 927.7375, label: "W5PSB repeater (FM)", mode: fm}
+      - {mhz: 145.3300, label: "W5FA repeater (FM, 110.9) — Six Shooter net", mode: fm}
+      - {mhz: 147.5700, label: "heard Sunday 8:15pm (notebook)", mode: fm}
+      - {mhz: 463.8480, label: "notebook, no note", mode: fm}
+      - {mhz: 462.2520, label: "notebook, no note", mode: fm}
+      - {mhz: 461.4020, label: "notebook, no note", mode: fm}
+      - {mhz: 464.6000, label: "notebook, no note", mode: fm}
+      - {mhz: 460.6000, label: "notebook, no note", mode: fm}
+    # Nets the scanner sits on for their whole window, local time.
+    nets:
+      - {mhz: 145.3300, day: thu, time: "19:00", minutes: 90, label: "Six Shooter net (W5FA)"}
+      - {mhz: 147.5700, day: sun, time: "20:15", minutes: 45, label: "Sunday 8:15pm (notebook)"}
