@@ -14,7 +14,11 @@ from utils.ttrpg.fishing import (
     get_available_fish, get_time_of_day,
 )
 
-FISHING_RECORDS_PATH = os.path.join("memory", "ttrpg", "fishing_records.json")
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+import threading
+
+FISHING_RECORDS_PATH = telemetry_path(os.path.join("memory", "ttrpg", "fishing_records.json"))
+_records_lock = threading.Lock()       # two anglers' catches landing at once each read-modify-write it
 
 # ── Rarity roll thresholds ────────────────────────────────────────────────────
 # These are base thresholds BEFORE bait/pole bonuses.
@@ -27,6 +31,17 @@ RARITY_THRESHOLDS = {
     "uncommon":  800,    # 800-949 (15% base)
     "common":      0,    # 0-799 (80% base)
 }
+#: A combined bonus of this much would double every rare tier's width (capped there).
+RARITY_BONUS_SCALE = 200
+
+
+def rarity_for(raw: int, bonus: float) -> str:
+    """The rarity tier for a 1-1000 roll and a combined catch bonus."""
+    roll = 1000 - (1000 - raw) * max(0.5, 1 - bonus / RARITY_BONUS_SCALE)
+    for cat, threshold in RARITY_THRESHOLDS.items():
+        if roll >= threshold:
+            return cat
+    return "common"
 
 
 def roll_catch(
@@ -56,21 +71,18 @@ def roll_catch(
     if secrets.randbelow(100) < miss_base:
         raise ValueError("miss")
 
-    # Rarity roll (1-1000)
+    # Rarity roll (1-1000). The bonus shrinks the roll's distance from the top
+    # in proportion, so every tier above common widens by the same factor and
+    # the ladder keeps its order. Adding it and capping at 1000 put all of it
+    # on the top value: best gear took mythic from 0.2% to 5.2% and left every
+    # other tier where it was — real catches ran mythic 4.2%, legendary 0.5%.
     raw = secrets.randbelow(1000) + 1
-    roll = raw + bait["catch_bonus"] + pole["catch_bonus"]
+    bonus = bait["catch_bonus"] + pole["catch_bonus"]
     if "blessed" in conditions:
-        roll += 20
+        bonus += 20
     if "lucky" in conditions:
-        roll += 10
-    roll = min(roll, 1000)
-
-    # Select rarity category
-    selected_cat = "common"
-    for cat, threshold in RARITY_THRESHOLDS.items():
-        if roll >= threshold:
-            selected_cat = cat
-            break
+        bonus += 10
+    selected_cat = rarity_for(raw, bonus)
 
     # Enforce bait ceiling
     from utils.ttrpg.fishing import BAIT_RARITY_CEILING
@@ -255,11 +267,8 @@ def _ensure_records() -> dict:
 
 
 def _save_records(records: dict):
-    os.makedirs(os.path.dirname(FISHING_RECORDS_PATH), exist_ok=True)
-    tmp = FISHING_RECORDS_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(records, f, indent=2)
-    os.replace(tmp, FISHING_RECORDS_PATH)
+    from utils.core.atomic_write import write_atomic
+    write_atomic(FISHING_RECORDS_PATH, json.dumps(records, indent=2))
 
 
 def update_world_records(
@@ -272,6 +281,11 @@ def update_world_records(
     Check and update world record for a fish species.
     Returns True if this is a new world record.
     """
+    with _records_lock:
+        return _update_world_records(fish_key, fish_weight, char_name, uid)
+
+
+def _update_world_records(fish_key: str, fish_weight: float, char_name: str, uid: str) -> bool:
     records = _ensure_records()
     current = records["world_records"].get(fish_key, {})
     is_record = not current or fish_weight > current.get("weight", 0.0)
