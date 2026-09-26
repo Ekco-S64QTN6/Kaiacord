@@ -1167,6 +1167,18 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8g5. Someone asserting how she works — her model, makers, logs,
+        # protocols — stated as fact (utils/core/architecture_claims.py).
+        # Soft: inside a scene she may play along.
+        try:
+            from utils.core import architecture_claims
+            _claim = architecture_claims.note_for(ctx.own_words, ctx.author_name)
+            if _claim:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{_claim}"
+                log_debug(f"Architecture claim noted from {ctx.author_name}")
+        except Exception:
+            pass
+
         # 8h. Micro-mood expressions: deliberately absent. Mood reaches the
         # prompt through two non-overlapping signals only —
         # get_kaia_state_line() (activity/memory/dream, at 8.) and
