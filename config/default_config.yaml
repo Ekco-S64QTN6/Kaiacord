@@ -782,3 +782,7 @@ radio:
     #   - {mhz: 146.94, label: "W1XYZ repeater (FM, 100.0)", mode: fm}
     #   - {mhz: 443.4, label: "W1XYZ repeater (DMR)", mode: digital}
     channels: []
+    # Nets to sit on for their whole window (local time); pre-empts the scan
+    # and runs outside `hours`:
+    #   - {mhz: 146.94, day: thu, time: "19:30", minutes: 60, label: "Club net"}
+    nets: []

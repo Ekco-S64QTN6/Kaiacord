@@ -59,3 +59,23 @@ def test_shutdown_stops_the_watcher():
         assert stop.is_set()
     finally:
         scanner._stop_event = None
+
+
+def test_the_watcher_runs_in_a_child_whose_output_goes_nowhere():
+    """librtlsdr prints from C straight to fd 2 — in the bot's process, the
+    terminal the curses dashboard draws on."""
+    import inspect
+    from utils.radio import waterfall
+    src = inspect.getsource(waterfall.child_main)
+    assert "os.dup2(devnull, 1)" in src and "os.dup2(devnull, 2)" in src
+    watch = inspect.getsource(scanner._watch)
+    assert "waterfall.child_main" in watch and 'get_context("fork")' in watch
+
+
+def test_a_listed_net_is_due_only_in_its_window(monkeypatch):
+    from datetime import datetime
+    nets = [{"mhz": 145.33, "day": "thu", "time": "19:00", "minutes": 90, "label": "Six Shooter net"}]
+    monkeypatch.setattr(scanner, "_cfg", lambda k, d: nets if k == "nets" else d)
+    assert scanner.due_net(datetime(2026, 10, 1, 19, 45))["freq_hz"] == 145_330_000      # a Thursday
+    assert scanner.due_net(datetime(2026, 10, 1, 20, 31)) is None
+    assert scanner.due_net(datetime(2026, 10, 2, 19, 45)) is None                         # Friday

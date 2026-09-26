@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -109,6 +109,28 @@ def _snap(freq_hz: int, step: int = 6250) -> int:
 
 def _cfg(key: str, default):
     return config.get(f"radio.local.{key}", default)
+
+
+_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def due_net(now: Optional[datetime] = None) -> Optional[dict]:
+    """A listed net whose window is open now (radio.local.nets, local time):
+    {mhz, day, time, minutes, label}. A net pre-empts the waterfall and runs
+    outside the nightly hours: the scanner sits on that one channel."""
+    now = now or datetime.now()
+    for net in _cfg("nets", []) or []:
+        try:
+            day = str(net["day"]).lower()[:3]
+            h, m = (int(x) for x in str(net["time"]).split(":"))
+            start = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            minutes = int(net.get("minutes", 60))
+            freq = _mhz(float(net["mhz"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if _DAYS[now.weekday()] == day and start <= now < start + timedelta(minutes=minutes):
+            return {"freq_hz": freq, "label": str(net.get("label") or ""), "until": start.timestamp() + minutes * 60}
+    return None
 
 
 def within_hours(now: Optional[datetime] = None) -> bool:
@@ -354,28 +376,76 @@ def _announce(text: str) -> None:
             log_debug(f"[scanner] announce failed: {e}")
 
 
-async def _watch() -> None:
+async def _watch(net: Optional[dict] = None) -> None:
     """Hold the dongle and run the waterfall until the window closes or a live
-    listen asks for it."""
+    listen asks for it — or, with `net`, sit on that one channel until the net
+    ends. The watcher runs in a child process (waterfall.child_main) so
+    librtlsdr's C-level prints can't reach the dashboard's terminal."""
+    import multiprocessing as mp
     import threading
-    from utils.radio.waterfall import Watcher
+    from utils.radio import waterfall
     global _running, _failed_at, _stop_event
     _running = True
-    stop = threading.Event()
+    # fork, not spawn: spawn re-imports the main module, and Kaiacord.py imports
+    # the whole bot at top level. The child touches only numpy, ctypes and the
+    # watcher — no logging or other lock another thread might hold.
+    ctx = mp.get_context("fork")
+    stop = ctx.Event()
     _stop_event = stop
+    catches, audio, passes = ctx.Queue(), ctx.Queue(maxsize=600), ctx.Value("i", 0)
+
+    def _consume():
+        while True:
+            try:
+                c = catches.get(timeout=5)
+            except Exception:
+                if not proc.is_alive():
+                    return
+                continue
+            if c is None:
+                return
+            try:
+                classify(c)
+            except Exception as e:
+                log_warning(f"[scanner] classifying a catch failed: {e}")
+
+    def _forward():
+        while proc.is_alive() or not audio.empty():
+            try:
+                _sink(audio.get(timeout=1))
+            except Exception:
+                continue
+
     try:
         async with rtl.DEVICE:
             rtl.YIELD.clear()
-            watcher = Watcher(classify, gain_db=float(_cfg("gain", rtl.DEFAULT_GAIN)), stop=stop, sink=_sink)
-            job = asyncio.create_task(asyncio.to_thread(watcher.run))
-            log_info("[scanner] waterfall watch started")
-            while not job.done():
-                if rtl.YIELD.is_set() or not _cfg("enabled", True) or \
-                        not (within_hours() or listening_along()):
+            mode, freq, until = ("pinned", net["freq_hz"], net["until"]) if net else ("hop", 0, 0.0)
+            proc = ctx.Process(target=waterfall.child_main, name="kaia-scanner", daemon=True,
+                               args=(mode, freq, until, float(_cfg("gain", rtl.DEFAULT_GAIN)), rtl.ppm(),
+                                     stop, catches, audio, passes))
+            proc.start()
+            consumer = threading.Thread(target=_consume, name="scanner-classify", daemon=True)
+            forwarder = threading.Thread(target=_forward, name="scanner-audio", daemon=True)
+            consumer.start()
+            forwarder.start()
+            if net:
+                log_info(f"[scanner] net watch on {net['freq_hz'] / MHZ:.4f} MHz ({net['label']}) until "
+                         f"{datetime.fromtimestamp(net['until']):%H:%M}")
+            else:
+                log_info("[scanner] waterfall watch started")
+            started = time.time()
+            while proc.is_alive():
+                if rtl.YIELD.is_set() or not _cfg("enabled", True):
                     stop.set()
+                elif not net and (due_net() or not (within_hours() or listening_along())):
+                    stop.set()                     # a net is starting, or the night is over
                 await asyncio.sleep(1)
-            await job
-            log_info(f"[scanner] waterfall watch stopped after {watcher.passes} passes")
+            await asyncio.to_thread(proc.join, 5)
+            if proc.exitcode not in (0, None) and time.time() - started < 30:
+                raise RuntimeError(f"the scanner process exited with code {proc.exitcode} — "
+                                   "is the RTL-SDR busy or unplugged?")
+            await asyncio.to_thread(consumer.join, 120)
+            log_info(f"[scanner] {'net' if net else 'waterfall'} watch stopped after {passes.value} passes")
     except Exception as e:
         _failed_at = time.time()
         log_warning(f"[scanner] waterfall watch failed: {type(e).__name__}: {e} — retrying in 15 minutes")
@@ -406,11 +476,12 @@ def tick(now: Optional[datetime] = None) -> bool:
         return False
     if time.time() - _failed_at < FAIL_BACKOFF_S:
         return False
-    if not within_hours(now):
+    net = due_net(now)
+    if not net and not within_hours(now):
         return False
     ledger.seed(seed_channels())
     from utils.infrastructure.monitoring.async_task_registry import task_registry
-    task_registry.register(f"scanner_watch_{int(time.time())}", asyncio.create_task(_watch()))
+    task_registry.register(f"scanner_watch_{int(time.time())}", asyncio.create_task(_watch(net)))
     return True
 
 

@@ -134,8 +134,9 @@ class Watcher:
 
     def __init__(self, on_catch: Callable[[Catch], None], gain_db: float = 40.0,
                  stop: Optional[threading.Event] = None,
-                 sink: Optional[Callable[[np.ndarray], None]] = None):
+                 sink: Optional[Callable[[np.ndarray], None]] = None, ppm: int = 0):
         self.on_catch = on_catch
+        self.ppm = ppm
         # Listen-along: 12 kHz int16 audio — a soft tick per hop, and the
         # channel itself while holding. Called from the watcher's thread.
         self.sink = sink
@@ -210,14 +211,41 @@ class Watcher:
             except Exception:
                 pass
 
+    def run_pinned(self, freq_hz: int, until: float) -> None:
+        """Blocking: sit on one channel until `until` (a net), recording each
+        transmission. The slice is tuned 400 kHz off so the channel is clear
+        of the tuner's centre spike; the channel's own level is tracked
+        against its rolling floor, and a transmission is held exactly as the
+        waterfall holds one."""
+        from utils.radio.dongle import Dongle
+        worker = threading.Thread(target=self._worker, name="scanner-catches", daemon=True)
+        worker.start()
+        center = freq_hz - 400_000
+        self.slices.setdefault(center, _Slice(center))
+        try:
+            with Dongle(sample_rate=FS, gain_db=self.gain_db, ppm=self.ppm) as d:
+                d.tune(center)
+                idx = int(np.argmin(np.abs(_bin_freqs(center) - freq_hz)))
+                s = self.slices[center]
+                while not self.stop.is_set() and time.time() < until:
+                    spec = _smooth_spectrum(d.read(NFFT * 32))
+                    s.history = (s.history + [spec])[-FLOOR_VISITS * 4:]
+                    self.passes += 1
+                    if len(s.history) < WARM_VISITS:
+                        continue
+                    floor = np.percentile(np.array(s.history[:-1]), FLOOR_PCT, axis=0)
+                    if spec[idx] - floor[idx] > GATE_DB:
+                        self.catches.put(self._hold(d, center, freq_hz, float(spec[idx] - floor[idx])))
+        finally:
+            self.catches.put(None)
+
     def run(self) -> None:
         """Blocking: hop until `stop` is set. Opens and closes the dongle."""
         from utils.radio.dongle import Dongle
         worker = threading.Thread(target=self._worker, name="scanner-catches", daemon=True)
         worker.start()
         try:
-            from utils.radio.rtl import ppm
-            with Dongle(sample_rate=FS, gain_db=self.gain_db, ppm=ppm()) as d:
+            with Dongle(sample_rate=FS, gain_db=self.gain_db, ppm=self.ppm) as d:
                 while not self.stop.is_set():
                     for center in self._schedule():
                         if self.stop.is_set():
@@ -230,3 +258,42 @@ class Watcher:
                     self.passes += 1
         finally:
             self.catches.put(None)
+
+
+# ── Running in a child process ──────────────────────────────────────────────
+# librtlsdr prints its tuner chatter ("Found Rafael Micro R820T tuner",
+# "r82xx_write: i2c wr failed") from C straight to fd 2, beneath Python's
+# logging — and in the bot's process that is the terminal the curses
+# dashboard draws on. The watcher runs in its own process with stdout and
+# stderr on /dev/null, and hands catches and listen-along audio back through
+# queues.
+
+def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
+               stop, catches, audio, passes) -> None:
+    import os
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+
+    def _send(c: "Catch") -> None:
+        catches.put(c)
+
+    def _sink(chunk) -> None:
+        try:
+            audio.put_nowait(chunk)
+        except Exception:
+            pass
+
+    class _Stop:
+        def is_set(self):
+            return stop.is_set()
+
+    w = Watcher(_send, gain_db=gain_db, stop=_Stop(), sink=_sink, ppm=ppm)
+    try:
+        if mode == "pinned":
+            w.run_pinned(freq_hz, until)
+        else:
+            w.run()
+    finally:
+        passes.value = w.passes
+        catches.put(None)
