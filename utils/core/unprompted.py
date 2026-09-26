@@ -381,8 +381,11 @@ class Spoken:
 async def speak(ctx, channel, source: str, text: str = "", *,
                 posts: Optional[List[str]] = None, kind: Optional[str] = None,
                 trigger: str = "", brief: str = "", manual: bool = False,
-                cross_post: bool = True) -> Spoken:
-    """Gate, label, send, remember and cross-post one unprompted post."""
+                cross_post: bool = True, embed=None) -> Spoken:
+    """Gate, label, send, remember and cross-post one unprompted post.
+
+    With `embed`, the box is what goes to Discord (it carries its own title,
+    so no label line); `text` is still what is logged and cross-posted."""
     from utils.infrastructure.logging.kaia_logger import log_debug, log_success, log_warning
 
     bot_state = getattr(ctx, "bot_state", None)
@@ -400,8 +403,11 @@ async def speak(ctx, channel, source: str, text: str = "", *,
     label = pick_label(kind or source, body, source=trigger, brief=brief,
                        posts=len(posts) if posts else 1,
                        scope=str(getattr(channel, "id", "") or source))
-    for message in compose(label, text, posts):
-        await channel.send(message)
+    if embed is not None:
+        await channel.send(embed=embed)
+    else:
+        for message in compose(label, text, posts):
+            await channel.send(message)
 
     # Memory keeps what she said, not the label: the label is framing for the
     # reader. Not the overnight log: a bulletin of readings held as one of her

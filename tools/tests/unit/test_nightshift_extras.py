@@ -63,3 +63,18 @@ def test_overnight_is_an_unprompted_source_with_its_own_label():
     assert unprompted.KIND_LABELS["overnight"] == ["overnight_log"]
     with patch.object(unprompted, "_config", return_value={}):
         assert unprompted.cross_posts("overnight") is False     # never public unless asked
+
+
+def test_the_overnight_log_is_a_box_with_a_field_per_section():
+    facts = [overnight.Fact("sun", "🟢 Kp **1.7** · quiet", "the planetary K index is 1.7 (quiet)"),
+             overnight.Fact("air", "🔢 **E07** · 18287 kHz USB · recorded 09:59Z", "you recorded E07"),
+             overnight.Fact("air", "🔢 **E11** · 9079 kHz USB · recorded 06:59Z", "you recorded E11")]
+    e = overnight.embed(facts, "a quiet night.", datetime(2026, 9, 26))
+    assert e.title == "🌙  Overnight log · Sat 26 Sep" and e.description == "a quiet night."
+    assert [f.name for f in e.fields] == [overnight.SECTIONS["air"], overnight.SECTIONS["sun"]]
+    assert e.fields[0].value.count("\n") == 1 and e.footer.text
+    assert overnight.embed(facts, "").description is None          # no note: the readings alone
+
+
+def test_kp_wears_the_colour_of_its_storm_level():
+    assert [overnight.kp_icon(k) for k in (1.7, 4.3, 5.7, 8.0)] == ["🟢", "🟡", "🟠", "🔴"]

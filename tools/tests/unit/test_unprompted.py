@@ -287,3 +287,16 @@ def test_the_overnight_log_is_posted_but_not_kept_as_one_of_her_turns(monkeypatc
                                   "the planetary k index is 4.3."))
     assert result.posted and channel.sent
     assert not state.channel_memory.get(42)
+
+
+def test_a_post_with_a_box_sends_the_box_and_no_label_line(monkeypatch, cfg):
+    cfg.update({"unprompted.max_per_day": 1, "unprompted.min_interval_minutes": 0})
+    sent = []
+
+    class _Boxed(_Channel):
+        async def send(self, content=None, embed=None):
+            sent.append((content, embed))
+    box = object()
+    result = asyncio.run(up.speak(types.SimpleNamespace(bot_state=_state()), _Boxed(), "overnight",
+                                  "the planetary k index is 4.3.", embed=box))
+    assert result.posted and sent == [(None, box)]

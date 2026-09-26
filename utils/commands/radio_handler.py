@@ -587,10 +587,7 @@ async def handle_overnight_command(ctx, msg, send_kaia_response=None):
             await msg.channel.send(embed=box("🌙  Overnight log", "Not enough happened overnight to write up yet.",
                                              COLOR_RADIO, footer=_others("overnight")))
             return
-        text = await overnight.write(ctx, facts)
-        embed = box("🌙  Overnight log", clean_block(text, 1800) if text else "(nothing usable came back)",
-                    COLOR_RADIO, footer=f"written from {len(facts)} facts gathered in Python\n{_others('overnight')}")
-        await msg.channel.send(embed=embed)
+        await msg.channel.send(embed=overnight.embed(facts, await overnight.write(ctx, facts)))
     except Exception as e:
         log_error(f"[radio] !overnight failed: {e}")
         await msg.channel.send(embed=box("🌙  Overnight log", "Something went wrong. It's in the log.", COLOR_ERROR))

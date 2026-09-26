@@ -132,7 +132,7 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `live.py` | `!radio`/`!buzzer`/`!scanner` live in a voice channel, clip playback, and `free_voice` so features hand the connection over |
 | `beacons.py` | The NCDXF beacon chain, judged from the S-meter |
 | `adsb.py` | E-6B/E-4B sightings on adsb.lol |
-| `overnight.py` | The morning write-up: facts gathered in Python, one model call, invented numbers rejected |
+| `overnight.py` | The morning box: facts gathered in Python shown by section, one model call for her account above them, invented numbers rejected |
 | `log.py` | `memory/radio/log.json` and the clips |
 | `scanner.py` | The local RTL-SDR: nightly schedule, nets, classification (voice/data/carrier), listen-along |
 | `waterfall.py` | The hopping waterfall watch and NBFM demodulator, run in a forked child with its output on /dev/null |

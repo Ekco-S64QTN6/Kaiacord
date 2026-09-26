@@ -106,9 +106,10 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   which of the 18 beacons Kaia can hear, measured over one three-minute cycle from a KiwiSDR
   (`!beacons 15` for 21.150 MHz). A fresh listen takes about three minutes.
 - `!overnight` — the overnight log, written now. Each morning (`radio.overnight_time`, 08:30) she
-  posts one to `#kaia-opolis` on her own: what she recorded and copied, what eam.watch logged,
-  the sun, the closest asteroid. Only facts gathered in Python go in; a draft containing a number
-  no fact has is rejected.
+  posts one to `#kaia-opolis` on her own. It is a box: her account of the night on top, then a
+  field per section — on the air, the local scanner, the beacon chain, space weather, near
+  Earth. The readings are gathered in Python; her account may use only those, and a draft
+  containing a number no reading has is rejected.
 - `!nightshift` — a panel with a button for every command here, including the live receivers.
 - `!scanner` — the local RTL-SDR, if one is attached: from midnight to 6 it hops the local voice bands
   and records anything that keys up into a ledger of frequencies and active hours. The panel has a
