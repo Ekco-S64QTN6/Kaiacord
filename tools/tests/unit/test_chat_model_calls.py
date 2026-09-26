@@ -12,13 +12,15 @@ import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-SCANNED = ("utils", "tools/maintenance")
+SCANNED = ("utils", "tools", "finetune")
 
 
 def _model_calls():
     for root in SCANNED:
         for path in (ROOT / root).rglob("*.py"):
             rel = str(path.relative_to(ROOT))
+            if rel.startswith("tools/tests/") or "/llama.cpp/" in rel:
+                continue
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
@@ -39,6 +41,12 @@ def _model_calls():
 def test_every_chat_model_call_sets_keep_alive():
     missing = [where for where, kw in _model_calls() if "keep_alive" not in kw]
     assert not missing, f"no keep_alive (resets the model's expiry to 5 min): {missing}"
+
+
+def test_every_chat_model_call_sends_runner_options():
+    """No options at all means no num_ctx: served at Ollama's default context."""
+    missing = [where for where, kw in _model_calls() if "options" not in kw]
+    assert not missing, f"no options (reloads at the default context): {missing}"
 
 
 def test_no_chat_model_call_builds_its_runner_options_by_hand():

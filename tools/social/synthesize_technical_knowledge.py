@@ -57,7 +57,7 @@ async def _guarded_chat(client, model_name, prompt, options, tag):
         priority=GPUTaskPriority.BACKGROUND,
         coro=asyncio.to_thread(
             client.chat, model=model_name,
-            messages=[{"role": "user", "content": prompt}], options=options),
+            messages=[{"role": "user", "content": prompt}], options=options, keep_alive=-1),
         task_id=tag,
     )
 

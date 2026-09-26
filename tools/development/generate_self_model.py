@@ -323,6 +323,7 @@ async def generate(dry_run: bool = False) -> bool:
     _info(f"Calling {chat_model} — this will take 30–90 seconds...")
     try:
         import ollama
+        from utils.infrastructure.gpu.gpu_manager import chat_options
 
         response = await ollama.AsyncClient().chat(
             model=chat_model,
@@ -337,7 +338,9 @@ async def generate(dry_run: bool = False) -> bool:
                     )
                 },
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            options=chat_options(),
+            keep_alive=-1,
         )
 
         result = response["message"]["content"].strip()
@@ -375,7 +378,8 @@ async def generate(dry_run: bool = False) -> bool:
     else:
         try:
             OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-            OUTPUT_PATH.write_text(full_content, encoding="utf-8")
+            from utils.core.atomic_write import write_atomic
+            write_atomic(OUTPUT_PATH, full_content)
             _ok(f"Saved to {OUTPUT_PATH}")
             _ok("Kaia's self-model is active. It will be injected on next bot start.")
         except Exception as e:

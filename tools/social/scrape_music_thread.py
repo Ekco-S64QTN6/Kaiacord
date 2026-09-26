@@ -37,6 +37,9 @@ import requests
 from bs4 import BeautifulSoup
 import ollama
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from utils.infrastructure.gpu.gpu_manager import chat_options  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -285,7 +288,8 @@ def stage_extract_text(max_pages: int = TOTAL_PAGES):
                 # Ask Ollama
                 prompt = prompt_template.replace('{text}', post_text)
                 try:
-                    response = client.chat(model='gemma3:12b', messages=[{'role': 'user', 'content': prompt}])
+                    response = client.chat(model='gemma3:12b', messages=[{'role': 'user', 'content': prompt}],
+                                           options=chat_options(), keep_alive=-1)
                     result = response['message']['content'].strip()
                     if result.lower() != 'null' and ' - ' in result:
                         artist, song = result.split(' - ', 1)

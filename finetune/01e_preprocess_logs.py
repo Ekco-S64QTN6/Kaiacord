@@ -189,6 +189,10 @@ Current (off-voice) response:
 
 Rewrite in Kaia's voice (concise, lowercase, opinionated, stops when done):"""
 
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils.infrastructure.gpu.gpu_manager import chat_options
+
     try:
         response = await ollama.AsyncClient().chat(
             model=REWRITE_MODEL,
@@ -196,6 +200,8 @@ Rewrite in Kaia's voice (concise, lowercase, opinionated, stops when done):"""
                 {"role": "system",  "content": REWRITE_SYSTEM_PROMPT},
                 {"role": "user",    "content": prompt},
             ],
+            options=chat_options(),
+            keep_alive=-1,
         )
         return response["message"]["content"].strip()
     except Exception as e:
