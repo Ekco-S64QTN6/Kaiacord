@@ -92,6 +92,7 @@ class DesireEngine:
         "personal_memory": "social",
         "absence": "social",
         "overheard": "social",
+        "private_thought": "social",
         "belief_musing": "intellectual",
         "knowledge": "intellectual",
         "anchor_callback": "intellectual",

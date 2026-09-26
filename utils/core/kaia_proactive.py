@@ -34,6 +34,7 @@ from utils.infrastructure.logging.kaia_logger import (
     log_debug, log_info, log_warning, log_success,
 )
 from utils.core.sanitizer import excerpt, user_authored_text
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
 # The daily limit, the gap and the posting hours are the shared unprompted
 # allowance's — see utils/core/unprompted.py and `unprompted:` in config.
@@ -55,6 +56,7 @@ SOURCE_WEIGHTS = {
     "belief_musing": 15,         # Musing on a formed belief
     "anchor_callback": 15,       # Episodic memory callback
     "dream_echo": 10,            # Growth event / belief revision echo
+    "private_thought": 20,       # A dream or monologue thought about someone who is here
     "knowledge": 8,              # Recent ingestion reference (deprioritized)
     "mood_reflection": 8,        # Mood-driven idle thought (deprioritized)
     "idle_quirk": 3,             # Random spontaneous thought (rare)
@@ -766,6 +768,92 @@ class ProactiveEngine:
 
     # ── Source Selection ────────────────────────────────────────────
 
+    # A private thought is raised with its person at most once a day, and only
+    # while they are around: someone who spoke in the channel this recently.
+    PRIVATE_THOUGHT_PRESENT_S = 3 * 3600
+    PRIVATE_THOUGHT_RECENT_S = 36 * 3600
+    PRIVATE_THOUGHT_PER_PERSON_S = 86400
+
+    def _get_private_thought(self, bot_state) -> Optional[Tuple[str, str, str, str]]:
+        """A recent monologue thought or dream reflection that names someone
+        who is in the active channel now, to open a conversation with them.
+
+        Returns (context, category, content_id, target_user) or None.
+        """
+        import hashlib
+        channel_id = self._find_active_channel(bot_state)
+        if not channel_id:
+            return None
+        now = time.time()
+        present = []
+        for turn in reversed(list(bot_state.channel_memory.get(channel_id, []) or [])):
+            try:
+                ts = float(turn.get("timestamp") or 0)
+            except (TypeError, ValueError):
+                continue
+            if now - ts > self.PRIVATE_THOUGHT_PRESENT_S:
+                break
+            if turn.get("role") == "user" and ": " in (turn.get("content") or ""):
+                name = turn["content"].split(": ", 1)[0].strip()
+                if name and name not in present and not name.startswith("Kaia"):
+                    present.append(name)
+        if not present:
+            return None
+
+        history = self._load_diversity_log()
+        def _raised_today(person: str) -> bool:
+            key = f"private:{person.casefold()}:"
+            return any(h.get("content_id", "").startswith(key)
+                       and now - float(h.get("timestamp", 0)) < self.PRIVATE_THOUGHT_PER_PERSON_S
+                       for h in history)
+
+        for when, kind, text in self._recent_private_thoughts(now):
+            for person in present:
+                if _raised_today(person):
+                    continue
+                if not re.search(r"\b" + re.escape(person.replace("_", " ")) + r"(?:'s)?\b", text, re.I):
+                    continue
+                cid = f"private:{person.casefold()}:{hashlib.sha1(text.encode()).hexdigest()[:10]}"
+                if self.was_content_broadcast(cid):
+                    continue
+                hours = max(1, int((now - when) // 3600))
+                context = (f"{hours} hour{'s' if hours != 1 else ''} ago, in a {kind}, "
+                           f"you thought this about {person}: \"{excerpt(text, 400)}\"")
+                return (context, "private_thought", cid, person)
+        return None
+
+    def _recent_private_thoughts(self, now: float) -> List[Tuple[float, str, str]]:
+        """(when, "passing thought" | "dream", text), newest first."""
+        out = []
+        try:
+            path = telemetry_path("memory/monologue_log.jsonl")
+            with open(path, encoding="utf-8") as f:
+                for line in f.readlines()[-200:]:
+                    try:
+                        e = json.loads(line)
+                    except ValueError:
+                        continue
+                    when = float(e.get("epoch") or 0)
+                    if now - when <= self.PRIVATE_THOUGHT_RECENT_S and e.get("thought"):
+                        out.append((when, "passing thought", e["thought"]))
+        except OSError:
+            pass
+        dreams = Path("knowledge_base") / "kaia_dreams"
+        cutoff = now - self.PRIVATE_THOUGHT_RECENT_S
+        for f in dreams.glob("*/dream_*.md"):
+            try:
+                mtime = f.stat().st_mtime
+                if mtime < cutoff:
+                    continue
+                body = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if "## Kaia's Reflection" in body:
+                refl = " ".join(body.split("## Kaia's Reflection", 1)[1].split())
+                if refl:
+                    out.append((mtime, "dream", refl))
+        return sorted(out, key=lambda t: -t[0])
+
     @staticmethod
     def _desire_multiplier(source_type: str) -> float:
         """How much Kaia currently wants what this source offers (0.5x-1.8x)."""
@@ -792,6 +880,7 @@ class ProactiveEngine:
             ("mood_reflection", self._get_mood_reflection),
             ("knowledge", lambda: self._get_knowledge_source(bot_state)),
             ("dream_echo", self._get_dream_echo),
+            ("private_thought", lambda: self._get_private_thought(bot_state)),
             ("anchor_callback", self._get_anchor_callback),
             ("idle_quirk", self._get_idle_quirk),
             ("overheard", self._get_overheard_digest),
@@ -1184,6 +1273,12 @@ class ProactiveEngine:
                 "Something from a recent reflection resurfaced. Share it "
                 "like a half-formed realization. "
                 "Example tone: 'this has been rattling around in my head...'"
+            ),
+            "private_thought": (
+                f"Something you thought privately about {trigger.target_user} has stayed with you, "
+                f"and they're here. Bring it up with them directly, the way a person admits they've "
+                f"been thinking about someone — in your own words, not quoted back, and without "
+                f"mentioning logs, records or a monologue. A sentence or two."
             ),
             "anchor_callback": (
                 f"A memory just surfaced about {trigger.target_user} (who you are talking to now). "
