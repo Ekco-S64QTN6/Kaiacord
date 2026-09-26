@@ -1343,6 +1343,9 @@ async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
         else: astat = {"Warrior":"str", "Ranger":"dex", "Mage":"int", "Rogue":"dex", "Cleric":"wis"}.get(c, "str")
         atk_val = t_sheet.get("stats", {}).get(astat, 10)
         t_atk = ((atk_val - 10) // 2) + w.get("attack_bonus", 0) + acc.get("attack_bonus", 0)
+        if w:
+            from utils.ttrpg.enhancement import weapon_bonus
+            t_atk += weapon_bonus(t_sheet, _get_k(eq.get("weapon")))[0]
 
         # BUG-H1 fix: use proper defense calculation with soft-cap, global cap, etc.
         from utils.ttrpg.housing import load_housing_async

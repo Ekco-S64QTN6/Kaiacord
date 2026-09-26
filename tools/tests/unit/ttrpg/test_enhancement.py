@@ -39,3 +39,30 @@ def test_weapon_levels_alternate_attack_and_damage():
     sheet = {"enhancements": {"sword": 5}}
     assert enh.weapon_bonus(sheet, "sword") == (3, 2)
     assert enh.weapon_bonus(sheet, "other") == (0, 0)
+
+
+def test_the_sheet_shows_the_rework_combat_uses(monkeypatch):
+    import asyncio
+    import types
+    from utils.ttrpg import rpg_core_handler as core
+    from utils.ttrpg.equipment_registry import WEAPONS
+    key = max(WEAPONS, key=lambda k: WEAPONS[k]["attack_bonus"])
+    base = {"character_name": "T", "user_id": "1", "class": "Warrior", "race": "Human", "level": 15, "xp": 0, "gil": 0,
+            "hp": {"current": 10, "max": 10}, "stats": {"str": 10, "dex": 10}, "conditions": [],
+            "equipment": {"weapon": key}, "inventory": [], "location": "oakhaven"}
+    sent = []
+
+    def render(sheet):
+        async def load(_):
+            return sheet
+        monkeypatch.setattr(core, "load", load)
+
+        async def send(embed=None, **_):
+            sent.append(embed)
+        msg = types.SimpleNamespace(mentions=[], channel=types.SimpleNamespace(send=send))
+        asyncio.run(core._handle_sheet(None, msg, None, "", "1", "T", False))
+        return str(sent[-1].to_dict())
+    plain = render(dict(base))
+    reworked = render(dict(base, enhancements={key: 2}))
+    assert f"{WEAPONS[key]['name']} +2" in reworked and f"{WEAPONS[key]['name']} +2" not in plain
+    assert plain != reworked.replace(" +2", "")         # the attack figure moved too

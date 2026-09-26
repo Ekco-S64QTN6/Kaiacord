@@ -389,6 +389,16 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     head_def = head.get("defense_bonus", 0)
     boots_def = boots_eq.get("defense_bonus", 0)
     acc_def = accessory.get("defense_bonus", 0)
+    # Hemlock's rework, as combat_engine applies it.
+    from utils.ttrpg import enhancement as _enh
+    if weapon:
+        _e_atk, _e_dmg = _enh.weapon_bonus(sheet, _eq_key(eq.get("weapon")))
+        weapon_atk += _e_atk
+        weapon_dmg_bonus += _e_dmg
+    armor_def += _enh.defence_bonus(sheet, _eq_key(eq.get("armor"))) if armor else 0
+    head_def += _enh.defence_bonus(sheet, _eq_key(eq.get("head"))) if head else 0
+    boots_def += _enh.defence_bonus(sheet, _eq_key(eq.get("boots"))) if boots_eq else 0
+    acc_def += _enh.defence_bonus(sheet, _eq_key(eq.get("accessory"))) if accessory else 0
 
     # Advanced class bonuses
     adv_flat_atk = 0
@@ -455,8 +465,10 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     # ── Equipment Display ─────────────────────────────────────────────
     def _eq_name(slot_val, registry, default="—"):
         if not slot_val: return default
-        if isinstance(slot_val, dict): return slot_val.get("name", default)
-        return registry.get(slot_val, {}).get("name", default)
+        name = slot_val.get("name", default) if isinstance(slot_val, dict) \
+            else registry.get(slot_val, {}).get("name", default)
+        n = _enh.level(sheet, _eq_key(slot_val))
+        return f"{name} +{n}" if n else name
 
     equip_lines = [
         f"🗡️ {_eq_name(eq.get('weapon'), WEAPONS, 'Unarmed')}",
