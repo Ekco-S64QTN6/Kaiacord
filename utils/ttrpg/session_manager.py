@@ -79,6 +79,7 @@ def serialize_combat_action(fn):
                 async with user_lock:
                     return await fn(*args, **kwargs)
             return await fn(*args, **kwargs)
+    wrapper._serialized = True        # takes its own locks; callers must not hold the user lock
     return wrapper
 
 

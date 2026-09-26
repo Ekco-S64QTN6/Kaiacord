@@ -143,7 +143,17 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
     except Exception:
         pass
     try:
-        await handler(ctx, msg, _auto_send, rest, author_id, author_name, is_owner)
+        if getattr(handler, "_serialized", False):
+            await handler(ctx, msg, _auto_send, rest, author_id, author_name, is_owner)
+        else:
+            # One command per player at a time. Every handler loads the sheet,
+            # changes it and saves it; two overlapping (a double-sent !rpg buy,
+            # a gamble and a give) both read the same sheet and the second save
+            # discarded the first. The same lock the combat actions take, so a
+            # purchase can't interleave with a round either.
+            from utils.ttrpg.session_manager import get_action_lock
+            async with await get_action_lock(f"user:{author_id}"):
+                await handler(ctx, msg, _auto_send, rest, author_id, author_name, is_owner)
     except Exception as e:
         log_error(f"[rpg] Handler error in '{sub}': {e}")
         await _auto_send(msg.channel, f"system fault in `{sub}`. check logs: {e}")
