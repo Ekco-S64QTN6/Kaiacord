@@ -15,7 +15,9 @@ import threading
 from pathlib import Path
 from typing import Callable, List, TypeVar
 
-BELIEFS_PATH = Path("memory") / "beliefs.json"
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+
+BELIEFS_PATH = Path(telemetry_path("memory/beliefs.json"))
 
 _lock = threading.RLock()
 T = TypeVar("T")
@@ -36,11 +38,15 @@ def update(change: Callable[[List[dict]], T]) -> T:
     """Apply `change` to a fresh read of the beliefs and save the result.
 
     `change` mutates the list in place and may return a value, which is
-    passed back. Nothing is written if it raises.
+    passed back. Nothing is written if it raises — or if the file exists and
+    can't be read: `load()` answers [] then, and saving the change on top of
+    that would replace every belief with it.
     """
     from utils.core.atomic_write import write_atomic
     with _lock:
         beliefs = load()
+        if not beliefs and BELIEFS_PATH.exists() and BELIEFS_PATH.stat().st_size > 2:
+            raise ValueError(f"{BELIEFS_PATH} is unreadable; not overwriting it")
         result = change(beliefs)
         write_atomic(BELIEFS_PATH, json.dumps(beliefs, indent=2))
         return result

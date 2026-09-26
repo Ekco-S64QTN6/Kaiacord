@@ -43,3 +43,13 @@ def test_a_failing_change_writes_nothing(store):
     with pytest.raises(RuntimeError):
         beliefs_store.update(lambda bs: (bs.clear(), (_ for _ in ()).throw(RuntimeError()))[1])
     assert store.read_text() == before
+
+
+def test_an_unreadable_file_is_not_overwritten(tmp_path, monkeypatch):
+    import pytest
+    path = tmp_path / "beliefs.json"
+    path.write_text('[{"topic": "cats", "position": "good"}, {"topic"')       # cut off mid-write
+    monkeypatch.setattr(beliefs_store, "BELIEFS_PATH", path)
+    with pytest.raises(ValueError):
+        beliefs_store.bump_access(["cats"])
+    assert path.read_text().endswith('{"topic"')
