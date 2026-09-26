@@ -8,7 +8,14 @@ import json
 import os
 import asyncio
 import datetime
+import threading
 from typing import Optional
+
+from utils.core.atomic_write import write_atomic
+
+# One read-modify-write of a player's floors container at a time: two saves
+# that each read the container and wrote it back could drop a floor.
+_file_lock = threading.Lock()
 
 # Reuse room type constants from dungeon.py
 R_START       = "start"
@@ -253,10 +260,10 @@ def render_spine_map(state: dict) -> str:
 # ── Persistence (separate from procedural dungeons) ───────────────────────────
 
 async def save_spine_dungeon(user_id: str, state: dict):
-    def _save():
+    def _save_unlocked():
         os.makedirs(SPINE_DIR, exist_ok=True)
         path = os.path.join(SPINE_DIR, f"{user_id}_spine.json")
-        
+
         container = {}
         if os.path.exists(path):
             with open(path) as f:
@@ -272,15 +279,16 @@ async def save_spine_dungeon(user_id: str, state: dict):
         container["current_floor"] = state["floor_num"]
         container["last_respawn_date"] = state.get("last_respawn_date", datetime.date.today().isoformat())
         
-        tmp = path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(container, f, indent=2)
-        os.replace(tmp, path)
+        write_atomic(path, json.dumps(container, indent=2))
+
+    def _save():
+        with _file_lock:
+            _save_unlocked()
     await asyncio.to_thread(_save)
 
 
 async def load_spine_dungeon(user_id: str, target_floor: int = None) -> Optional[dict]:
-    def _load():
+    def _load_unlocked():
         path = os.path.join(SPINE_DIR, f"{user_id}_spine.json")
         if not os.path.exists(path):
             return None
@@ -301,10 +309,7 @@ async def load_spine_dungeon(user_id: str, target_floor: int = None) -> Optional
             for fn, floor_state in container["floors"].items():
                 container["floors"][fn] = respawn_monsters(floor_state)
             container["last_respawn_date"] = today
-            tmp = path + ".tmp"
-            with open(tmp, "w") as fw:
-                json.dump(container, fw, indent=2)
-            os.replace(tmp, path)
+            write_atomic(path, json.dumps(container, indent=2))
 
         if target_floor is not None:
             active_fnum = str(target_floor)
@@ -331,5 +336,9 @@ async def load_spine_dungeon(user_id: str, target_floor: int = None) -> Optional
         
 
         return state
+
+    def _load():
+        with _file_lock:
+            return _load_unlocked()
     return await asyncio.to_thread(_load)
 
