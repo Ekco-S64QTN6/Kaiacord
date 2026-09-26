@@ -2502,8 +2502,10 @@ class MessageProcessor:
 
         # A reply saying she is keeping a note keeps one, and names the file
         # that now exists. Discord only: a forum draft or a public feed is not
-        # a conversation she takes notes on.
-        if not ctx.is_social and not getattr(ctx.message, "no_persist", False):
+        # a conversation she takes notes on. Not in a DM either: notes are
+        # indexed, and a DM stays out of anything retrieval serves.
+        if not ctx.is_social and not getattr(ctx, "is_dm", False) \
+                and not getattr(ctx.message, "no_persist", False):
             try:
                 from utils.core import kaia_notes
                 ctx.response_text = await asyncio.to_thread(

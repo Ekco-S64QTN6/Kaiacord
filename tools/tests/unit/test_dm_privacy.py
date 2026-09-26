@@ -1,6 +1,7 @@
 """A DM is written to its own log under memory/, never to the shared
 user_logs that retrieval serves to public replies."""
 import inspect
+from pathlib import Path
 
 from utils.core import dm_log
 
@@ -20,3 +21,10 @@ def test_the_pipeline_routes_dms_away_from_the_shared_log():
     dm = src.index('getattr(ctx, "is_dm", False)')
     shared = src.index("self.rag.log_user_interaction_async(")
     assert dm < shared and "elif not _is_style_drifted" in src
+
+
+def test_a_dm_never_becomes_one_of_her_notes():
+    """Notes are indexed and retrieval serves public replies."""
+    src = Path("utils/core/message_processor.py").read_text()
+    gate = src[src.index("from utils.core import kaia_notes") - 400: src.index("from utils.core import kaia_notes")]
+    assert '"is_dm"' in gate
