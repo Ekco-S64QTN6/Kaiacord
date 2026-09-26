@@ -497,17 +497,20 @@ def test_the_monologue_attributes_only_what_the_speaker_typed(monkeypatch):
     assert "cheese" not in prompts[0]
 
 
-def test_a_long_message_is_cut_at_a_word_and_marked():
-    """Cut at 120 characters, "…and interact with llm systems" reached the
-    model as "…and interact with l". She posted it as a quote, then explained
+def test_she_sees_a_whole_message_and_a_marked_cut_past_the_cap():
+    """Cut at 120 characters, "...and interact with llm systems" reached the
+    model as "...and interact with l". She posted it as a quote, then explained
     it as a user named "l"."""
     said = ("Both have good points, the question demands more research for sure, i prefer to punt "
             "on the question and interact with llm systems as I more could be going on under the "
             "hood than we currently understand and to be kind, polite, respectful")
     prompt = _observe(InnerMonologue(), {"111111111111111111": _turns(("Ekco", said, 1.0, None))})
-    line = next(l for l in prompt.splitlines() if l.startswith("Ekco: "))
-    assert line.endswith("…")
-    assert said.startswith(line[len("Ekco: "):-1]) and said[len(line) - len("Ekco: ") - 1] == " "
+    assert f"Ekco: {said}\n" in prompt
+
+    long = " ".join([said] * 4)
+    prompt = _observe(InnerMonologue(), {"111111111111111111": _turns(("Ekco", long, 2.0, None))})
+    line = next(l for l in prompt.splitlines() if l.startswith("Ekco: "))[len("Ekco: "):]
+    assert line.endswith("…") and long.startswith(line[:-1]) and long[len(line) - 1] == " "
 
 
 def test_excerpt_never_ends_mid_word():

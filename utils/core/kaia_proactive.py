@@ -340,7 +340,7 @@ class ProactiveEngine:
 
             context = (
                 f"You're thinking about a past conversation with {display_name}. "
-                f"They said: \"{excerpt(content, 200)}\". "
+                f"They said: \"{excerpt(content, 500)}\". "
                 f"Mention it casually, like it just crossed your mind."
             )
             return (context, "personal_memory", "", display_name)
@@ -586,11 +586,11 @@ class ProactiveEngine:
             if user_name:
                 context = (
                     f"You're remembering something about {user_name} and '{theme}': "
-                    f"\"{excerpt(text, 200)}\". Bring it up naturally."
+                    f"\"{excerpt(text, 500)}\". Bring it up naturally."
                 )
             else:
                 context = (
-                    f"A memory about '{theme}' surfaced: \"{excerpt(text, 200)}\". "
+                    f"A memory about '{theme}' surfaced: \"{excerpt(text, 500)}\". "
                     f"Share the thought like it just came back to you."
                 )
             return (context, "anchor_callback", "", user_name)
@@ -984,7 +984,7 @@ class ProactiveEngine:
                             elif role == 'user':
                                 # "Author: <enriched>" — their words, not the quote or page.
                                 author, _, said = msg.get('content', '').partition(': ')
-                                lines.append(f"  {author}: {excerpt(user_authored_text(said), 200)}")
+                                lines.append(f"  {author}: {excerpt(user_authored_text(said), 500)}")
                             elif role == 'system' and '[summary' in content.lower():
                                 lines.append(f"  {excerpt(content, 150)}")
                         if lines:

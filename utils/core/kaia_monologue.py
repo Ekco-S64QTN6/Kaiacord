@@ -111,7 +111,7 @@ class InnerMonologue:
                     name, sep, said = content.partition(": ")
                     if not sep:
                         name, said = "someone", content
-                    text = excerpt(user_authored_text(said), 160)
+                    text = excerpt(user_authored_text(said), 600)
                     if not text:
                         continue
                     try:
