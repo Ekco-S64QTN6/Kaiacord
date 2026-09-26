@@ -49,7 +49,12 @@ def _threads() -> int:
 def _load():
     global _model
     if _model is None:
+        import logging
         from faster_whisper import WhisperModel
+        # faster-whisper logs "Processing audio with duration …" at INFO for
+        # every clip, which floods the dashboard's live log when the scanner
+        # is busy.
+        logging.getLogger("faster_whisper").setLevel(logging.WARNING)
         log_debug(f"[radio] loading speech model {MODEL} (cpu, int8)")
         _model = WhisperModel(MODEL, device="cpu", compute_type="int8", cpu_threads=_threads())
     return _model

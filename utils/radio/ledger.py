@@ -139,3 +139,28 @@ def active_hours(ch: dict) -> str:
     if not busy:
         return "not heard yet"
     return ", ".join(f"{h:02d}h" for h in busy[:6]) + ("…" if len(busy) > 6 else "")
+
+
+def merge(src_hz: int, dst_hz: int) -> None:
+    """Fold one channel's counts and events into another — for rows a rounding
+    split (462.2775 and 462.275 are one transmitter)."""
+    if int(src_hz) == int(dst_hz):
+        return
+    with _lock, _db() as con:
+        src = con.execute("SELECT * FROM channels WHERE freq_hz = ?", (int(src_hz),)).fetchone()
+        if not src:
+            return
+        con.execute("INSERT OR IGNORE INTO channels (freq_hz, band, service, label, source, first_seen) "
+                    "VALUES (?, ?, ?, '', 'found', ?)", (int(dst_hz), src["band"], src["service"], src["first_seen"]))
+        dst = con.execute("SELECT * FROM channels WHERE freq_hz = ?", (int(dst_hz),)).fetchone()
+        hs, hd = json.loads(src["hours"] or "[]") or [0] * 24, json.loads(dst["hours"] or "[]") or [0] * 24
+        con.execute(
+            "UPDATE channels SET probes = probes + ?, hits = hits + ?, voice = voice + ?, data = data + ?, "
+            "hours = ?, first_seen = MIN(COALESCE(first_seen, ?), ?), last_seen = MAX(COALESCE(last_seen, 0), ?), "
+            "last_transcript = COALESCE(last_transcript, ?) WHERE freq_hz = ?",
+            (src["probes"], src["hits"], src["voice"], src["data"], json.dumps([a + b for a, b in zip(hd, hs)]),
+             src["first_seen"] or 0, src["first_seen"] or 1e12, src["last_seen"] or 0, src["last_transcript"],
+             int(dst_hz)))
+        con.execute("UPDATE events SET freq_hz = ? WHERE freq_hz = ?", (int(dst_hz), int(src_hz)))
+        if src["source"] != "listed":
+            con.execute("DELETE FROM channels WHERE freq_hz = ?", (int(src_hz),))

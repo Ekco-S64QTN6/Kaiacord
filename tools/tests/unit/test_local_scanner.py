@@ -117,3 +117,24 @@ def test_listen_along_audio_is_steady_20ms_frames():
         scanner._along.clear()
     scanner._sink(np.full(240, 1000, np.int16))              # nobody listening: dropped
     assert src.read() == bytes(3840)
+
+
+def test_one_transmitter_is_one_row():
+    """The waterfall rounds to 2.5 kHz, which split 462.2775 and 462.275."""
+    scanner._NAMED_CACHE["rows"] = [c["freq_hz"] for c in scanner.seed_channels()]
+    assert scanner.snap_channel(462_277_500) == 462_275_000
+    assert scanner.snap_channel(146_861_000) == 146_860_000          # ham: 5 kHz grid
+    assert scanner.snap_channel(462_563_000) == 462_562_500          # FRS/GMRS ch 1
+    ledger.record(463_225_000, "carrier", 5, 3000, 0.3)
+    assert scanner.snap_channel(463_221_000) == 463_225_000          # a channel already heard
+
+
+def test_a_channel_that_never_carries_voice_stops_being_transcribed(monkeypatch):
+    calls = []
+    monkeypatch.setattr(scanner, "_transcribe", lambda a: calls.append(1) or "")
+    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
+    for _ in range(scanner.QUIET_CHANNEL_HITS + 2):
+        scanner.classify(_catch(462_275_000, audio, seconds=6))
+    assert len(calls) == scanner.QUIET_CHANNEL_HITS           # then quiet…
+    scanner.classify(_catch(462_275_000, audio, seconds=6))
+    assert len(calls) == scanner.QUIET_CHANNEL_HITS + 1       # …until every tenth catch rechecks

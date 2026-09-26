@@ -107,6 +107,26 @@ def _snap(freq_hz: int, step: int = 6250) -> int:
     return int(round(freq_hz / step) * step)
 
 
+def snap_channel(freq_hz: int) -> int:
+    """The channel a catch is on. The waterfall rounds to 2.5 kHz, which split
+    one transmitter across neighbouring rows (462.2775 / 462.275). Amateur
+    bands sit on a 5 kHz grid (146.860); land-mobile, FRS/GMRS and MURS on
+    6.25 kHz (462.5625). Named channels win over the grid."""
+    for c in _NAMED_CACHE.get("rows") or []:
+        if abs(c - freq_hz) <= 3000:
+            return c
+    # A channel already heard, within a grid step: a wide signal straddles the
+    # grid and would otherwise alternate between two neighbouring rows.
+    heard = [c["freq_hz"] for c in ledger.channels() if c["hits"] and abs(c["freq_hz"] - freq_hz) <= 4000]
+    if heard:
+        return min(heard, key=lambda f: abs(f - freq_hz))
+    step = 5000 if _service_of(freq_hz) == "amateur" else 6250
+    return _snap(freq_hz, step)
+
+
+_NAMED_CACHE: dict = {}
+
+
 def _cfg(key: str, default):
     return config.get(f"radio.local.{key}", default)
 
@@ -208,18 +228,30 @@ TRANSCRIBE_PER_NIGHT = 60
 _transcribed = {"date": "", "count": 0}
 
 
+QUIET_CHANNEL_HITS = 8       # catches with no voice before a channel is transcribed only now and then
+RECHECK_EVERY = 10
+
+
 def classify(catch) -> None:
     """A catch from the waterfall → the ledger: voice if Whisper finds words,
     data if it has a digital mode's shape, otherwise a bare carrier. Runs on
     the watcher's worker thread."""
     if catch.seconds < MIN_CATCH_S or len(catch.audio) < rtl.SAMPLE_RATE:
         return                                   # a kerchunk
+    if not _NAMED_CACHE.get("rows"):
+        _NAMED_CACHE["rows"] = [c["freq_hz"] for c in seed_channels()]
+    catch.freq_hz = snap_channel(catch.freq_hz)
     m = rtl.measure(catch.audio, catch.freq_hz)
+    known = ledger.channel(catch.freq_hz) or {}
+    # A channel that keys up every minute with no words (telemetry, a trunked
+    # system's data) would spend the night's transcriptions in an hour.
+    quiet_channel = known.get("hits", 0) >= QUIET_CHANNEL_HITS and not known.get("voice") \
+        and known.get("hits", 0) % RECHECK_EVERY
     kind, transcript = ("data" if m.digital else "carrier"), ""
     today = datetime.now().strftime("%Y-%m-%d")
     if _transcribed["date"] != today:
         _transcribed.update(date=today, count=0)
-    if not m.digital and _transcribed["count"] < TRANSCRIBE_PER_NIGHT:
+    if not m.digital and not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT:
         _transcribed["count"] += 1
         text = _transcribe(catch.audio)
         if looks_like_speech(text):
@@ -228,8 +260,10 @@ def classify(catch) -> None:
     ledger.record(catch.freq_hz, kind, round(catch.seconds, 1), m.rms, m.hf_ratio, clip, transcript,
                   _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started)
     label = (ledger.channel(catch.freq_hz) or {}).get("label") or _service_of(catch.freq_hz)
-    log_info(f"[scanner] {kind} on {catch.freq_hz / MHZ:.4f} MHz ({label}), {catch.seconds:.0f}s"
-             + (f": {transcript[:80]}" if transcript else ""))
+    # Carriers are routine and frequent: below the dashboard's live log.
+    (log_debug if kind == "carrier" else log_info)(
+        f"[scanner] {kind} on {catch.freq_hz / MHZ:.4f} MHz ({label}), {catch.seconds:.0f}s"
+        + (f": {transcript[:80]}" if transcript else ""))
     if _along:
         icon = {"voice": "🗣️", "data": "📟", "carrier": "〰️"}.get(kind, "📻")
         _announce(f"{icon} **{catch.freq_hz / MHZ:.4f} MHz** · {label} · {kind}, {catch.seconds:.0f}s"
