@@ -2270,6 +2270,7 @@ def _make_hunt_status_view(ctx, msg, uid, uname, is_owner):
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
     return view
 
+@serialize_combat_action      # two moves at once would read and save the same dungeon state
 async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
     from utils.ttrpg.dungeon import (
         DIRECTIONS, R_MONSTER, R_BOSS, R_GUARD, R_TREASURE, R_SHRINE, R_TRAP, R_ANTECHAMBER, _key,
