@@ -18,6 +18,7 @@ time, and the shape no longer said anything about the contents: `corrupt_files`
 | `troubleshooting/` | P99 technical guides, synthesised from the forum | `Troubleshooting_<Category>.md` |
 | `transcripts/` | Podcast and talk transcripts | `<Topic> - <Title>.md` |
 | `kaia_dreams/` | Her own reflections. `consolidated/` holds one document per subject | see below |
+| `kaia_notes/` | Notes she keeps when she says she is keeping one (`utils/core/kaia_notes.py`): what was shared and what she made of it. Retrieved labelled as her own note. Deliberately **not** in `process_ingress.ALLOWED_FOLDERS` — nothing a user downloads may be filed as her note | `<name>.md`, dated sections |
 | `user_logs/` | Per-user interaction history and profiles | `interactions_<date>.md` |
 | `runtime/` | What the running bot wrote about itself: `snapshots/` (`system_logs/` is retired — `!sysmon` writes `memory/sysmon/`, which is not indexed) | timestamped |
 

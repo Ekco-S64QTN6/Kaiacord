@@ -59,7 +59,7 @@ class KnowledgeBoundary:
         from pathlib import Path
         subdirs = [
             "books", "news", "documents", "forum_posts",
-            "wiki", "troubleshooting", "transcripts",
+            "wiki", "troubleshooting", "transcripts", "kaia_notes",
         ]
         for subdir in subdirs:
             folder = Path(self.kb_path) / subdir

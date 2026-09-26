@@ -255,6 +255,10 @@ class ContextOptimizer:
                     if date_str: provenance.append(date_str)
                     if provenance: type_label += f": {' | '.join(provenance)}"
                 history_nodes.append(f"[{type_label}]\n{content_raw}")
+            elif source_type == 'kaia_note' or "kaia_notes" in path:
+                # Something she wrote down herself, not something she read.
+                note = os.path.basename(path_raw or 'note')
+                history_nodes.append(f"[YOUR OWN NOTE: {note}]\n{content_raw}")
             elif source_type == 'news' or "news" in path:
                 news_nodes.append(f"{content_raw}")
             else:

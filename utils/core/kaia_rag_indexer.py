@@ -365,6 +365,8 @@ class RAGIndexerMixin:
                 doc.metadata["source_type"] = "kaia_reflection"
             else:
                 doc.metadata["source_type"] = "dream"
+        elif "kaia_notes" in file_path:
+            doc.metadata["source_type"] = "kaia_note"
         elif "snapshots" in file_path:
             doc.metadata["source_type"] = "snapshot"
         else:

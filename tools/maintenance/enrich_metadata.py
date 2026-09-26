@@ -285,6 +285,7 @@ def gather_files(base_dir: str, category_flag: str) -> list[tuple[Path, str]]:
             "troubleshooting",
             "wiki",
             "kaia_dreams",
+            "kaia_notes",
         ]
         for subdir in knowledge_dirs:
             folder = kb_path / subdir

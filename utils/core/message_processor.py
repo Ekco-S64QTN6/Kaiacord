@@ -2460,6 +2460,18 @@ class MessageProcessor:
             log_debug(f"Time guard skipped (non-fatal): {_tg_err}")
         ctx.response_text = code_blocks.restore(ctx.response_text, _code)
 
+        # A reply saying she is keeping a note keeps one, and names the file
+        # that now exists. Discord only: a forum draft or a public feed is not
+        # a conversation she takes notes on.
+        if not ctx.is_social and not getattr(ctx.message, "no_persist", False):
+            try:
+                from utils.core import kaia_notes
+                ctx.response_text = await asyncio.to_thread(
+                    kaia_notes.keep, ctx.response_text, ctx.author_name, ctx.own_words,
+                    getattr(ctx, "sanitized_content", "") or "")
+            except Exception as _note_err:
+                log_debug(f"Note not kept (non-fatal): {_note_err}")
+
         # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
         
