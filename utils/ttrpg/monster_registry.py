@@ -426,7 +426,11 @@ def get(name: str) -> dict | None:
     Returns a deep copy (caller may mutate HP safely).
     """
     import copy
-    key = name.lower().strip().replace(" ", "_").replace("-", "_")
+    # An empty name is contained in every monster's name, so the fuzzy
+    # fallback handed back whichever monster came first.
+    if not name or not str(name).strip():
+        return None
+    key = str(name).lower().strip().replace(" ", "_").replace("-", "_")
 
     # Exact match
     if key in MONSTERS:

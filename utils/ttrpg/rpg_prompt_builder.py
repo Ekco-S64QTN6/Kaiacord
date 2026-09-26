@@ -22,65 +22,6 @@ TTRPG_NARRATOR_OVERRIDE = (
 )
 
 
-def build_combat_prompt(
-    attacker: dict,
-    monster_name: str,
-    monster_description: str,
-    player_hit: bool,
-    player_crit: bool,
-    player_fumble: bool,
-    player_damage: int,
-    monster_alive: bool,
-    monster_hit: bool,
-    monster_damage: int,
-    player_alive: bool,
-    player_hp_after: int,
-    player_hp_max: int,
-    player_hp_pct: float,
-) -> str:
-
-    player_outcome = (
-        "CRITICAL HIT" if player_crit else
-        "FUMBLE" if player_fumble else
-        "HIT" if player_hit else
-        "MISS"
-    )
-
-    monster_outcome = "HIT" if monster_hit else "MISS" if monster_alive else "N/A — defeated"
-    monster_status = "DEFEATED" if not monster_alive else "STILL FIGHTING"
-    player_status = "DEFEATED — blacked out, dragged to shrine" if not player_alive else f"STANDING ({player_hp_after}/{player_hp_max} HP)"
-
-    prompt = f"""[TTRPG GROUND TRUTH — NARRATE THIS EXCHANGE EXACTLY AS STATED]
-ATTACKER: {attacker['character_name']} ({attacker['class']} Lv.{attacker['level']})
-TARGET: {monster_name}
-MONSTER DESCRIPTION: {monster_description}
-
-PLAYER'S ATTACK: {player_outcome}
-{"PLAYER DEALT: " + str(player_damage) + " damage" if player_hit and not player_fumble else "Player dealt no damage."}
-
-MONSTER COUNTER-ATTACK: {monster_outcome}
-{"MONSTER DEALT: " + str(monster_damage) + " damage to the player" if monster_hit else "Monster missed."}
-
-MONSTER STATUS: {monster_status}
-PLAYER STATUS: {player_status}
-
-YOUR TASK: Narrate this entire combat exchange in 2–4 sentences covering both the player's attack and the monster's response.
-Be specific and kinetic. Use the monster description for flavor.
-"""
-    if not player_alive:
-        prompt += f"""
-[CRITICAL] The player has been DEFEATED and blacked out. 
-Describe the killing blow landing. Do NOT describe the player as surviving, standing, or healthy.
-End on the moment of defeat — darkness, collapse, the ground rising up. 2–3 sentences."""
-    else:
-        prompt += f"""The player is currently at {int(player_hp_pct * 100)}% HP. Describe their physical state appropriately (e.g. bleeding heavily, barely standing, or completely unharmed).
-Do NOT change any outcome. Do NOT invent damage numbers. Do NOT reference dice or game mechanics.
-If the monster is DEFEATED, describe its final moments."""
-
-    prompt += "\n[END GROUND TRUTH]"
-    return prompt
-
-
 def build_look_prompt(sheet: dict, location_name: str, location_short: str, atmosphere: str) -> str:
     return f"""[AETHELGARD WORLD NARRATION]
 WORLD SETTING: Medieval fantasy. No modern technology, no electricity, no neon, no plastic.

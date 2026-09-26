@@ -148,3 +148,9 @@ def test_every_quest_is_offered_by_an_npc_you_can_talk_to():
         for t in q["tasks"]:
             if t.startswith("talk_"):
                 assert t[5:] in ids, (q["id"], t)
+
+
+def test_an_empty_monster_name_finds_no_monster():
+    from utils.ttrpg.monster_registry import get
+    assert get("") is None and get(None) is None and get("  ") is None
+    assert get("wolf") is not None
