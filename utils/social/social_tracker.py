@@ -5,6 +5,7 @@ from pathlib import Path
 from collections import deque
 from typing import Set, Dict, Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
 class SocialTracker:
     """
@@ -15,8 +16,10 @@ class SocialTracker:
                  log_path: str = "memory/social_replied.log",
                  state_path: str = "memory/social_state.json",
                  max_ids: int = 5000):
-        self.log_path = Path(log_path)
-        self.state_path = Path(state_path)
+        # Redirected under pytest: a test that marks a reply must not add it to
+        # the live bot's list of mentions it has answered.
+        self.log_path = Path(telemetry_path(log_path))
+        self.state_path = Path(telemetry_path(state_path))
         self.max_ids = max_ids
         
         # In-memory storage
@@ -130,9 +133,12 @@ class SocialTracker:
                         'thread_counts': self._thread_counts,
                         'last_updated': time.time()
                     }
-                    with open(self.state_path, 'w') as f:
-                        json.dump(state, f, indent=2)
-                    
+                    # Atomic, because the log is deleted next: a snapshot cut
+                    # short by a crash with its log already gone forgets every
+                    # mention she has answered, and she answers them again.
+                    from utils.core.atomic_write import write_atomic
+                    write_atomic(self.state_path, json.dumps(state, indent=2))
+
                     # Truncate log as it's now synced to state
                     if self.log_path.exists():
                         self.log_path.unlink()
