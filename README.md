@@ -251,6 +251,13 @@ venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
 Only a handful of tests need Ollama or the GPU; the rest run anywhere. Test runs log to
 `logs/kaiacord.test.log`, never to the production log.
 
+**A passing suite and a clean log are not proof that a feature works.** Both were trusted here for
+months while features logged success over wrong output: recordings of pure static "kept",
+invented transcripts filed as voice, a repair the running bot quietly undid. To verify a
+feature, open what it actually wrote — the file under `memory/` or `knowledge_base/`, the
+database row, the audio clip, the message in the channel — and check it against what it should
+hold. [CLAUDE.md](CLAUDE.md) §9 has the routine.
+
 ---
 
 ## Features
@@ -306,7 +313,7 @@ captured into Discord voice. No model is involved and no VRAM is used.
 | `!buzzer` | UVB-76, live |
 | `!tacamo` | Whether the E-6B and E-4B relay aircraft are broadcasting their position |
 | `!beacons` | Which continents she can hear on the worldwide beacon chain |
-| `!overnight` | A write-up of what her night shift saw (she also posts one each morning) |
+| `!overnight` | Her night shift in a box: a paragraph in her voice, then the readings by section — on the air, the local scanner, beacons, space weather, near Earth (she also posts one each morning) |
 | `!scanner` | The local RTL-SDR, if one is attached: a waterfall watch over the local voice bands from midnight to 6, a ledger of every frequency it hears and when, presets to play live in voice, and recordings to replay |
 | `!iss` | The station, its crew, and its next visible pass over you |
 | `!nasa` · `!earth` | The astronomy picture of the day, the Deep Space Network, and the whole sunlit Earth |
@@ -314,7 +321,8 @@ captured into Discord voice. No model is involved and no VRAM is used.
 | `!rocks` · `!launch` · `!quake` | Close asteroids, upcoming launches, recent earthquakes |
 | `!sky` | Tonight's moon, planets and meteor showers |
 
-Four times a day Kaia records the HFGCS net from a public [KiwiSDR](http://kiwisdr.com/),
+Number stations are recorded on a rotation (E07, V07, S11a, M12, E11 — at most one each a day), and
+a recording is kept only if it holds tones or speech; static is discarded. Four times a day Kaia records the HFGCS net from a public [KiwiSDR](http://kiwisdr.com/),
 transcribes it on the CPU, marks anything she is unsure of with `?`, and checks herself against
 the volunteer log. The messages are encrypted and she never claims to decode one. The feeds are
 volunteer services, polled every six hours and cached; radio history is kept in `memory/radio/`,

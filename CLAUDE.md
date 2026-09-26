@@ -257,7 +257,8 @@ carry their own caps (`url_max_content_length`); cutting the whole string cut th
 A DM is answered, but it is logged to `memory/dm_logs/<user id>.md` (`utils/core/dm_log.py`), never to
 `knowledge_base/user_logs/`, which retrieval serves to every public reply and the proactive engine
 quotes into the busiest channel. DM turns in channel memory carry `"private": True`, and anything
-that reads across channels (the monologue) must skip them.
+that reads across channels (the monologue) must skip them. Nothing from a DM may be written
+anywhere retrieval reads — her notes (`knowledge_base/kaia_notes/`) were, until September 2026.
 
 ### Token budget
 
@@ -752,6 +753,41 @@ Three patterns, not one:
    log the result. Four separate guards shipped grammar rubble while announcing "kept substance".
 3. **A refusal that reports only to the log.** A CLI that declines the job has to say so where the
    person who typed it will see it, and exit non-zero.
+
+### Check the payload, not the line
+
+The blind spot behind every entry above, and it lasted months: a feature was judged by its log
+line, and the log line was written by the same code that was wrong. **Every feature writes
+something you can open** — a file, a database row, an audio clip, a Discord message, an embed, a
+model draft. That artefact is the evidence; the line is the feature's opinion of itself. A review
+or a fix is not finished until you have opened the artefact and checked it against what it
+should hold.
+
+September 2026's radio work alone produced six more, each logged as success:
+
+| Line | What the artefact held |
+|:--|:--|
+| `[radio] kept 1 of 1 from E07` | seven minutes of static — nobody had listened to a clip |
+| `[scanner] voice on 462.2750 MHz` | a Norwegian subtitle credit Whisper made up on a bare carrier |
+| a number-station transcript | `3, 4, 4, 0, 0, 0, 0, 0…` — hallucinated digits, posted as copy |
+| `written from 5 facts gathered in Python` | a write-up turning "recorded S11a" into "S11a will pass" |
+| `merged 26` ledger rows | undone within minutes: the bot, still on the old code, re-created them |
+| a reclassified catch | the row said *no clip*; the clip was still on disk |
+
+The routine, for any feature you touch or review:
+
+- **Find its artefacts** — every file, row, message or clip it writes — and open real ones from
+  production, not a test fixture. For audio, measure or listen; for text, read it; for a
+  database, reconcile the counts against the rows (hits against events, files against references).
+- **Check both directions.** Everything referenced exists, and everything that exists is
+  referenced: orphans are where a half-finished path leaves its evidence.
+- **A data fix is not done until the next write cycle.** A running process on the old code writes
+  the old shape straight back. Fix the code, restart, let it write, then look again.
+- **A docstring is telemetry too.** "Combat reads them by key" was true, and the character sheet
+  still showed the unenhanced figures. Follow every consumer of a value, and find readers by
+  the module name as well as the function name: `import x as _y` hides from a grep for `x(`.
+- **A model's output is a payload.** Anything a model writes from facts gets compared against
+  the facts it was given, not trusted because the prompt said "use only these".
 
 **Two sweeps worth repeating.** Enumerate every bracketed guard tag in `utils/` and count its
 occurrences in the production log — a tag with zero hits is either well-calibrated or dead code,
