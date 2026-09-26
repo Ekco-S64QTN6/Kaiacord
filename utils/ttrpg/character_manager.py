@@ -20,6 +20,43 @@ _global_lock = asyncio.Lock()  # Protects access to the _user_locks dict
 
 INVENTORY_LIMIT = 100
 
+# When each player last did something themselves. `last_updated` on the sheet
+# is set by every save, including the noon events' saves of their defenders —
+# so a player drafted once stayed "active" for as long as there was a daily
+# event. {user_id: epoch}; stamped by typed !rpg commands and button clicks.
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path as _telemetry_path
+ACTIVITY_PATH = _telemetry_path(os.path.join("memory", "ttrpg", "last_active.json"))
+_activity_lock = threading.Lock()
+_activity_stamped: Dict[str, float] = {}
+ACTIVITY_THROTTLE_S = 600
+
+
+def _read_activity() -> Dict[str, float]:
+    try:
+        with open(ACTIVITY_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def active_since(cutoff: float) -> set:
+    """User ids that acted themselves at or after `cutoff`."""
+    return {uid for uid, ts in _read_activity().items() if float(ts or 0) >= cutoff}
+
+
+def mark_active(user_id, now: Optional[float] = None) -> None:
+    """Record that this player acted. At most one write per player per ten minutes."""
+    uid, now = str(user_id), now or time.time()
+    if now - _activity_stamped.get(uid, 0) < ACTIVITY_THROTTLE_S:
+        return
+    from utils.core.atomic_write import write_atomic
+    with _activity_lock:
+        data = _read_activity()
+        data[uid] = now
+        write_atomic(ACTIVITY_PATH, json.dumps(data, indent=1))
+    _activity_stamped[uid] = now
+
 def _path(user_id: str) -> str:
     os.makedirs(CHARACTERS_DIR, exist_ok=True)
     return os.path.join(CHARACTERS_DIR, f"{user_id}.json")
@@ -328,7 +365,14 @@ async def get_active_town_defenders(town_locations=None, within_hours=48):
     sheets = await load_all()
     now = time.time()
     cutoff = now - within_hours * 3600
-    
+    activity = await asyncio.to_thread(_read_activity)
+    if not activity and not os.path.exists(ACTIVITY_PATH):
+        # First run: seed from the sheets, once. After this only the player's
+        # own actions move it.
+        activity = {str(s.get("user_id")): float(s.get("last_updated", 0)) for s in sheets}
+        from utils.core.atomic_write import write_atomic
+        await asyncio.to_thread(write_atomic, ACTIVITY_PATH, json.dumps(activity, indent=1))
+
     # Active within the window and alive in town. A fallback here used to
     # draft every living character whenever fewer than all were active —
     # nearly always — so players gone for weeks fought (and lost) the noon
@@ -337,6 +381,6 @@ async def get_active_town_defenders(town_locations=None, within_hours=48):
         s for s in sheets
         if s.get("location") in town_locations
         and s.get("hp", {}).get("current", 0) > 0
-        and s.get("last_updated", 0) >= cutoff
+        and float(activity.get(str(s.get("user_id")), 0)) >= cutoff
     ]
 

@@ -137,6 +137,12 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
 
     handler = handlers.get(sub, cor._handle_rpg_help)
     try:
+        import asyncio
+        from utils.ttrpg.character_manager import mark_active
+        await asyncio.to_thread(mark_active, author_id)
+    except Exception:
+        pass
+    try:
         await handler(ctx, msg, _auto_send, rest, author_id, author_name, is_owner)
     except Exception as e:
         log_error(f"[rpg] Handler error in '{sub}': {e}")

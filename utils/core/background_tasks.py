@@ -2228,6 +2228,18 @@ class CoreTaskManager:
 
     def start(self):
         from utils.infrastructure.monitoring.async_task_registry import task_registry
+        # A button click is play too: it stamps the player's Aethelgard
+        # activity, which decides who defends the town at noon.
+        bot = getattr(self.ctx, "bot", None)
+        if bot is not None and hasattr(bot, "add_listener"):
+            async def _rpg_activity(interaction):
+                try:
+                    if getattr(interaction, "user", None) and not interaction.user.bot:
+                        from utils.ttrpg.character_manager import mark_active
+                        await asyncio.to_thread(mark_active, interaction.user.id)
+                except Exception:
+                    pass
+            bot.add_listener(_rpg_activity, "on_interaction")
         self.news_refresh_task.start()
         # tasks.loop objects are not asyncio.Task, use get_task()
         if self.news_refresh_task.get_task():
@@ -4837,12 +4849,15 @@ async def run_iron_magpies_heist(bot_ctx, channel):
         # Penalty: steal 5% of bank gil from characters active in the last
         # 48 hours (true percentage sink). It took from every sheet, so an
         # undefended heist emptied the accounts of players who weren't there.
+        # Activity is the player's own: the sheet's last_updated is refreshed
+        # by this very save, so the robbed stayed eligible to be robbed.
         import time as _time
-        _cutoff = _time.time() - 48 * 3600
+        from utils.ttrpg.character_manager import active_since
+        _active = await asyncio.to_thread(active_since, _time.time() - 48 * 3600)
         all_sheets = await load_all()
         stolen_details = []
         for s in all_sheets:
-            if s.get("last_updated", 0) < _cutoff:
+            if str(s.get("user_id")) not in _active:
                 continue
             bal = s.get("bank_balance", 0)
             if bal > 0:
