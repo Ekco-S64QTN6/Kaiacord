@@ -110,3 +110,58 @@ def test_two_open_mail_menus_cannot_claim_the_same_package_twice(monkeypatch):
         await b.check_mail.callback(inter())
     asyncio.run(go())
     assert disk["42"]["gil"] == 100 and disk["42"]["inventory"] == ["tonic"] and disk["42"]["mailbox"] == []
+
+
+def test_a_view_callback_holds_the_players_lock():
+    from utils.ttrpg.session_manager import player_locked
+    running, overlaps = [0], [0]
+
+    @player_locked("42")
+    async def cb(interaction, amount=5):
+        running[0] += 1
+        overlaps[0] = max(overlaps[0], running[0])
+        await asyncio.sleep(0.02)
+        running[0] -= 1
+        return amount
+
+    async def go():
+        return await asyncio.gather(cb(None), cb(None))
+    assert asyncio.run(go()) == [5, 5]        # the callback's own defaults survive
+    assert overlaps[0] == 1
+
+
+def test_only_the_first_advancement_button_counts(monkeypatch):
+    """Every path was a live button on the same message and none checked that
+    the choice was still open: two clicks, two HP bonuses."""
+    import copy
+    from unittest.mock import AsyncMock, MagicMock
+    from utils.ttrpg.class_advancement import get_advanced_options
+
+    base = next(c for c in ("Warrior", "Knight", "Mage", "Rogue", "Cleric")
+                if any("hp_bonus" in o.get("bonuses", {}) for o in get_advanced_options(c).values()))
+    store = {"42": {"user_id": "42", "character_name": "P", "class": base, "level": 5,
+                    "hp": {"current": 50, "max": 50}, "_advancement_pending": True}}
+    monkeypatch.setattr(cor, "load", AsyncMock(side_effect=lambda uid: copy.deepcopy(store.get(uid))))
+    monkeypatch.setattr(cor, "save", AsyncMock(side_effect=lambda s: store.__setitem__(s["user_id"], copy.deepcopy(s))))
+    monkeypatch.setattr(cor, "_log_world_event", AsyncMock())
+    monkeypatch.setattr(cor, "_broadcast_world_event", AsyncMock())
+
+    sent = {}
+    async def channel_send(embed=None, view=None, **k):
+        sent["view"] = view
+
+    async def go():
+        msg = types.SimpleNamespace(channel=types.SimpleNamespace(send=channel_send))
+        await cor._handle_advance(_ctx(), msg, None, "", "42", "p", False)
+        buttons = [b for b in sent["view"].children if isinstance(b, cor.discord.ui.Button)]
+        for b in buttons:
+            inter = MagicMock()
+            inter.user.id = "42"
+            inter.response.send_message = AsyncMock()
+            await b.callback(inter)
+    asyncio.run(go())
+
+    chosen = store["42"]["advanced_class"]
+    bonus = get_advanced_options(base)[chosen].get("bonuses", {}).get("hp_bonus", 0)
+    assert store["42"]["hp"]["max"] == 50 + bonus
+    assert cor.save.await_count == 1

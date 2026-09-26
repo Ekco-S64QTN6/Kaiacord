@@ -100,6 +100,22 @@ def serialize_user_action(fn):
     return wrapper
 
 
+def player_locked(uid: str):
+    """serialize_user_action for a view callback: the callback closes over the
+    player instead of taking them as a parameter, so the uid is given here.
+
+        @player_locked(uid)
+        async def _cb(interaction): ...
+    """
+    def deco(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            async with await get_action_lock(f"user:{uid}"):
+                return await fn(*args, **kwargs)
+        return wrapper
+    return deco
+
+
 async def get_session_lock(channel_id: str) -> asyncio.Lock:
     """Guards a single session file read or write."""
     async with _chan_global_lock:

@@ -1,4 +1,4 @@
-from utils.ttrpg.session_manager import serialize_combat_action
+from utils.ttrpg.session_manager import player_locked, serialize_combat_action
 from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import time
@@ -9,7 +9,7 @@ import secrets
 from utils.infrastructure.logging.kaia_logger import log_error
 from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.character_manager import load, save, create, load_all
-from utils.ttrpg.session_manager import load_session
+from utils.ttrpg.session_manager import get_action_lock, load_session
 from utils.ttrpg.progression import (
     check_and_reset_hunts, hunts_remaining, check_level_up, get_max_hunts,
 )
@@ -499,6 +499,10 @@ class StatChoiceView(discord.ui.View):
     async def _process_choice(self, interaction, gains):
         if str(interaction.user.id) != self._uid:
             return await interaction.response.send_message("This is not your choice to make.", ephemeral=True)
+        async with await get_action_lock(f"user:{self._uid}"):
+            return await self._apply_choice(interaction, gains)
+
+    async def _apply_choice(self, interaction, gains):
             
         sheet = await load(self._uid)
         if not sheet or not sheet.get("_stat_choice_pending"):
@@ -1170,6 +1174,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
                 row=0
             )
 
+            @player_locked(uid)
             async def _buyback_sel_cb(sel_interaction: discord.Interaction):
                 if str(sel_interaction.user.id) != uid:
                     await sel_interaction.response.send_message("not yours.", ephemeral=True)
@@ -1371,6 +1376,7 @@ class SpineLiftView(discord.ui.View):
             row=0
         )
         
+        @player_locked(self._uid)
         async def _lift_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
                 try: await interaction.response.send_message("Not your lift.", ephemeral=True)

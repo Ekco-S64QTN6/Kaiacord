@@ -39,7 +39,7 @@ from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_ch
 
 
 from utils.ttrpg.rpg_views import *
-from utils.ttrpg.session_manager import serialize_user_action
+from utils.ttrpg.session_manager import player_locked, serialize_user_action
 
 async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
@@ -232,6 +232,7 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
             view = discord.ui.View(timeout=120)
             sel = discord.ui.Select(placeholder="Choose your path...", options=sel_options, row=0)
             
+            @player_locked(uid)
             async def _adv_cb(interaction: discord.Interaction):
                 if str(interaction.user.id) != uid:
                     return await interaction.response.send_message("Not yours.", ephemeral=True)
@@ -694,11 +695,16 @@ async def _handle_advance(ctx, msg, send, rest, uid, uname, is_owner):
             style=discord.ButtonStyle.primary,
             row=0
         )
+        @player_locked(uid)
         async def _choose(interaction: discord.Interaction, chosen=adv_name, data=adv_data):
             if str(interaction.user.id) != uid:
                 await interaction.response.send_message("not your choice.", ephemeral=True)
                 return
             s = await load(uid)
+            # Every path is a button on the same message; only the first counts.
+            if not s or not s.get("_advancement_pending"):
+                await interaction.response.send_message("your path is already chosen.", ephemeral=True)
+                return
             s = apply_advanced_class_to_sheet(s, chosen)
             s.pop("_advancement_pending", None)
             await save(s)
@@ -723,6 +729,7 @@ async def _handle_advance(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA, resolve_location
 
@@ -2071,6 +2078,7 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
     for label, amount in amounts:
         btn = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary, row=0)
 
+        @player_locked(uid)
         async def _offer_cb(interaction: discord.Interaction, amt=amount):
             if str(interaction.user.id) != uid:
                 await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
@@ -2356,6 +2364,7 @@ async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
             label=f"Deposit {amt_label if amt_val else str(sheet['gil'])+'g'}",
             style=discord.ButtonStyle.secondary, row=0
         )
+        @player_locked(uid)
         async def _dep_cb(interaction: discord.Interaction, amount=actual, is_all=(amt_val is None)):
             if str(interaction.user.id) != uid:
                 await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
@@ -2402,6 +2411,7 @@ async def _handle_bank_withdraw(ctx, msg, send, rest, uid, uname, is_owner):
             label=f"Withdraw {amt_label if amt_val else str(balance)+'g'}",
             style=discord.ButtonStyle.secondary, row=0
         )
+        @player_locked(uid)
         async def _wth_cb(interaction: discord.Interaction, amount=actual, is_all=(amt_val is None)):
             if str(interaction.user.id) != uid:
                 await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
