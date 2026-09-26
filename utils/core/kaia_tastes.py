@@ -25,10 +25,19 @@ KB = Path("knowledge_base")
 CACHE_S = 3600
 TOP_BOOKS = 6
 
+# A request for *her* taste, not any sentence with "favourite" or "suggests" in
+# it. Measured over 7,911 real user lines: the old any-mention pattern fired on
+# 139, most of them "the image suggests…" or someone naming their own favourite.
+_MEDIA = r"(?:book|novel|song|track|album|band|artist|film|movie|show|series|game|anime|genre|author|record)s?"
 ASKS = re.compile(
-    r"\b(?:fav(?:ou?rite|e)s?|recommend\w*|suggest(?:ion)?s?|what\s+(?:do|are)\s+you\s+(?:into|like|reading|listening)|"
-    r"what\s+(?:should|would)\s+i\s+(?:read|listen|watch|play)|your\s+tastes?|"
-    r"what(?:'s|\s+is|\s+are)\s+your\s+(?:top|go-?to)|what\s+have\s+you\s+been\s+(?:reading|listening|playing))\b",
+    r"\byour\s+(?:(?:all[- ]time|absolute|second|least)\s+)?(?:most\s+)?(?:fav(?:ou?rite|e)s?|top|go-?to)\b"
+    r"|\bfav(?:ou?rite|e)\b[^.!?\n]{0,40}\?"
+    r"|\b(?:would|could|can|do|will)\s+you\s+recommend\b|(?:^|[.?!,:]\s*|\bkaia\s+)recommend\s+(?:me|us|a|an|some|any)\b"
+    r"|\brecommendations?\b[^.!\n]{0,40}\?|\bany\s+(?:good\s+)?recommendations?\b"
+    rf"|\bsuggest\s+(?:me\s+)?(?:a|an|some|any)\s+(?:good\s+)?{_MEDIA}\b"
+    r"|\bwhat\s+(?:do|are)\s+you\s+(?:into|reading|listening\s+to|playing)\b"
+    r"|\bwhat\s+(?:should|would|could)\s+i\s+(?:read|listen\s+to|watch|play)\b"
+    r"|\byour\s+tastes?\b|\bwhat\s+have\s+you\s+been\s+(?:reading|listening\s+to|playing)\b",
     re.IGNORECASE)
 
 _REFLECTIONS = re.compile(r"\*(\d+) reflections? about")
