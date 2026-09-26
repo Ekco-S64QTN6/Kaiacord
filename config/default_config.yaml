@@ -321,11 +321,22 @@ unprompted:
     observation: true
     monologue: true
 
-  # One allowance shared by all four: at most this many posts a day, at least
-  # this many minutes apart. 0 for max_per_day removes the daily limit.
-  # A manual !quip is not unprompted and neither needs nor spends it.
+  # At most max_per_day posts a day across every source (0 removes the limit).
+  # Each source waits min_interval_minutes since its *own* last post, so a quip
+  # never uses up the monologue's turn, and any two posts are at least
+  # shared_gap_minutes apart. A post held only by that spacing is not dropped:
+  # it queues, first come first served, and goes out in turn (within the hour).
+  # A manual !quip is not unprompted and neither needs nor spends any of it.
   max_per_day: 8
   min_interval_minutes: 90
+  shared_gap_minutes: 10
+
+  # Optional per-source overrides of min_interval_minutes, and a per-source
+  # daily limit inside the shared one — the monologue tries every 15 minutes
+  # and would otherwise take the whole day. Example:
+  #   per_source:
+  #     monologue: {min_interval_minutes: 30, max_per_day: 6}
+  per_source: {}
 
   # When true, nothing posts outside these local hours. 9 and 22 mean 09:00
   # until 21:59; start > end wraps midnight (22 and 6 = quiet overnight).

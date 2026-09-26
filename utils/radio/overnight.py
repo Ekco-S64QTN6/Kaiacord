@@ -237,7 +237,7 @@ async def post(ctx, channel, manual: bool = False) -> Optional[str]:
         log_debug(f"[overnight] only {len(facts)} fact(s) tonight; no log")
         return None
     if not manual:
-        ok, why = unprompted.gate(getattr(ctx, "bot_state", None), "overnight")
+        ok, why = unprompted.gate(getattr(ctx, "bot_state", None), "overnight", waiting_ok=True)
         if not ok:
             log_debug(f"[overnight] held: {why}")
             return None
@@ -246,7 +246,7 @@ async def post(ctx, channel, manual: bool = False) -> Optional[str]:
         log_warning("[overnight] no usable note; posting the readings alone")
     text = "\n".join([note] * bool(note) + [f.text for f in facts])
     spoken = await unprompted.speak(ctx, channel, "overnight", text, manual=manual, embed=embed(facts, note))
-    if spoken.posted:
+    if spoken.posted or spoken.queued:           # queued: it goes out in turn
         write_cache(STATE, {"last_posted": time.time(), "facts": [f.text for f in facts]})
         return text
     return None

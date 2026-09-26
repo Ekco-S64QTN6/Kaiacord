@@ -29,7 +29,7 @@ def cfg(monkeypatch):
 
 
 def _state(**kw):
-    s = types.SimpleNamespace(unprompted_date="", unprompted_count=0,
+    s = types.SimpleNamespace(unprompted_date="", unprompted_count=0, unprompted_sources={},
                               unprompted_last_sent=0.0, channel_memory={})
     s.save = lambda: None
     s.__dict__.update(kw)
@@ -139,14 +139,35 @@ def test_the_gate_is_shared_by_all_four_sources(cfg):
         assert not ok and "daily limit 2/2" in why
 
 
-def test_the_gap_is_shared_and_says_how_long_is_left(cfg):
-    cfg.update({"unprompted.max_per_day": 0, "unprompted.min_interval_minutes": 60})
+def test_each_source_keeps_its_own_gap_and_says_how_long_is_left(cfg):
+    """A quip must not spend the monologue's turn: 31 of 41 monologue posts
+    were held by a gap another source had started."""
+    cfg.update({"unprompted.max_per_day": 0, "unprompted.min_interval_minutes": 60,
+                "unprompted.shared_gap_minutes": 10})
     state = _state()
     now = time.time()
-    up.record(state, now)
-    ok, why = up.gate(state, "observation", now + 600)
-    assert not ok and "50 min left of the 60 min gap" in why
-    assert up.gate(state, "observation", now + 3601)[0]
+    up.record(state, now, source="quip")
+    ok, why = up.gate(state, "quip", now + 600)
+    assert not ok and "50 min left of quip's 60 min gap" in why
+    ok, why = up.gate(state, "monologue", now + 300)
+    assert not ok and "5 min left of the 10 min gap between any two posts" in why
+    assert up.gate(state, "monologue", now + 601)[0]
+    assert up.gate(state, "quip", now + 3601)[0]
+
+
+def test_a_source_can_have_its_own_gap_and_daily_limit(cfg):
+    cfg.update({"unprompted.max_per_day": 16, "unprompted.min_interval_minutes": 45,
+                "unprompted.shared_gap_minutes": 0,
+                "unprompted.per_source.monologue.min_interval_minutes": 30,
+                "unprompted.per_source.monologue.max_per_day": 2})
+    state = _state()
+    now = time.time()
+    up.record(state, now, source="monologue")
+    assert up.gate(state, "monologue", now + 31 * 60)[0]
+    up.record(state, now + 31 * 60, source="monologue")
+    ok, why = up.gate(state, "monologue", now + 70 * 60)
+    assert not ok and "monologue's daily limit 2/2" in why
+    assert up.gate(state, "quip", now + 70 * 60)[0]
 
 
 def test_a_new_day_resets_the_count(cfg):
@@ -300,3 +321,34 @@ def test_a_post_with_a_box_sends_the_box_and_no_label_line(monkeypatch, cfg):
     result = asyncio.run(up.speak(types.SimpleNamespace(bot_state=_state()), _Boxed(), "overnight",
                                   "the planetary k index is 4.3.", embed=box))
     assert result.posted and sent == [(None, box)]
+
+
+def test_a_post_held_only_by_the_spacing_waits_its_turn(monkeypatch, cfg):
+    """Nothing is silenced by the gap between posts: it queues, first come first
+    served, and goes out when the gap is over."""
+    cfg.update({"unprompted.max_per_day": 0, "unprompted.min_interval_minutes": 0,
+                "unprompted.shared_gap_minutes": 10})
+    clock = [1_000_000.0]
+    monkeypatch.setattr(up.time, "time", lambda: clock[0])
+    slept = []
+
+    async def fake_sleep(s):
+        slept.append(s)
+        clock[0] += s
+    monkeypatch.setattr("asyncio.sleep", fake_sleep)
+    up._queue.clear()
+    state, channel = _state(), _Channel()
+    ctx = types.SimpleNamespace(bot_state=state)
+
+    async def run():
+        assert (await up.speak(ctx, channel, "quip", "first.")).posted
+        a = await up.speak(ctx, channel, "monologue", "a thought.")
+        b = await up.speak(ctx, channel, "proactive", "an opener.")
+        assert a.queued and b.queued and "place 2" in b.reason
+        # the proactive engine asking before it generates: allowed, it would only wait
+        assert up.gate(state, "observation", waiting_ok=True)[0]
+        assert not up.gate(state, "observation")[0]
+        await up._drainer
+    asyncio.run(run())
+    assert [m.rsplit("** ", 1)[-1] for m in channel.sent] == ["first.", "a thought.", "an opener."]
+    assert len(slept) == 2 and not up._queue

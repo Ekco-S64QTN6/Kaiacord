@@ -106,8 +106,10 @@ flowchart TD
 Kaia sometimes speaks without being asked: an opener when she has something on her mind, an
 idle remark when a channel has gone quiet, an observation about a conversation she followed, a
 passing thought, and a morning write-up of what her night shift saw. All of these go through one
-gate with one daily limit, one minimum gap and one set of posting hours, configured in a single
-`unprompted:` block. Each post carries a short label that fits it (*Unspooling* when she revisits
+gate, configured in a single `unprompted:` block: one daily limit, a minimum gap per kind of post
+(so a quip never uses up a passing thought's turn), a short spacing between any two posts, and
+one set of posting hours. A post held only by that spacing waits in a queue and goes out in turn
+rather than being dropped. Each post carries a short label that fits it (*Unspooling* when she revisits
 an earlier view, *Down the rabbit hole* for something she read), and you choose which kinds also
 go to her Bluesky feed. A dream or a passing thought about someone can become how she opens a
 conversation with them — once a day at most, and only while they're around.
@@ -182,7 +184,9 @@ Settings resolve in order: environment variables, then `config/kaia.yaml` (your 
 | `generation.max_response_tokens` | `1024` | Reserved for the reply every turn. |
 | `generation.base_temperature` / `rag_temperature` | `0.70` / `0.35` | Conversation, and answers grounded in documents. |
 | `unprompted.sources.<name>` | all on except `monologue` | Which kinds of unprompted post may appear. A kind switched off still runs; nobody sees it. |
-| `unprompted.max_per_day` / `min_interval_minutes` | `8` / `90` | One allowance shared by every unprompted post. |
+| `unprompted.max_per_day` / `min_interval_minutes` | `8` / `90` | Daily posts across every source / each source's own gap. |
+| `unprompted.shared_gap_minutes` | `10` | Spacing between any two posts; a post held by it queues. |
+| `unprompted.per_source.<source>` | — | Per-source `min_interval_minutes` and `max_per_day`. |
 | `unprompted.bluesky.<name>` | `quip` only | Which kinds are also posted to Bluesky. |
 | `desires.gate_enabled` / `initiate_threshold` | `true` | Whether, and how readily, she speaks first. |
 | `bluesky.enabled` / `x_twitter.enabled` | `false` | Turns each integration on. Credentials alone do nothing. |

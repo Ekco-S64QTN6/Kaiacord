@@ -514,7 +514,7 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         # before the force check, which otherwise announced "Forcing social
         # post" every tick of a night the gate was holding.
         from utils.core import unprompted
-        ok, why = unprompted.gate(bot_state, "quip")
+        ok, why = unprompted.gate(bot_state, "quip", waiting_ok=True)
         if not ok:
             log_debug(f"Quip held: {why}.")
             return
@@ -632,7 +632,7 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
                 spoken = await unprompted.speak(
                     ctx, channel, "quip", posts=posts, kind="thread",
                     brief=context_type or "", manual=is_manual)
-                if not spoken.posted:
+                if not (spoken.posted or spoken.queued):
                     log_info(f"Quip thread not posted: {spoken.reason}.")
                     return False
                 if is_manual and target_channel and spoken.bluesky is not None:
@@ -756,7 +756,7 @@ async def generate_quip(ctx, is_manual=False, target_channel=None, on_message_fu
         from utils.core import unprompted
         spoken = await unprompted.speak(
             ctx, channel, "quip", quip, brief=context_type or "", manual=is_manual)
-        if not spoken.posted:
+        if not (spoken.posted or spoken.queued):
             log_info(f"Quip not posted: {spoken.reason}.")
             return False
 

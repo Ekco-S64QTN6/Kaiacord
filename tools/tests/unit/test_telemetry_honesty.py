@@ -34,7 +34,7 @@ def test_proactive_records_why_it_declined():
 
     # The hours, the daily limit and the gap are one shared gate now, so one
     # exit covers them — and names which one closed.
-    for expected in ("held by the shared limit", "last_limit_detail",
+    for expected in ("held by the unprompted limits", "last_limit_detail",
                      "desire gate closed", "no recently active channel"):
         assert expected in src, f"exit reason not recorded: {expected}"
 

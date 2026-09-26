@@ -6,8 +6,9 @@ say and *when to try*: the desire gate, the idle timer, twenty-five new
 messages, a thought every fifteen minutes. Everything after that is shared and
 lives here, under one `unprompted:` block in config:
 
-* **whether** — one switch, a switch per source, one daily limit and one
-  minimum gap shared by all four, one time-of-day window (`gate`)
+* **whether** — one switch, a switch per source, one shared daily limit, a
+  gap per source, a short spacing between any two posts with a queue for
+  what it holds, one time-of-day window (`gate`, `speak`)
 * **how it is labelled** — see below (`pick_label`)
 * **sending** — Discord, channel memory, and a cross-post to Bluesky for the
   sources listed under `unprompted.bluesky` (`speak`)
@@ -279,6 +280,7 @@ DEFAULTS = {
     "enabled": True,
     "max_per_day": 8,
     "min_interval_minutes": 90,
+    "shared_gap_minutes": 10,
     "respect_quiet_hours": False,
     "quiet_hour_start": 9,
     "quiet_hour_end": 22,
@@ -331,8 +333,34 @@ def within_hours(now: Optional[datetime] = None) -> bool:
     return hour >= start or hour < end                # wraps midnight
 
 
-def gate(bot_state, source: str, now: Optional[float] = None) -> tuple:
+def source_setting(source: str, key: str):
+    """`unprompted.per_source.<source>.<key>`, falling back to the shared `<key>`."""
+    cfg = _config()
+    own = cfg.get(f"unprompted.per_source.{source}.{key}", None) if cfg else None
+    return setting(key) if own is None else own
+
+
+def _mine(bot_state, source: str, today: str) -> dict:
+    """This source's own record: when it last posted and how often today."""
+    rec = dict((getattr(bot_state, "unprompted_sources", None) or {}).get(source) or {})
+    if rec.get("date") != today:
+        rec["count"] = 0
+    return rec
+
+
+def gate(bot_state, source: str, now: Optional[float] = None, *, waiting_ok: bool = False) -> tuple:
     """(allowed, reason). Read-only: `record` is what spends the allowance.
+
+    Each source keeps its own gap (`min_interval_minutes`) since its own last
+    post, so a quip does not use up the monologue's turn; any two posts are
+    still `shared_gap_minutes` apart. The daily limit is shared, and a source
+    may also have its own (`per_source.<source>.max_per_day`), so one that
+    tries every fifteen minutes cannot take the whole day.
+
+    Only the spacing between any two posts is a wait rather than a no: a post
+    held by it, or by another source already waiting, joins the queue and goes
+    out in turn (`speak`). `waiting_ok=True` is for a caller deciding whether
+    to generate at all — a post that would only have to wait is worth writing.
 
     The reason names the limit that closed it and how much is left, because
     "rate limited" alone reads like a fault when it is the cap working.
@@ -348,14 +376,33 @@ def gate(bot_state, source: str, now: Optional[float] = None) -> tuple:
     cap = int(setting("max_per_day") or 0)
     if cap > 0 and count >= cap:
         return False, f"daily limit {count}/{cap}"
-    gap = float(setting("min_interval_minutes") or 0) * 60.0
-    since = now - float(getattr(bot_state, "unprompted_last_sent", 0.0) or 0.0)
+    mine = _mine(bot_state, source, today)
+    cfg = _config()
+    own_cap = int(cfg.get(f"unprompted.per_source.{source}.max_per_day", 0) or 0) if cfg else 0
+    if own_cap > 0 and mine.get("count", 0) >= own_cap:
+        return False, f"{source}'s daily limit {mine['count']}/{own_cap}"
+    gap = float(source_setting(source, "min_interval_minutes") or 0) * 60.0
+    since = now - float(mine.get("last") or 0.0)
     if since < gap:
-        return False, f"{int((gap - since) / 60)} min left of the {int(gap / 60)} min gap"
+        return False, f"{int((gap - since) / 60)} min left of {source}'s {int(gap / 60)} min gap"
+    ahead = [q["source"] for q in _queue if q["source"] != source]
+    if ahead and not waiting_ok and not _serving(source):
+        return False, f"queued behind {ahead[0]}"
+    wait = shared_wait(bot_state, now)
+    if wait > 0 and not waiting_ok:
+        shared = int(float(setting("shared_gap_minutes") or 0))
+        return False, f"{int(wait / 60)} min left of the {shared} min gap between any two posts"
     return True, ""
 
 
-def record(bot_state, now: Optional[float] = None) -> None:
+def shared_wait(bot_state, now: Optional[float] = None) -> float:
+    """Seconds until the gap between any two posts is over."""
+    now = now if now is not None else time.time()
+    shared = float(setting("shared_gap_minutes") or 0) * 60.0
+    return max(0.0, shared - (now - float(getattr(bot_state, "unprompted_last_sent", 0.0) or 0.0)))
+
+
+def record(bot_state, now: Optional[float] = None, source: str = "") -> None:
     now = now if now is not None else time.time()
     today = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
     if getattr(bot_state, "unprompted_date", "") != today:
@@ -363,8 +410,83 @@ def record(bot_state, now: Optional[float] = None) -> None:
         bot_state.unprompted_count = 0
     bot_state.unprompted_count = getattr(bot_state, "unprompted_count", 0) + 1
     bot_state.unprompted_last_sent = now
+    if source:
+        mine = _mine(bot_state, source, today)
+        sources = dict(getattr(bot_state, "unprompted_sources", None) or {})
+        sources[source] = {"date": today, "count": mine.get("count", 0) + 1, "last": now}
+        bot_state.unprompted_sources = sources
     try:
         bot_state.save()
+    except Exception:
+        pass
+
+
+# ── The queue ───────────────────────────────────────────────────────────────
+#: Posts held only by the spacing between posts, oldest first. One per source:
+#: a newer post from a waiting source replaces its text but keeps its place.
+#: In memory — a restart drops what was waiting, which is the cost of a
+#: thought that would be stale by then anyway.
+_queue: list = []
+QUEUE_TTL_S = 60 * 60
+_serving_now: set = set()
+_drainer = None
+
+
+def _serving(source: str) -> bool:
+    return source in _serving_now or bool(_queue and _queue[0]["source"] == source)
+
+
+def _waitable(reason: str) -> bool:
+    return reason.startswith("queued behind") or "between any two posts" in reason
+
+
+def _enqueue(item: dict) -> int:
+    """Add or refresh a waiting post; returns its place (1 = next)."""
+    for i, q in enumerate(_queue):
+        if q["source"] == item["source"]:
+            _queue[i] = dict(item, queued_at=q["queued_at"])
+            return i + 1
+    if item["source"] in _serving_now:            # lost its turn while being sent: still next
+        _queue.insert(0, dict(item, queued_at=time.time()))
+        return 1
+    _queue.append(dict(item, queued_at=time.time()))
+    return len(_queue)
+
+
+async def _drain() -> None:
+    """Send waiting posts in turn, each once the gap between posts is over."""
+    import asyncio
+    from utils.infrastructure.logging.kaia_logger import log_debug
+    while _queue:
+        head = _queue[0]
+        if time.time() - head["queued_at"] > QUEUE_TTL_S:
+            _queue.pop(0)
+            log_debug(f"[unprompted] {head['source']} dropped from the queue: waited over an hour")
+            continue
+        wait = shared_wait(getattr(head["ctx"], "bot_state", None))
+        if wait > 0:
+            await asyncio.sleep(wait + 1)
+            continue
+        _queue.pop(0)
+        _serving_now.add(head["source"])
+        try:
+            await speak(head["ctx"], head["channel"], head["source"], **head["kwargs"])
+        finally:
+            _serving_now.discard(head["source"])
+
+
+def _start_drainer() -> None:
+    global _drainer
+    import asyncio
+    if _drainer is not None and not _drainer.done():
+        return
+    try:
+        _drainer = asyncio.get_running_loop().create_task(_drain())
+    except RuntimeError:
+        return
+    try:
+        from utils.infrastructure.monitoring.async_task_registry import task_registry
+        task_registry.register("unprompted_queue", _drainer)
     except Exception:
         pass
 
@@ -376,6 +498,7 @@ class Spoken:
     label: str = ""
     reason: str = ""
     bluesky: Optional[bool] = None        # None = not attempted
+    queued: bool = False                  # waiting its turn; `_drain` sends it
 
 
 async def speak(ctx, channel, source: str, text: str = "", *,
@@ -396,6 +519,13 @@ async def speak(ctx, channel, source: str, text: str = "", *,
 
     if not manual:
         ok, why = gate(bot_state, source)
+        if not ok and _waitable(why):
+            place = _enqueue({"source": source, "ctx": ctx, "channel": channel, "kwargs": dict(
+                text=text, posts=posts, kind=kind, trigger=trigger, brief=brief,
+                cross_post=cross_post, embed=embed)})
+            _start_drainer()
+            log_debug(f"[unprompted] {source} queued ({why}); place {place}")
+            return Spoken(False, reason=f"queued, place {place}", queued=True)
         if not ok:
             log_debug(f"[unprompted] {source} held: {why}")
             return Spoken(False, reason=why)
@@ -447,7 +577,7 @@ async def speak(ctx, channel, source: str, text: str = "", *,
             log_warning(f"[unprompted] X cross-post failed: {e}")
 
     if not manual and bot_state is not None:
-        record(bot_state)
+        record(bot_state, source=source)
     where = "" if bluesky is None else (" + Bluesky" if bluesky else " (Bluesky failed)")
     log_success(f"[unprompted] {source} posted as {label or '(no label)'}{where}: {body[:70]}")
     return Spoken(True, label=label, bluesky=bluesky)

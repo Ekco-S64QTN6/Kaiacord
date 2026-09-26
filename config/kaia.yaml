@@ -134,9 +134,16 @@ unprompted:
     observation: true
     monologue: true
 
-  # Shared by all four: at most this many posts a day, this many minutes apart.
+  # At most max_per_day posts a day in all; each source waits
+  # min_interval_minutes since its own last post; any two posts are
+  # shared_gap_minutes apart, and a post held only by that waits in a queue.
   max_per_day: 16
   min_interval_minutes: 45
+  shared_gap_minutes: 10
+  # The monologue tries every 15 minutes; this keeps it from taking the day.
+  per_source:
+    monologue:
+      max_per_day: 6
 
   # true = nothing posts outside quiet_hour_start..quiet_hour_end (local).
   respect_quiet_hours: false

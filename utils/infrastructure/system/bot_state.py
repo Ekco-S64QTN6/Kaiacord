@@ -82,6 +82,8 @@ class BotState:
         self.unprompted_last_sent: float = 0.0
         self.unprompted_count: int = 0
         self.unprompted_date: str = ""
+        # Each source's own gap and daily count: {source: {"date", "count", "last"}}.
+        self.unprompted_sources: Dict[str, dict] = {}
 
         # Anticipatory context priming and the theory-of-mind user model.
         self.user_states: Dict[str, dict] = {}  # {user_id: {"apparent_mood": str, "energy": str, "likely_intent": str, "updated_at": float}}
@@ -116,6 +118,7 @@ class BotState:
                         self.unprompted_last_sent = float(state.get('unprompted_last_sent', 0.0))
                         self.unprompted_count = int(state.get('unprompted_count', 0))
                         self.unprompted_date = state.get('unprompted_date', '')
+                        self.unprompted_sources = dict(state.get('unprompted_sources') or {})
                         
                         # Per-channel activity — keys stored as strings in JSON
                         raw_activity = state.get('channel_last_activity', {})
@@ -185,6 +188,7 @@ class BotState:
                     'unprompted_last_sent': self.unprompted_last_sent,
                     'unprompted_count': self.unprompted_count,
                     'unprompted_date': self.unprompted_date,
+                    'unprompted_sources': {k: dict(v) for k, v in self.unprompted_sources.items()},
                     # boot_complete is TRANSIENT - do not save to disk
                     # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
                     'channel_memory': {str(k): list(v) for k, v in self.channel_memory.items()},

@@ -681,7 +681,7 @@ class CoreTaskManager:
             trigger=getattr(trigger, "trigger_type", ""),
             brief=getattr(trigger, "context", ""),
             cross_post=not is_checkin)
-        if not spoken.posted:
+        if not (spoken.posted or spoken.queued):
             log_info(f"Proactive opener not posted: {spoken.reason}.")
             return False
 
@@ -2168,7 +2168,7 @@ class CoreTaskManager:
             from utils.core.sanitizer import to_plain_english
             spoken = await unprompted.speak(self.ctx, channel, "monologue",
                                             to_plain_english(thought))
-            return spoken.posted
+            return spoken.posted or spoken.queued
         except Exception as e:
             log_warning(f"Monologue broadcast failed (non-fatal): {e}")
             return False
@@ -2201,14 +2201,14 @@ class CoreTaskManager:
             if not text:
                 return False
 
-            ok, why = unprompted.gate(self.ctx.bot_state, "observation")
+            ok, why = unprompted.gate(self.ctx.bot_state, "observation", waiting_ok=True)
             if not ok:
                 log_debug(f"Observation digest held: {why}.")
                 return False
             async with channel.typing():
                 await asyncio.sleep(2.0)
             spoken = await unprompted.speak(self.ctx, channel, "observation", text)
-            if spoken.posted:
+            if spoken.posted or spoken.queued:        # queued: it goes out in turn
                 from utils.core.kaia_proactive import (
                     build_digest_content_id, mark_digest_broadcast,
                 )
@@ -2216,7 +2216,7 @@ class CoreTaskManager:
                     mark_digest_broadcast(build_digest_content_id(entry_ts))
                 except Exception as mark_err:
                     log_debug(f"Could not flag digest as aired: {mark_err}")
-            return spoken.posted
+            return spoken.posted or spoken.queued
         except Exception as e:
             log_warning(f"Observation digest broadcast failed (non-fatal): {e}")
             return False

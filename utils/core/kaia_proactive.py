@@ -164,7 +164,7 @@ class ProactiveEngine:
         call. `last_limit_detail` names which limit it was.
         """
         from utils.core import unprompted
-        ok, why = unprompted.gate(bot_state, "proactive")
+        ok, why = unprompted.gate(bot_state, "proactive", waiting_ok=True)
         self.last_limit_detail = "" if ok else why
         return not ok
 
@@ -979,7 +979,7 @@ class ProactiveEngine:
             # Say which limit. "rate limited" alone made a working cap look like
             # a fault and gave no way to tell the daily cap from the gap.
             detail = getattr(self, "last_limit_detail", "")
-            self.last_skip_reason = f"held by the shared limit ({detail})" if detail else "held by the shared limit"
+            self.last_skip_reason = f"held by the unprompted limits ({detail})" if detail else "held by the unprompted limits"
             return None
 
         # Desire gate (roadmap 55-4). The rate limiter says whether she *may*

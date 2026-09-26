@@ -599,8 +599,15 @@ Everything she says without being asked goes through **one system**,
 | `overnight` | once a morning (`radio.overnight_time`) | `#kaia-opolis` |
 
 A source decides *what* to say and *when to try*. Whether it posts is decided once, for all
-four, by `unprompted.gate`: the master switch, `unprompted.sources.<name>`, **one daily limit
-and one minimum gap shared by all five**, and one set of posting hours. `unprompted.speak` then
+five, by `unprompted.gate`: the master switch, `unprompted.sources.<name>`, **one daily limit
+shared by all five, a minimum gap per source**, a short spacing between any two posts, and one
+set of posting hours. The gap was shared until September 2026, and the monologue — trying every
+15 minutes, landing between quips and openers — was held 31 times against 10 posts. A post held
+*only* by the spacing (or by another post already waiting) is queued, first come first served,
+and sent by `unprompted._drain`; `speak` returns `queued=True`, and callers treat that as handed
+off. A caller checking before it generates passes `waiting_ok=True`, since a post that would
+only wait is worth writing. The monologue has its own daily limit (`per_source`) so it cannot
+take the day. `unprompted.speak` then
 labels the post, sends it, appends it to channel memory, spends the allowance and cross-posts it
 to the feeds listed under `unprompted.bluesky` / `unprompted.x`. A source switched off still runs
 — the monologue still thinks, the digest is still written — nobody sees it. A manual `!quip`
