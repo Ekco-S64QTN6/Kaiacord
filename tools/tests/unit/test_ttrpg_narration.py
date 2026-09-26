@@ -124,3 +124,27 @@ def test_six_defender_raid_gets_room_for_the_reported_narration():
     """The published text was ~1,100 characters and still unfinished."""
     budget_chars = raid_token_budget(6) * 4      # ~4 chars per token
     assert budget_chars > 1400
+
+
+def test_an_unbroken_run_still_fits_the_embed():
+    """finish_cleanly closes with "…", which put a spaceless run one over the limit."""
+    from utils.ttrpg.narration import fit_embed_description, EMBED_DESCRIPTION_LIMIT
+    assert len(fit_embed_description("x" * 5000)) <= EMBED_DESCRIPTION_LIMIT - 2
+
+
+def test_no_mangled_icon_fallback():
+    from pathlib import Path
+    assert "🗟" not in Path("utils/ttrpg/rpg_core_handler.py").read_text(encoding="utf-8")
+
+
+def test_every_quest_is_offered_by_an_npc_you_can_talk_to():
+    """Quests are offered only by talking to their NPC. Two named Pell and
+    Valdric, neither of whom exists, so nobody was ever offered them."""
+    from utils.ttrpg.npc_registry import NPCS
+    from utils.ttrpg.quest_registry import QUESTS
+    ids = {v.get("id", k) for k, v in NPCS.items()}
+    for q in QUESTS.values():
+        assert q["npc"] in ids, q["id"]
+        for t in q["tasks"]:
+            if t.startswith("talk_"):
+                assert t[5:] in ids, (q["id"], t)
