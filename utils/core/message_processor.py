@@ -1133,6 +1133,17 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8g2. Her real tastes when asked for a favourite or a recommendation
+        # (utils/core/kaia_tastes.py) — without them she named titles that
+        # do not exist.
+        try:
+            from utils.core import kaia_tastes
+            _tastes = await asyncio.to_thread(kaia_tastes.note_for, ctx.own_words)
+            if _tastes:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{_tastes}"
+        except Exception:
+            pass
+
         # 8h. Micro-mood expressions: deliberately absent. Mood reaches the
         # prompt through two non-overlapping signals only —
         # get_kaia_state_line() (activity/memory/dream, at 8.) and
