@@ -32,9 +32,15 @@ from utils.ttrpg.fishing_engine import (
 )
 from utils.ttrpg.calendar import get_season
 from utils.commands.embed_style import notice
-from utils.ttrpg.session_manager import serialize_user_action
+from utils.ttrpg.session_manager import get_action_lock, serialize_user_action
 
 POND_COLOR = 0x3a8fc1  # deep pond blue
+
+
+async def _player_lock(uid: str):
+    """The same per-player lock purchases and combat take, for a sheet
+    read-modify-write that runs from a view callback."""
+    return await get_action_lock(f"user:{uid}")
 
 CATEGORY_EMOJIS = {
     "common": "⚪",
@@ -127,12 +133,13 @@ class FishingMenuView(discord.ui.View):
                 await sel_interaction.response.send_message("not yours.", ephemeral=True)
                 return
             chosen = sel_interaction.data["values"][0]
-            s = await load(self._uid)
-            if not s:
-                return
-            fs = s.setdefault("fishing_stats", {})
-            fs["bait"] = chosen
-            await save(s)
+            async with await _player_lock(self._uid):
+                s = await load(self._uid)
+                if not s:
+                    return
+                fs = s.setdefault("fishing_stats", {})
+                fs["bait"] = chosen
+                await save(s)
             await sel_interaction.response.send_message(
                 embed=discord.Embed(
                     description=f"🪱 Active bait switched to **{BAIT[chosen]['name']}** (×{fs.get('bait_stock', {}).get(chosen, 0)}).",
@@ -254,67 +261,71 @@ class BiteView(discord.ui.View):
         self.stop()
 
         await interaction.response.defer()
-        sheet = await load(self._uid)
-        if not sheet:
-            return
+        try:
+            async with await _player_lock(self._uid):
+                sheet = await load(self._uid)
+                if not sheet:
+                    return
 
-        fish = FISH.get(self._fish_key, {})
-        cat = fish.get("category", "common")
-        cat_emoji = CATEGORY_EMOJIS.get(cat, "⚪")
-        fish_name = fish.get("name", self._fish_key)
-        is_world_record = await asyncio.to_thread(
-            update_world_records, self._fish_key, self._fish_weight,
-            sheet["character_name"], self._uid
-        )
+                fish = FISH.get(self._fish_key, {})
+                cat = fish.get("category", "common")
+                cat_emoji = CATEGORY_EMOJIS.get(cat, "⚪")
+                fish_name = fish.get("name", self._fish_key)
+                is_world_record = await asyncio.to_thread(
+                    update_world_records, self._fish_key, self._fish_weight,
+                    sheet["character_name"], self._uid
+                )
 
-        # Check personal record
-        stats = sheet.get("fishing_stats", {})
-        prev_record = stats.get("personal_records", {}).get(self._fish_key, {})
-        is_personal_record = (
-            not prev_record or self._fish_weight > prev_record.get("weight", 0)
-        )
+                # Check personal record
+                stats = sheet.get("fishing_stats", {})
+                prev_record = stats.get("personal_records", {}).get(self._fish_key, {})
+                is_personal_record = (
+                    not prev_record or self._fish_weight > prev_record.get("weight", 0)
+                )
 
-        # Broadcast world event for top-tier world records only
-        if cat in ("epic", "legendary", "mythic") and is_world_record:
-            msg_parts = []
-            if is_world_record:
-                msg_parts.append("🌍 **NEW WORLD RECORD!**")
-            msg_parts.append(f"🎣 **{self._uname}** caught a **{cat_emoji} {fish_name}** ({self._fish_weight:.2f} lbs) at Tricklebrook Pond!")
+                # Broadcast world event for top-tier world records only
+                if cat in ("epic", "legendary", "mythic") and is_world_record:
+                    msg_parts = []
+                    if is_world_record:
+                        msg_parts.append("🌍 **NEW WORLD RECORD!**")
+                    msg_parts.append(f"🎣 **{self._uname}** caught a **{cat_emoji} {fish_name}** ({self._fish_weight:.2f} lbs) at Tricklebrook Pond!")
 
-            msg_text = " ".join(msg_parts)
-            await _log_world_event(msg_text)
+                    msg_text = " ".join(msg_parts)
+                    await _log_world_event(msg_text)
             
-            # Post to main #aethelgard broadcast channel
-            embed = discord.Embed(
-                description=msg_text,
-                color=0x4db3ff
-            )
-            await _broadcast_world_event(self._ctx, embed)
+                    # Post to main #aethelgard broadcast channel
+                    embed = discord.Embed(
+                        description=msg_text,
+                        color=0x4db3ff
+                    )
+                    await _broadcast_world_event(self._ctx, embed)
 
-        sheet = add_to_fishing_bag(sheet, self._fish_key, self._fish_weight, self._fish_value)
+                sheet = add_to_fishing_bag(sheet, self._fish_key, self._fish_weight, self._fish_value)
 
-        # Consume 1 bait strictly tied to this cast
-        fishing_stats = sheet.setdefault("fishing_stats", {})
-        if "bait_count" in fishing_stats:
-            old_bait = fishing_stats.get("bait", "earthworm")
-            fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
-        bait_stock = fishing_stats.get("bait_stock", {})
+                # Consume 1 bait strictly tied to this cast
+                fishing_stats = sheet.setdefault("fishing_stats", {})
+                if "bait_count" in fishing_stats:
+                    old_bait = fishing_stats.get("bait", "earthworm")
+                    fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
+                bait_stock = fishing_stats.get("bait_stock", {})
         
-        if bait_stock.get(self._bait_key, 0) > 0:
-            bait_stock[self._bait_key] -= 1
-        fishing_stats["bait_stock"] = bait_stock
+                if bait_stock.get(self._bait_key, 0) > 0:
+                    bait_stock[self._bait_key] -= 1
+                fishing_stats["bait_stock"] = bait_stock
 
-        # Check for pole breakage — all poles can snap, per-rod chance
-        broke_pole = False
-        cur_pole_key = fishing_stats.get("pole")
-        if cur_pole_key:
-            pole_data = POLES.get(cur_pole_key, {})
-            snap_chance = pole_data.get("snap_chance", 5)
-            if secrets.randbelow(10000) < snap_chance * 100:
-                broke_pole = True
-                fishing_stats["pole"] = None  # no pole — must buy a new one
+                # Check for pole breakage — all poles can snap, per-rod chance
+                broke_pole = False
+                cur_pole_key = fishing_stats.get("pole")
+                if cur_pole_key:
+                    pole_data = POLES.get(cur_pole_key, {})
+                    snap_chance = pole_data.get("snap_chance", 5)
+                    if secrets.randbelow(10000) < snap_chance * 100:
+                        broke_pole = True
+                        fishing_stats["pole"] = None  # no pole — must buy a new one
 
-        await save(sheet)
+                await save(sheet)
+        finally:
+            _LINES_OUT.discard(self._uid)
 
         desc_lines = [
             f"**{cat_emoji} {fish_name}**",
@@ -355,6 +366,12 @@ class BiteView(discord.ui.View):
         if self._reeled:
             return
         self._reeled = True
+        try:
+            await self._escape()
+        finally:
+            _LINES_OUT.discard(self._uid)
+
+    async def _escape(self):
         if self._channel:
             escape_lines = [
                 "*The line goes slack. The fish is gone.*",
@@ -373,18 +390,20 @@ class BiteView(discord.ui.View):
                 description=escape_text,
                 color=0x888888,
             )
-            sheet = await load(self._uid)
+            async with await _player_lock(self._uid):
+                sheet = await load(self._uid)
+                if sheet:
+                    # Still consume bait on escape
+                    fishing_stats = sheet.setdefault("fishing_stats", {})
+                    if "bait_count" in fishing_stats:
+                        old_bait = fishing_stats.get("bait", "earthworm")
+                        fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
+                    bait_stock = fishing_stats.get("bait_stock", {})
+                    if bait_stock.get(self._bait_key, 0) > 0:
+                        bait_stock[self._bait_key] -= 1
+                    fishing_stats["bait_stock"] = bait_stock
+                    await save(sheet)
             if sheet:
-                # Still consume bait on escape
-                fishing_stats = sheet.setdefault("fishing_stats", {})
-                if "bait_count" in fishing_stats:
-                    old_bait = fishing_stats.get("bait", "earthworm")
-                    fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
-                bait_stock = fishing_stats.get("bait_stock", {})
-                if bait_stock.get(self._bait_key, 0) > 0:
-                    bait_stock[self._bait_key] -= 1
-                fishing_stats["bait_stock"] = bait_stock
-                await save(sheet)
                 view = FishingMenuView(self._ctx, self._uid, self._uname, self._is_owner, sheet)
             else:
                 view = discord.ui.View()
@@ -396,9 +415,9 @@ class BiteView(discord.ui.View):
 
 # ── Handler Functions ─────────────────────────────────────────────────────────
 
-# Players with a line in the water. The bait and bag checks run before the
-# bite wait and the bait is spent after it, so a second press of Cast during
-# the wait passed both checks too: one bait bought two casts.
+# Players with a line in the water, from the cast until the bite is reeled in
+# or escapes. The bait and bag checks run at the cast and the bait is spent at
+# the reel, so a second cast before then would pass both on the same bait.
 _LINES_OUT: set[str] = set()
 
 
@@ -408,10 +427,13 @@ async def _handle_cast(ctx, interaction: discord.Interaction, uid: str, uname: s
         await interaction.followup.send(embed=notice("your line is already in the water."), ephemeral=True)
         return
     _LINES_OUT.add(uid)
+    bite = None
     try:
-        await _cast(ctx, interaction, uid, uname, is_owner)
+        bite = await _cast(ctx, interaction, uid, uname, is_owner)
     finally:
-        _LINES_OUT.discard(uid)
+        # A posted bite keeps the line out; the reel or the escape releases it.
+        if bite is None:
+            _LINES_OUT.discard(uid)
 
 
 async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_owner: bool):
@@ -531,6 +553,14 @@ async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_
     wait_time = get_bite_wait_time(pole_key)
     await asyncio.sleep(wait_time)
 
+    async with await _player_lock(uid):
+        return await _resolve_bite(ctx, interaction, uid, uname, is_owner, pole_key, bait_key, bait_name,
+                                   is_tainted_waters)
+
+
+async def _resolve_bite(ctx, interaction, uid, uname, is_owner, pole_key, bait_key, bait_name, is_tainted_waters):
+    """What the line brings up. Returns the BiteView once a bite is posted,
+    None for every outcome that ends the cast here."""
     # Reload sheet to prevent stale state usage from before the sleep
     sheet = await load(uid)
     if not sheet:
@@ -750,13 +780,14 @@ async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_
             try:
                 await interaction.followup.send(embed=bite_embed, view=reel_view)
             except Exception:
-                pass
+                return None
         else:
             # Interaction token expired or other HTTP error — fall back to channel
             try:
                 await channel.send(embed=bite_embed, view=reel_view)
             except Exception:
-                pass
+                return None
+    return reel_view
 
 
 async def _handle_check_bag(ctx, interaction: discord.Interaction, uid: str, uname: str, is_owner: bool):
@@ -1026,27 +1057,28 @@ class FishingShopView(discord.ui.View):
             chosen_bait = interaction.data["values"][0]
             bait_data = BAIT[chosen_bait]
             base_cost = bait_data["cost"] * 10
-            s = await load(self._uid)
-            if not s:
-                return
-            cha_mod = (s.get("stats", {}).get("cha", 10) - 10) // 2
-            cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
-            cost = max(1, int(base_cost * (1.0 - cha_discount)))
-            if s.get("gil", 0) < cost:
-                await interaction.followup.send(
-                    f"Not enough gil. {bait_data['name']} ×10 costs {cost}g. You have {s.get('gil',0)}g.",
-                    ephemeral=True,
-                )
-                return
-            s["gil"] -= cost
-            fs = s.setdefault("fishing_stats", {})
-            if "bait_count" in fs:
-                old_bait = fs.get("bait", "earthworm")
-                fs.setdefault("bait_stock", {})[old_bait] = fs.pop("bait_count", 0)
-            # Don't switch active bait on purchase — player uses Switch Bait button
-            bait_stock = fs.setdefault("bait_stock", {})
-            bait_stock[chosen_bait] = bait_stock.get(chosen_bait, 0) + 10
-            await save(s)
+            async with await _player_lock(self._uid):
+                s = await load(self._uid)
+                if not s:
+                    return
+                cha_mod = (s.get("stats", {}).get("cha", 10) - 10) // 2
+                cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
+                cost = max(1, int(base_cost * (1.0 - cha_discount)))
+                if s.get("gil", 0) < cost:
+                    await interaction.followup.send(
+                        f"Not enough gil. {bait_data['name']} ×10 costs {cost}g. You have {s.get('gil',0)}g.",
+                        ephemeral=True,
+                    )
+                    return
+                s["gil"] -= cost
+                fs = s.setdefault("fishing_stats", {})
+                if "bait_count" in fs:
+                    old_bait = fs.get("bait", "earthworm")
+                    fs.setdefault("bait_stock", {})[old_bait] = fs.pop("bait_count", 0)
+                # Don't switch active bait on purchase — player uses Switch Bait button
+                bait_stock = fs.setdefault("bait_stock", {})
+                bait_stock[chosen_bait] = bait_stock.get(chosen_bait, 0) + 10
+                await save(s)
             total_active_bait = fs["bait_stock"][chosen_bait]
             await interaction.followup.send(
                 embed=discord.Embed(
@@ -1084,22 +1116,23 @@ class FishingShopView(discord.ui.View):
             chosen_pole = interaction.data["values"][0]
             pole_data = POLES[chosen_pole]
             base_cost = pole_data["cost"]
-            s = await load(self._uid)
-            if not s:
-                return
-            cha_mod = (s.get("stats", {}).get("cha", 10) - 10) // 2
-            cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
-            cost = max(1, int(base_cost * (1.0 - cha_discount)))
-            if s.get("gil", 0) < cost:
-                await interaction.followup.send(
-                    f"Not enough gil. {pole_data['name']} costs {cost}g.",
-                    ephemeral=True,
-                )
-                return
-            s["gil"] -= cost
-            fs = s.setdefault("fishing_stats", {})
-            fs["pole"] = chosen_pole
-            await save(s)
+            async with await _player_lock(self._uid):
+                s = await load(self._uid)
+                if not s:
+                    return
+                cha_mod = (s.get("stats", {}).get("cha", 10) - 10) // 2
+                cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
+                cost = max(1, int(base_cost * (1.0 - cha_discount)))
+                if s.get("gil", 0) < cost:
+                    await interaction.followup.send(
+                        f"Not enough gil. {pole_data['name']} costs {cost}g.",
+                        ephemeral=True,
+                    )
+                    return
+                s["gil"] -= cost
+                fs = s.setdefault("fishing_stats", {})
+                fs["pole"] = chosen_pole
+                await save(s)
             await interaction.followup.send(
                 embed=discord.Embed(
                     description=(
@@ -1140,32 +1173,33 @@ class FishingShopView(discord.ui.View):
             chosen_bag = interaction.data["values"][0]
             bag_info = BAG_UPGRADES[chosen_bag]
             cost = bag_info["cost"]
-            s = await load(self._uid)
-            if not s:
-                return
-            fs = s.setdefault("fishing_stats", {})
-            cur_bag_key = fs.get("bag", "woven_sack")
-            # Prevent downgrading
-            cur_bag_cap = BAG_UPGRADES.get(cur_bag_key, BAG_UPGRADES["woven_sack"])["capacity"]
-            if bag_info["capacity"] <= cur_bag_cap:
-                await interaction.followup.send(
-                    f"You already have a **{BAG_UPGRADES[cur_bag_key]['name']}** ({cur_bag_cap} capacity). That's the same or better.",
-                    ephemeral=True,
-                )
-                return
-            cha_mod = (s.get("stats", {}).get("cha", 10) - 10) // 2
-            cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
-            cost = max(1, int(cost * (1.0 - cha_discount))) if cost > 0 else 0
-            if cost > 0 and s.get("gil", 0) < cost:
-                await interaction.followup.send(
-                    f"Not enough gil. {bag_info['name']} costs {cost}g.",
-                    ephemeral=True,
-                )
-                return
-            if cost > 0:
-                s["gil"] -= cost
-            fs["bag"] = chosen_bag
-            await save(s)
+            async with await _player_lock(self._uid):
+                s = await load(self._uid)
+                if not s:
+                    return
+                fs = s.setdefault("fishing_stats", {})
+                cur_bag_key = fs.get("bag", "woven_sack")
+                # Prevent downgrading
+                cur_bag_cap = BAG_UPGRADES.get(cur_bag_key, BAG_UPGRADES["woven_sack"])["capacity"]
+                if bag_info["capacity"] <= cur_bag_cap:
+                    await interaction.followup.send(
+                        f"You already have a **{BAG_UPGRADES[cur_bag_key]['name']}** ({cur_bag_cap} capacity). That's the same or better.",
+                        ephemeral=True,
+                    )
+                    return
+                cha_mod = (s.get("stats", {}).get("cha", 10) - 10) // 2
+                cha_discount = min(0.10, max(0.0, cha_mod * 0.02))
+                cost = max(1, int(cost * (1.0 - cha_discount))) if cost > 0 else 0
+                if cost > 0 and s.get("gil", 0) < cost:
+                    await interaction.followup.send(
+                        f"Not enough gil. {bag_info['name']} costs {cost}g.",
+                        ephemeral=True,
+                    )
+                    return
+                if cost > 0:
+                    s["gil"] -= cost
+                fs["bag"] = chosen_bag
+                await save(s)
             await interaction.followup.send(
                 embed=discord.Embed(
                     description=(

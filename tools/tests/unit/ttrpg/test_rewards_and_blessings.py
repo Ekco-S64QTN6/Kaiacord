@@ -104,3 +104,27 @@ def test_a_second_cast_while_the_line_is_out_is_refused():
     inter = asyncio.run(both())
     assert len(runs) == 2
     assert inter.followup.send.await_count == 1
+
+
+def test_the_line_stays_out_until_the_bite_is_resolved():
+    """The bait is spent at the reel, so a cast during the reel window would
+    pass the bait check on the same bait: two fish for one."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.commands.fishing_handler as fh
+
+    async def run():
+        view = fh.BiteView(None, "u2", "U", False, "minnow", 1.0, 1, 30, "earthworm")
+        inter = MagicMock()
+        inter.followup.send = AsyncMock()
+        with patch.object(fh, "_cast", AsyncMock(return_value=view)) as cast:
+            await fh._handle_cast(None, inter, "u2", "U", False)          # bite posted
+            await fh._handle_cast(None, inter, "u2", "U", False)          # refused
+            assert cast.await_count == 1 and "u2" in fh._LINES_OUT
+            await view.on_timeout()                                       # it got away
+            assert "u2" not in fh._LINES_OUT
+            await fh._handle_cast(None, inter, "u2", "U", False)
+            assert cast.await_count == 2
+        fh._LINES_OUT.discard("u2")
+
+    asyncio.run(run())
