@@ -2307,9 +2307,29 @@ async def _handle_scout(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+async def _bank_refusal(sheet: dict, uid: str) -> str:
+    """'' when the character can bank here: at the Oakhaven Bank, or at home
+    with the Ironbound Vault Chest. Banking worked everywhere, which left the
+    chest — owned by most players — with nothing to add."""
+    loc = sheet.get("location", "")
+    if loc == "oakhaven_bank":
+        return ""
+    if loc == "housing_district":
+        from utils.ttrpg.housing import load_housing_async
+        from utils.ttrpg.furniture import get_home_bonuses
+        housing = await load_housing_async(str(uid))
+        if housing and get_home_bonuses(housing).get("home_bank"):
+            return ""
+    return ("The vaults are at the **Oakhaven Bank** — or at home, if you own an Ironbound Vault Chest. "
+            "`!rpg go bank`")
+
+
 async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
+    refusal = await _bank_refusal(sheet, uid)
+    if refusal:
+        return await msg.channel.send(embed=discord.Embed(description=refusal, color=0xcc4444))
     embed = discord.Embed(
         title="🏦 Deposit Gil",
         description=f"**Balance:** {sheet.get('bank_balance', 0)}g  ·  **On Hand:** {sheet.get('gil', 0)}g",
@@ -2352,6 +2372,9 @@ async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
 async def _handle_bank_withdraw(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
+    refusal = await _bank_refusal(sheet, uid)
+    if refusal:
+        return await msg.channel.send(embed=discord.Embed(description=refusal, color=0xcc4444))
     balance = sheet.get("bank_balance", 0)
     embed = discord.Embed(
         title="🏦 Withdraw Gil",
