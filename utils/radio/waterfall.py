@@ -357,8 +357,14 @@ class Watcher:
             held = time.time() - started
             if not follow:
                 if held >= MAX_HOLD_S:
-                    constant = True                            # keyed the whole minute
-                    break
+                    # Keyed the whole minute: a stuck or constant carrier, or a
+                    # linked repeater holding its transmitter up through a
+                    # conversation (145.690 did, and was then locked out for
+                    # half an hour). Speech keeps it followed.
+                    if not voice_like(np.concatenate(chunks)):
+                        constant = True
+                        break
+                    follow = True
                 if quiet >= SILENCE_S:
                     if not voice_like(np.concatenate(chunks)):
                         break

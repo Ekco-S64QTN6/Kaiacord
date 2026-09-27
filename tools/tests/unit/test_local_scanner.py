@@ -469,3 +469,19 @@ def test_a_drifting_carrier_keeps_one_sample_a_night(monkeypatch):
     for f in (463_725_000, 463_750_000):                      # separate bursts keep a sample each
         scanner.classify(_catch(f, short, seconds=4))
     assert clips == [424_365_000, 463_725_000, 463_750_000]
+
+
+def test_a_conversation_that_keeps_the_repeater_keyed_is_not_locked_out(monkeypatch):
+    """A linked node holds its carrier up through a conversation; at the
+    minute mark speech is followed, not given the half-hour cooldown."""
+    from utils.radio import waterfall as w
+    _, caught = _simulate(monkeypatch, [(146_860_000, 20, 90, "voice")], 140)
+    mine = [c for c in caught if abs(c.freq_hz - 146_860_000) < 5000]
+    assert len(mine) == 1 and mine[0].seconds >= 90
+
+
+def test_a_carrier_keyed_the_whole_minute_is_still_left_alone(monkeypatch):
+    from utils.radio import waterfall as w
+    _, caught = _simulate(monkeypatch, [(146_860_000, 20, 110)], 140)
+    mine = [c for c in caught if abs(c.freq_hz - 146_860_000) < 5000]
+    assert len(mine) == 1 and w.MAX_HOLD_S - 1 <= mine[0].seconds < w.MAX_HOLD_S + 2
