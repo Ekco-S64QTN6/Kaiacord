@@ -435,3 +435,16 @@ def test_scanner_scan_joins_the_callers_voice_channel(monkeypatch):
     asyncio.run(sh.handle_scanner_command(None, msg))
     assert started == [(vc, "ekco")]
     assert "Night Shift" in msg.channel.send.call_args.kwargs["embed"].description
+
+
+def test_the_notebook_never_calls_a_spoken_id_packet():
+    """448.775's voice and Morse ID put 5% of its frames on the AFSK tones."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("band_nb", "tools/maintenance/band_notebook.py")
+    nb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(nb)
+    ev = [{"kind": "carrier", "seconds": 32.0, "transcript": "", "ts": 0, "id": 1}]
+    spoken = {"signal_s": 20.0, "afsk_share": 0.05, "edge_hz": 3000, "voice_like": True}
+    packet = dict(spoken, voice_like=False)
+    assert "packet" not in nb._what(448_775_000, {}, ev, spoken)
+    assert "packet" in nb._what(448_775_000, {}, ev, packet)

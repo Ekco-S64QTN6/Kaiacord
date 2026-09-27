@@ -96,8 +96,10 @@ def clip_profile(clip: Path) -> dict | None:
         mean = np.mean(spectra, axis=0)
         cum = np.cumsum(mean[f > 100]) / mean[f > 100].sum()
         edge = int(f[f > 100][np.searchsorted(cum, 0.95)])
+    from utils.radio.waterfall import voice_like
     return {"signal_s": round(sig_frames * n / 12000, 1),
-            "afsk_share": round(afsk / sig_frames, 2) if sig_frames else 0.0, "edge_hz": edge}
+            "afsk_share": round(afsk / sig_frames, 2) if sig_frames else 0.0, "edge_hz": edge,
+            "voice_like": voice_like(a.astype(np.int16))}
 
 
 def _hours(events: list[dict]) -> str:
@@ -149,6 +151,10 @@ def _what(freq: int, ch: dict, evs: list[dict], prof: dict | None) -> str:
     kinds = {k: sum(1 for e in evs if e["kind"] == k) for k in ("voice", "data", "carrier")}
     kinds["voice"] = sum(1 for e in evs if real_voice(e))
     secs = [e["seconds"] for e in evs]
+    if prof and prof.get("voice_like") and not kinds["voice"]:
+        # A Morse ID's tone can land on the AFSK pair; speech never keys like packet.
+        return ("speech-like audio under a strong carrier, no words transcribed — a spoken or Morse "
+                "ID, or voice Whisper missed; worth a listen")
     if afsk is not None and afsk >= 0.05:
         return f"packet data (Bell 202 AFSK tones in {afsk:.0%} of the signal) — APRS or similar"
     if prof and prof["signal_s"] >= 10 and statistics.median(secs) >= 15 and not kinds["voice"]:
