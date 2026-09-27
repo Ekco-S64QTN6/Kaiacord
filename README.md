@@ -318,7 +318,7 @@ captured into Discord voice. No model is involved and no VRAM is used.
 | `!tacamo` | Whether the E-6B and E-4B relay aircraft are broadcasting their position |
 | `!beacons` | Which continents she can hear on the worldwide beacon chain |
 | `!overnight` | Her night shift in a box: a paragraph in her voice, then the readings by section — on the air, the local scanner, beacons, space weather, near Earth (she also posts one each morning) |
-| `!scanner` | The local RTL-SDR, if one is attached: a waterfall watch over the local voice bands from midnight to 6, a ledger of every frequency it hears and when, presets to play live in voice, and recordings to replay |
+| `!scanner` | The local RTL-SDR, if one is attached: a waterfall watch over 2m, VHF business to NOAA, 70cm and 460–470 MHz (1.25m, UHF business and 900 MHz in rotation) during `radio.local.hours`, a ledger of every frequency it hears and when, presets to play live in voice, and recordings to replay. The hop plan is built around the channels you list in config so none sits in a slice's blind centre |
 | `!iss` | The station, its crew, and its next visible pass over you |
 | `!nasa` · `!earth` | The astronomy picture of the day, the Deep Space Network, and the whole sunlit Earth |
 | `!spaceweather` | The sun, geomagnetic storms and HF conditions |
@@ -326,7 +326,8 @@ captured into Discord voice. No model is involved and no VRAM is used.
 | `!sky` | Tonight's moon, planets and meteor showers |
 
 Number stations are recorded on a rotation (E07, V07, S11a, M12, E11 — at most one each a day), and
-a recording is kept only if it holds tones or speech; static is discarded. Four times a day Kaia records the HFGCS net from a public [KiwiSDR](http://kiwisdr.com/),
+a recording is kept only if it holds a keyed tone (Morse, a signalling tone) or a voice; static, and a
+stray carrier in static, are discarded, and the post says why each one was kept. Four times a day Kaia records the HFGCS net from a public [KiwiSDR](http://kiwisdr.com/),
 transcribes it on the CPU, marks anything she is unsure of with `?`, and checks herself against
 the volunteer log. The messages are encrypted and she never claims to decode one. The feeds are
 volunteer services, polled every six hours and cached; radio history is kept in `memory/radio/`,

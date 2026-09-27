@@ -46,34 +46,19 @@ and runtime telemetry, so they stay on the deployment machine rather than in the
 repository. `docs/reports/README.md` indexes them *(local only — the link would 404
 on GitHub, which is why nothing here links into that tree)*.
 
-Reports are organised by purpose:
+There are three reports and four supporting folders:
 
 ```
 reports/
-├── 01-status/      Living documents: master report, audit log, roadmap, history
-├── 02-decisions/   Open questions waiting on a call from Ekco
-├── 03-subsystems/  Per-subsystem design docs (music engine, art, LoRA)
-├── 04-audits/      Point-in-time investigations (grounding, sycophancy, probing)
-├── 05-reference/   External research (Strudel guide, data-curation strategy)
-├── templates/      Prompts and scaffolding — not reports
-└── archive/        Fully actioned or superseded
+├── master_report.md   Where every subsystem stands, and the roadmap of unbuilt work
+├── audit_report.md    The review checklist: every file, the commit that verified it
+├── history.md         The engineering log, Phase 1 to now, newest at the bottom
+├── subsystems/        Deep write-ups of one part: music, art, the persona LoRA
+├── investigations/    Dated one-off audits
+├── reference/         Background research (Strudel guide, data curation)
+├── templates/         Prompts to hand an agent, such as the code-review directive
+└── archive/           Finished or superseded documents
 ```
-
-| Report | Contents |
-| :--- | :--- |
-| `01-status/master_report.md` | System status, metrics, strategic roadmap |
-| `01-status/audit_report.md` | Phase-by-phase production audits (cognitive pipeline, RAG, safety, GPU) |
-| `01-status/history.md` | Development history, Phase 1 onward |
-| `01-status/evolution_proposals.md` | Proposals and backlog |
-| `03-subsystems/music_engine.md` | `!music` — Strudel-backed live-coded performance engine |
-| `03-subsystems/art_report.md` | Fractal flame renderer and Mandelbrot rebuild |
-| `03-subsystems/lora.md` | LoRA fine-tuning pipeline |
-| `04-audits/response_accuracy_audit_report.md` | Grounding and persona-fidelity audit |
-| `04-audits/consistency_watchdog_sycophancy_report.md` | Epistemic stability and anti-sycophancy analysis |
-| `04-audits/cryptographic_inventory_for_kaia.md` | Cryptographic dependency inventory |
-| `04-audits/jspace.md` · `04-audits/noon_events_mechanical_audit.md` | Behavioural probing, world-event mechanics |
-| `05-reference/strudel-coding-guide.md` | Strudel syntax reference for pattern authoring |
-| `05-reference/local-ai-data-curation-strategy.md` | RAG data-curation research |
 
 ### ⚔️ [Aethelgard TTRPG Specifications](ttrpg/)
 *   [System Specification](ttrpg/aethelgard_system.md) — Complete game rules, combat formulas, class trees, and item structures.

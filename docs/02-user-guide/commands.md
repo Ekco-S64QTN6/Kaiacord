@@ -111,10 +111,14 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   Earth. The readings are gathered in Python; her account may use only those, and a draft
   containing a number no reading has is rejected.
 - `!nightshift` — a panel with a button for every command here, including the live receivers.
-- `!scanner` — the local RTL-SDR, if one is attached: from midnight to 6 it hops the local voice bands
-  and records anything that keys up into a ledger of frequencies and active hours. The panel has a
-  presets dropdown, ▶ Listen (live in voice), 🎧 Listen along (hear her scan), and History with
-  recordings to replay. Nets listed in `radio.local.nets` are watched for their whole window.
+- `!scanner` — the local RTL-SDR, if one is attached: during `radio.local.hours` (midnight to 6 by
+  default) it hops 2m, VHF business to NOAA, 70cm and 460–470 MHz every pass, with 1.25m, UHF
+  business and 900 MHz in rotation, and records anything that keys up into a ledger of frequencies
+  and active hours. The hop plan is built around the channels listed in `radio.local.channels`, so
+  none sits in a slice's blind centre. Voice and data keep their recording; so does the first carrier
+  each channel sends a night, so a "carrier" can be listened to. The panel has a presets dropdown,
+  ▶ Listen (live in voice), 🎧 Listen along (hear her scan), and History with recordings to replay.
+  Nets listed in `radio.local.nets` are watched for their whole window.
 
 Recording and transcription need a one-time `python tools/maintenance/fetch_radio_assets.py`.
 

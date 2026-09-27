@@ -62,8 +62,8 @@ number has been stale in three files at once — CLAUDE.md, README and CONTRIBUT
 different one. Run it and read the tail; what matters is that nothing *failed*, not that the count
 matches a doc.
 
-The no-external-services invocation is the default because only **2** of ~2,450 tests need Ollama
-or a GPU (checked 26 Sept 2026 — take the figure from `--collect-only -m "ollama or gpu"`, not
+The no-external-services invocation is the default because only **2** of ~2,600 tests need Ollama
+or a GPU (checked 27 Sept 2026 — take the figure from `--collect-only -m "ollama or gpu"`, not
 here). The rest of what it deselects is the ~46 marked `slow`. Two such tests were once unmarked
 until September 2026 and ran on every "no external services" invocation, embedding through the
 bot's own live Ollama — Ollama's journal (`journalctl -u ollama`) is where that showed up. A test
@@ -529,6 +529,10 @@ is a novelty, not a live feed), one request at a time, with the identifying User
 traffic". EAMs and number-station groups are encrypted: nothing Kaia says may claim to decode
 one. Research: `docs/reports/investigations/2026-09-24-shortwave-feasibility.md`.
 
+A number-station recording is kept only for a keyed tone (`watch.keyed_tone`: prominent within the
+recording's own passband, and switching on and off) or speech. Measured against the whole speech
+band, CW mode's narrow filter made pure static look tonal, and a steady carrier passed as a tone.
+
 Kaia also **listens** (`utils/radio/watch.py`): scheduled, squelched recordings from public
 KiwiSDRs via `kiwirecorder` (fetched into `assets/kiwiclient/` by
 `tools/maintenance/fetch_radio_assets.py`, never vendored — no licence file, GPL parts), CPU-only
@@ -541,10 +545,19 @@ models, raw audio and the VAD filter all hallucinated on HF audio; don't "optimi
 without re-running that comparison.
 
 **The local scanner** (`utils/radio/scanner.py`, `waterfall.py`, `ledger.py`, `dongle.py`) drives an
-RTL-SDR attached to the bot. During `radio.local.hours` it hops the voice bands (a pass every ~2 s),
-holds on anything standing 10 dB over its own rolling floor, records it, and classifies it — voice,
-data or carrier — into `memory/radio/local_ledger.sqlite3`. `radio.local.nets` pins it to one channel
-for a net's window. Rules, each from something that broke:
+RTL-SDR attached to the bot. During `radio.local.hours` it hops the voice bands (a pass every ~2.5 s),
+holds on anything standing 10 dB over its own rolling floor (16 dB is taken on first sight), records
+it, and classifies it — voice, data or carrier — into `memory/radio/local_ledger.sqlite3`.
+`radio.local.nets` pins it to one channel for a net's window. Rules, each from something that broke:
+
+- **Test coverage with the simulated dongle, not by reading the plan.** `test_local_scanner.py` runs
+  the real `Watcher` against FM transmissions on a simulated clock. The fixed hop plan it replaced
+  caught 2 of 7: slice centres sat on repeater outputs (147.000, 445.000), 80 kHz between slices and
+  whole bands were never visited, and a 30 s cooldown ignored every reply. `waterfall.hop_plan`
+  tiles each band and moves centres off the seeded and configured channels; keep `COOLDOWN_S` short.
+- **Every process that holds the dongle dies with the bot.** The bot exits by `os._exit`, which skips
+  multiprocessing's cleanup; an orphaned watcher kept the dongle through two restarts. `child_main`
+  and `rtl.open_stream` arm `PR_SET_PDEATHSIG`.
 
 - **The watcher runs in a forked child with fds 1 and 2 on /dev/null.** librtlsdr prints its tuner
   chatter from C straight to fd 2, beneath Python's logging, and destroyed the curses dashboard.

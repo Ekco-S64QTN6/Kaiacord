@@ -56,11 +56,11 @@ Located below the three vertical columns on the right, displaying RAG vector dat
 | Key | Action |
 | :--- | :--- |
 | **Q** | Quit the dashboard (and shut down the bot gracefully) |
-| **C** | Clear warnings and alerts |
-| **R** | Force GUI layout refresh |
-| **L** | Cycle log view filters (ALL -> INFO -> WARNING -> ERROR) |
-| **S** | Export current screen logs to file |
-| **1-6** | Fast-jump log filter selections |
+| **C** | Clear the live log and the alerts |
+| **S** | Save the bot's stats (`stats_tracker.save_stats`) |
+| **H** | Show this list; any key closes it |
+
+Every frame is drawn from a fresh snapshot, so there is no refresh key.
 
 ---
 
