@@ -233,3 +233,66 @@ def test_leaving_from_an_old_room_message_keeps_the_floor_as_it_is(monkeypatch, 
     saved = asyncio.run(sd.load_spine_dungeon("42", target_floor=1))
     assert saved["active"] is False
     assert saved["rooms"][uncleared]["cleared"] is True
+
+
+def test_gamble_again_clicked_twice_charges_both_rolls(monkeypatch):
+    """The Gamble Again button ran the handler outside the player's lock: two
+    quick clicks both read the same purse and the second save undid the first."""
+    import copy
+    from unittest.mock import AsyncMock
+    store = {"42": {"user_id": "42", "character_name": "P", "location": "stone_hearth", "gil": 100,
+                    "hp": {"current": 10, "max": 10}}}
+
+    async def slow_load(uid):
+        sheet = copy.deepcopy(store.get(uid))
+        await asyncio.sleep(0.01)
+        return sheet
+    monkeypatch.setattr(cor, "load", slow_load)
+    monkeypatch.setattr(cor, "save", AsyncMock(side_effect=lambda s: store.__setitem__(s["user_id"], copy.deepcopy(s))))
+    monkeypatch.setattr(cor.secrets, "randbelow", lambda n: 0)            # every roll a tie: the house takes 10
+    monkeypatch.setattr("utils.ttrpg.calendar.get_special_day", lambda *a: None)
+
+    views = []
+    async def channel_send(*a, view=None, **k):
+        views.append(view)
+
+    def click():
+        followup = types.SimpleNamespace(send=channel_send)
+        return types.SimpleNamespace(user=types.SimpleNamespace(id=42), guild=None, followup=followup,
+                                     channel=types.SimpleNamespace(id=7),
+                                     response=types.SimpleNamespace(defer=AsyncMock()))
+
+    async def go():
+        msg = types.SimpleNamespace(channel=types.SimpleNamespace(id=7, send=channel_send))
+        await cor._handle_gamble(_ctx(), msg, None, "", "42", "p", False)
+        again = next(i for i in views[0].children if "Gamble Again" in (i.label or ""))
+        await asyncio.gather(again.callback(click()), again.callback(click()))
+    asyncio.run(go())
+    assert store["42"]["gil"] == 70
+
+
+def test_the_unequip_menu_holds_the_players_lock(monkeypatch):
+    from unittest.mock import AsyncMock
+    sheet = {"user_id": "42", "character_name": "P", "inventory": [], "hp": {"current": 10, "max": 10},
+             "equipment": {"weapon": "rusty_dagger"}}
+    monkeypatch.setattr(cor, "load", AsyncMock(return_value=sheet))
+    views = []
+    async def channel_send(*a, view=None, **k):
+        views.append(view)
+
+    async def go():
+        msg = types.SimpleNamespace(channel=types.SimpleNamespace(id=7, send=channel_send))
+        await cor._handle_unequip(_ctx(), msg, None, "", "42", "p", False)
+        from utils.ttrpg.session_manager import get_action_lock
+        lock = await get_action_lock("user:42")
+        seen = []
+        async def inner(*a, **k):
+            seen.append(lock.locked())
+        monkeypatch.setattr(cor, "_handle_unequip", inner)
+        sel = next(i for i in views[0].children if hasattr(i, "options"))
+        interaction = types.SimpleNamespace(user=types.SimpleNamespace(id=42), guild=None,
+                                            data={"values": ["weapon"]}, channel=types.SimpleNamespace(id=7),
+                                            followup=None, response=types.SimpleNamespace(defer=AsyncMock()))
+        await sel.callback(interaction)
+        return seen
+    assert asyncio.run(go()) == [True]

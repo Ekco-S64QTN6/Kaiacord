@@ -1472,6 +1472,7 @@ async def _handle_unequip(ctx, msg, send, rest, uid, uname, is_owner):
             view = discord.ui.View(timeout=60)
             sel = discord.ui.Select(placeholder="Unequip which item?", options=options, row=0)
 
+            @player_locked(uid)
             async def _sel_cb(interaction: discord.Interaction):
                 if str(interaction.user.id) != uid:
                     await interaction.response.send_message("not yours.", ephemeral=True)
@@ -1895,6 +1896,7 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         label="🎲 Gamble Again", style=discord.ButtonStyle.secondary, row=0
     )
 
+    @player_locked(uid)
     async def _gamble_again_cb(interaction: discord.Interaction):
         if str(interaction.user.id) != uid:
             await interaction.response.send_message("```\nnot your table.\n```", ephemeral=True)
