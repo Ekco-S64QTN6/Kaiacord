@@ -1,32 +1,31 @@
 FROM ./output/kaia_merged/kaia_merged.Q4_K_M.gguf
 
-# ---------------------------------------------------------------------------
-# NOTE ON FROM PATH:
-# Unsloth names the output file based on the model. After running
-# 04_merge_export.py, check what file exists in finetune/output/kaia_merged/
-# and update the FROM line above to match exactly.
-# Common names:
-#   kaia_lora_merged.Q4_K_M.gguf
-#   unsloth.Q4_K_M.gguf
-# Run: ls finetune/output/kaia_merged/*.gguf
-# ---------------------------------------------------------------------------
+# 04_merge_export.py always writes this file name.
 
-TEMPLATE """{{- if .System }}<start_of_turn>user
-{{ .System }}
-{{- end }}
+# ---------------------------------------------------------------------------
+# TEMPLATE
+#
+# Gemma 3's own chat format, as 03_train.py renders it with the tokenizer's
+# template: every system message joined into the first user turn, then
+# <start_of_turn>user\n / <start_of_turn>model\n turns. The weights are fitted
+# to exactly that text, so it is what the served model must see. The stock
+# ollama gemma3 template gives system its own turn instead, and the previous
+# template here dropped the newline after <start_of_turn>user on every user
+# turn but the first. Checked against the tokenizer's rendering by prompt
+# token count: identical for one, two and three user turns and for two system
+# messages.
+# ---------------------------------------------------------------------------
+TEMPLATE """{{- $system := "" }}
+{{- range .Messages }}{{ if eq .Role "system" }}{{ if $system }}{{ $system = printf "%s\n\n%s" $system .Content }}{{ else }}{{ $system = .Content }}{{ end }}{{ end }}{{ end }}
+{{- if and (not $system) .System }}{{ $system = .System }}{{ end }}
+{{- $first := true }}
 {{- range $i, $_ := .Messages }}
 {{- $last := eq (len (slice $.Messages $i)) 1 }}
-{{- if eq .Role "system" }}
-{{- if not $.System }}<start_of_turn>user
-{{ .Content }}
-{{- end }}
-{{- else if eq .Role "user" }}
-{{- if or (and (eq $i 0) $.System) (and (eq $i 1) (eq (index $.Messages 0).Role "system")) }}{{ else }}<start_of_turn>user
-{{- end }}
-{{- if or (and (eq $i 0) $.System) (and (eq $i 1) (eq (index $.Messages 0).Role "system")) }}
+{{- if eq .Role "user" }}<start_of_turn>user
+{{ if and $first $system }}{{ $system }}
 
 {{ end }}{{ .Content }}<end_of_turn>
-{{ if $last }}<start_of_turn>model
+{{ $first = false }}{{ if $last }}<start_of_turn>model
 {{ end }}
 {{- else if eq .Role "assistant" }}<start_of_turn>model
 {{ .Content }}{{ if not $last }}<end_of_turn>
@@ -63,11 +62,12 @@ SYSTEM """kaia. late 30s. grew up on library terminals and dial-up. learned syst
 # tokens of a real prompt — persona, constitution, retrieved context, in that
 # order — with no error.
 #
-# 16384 on a 12GB card with a Q4_K_M 12B leaves room for KV cache; if the
-# model OOMs at load, lower this and performance.max_context_tokens together.
+# Set from config/kaia.yaml when the adapter is built; the stock gemma3:12b
+# runner already serves that size on this card. If the model OOMs at load,
+# lower this and performance.max_context_tokens together.
 PARAMETER temperature 0.75
 PARAMETER repeat_penalty 1.08
-PARAMETER num_ctx 16384
+PARAMETER num_ctx 32768
 PARAMETER num_predict 400
 PARAMETER top_p 0.9
 

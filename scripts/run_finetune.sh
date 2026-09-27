@@ -2,10 +2,11 @@
 # run_finetune.sh — Run the Kaia LoRA fine-tune pipeline.
 # Stops immediately if any step fails.
 #
-# Phase 4 changes:
-#   - Dataset is pre-built (new_train/eval/augmented.jsonl) — 01_convert NOT called
-#   - Validation uses 05b_test_ollama.py (live Ollama test, not the stub)
-#   - (01b_augment_data.py, which overwrote the clean dataset, has been removed)
+# The dataset is built separately, because building it is a decision worth
+# looking at before a GPU hour is spent:
+#     python finetune/01_convert_logs.py            # what a rebuild would keep, and why
+#     python finetune/01_convert_logs.py --apply
+#     python finetune/01g_review.py                 # optional: review targets by hand
 
 # -u catches an unset variable instead of expanding it to the empty string;
 # -o pipefail makes a failure anywhere in a pipeline fail the step.
@@ -24,39 +25,22 @@ fi
 
 echo ""
 echo "============================================="
-echo "  Kaia LoRA Fine-Tune Pipeline — Phase 4"
+echo "  Kaia LoRA Fine-Tune Pipeline"
 echo "============================================="
 echo ""
 
 # ---------------------------------------------------------------------------
-# Pre-flight: scan dataset for length outliers before burning GPU time
+# Pre-flight: the dataset against today's rules. A gate, not a report: an
+# adapter was once trained on a corpus carrying 753 duplicate exchanges and
+# the runtime's own failure messages because this step printed and carried on.
 # ---------------------------------------------------------------------------
-echo ">>> Pre-flight 1/2: Dataset audit"
+echo ">>> Pre-flight: dataset check"
 echo "---------------------------------------------"
-$PYTHON finetune/01d_scan_length_outliers.py
-echo ""
-
-# ---------------------------------------------------------------------------
-# Pre-flight 2: verify the targets are what the runtime would actually emit.
-#
-# Training on unfiltered logs teaches the model to produce exactly what its own
-# filters then strip — the opposite of the goal.
-#
-# This is a gate, not a report. It used to print its findings and proceed
-# regardless, which is how an adapter came to be trained on a corpus carrying
-# 753 duplicate exchanges, 17 copies of the runtime's own "i'm drawing a blank"
-# failure message, and 149 bare-name openers. Regenerating the dataset from
-# logs and forgetting to clean it must not silently produce a bad model.
-# ---------------------------------------------------------------------------
-echo ">>> Pre-flight 2/2: Target quality vs the live filter stack"
-echo "---------------------------------------------"
-if ! $PYTHON finetune/01f_clean_targets.py --check --strict --with-corrections; then
+if ! $PYTHON finetune/01f_check_dataset.py; then
     echo ""
-    echo "Aborting: clean the dataset first (command above), then re-run."
+    echo "Aborting: rebuild the dataset (python finetune/01_convert_logs.py --apply), then re-run."
     exit 1
 fi
-echo ""
-echo ">>> Dataset clean — proceeding"
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -88,11 +72,10 @@ $PYTHON finetune/04_merge_export.py
 echo ""
 echo ">>> GGUF export COMPLETE"
 echo ""
-echo "  !! ACTION REQUIRED before Step 4 !!"
-echo "  Check the FROM path printed above and update finetune/Modelfile if needed."
-echo "  Then press ENTER to continue to validation, or Ctrl+C to stop here."
-echo ""
-read -r
+if [[ ! -f finetune/output/kaia_merged/kaia_merged.Q4_K_M.gguf ]]; then
+    echo "Aborting: finetune/output/kaia_merged/kaia_merged.Q4_K_M.gguf was not written." >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Step 4: Load into Ollama + live validation

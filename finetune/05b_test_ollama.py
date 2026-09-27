@@ -1,3 +1,8 @@
+"""Seven prompts to kaia-lora, printed for reading. 05c is the one that counts.
+
+No options are sent, so the Modelfile's SYSTEM prompt and num_ctx apply. A
+num_ctx of 2048 here truncated the prompt and reloaded the model.
+"""
 import requests
 import json
 import sys
@@ -29,9 +34,6 @@ for p in PROMPTS:
                 "content": p
             }
         ],
-        "options": {
-            "num_ctx": 2048
-        },
         "stream": False
     }
     try:

@@ -41,11 +41,12 @@ second confirmation if she is: wiping `memory/rag_storage` while the bot holds
 it open corrupts both the on-disk store and the in-process copy.
 
 ### 2. `run_finetune.sh` — LoRA Fine-Tuning Automation
-Orchestrates the 4-phase LLM fine-tuning pipeline:
-1. **Pre-flight & Hardware Audit:** Scans dataset for token length outliers (`01d_scan_length_outliers.py`) and validates GPU VRAM (`02_check_hardware.py`).
-2. **LoRA Training:** Executes adapter training via Unsloth/PyTorch (`03_train.py`).
-3. **Merge & Export:** Merges LoRA weights and exports GGUF quantization (`04_merge_export.py`).
-4. **Ollama Deployment & Validation:** Creates `kaia-lora` model in Ollama (`Modelfile`) and executes validation benchmarks (`05b_test_ollama.py`).
+Build the dataset first (`python finetune/01_convert_logs.py --apply`, optionally reviewed with
+`01g_review.py`). The runner then:
+1. **Pre-flight:** refuses to start unless `01f_check_dataset.py` passes, and checks the GPU (`02_check_hardware.py`).
+2. **LoRA Training:** Unsloth/TRL (`03_train.py`; `--resume` to continue a run).
+3. **Merge & Export:** merges the adapter and writes a Q4_K_M GGUF (`04_merge_export.py`).
+4. **Ollama Deployment & Validation:** creates `kaia-lora` from `finetune/Modelfile`, prints samples (`05b_test_ollama.py`) and counts guardrail interventions against the base model (`05c_evaluate_persona.py`).
 
 ### 3. `run_jspace_probe.sh` — Behavioral & J-Space Probe Wrapper
 Executes offline behavioral probe batteries to measure persona adherence and linguistic distribution:

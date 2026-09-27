@@ -48,8 +48,8 @@ def check_cuda():
         return False, vram_gb
     elif vram_gb < WARN_VRAM_GB:
         print(f"  WARNING: VRAM ({vram_gb:.1f} GB) is under {WARN_VRAM_GB} GB.")
-        print("  Training may be tight. If OOM occurs, reduce max_seq_length")
-        print("  from 2048 to 1024 in 03_train.py (do NOT reduce LoRA rank).")
+        print("  Training may be tight. If OOM occurs, lower MAX_SEQ_LENGTH in 03_train.py")
+        print("  to 768 (and kaia_quality.TRAIN_MAX_TOKENS with it) before reducing LoRA rank.")
         return True, vram_gb
     else:
         print(f"  OK: {vram_gb:.1f} GB VRAM is sufficient.")
@@ -118,7 +118,7 @@ def check_dataset():
         fpath = os.path.abspath(fpath)
         if not os.path.isfile(fpath):
             print(f"  ERROR: {label} file not found: {fpath}")
-            print("  Run 01_convert_logs.py first.")
+            print("  Build it: python finetune/01_convert_logs.py --apply")
             all_ok = False
             continue
 
@@ -170,7 +170,7 @@ def main():
         print("  >>> ALL CHECKS PASSED — READY TO TRAIN <<<")
         if vram_gb < WARN_VRAM_GB:
             print(f"  Note: VRAM is {vram_gb:.1f} GB (tight). Monitor for OOM.")
-            print("  First knob to turn: reduce max_seq_length from 2048 to 1024.")
+            print("  First knob to turn: MAX_SEQ_LENGTH 1024 -> 768 in 03_train.py.")
     else:
         print("  >>> ONE OR MORE CHECKS FAILED — DO NOT PROCEED <<<")
         print("  Fix the issues above before running 03_train.py.")

@@ -4,11 +4,14 @@
 
 Tuned for a 12 GB VRAM GPU (e.g. RTX 3060) with 30 GB system RAM.
 
-If OOM occurs:
-  1. FIRST: reduce max_seq_length from 2048 → 1024  (line ~35)
-  2. Do NOT reduce LoRA rank — r=16 is already minimal for quality.
+    python finetune/03_train.py            # a fresh run
+    python finetune/03_train.py --resume   # continue the newest checkpoint
+
+If OOM occurs, lower MAX_SEQ_LENGTH to 768 before touching LoRA rank (and the
+builder's window with it: kaia_quality.TRAIN_MAX_TOKENS).
 """
 
+import argparse
 import os
 import sys
 
@@ -34,18 +37,9 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output", "kaia_lora_adapter")
 # ---------------------------------------------------------------------------
 
 MODEL_NAME = "unsloth/gemma-3-12b-it-bnb-4bit"
-# Measured over the cleaned dataset (1,431 examples, full rendered chat
-# template, not just the target): p50 380 tokens, p90 630, p99 1132, max 1810.
-# The previous value of 512 truncated 23.2% of examples — the assistant turn
-# was cut mid-response, teaching the model to stop early. The comment that
-# justified it ("longest example is ~350 tokens") was wrong by a factor of five.
-#
-#   512  -> 23.2% truncated
-#   768  ->  4.2%
-#   1024 ->  1.6%   <- chosen
-#
-# If this OOMs on 12GB, drop to 768 before touching LoRA rank: losing 4% of
-# examples to truncation costs less than halving identity-learning capacity.
+# Kept equal to kaia_quality.TRAIN_MAX_TOKENS: the builder never writes an
+# example longer than this, measured in real tokens on the rendered template,
+# so nothing is truncated mid-target. 512 once truncated 23% of examples.
 MAX_SEQ_LENGTH = 1024
 DTYPE = None            # Auto-detect
 LOAD_IN_4BIT = True
@@ -65,6 +59,8 @@ LORA_TARGET_MODULES = [
 
 def formatting_func(examples, tokenizer):
     """Apply chat template to format messages arrays for training."""
+    # The chat template already writes <bos>, and the trainer adds its own when
+    # it tokenizes the text: without removeprefix every sequence starts with two.
     texts = []
     for messages in examples["messages"]:
         text = tokenizer.apply_chat_template(
@@ -72,16 +68,21 @@ def formatting_func(examples, tokenizer):
             tokenize=False,
             add_generation_prompt=False,
         )
-        texts.append(text)
+        texts.append(text.removeprefix(tokenizer.bos_token or "<bos>"))
     return {"text": texts}
 
 
 def main():
+    ap = argparse.ArgumentParser(description="Train the Kaia persona LoRA.")
+    ap.add_argument("--resume", action="store_true",
+                    help="continue from the newest checkpoint in finetune/checkpoints/")
+    args = ap.parse_args()
+
     # Verify dataset files exist
     for fpath in [TRAIN_FILE, EVAL_FILE]:
         if not os.path.isfile(fpath):
             print(f"ERROR: Dataset file not found: {fpath}")
-            print("Run 01_convert_logs.py first.")
+            print("Build it: python finetune/01_convert_logs.py --apply")
             sys.exit(1)
 
     # -----------------------------------------------------------------
@@ -151,13 +152,11 @@ def main():
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,        # Batch size 1 prevents evaluation OOM on 12GB VRAM
         gradient_accumulation_steps=8,       # Effective batch = 8
-        # Ratio, not a fixed count: at 1,191 examples with an effective batch
-        # of 8 a run is ~900 steps, so a hardcoded 10 is ~1% warmup — and it
-        # silently becomes a different fraction every time the dataset changes
-        # size, which it just did (1,458 -> 1,191 after de-duplication).
+        # A ratio, not a step count: a fixed count becomes a different share of
+        # the run every time the dataset changes size.
         warmup_ratio=0.05,
-        num_train_epochs=6,                  # Increased epochs from 4 to 6
-        learning_rate=2e-4,                  # Increased learning rate from 2e-5 to 2e-4
+        num_train_epochs=6,                  # a ceiling: early stopping and the best checkpoint decide
+        learning_rate=2e-4,
         fp16=False,
         bf16=True,                           # RTX 3060 supports bf16
         logging_steps=10,
@@ -165,9 +164,8 @@ def main():
         eval_steps=20,                       # Evaluate every 20 steps
         save_strategy="steps",
         save_steps=20,                       # Must match eval_steps for best-model tracking
-        # Six epochs at lr 2e-4 on ~1,400 examples will overfit well before the
-        # end. Previously the final epoch was exported regardless of eval loss;
-        # now the lowest-eval-loss checkpoint is restored before saving.
+        # Six epochs at 2e-4 on about a thousand targets overfits well before the
+        # end; the lowest-eval-loss checkpoint is restored before saving.
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
@@ -217,14 +215,19 @@ def main():
     except Exception as e:
         print(f"WARNING: early stopping unavailable ({e})")
 
-    # Run training
-    # Automatically resume from checkpoint if available
+    # Resume only when asked. Checkpoints left by an earlier run belong to an
+    # earlier dataset; resuming one silently continues that run's optimizer and
+    # schedule on different data.
     latest_checkpoint = None
-    if os.path.isdir(CHECKPOINT_DIR):
-        checkpoints = [d for d in os.listdir(CHECKPOINT_DIR) if d.startswith("checkpoint-")]
-        if checkpoints:
-            latest_checkpoint = os.path.join(CHECKPOINT_DIR, sorted(checkpoints, key=lambda x: int(x.split("-")[1]))[-1])
-            print(f"Resuming from: {latest_checkpoint}")
+    checkpoints = ([d for d in os.listdir(CHECKPOINT_DIR) if d.startswith("checkpoint-")]
+                   if os.path.isdir(CHECKPOINT_DIR) else [])
+    if args.resume and checkpoints:
+        latest_checkpoint = os.path.join(CHECKPOINT_DIR, sorted(checkpoints, key=lambda x: int(x.split("-")[1]))[-1])
+        print(f"Resuming from: {latest_checkpoint}")
+    elif checkpoints:
+        print(f"ERROR: {CHECKPOINT_DIR} holds checkpoints from an earlier run. Pass --resume to "
+              "continue it, or delete them to start fresh on the current dataset.")
+        sys.exit(1)
 
     train_result = trainer.train(resume_from_checkpoint=latest_checkpoint)
 

@@ -1161,15 +1161,31 @@ it here.
 
 `finetune/` trains a persona LoRA for `gemma3:12b` on her own logs and exports a GGUF for Ollama.
 It is **off the runtime path** — nothing in `utils/` imports it, and the bot runs the stock model
-until a Modelfile is built and registered. `scripts/run_finetune.sh` drives it; the numbered steps
-are meant to be runnable individually and the wrapper deliberately skips `01_convert_logs.py`,
-because the dataset is pre-built.
+until a Modelfile is built and registered. `01_convert_logs.py` builds the dataset from
+`knowledge_base/user_logs/` (dry run by default, `--apply` to write); `scripts/run_finetune.sh`
+then trains, and refuses to start unless `01f_check_dataset.py` passes.
+
+**The dataset is the fine-tune.** Kaia's logged turns are the base model's own output under the
+persona prompt, tics included, so training on them unselected teaches the base model's register
+back to itself. Every target goes through `finetune/kaia_quality.py`: the live filters, then a
+gate on each register the persona bans (grading the user, the analyst's vocabulary, operational
+talk, echoing the message, replies to a link or picture the log does not hold). The gate is shared
+by the builder, the check and `05c`, so add a rule there, once. `01g_review.py` records a
+person's keep/drop/rewrite per target and every rebuild honours it. Never edit
+`dataset/*.jsonl` by hand: a rebuild would undo it and the check would fail on it.
 
 Only `*.py`, `Modelfile` and the directory skeletons are tracked. `dataset/`, `output/`,
 `checkpoints/`, `llama.cpp/` and every `.gguf`/`.safetensors` are git-ignored — the corpus is real
 user messages.
 
-Two constraints that are easy to break and silent when broken:
+Three constraints that are easy to break and silent when broken:
+
+- **The Modelfile TEMPLATE must render what the trainer saw.** Training renders with the
+  tokenizer's Gemma 3 template (system joined into the first user turn); the served model must
+  get the same text. A template that dropped one newline per user turn was measured one token
+  short per turn against the trainer's rendering. Check a template change the same way: a
+  template-only model `FROM gemma2:2b`, `num_gpu: 0`, and `prompt_eval_count` from `/api/chat`
+  against the raw expected string through `/api/generate` with `raw: true`.
 
 - **`num_ctx` in the Modelfile should equal `performance.max_context_tokens`.** The bot sends
   `num_ctx` on every call, so the Modelfile value is only the fallback for a request that omits
@@ -1183,6 +1199,5 @@ Two constraints that are easy to break and silent when broken:
   is then argued out of it by several thousand tokens of instructions. Shrinking the injection is
   the migration; changing the `SYSTEM` line is not.
 
-Validation is `05b_test_ollama.py` (live Ollama) and `05c_evaluate_persona.py`, not the stub in
-`05_validate.py`. Training and the merge both want the GPU to themselves — see
+Validation is `05c_evaluate_persona.py` (a count) and `05b_test_ollama.py` (samples to read). Training and the merge both want the GPU to themselves — see
 [§4](#4-architecture-rules) on `gpu_semaphore` being process-local.

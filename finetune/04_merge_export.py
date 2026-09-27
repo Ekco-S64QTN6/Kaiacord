@@ -5,7 +5,6 @@
 Loads the base model + the saved adapter from training, merges them,
 and exports a q4_k_m GGUF file ready for Ollama.
 
-Phase 4 fix: MAX_SEQ_LENGTH corrected to 1024 to match 03_train.py.
 """
 
 import os
@@ -29,7 +28,7 @@ GGUF_OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output", "kaia_merged")
 # Model config — MUST match 03_train.py exactly
 # ---------------------------------------------------------------------------
 
-MAX_SEQ_LENGTH = 512   # ← Fixed: was 1024, must match training value
+MAX_SEQ_LENGTH = 1024  # 03_train.py's value
 DTYPE          = None
 LOAD_IN_4BIT   = True
 
