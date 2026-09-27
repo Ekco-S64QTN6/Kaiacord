@@ -52,7 +52,9 @@ AUDIO_FS = 12_000
 # catch, and goes back to hopping after FOLLOW_IDLE_S with nothing on it.
 FOLLOW_IDLE_S = 15.0
 FOLLOW_MAX_S = 300.0
-QUIET_DB = 6.0                   # hiss this far under the recording's own squelch tail: a carrier is up
+HISS_DB = 108.6                  # NbfmDemod's output on an empty channel, per 20 ms frame above 3.2 kHz
+QUIET_DB = 6.0                   # hiss this far under it: a carrier is up (noise's 5th percentile is 1.3 under)
+FULL_QUIETING_DB = 10.0          # a carrier strong enough to follow: voice quieted 12–14 dB, weak fades 5–7
 VOICE_SWING_DB = 3.0             # voice-band level spread under a carrier: speech swings, data and tones sit flat
 SQUELCH_S = 0.4                  # a listener hears silence, not hiss, this long after a channel drops
 
@@ -202,18 +204,15 @@ def _frame_levels(audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return hiss, voice
 
 
-def carried(audio: np.ndarray, tail_s: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+def carried(audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Which frames had a carrier under them, and the voice-band levels.
 
-    FM demodulates to loud hiss with nothing on the channel and goes quiet
-    under a carrier. Every hold ends in the squelch tail it waited out, so the
-    recording's last second is its own reference for "nothing there"; a clip
-    of static never quiets against it."""
+    FM demodulates an empty channel to hiss at a fixed level, HISS_DB, since
+    the discriminator reads phase and not amplitude; a carrier quiets it. The
+    reference is that level rather than the recording's own tail, because a
+    hold cut off at its time limit has no tail to measure."""
     hiss, voice = _frame_levels(audio)
-    n = int(tail_s * 50)
-    if len(hiss) < 2 * n:
-        return np.zeros(len(hiss), bool), voice
-    return hiss < np.median(hiss[-n:]) - QUIET_DB, voice
+    return hiss < HISS_DB - QUIET_DB, voice
 
 
 def carried_audio(audio: np.ndarray) -> np.ndarray:
@@ -231,9 +230,13 @@ def carrier_seconds(audio: np.ndarray) -> float:
 def voice_like(audio: np.ndarray) -> bool:
     """Speech under a carrier, from level alone: syllables swing the voice
     band several dB, where a data burst, a tone or a dead carrier holds flat.
-    Measured on the 27 Sept clips, voice spread 4.2–9.7 dB and data 0.4–1.8."""
-    on, voice = carried(audio)
-    if on.sum() < 50:
+    Measured on the 27 Sept clips, voice spread 4.2–9.7 dB and data 0.4–1.8.
+
+    Only under a full-quieting carrier: a weak signal fading in and out also
+    swings, through the noise riding on it, and was followed for five minutes."""
+    hiss, voice = _frame_levels(audio)
+    on = hiss < HISS_DB - QUIET_DB
+    if on.sum() < 50 or HISS_DB - np.median(hiss[on]) < FULL_QUIETING_DB:
         return False
     return float(np.std(voice[on])) >= VOICE_SWING_DB
 
@@ -316,7 +319,7 @@ class Watcher:
         floor = np.percentile(np.array(s.history), FLOOR_PCT, axis=0)
         idx = int(np.argmin(np.abs(_bin_freqs(center) - freq)))
         valid = _valid_mask(center)
-        chunks, quiet, started = [], 0.0, time.time()
+        chunks, quiet, started, resumed = [], 0.0, time.time(), None
         follow = constant = False
         chunk_n = FS // 5                                      # 0.2 s
         while not self.stop.is_set():
@@ -328,7 +331,10 @@ class Watcher:
             level = over[idx] - np.median(over[valid])
             if quiet >= SILENCE_S:
                 # Between overs only a full key-up, as the trigger takes, resumes.
-                quiet = 0.0 if level > GATE_DB else quiet + 0.2
+                if level > GATE_DB:
+                    quiet, resumed = 0.0, len(chunks)
+                else:
+                    quiet += 0.2
             else:
                 quiet = quiet + 0.2 if level < GATE_DB - 3 else 0.0
             if quiet <= SILENCE_S:
@@ -344,6 +350,13 @@ class Watcher:
                     if not voice_like(np.concatenate(chunks)):
                         break
                     follow = True
+            elif resumed is not None and (quiet >= SILENCE_S or len(chunks) - resumed >= MAX_HOLD_S * 5):
+                # A reply is kept only if a carrier was under it: noise that
+                # crossed the gate would otherwise hold the channel open.
+                if carrier_seconds(np.concatenate(chunks[resumed:])) < 0.5:
+                    del chunks[resumed:]
+                    break
+                resumed = None
             elif quiet >= SILENCE_S + FOLLOW_IDLE_S or held >= FOLLOW_MAX_S:
                 break
         # Held the whole time: something near-constant (425.950 ran the full

@@ -66,3 +66,34 @@ def test_cooldown_covers_the_channel_and_lengthens_for_a_constant_carrier(monkey
     w.cooldown.clear()
     catch = w._hold(d, center, 146_860_000, 20.0)
     assert catch.seconds >= 0.4 and w.cooldown[146_860_000] - __import__("time").time() > 600
+
+
+def test_the_hiss_reference_is_the_demodulators_level_on_an_empty_channel():
+    """An FM discriminator reads phase, so noise at any input level comes out
+    at one hiss level; carrier detection is measured against it."""
+    rng = np.random.default_rng(0)
+    for scale in (0.01, 1.0, 100.0):
+        d = wf.NbfmDemod(100_000)
+        iq = ((rng.standard_normal(480_000) + 1j * rng.standard_normal(480_000)) * scale).astype(np.complex64)
+        audio = np.concatenate([d(np.roll(iq, 1000 * k)) for k in range(10)])        # 2 s
+        on, _ = wf.carried(audio)
+        hiss, _ = wf._frame_levels(audio)
+        assert abs(np.median(hiss) - wf.HISS_DB) < 1.0 and on.mean() < 0.01
+
+
+def test_voice_is_followed_only_under_a_full_quieting_carrier():
+    """A weak signal fading in and out swings the voice band through the
+    noise riding on it; followed, it held 469.044 for five minutes."""
+    rng = np.random.default_rng(0)
+    d = wf.NbfmDemod(100_000)
+    iq = ((rng.standard_normal(480_000) + 1j * rng.standard_normal(480_000))).astype(np.complex64)
+    hiss = np.concatenate([d(np.roll(iq, 1000 * k)) for k in range(20)]).astype(float)       # 4 s
+    t = np.arange(len(hiss)) / wf.AUDIO_FS
+    speech = np.sin(2 * np.pi * 800 * t) * (0.1 + np.abs(np.sin(2 * np.pi * 2.5 * t))) * 4000
+    tail = hiss[: wf.AUDIO_FS]
+
+    def over(quieting_db):
+        body = hiss * 10 ** (-quieting_db / 20) + speech
+        return np.clip(np.concatenate([body, tail]), -32767, 32767).astype(np.int16)
+
+    assert wf.voice_like(over(14)) and not wf.voice_like(over(7))

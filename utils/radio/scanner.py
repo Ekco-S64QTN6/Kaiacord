@@ -224,8 +224,8 @@ MIN_CATCH_S = 1.5
 # Under this much carrier in the audio a catch was hiss that tripped the
 # trigger: nothing is transcribed or kept, and it's ledgered as noise. A
 # channel configured `mode: digital` is exempt: its audio is hiss-shaped. The
-# shortest real burst on 27 Sept (463.5125) held 0.3 s; static held 0.0.
-STATIC_BELOW_S = 0.25
+# 463.5125's data bursts hold 0.1–0.3 s of carrier; static held 0.0.
+STATIC_BELOW_S = 0.1
 
 
 def looks_like_speech(text: str) -> bool:
