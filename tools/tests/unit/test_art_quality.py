@@ -70,3 +70,16 @@ def test_a_render_is_not_blown_out_either():
     img, _ = FractalFlameRenderer().generate(seed=1)
     lum = np.asarray(img.convert("RGB")).astype(np.float32).max(axis=2)
     assert np.percentile(lum, 50) < 250, "median pixel is essentially white"
+
+
+def test_an_unseeded_render_draws_the_flame_its_probe_passed():
+    """With no seed, attempt 0 probed one random flame and rendered another:
+    a piece posted at 1.6% occupancy, 98.7% black, with no warning."""
+    r = FractalFlameRenderer()
+    probed, rendered = [], []
+    r._probe = lambda seed, pal: probed.append(seed) or {"occupancy": 1.0, "density_contrast": 1.0}
+    r._generate_single = lambda seed, pal: rendered.append(seed) or (None, {})
+    r.generate(seed=None)
+    assert rendered == probed[:1] and rendered[0] is not None
+    a, b = r._build_system(rendered[0], None), r._build_system(rendered[0], None)
+    assert all(np.array_equal(x[0], y[0]) for x, y in zip(a["transforms"], b["transforms"]))

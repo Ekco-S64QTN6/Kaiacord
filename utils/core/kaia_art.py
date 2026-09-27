@@ -509,6 +509,11 @@ class FractalFlameRenderer:
         self.intent = intent
         best_seed, best_score, best_stats = None, -1.0, None
 
+        # A None seed draws fresh entropy on every `_build_system` call, so the
+        # probe would screen one flame and the render would draw another.
+        if seed is None:
+            seed = int(np.random.SeedSequence().entropy)
+
         # Retry seeds are derived from the caller's seed, so `!art --seed 42`
         # reproduces the same image even when the first parameters are rejected.
         # An unseeded retry RNG makes a seeded request reproducible only when it
@@ -548,8 +553,7 @@ class FractalFlameRenderer:
               f"occupancy={best_stats['occupancy']:.1%}, expect a sparse image)")
         return self._generate_single(best_seed, palette_name)
 
-    # Roadmap 57-4, visual self-expression: palette follows mood rather than
-    # being drawn uniformly. Warm/high-valence states pull toward ember and
+    # Palette follows mood rather than being drawn uniformly. Warm/high-valence states pull toward ember and
     # solar_flare, low-valence toward void and deep_ocean, high arousal toward
     # electric and acid. It is a bias, not a rule — the remaining palettes stay
     # reachable so output does not become monotonous.
