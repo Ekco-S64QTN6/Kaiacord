@@ -211,3 +211,95 @@ def test_the_panel_counts_every_catch_of_the_night():
         ledger.record(462_275_000, "carrier", 5.0, 3000, 0.3, when=now - i)
     field = next(f for f in scanner_handler.panel_embed().fields if f.name == "Last 12 hours")
     assert field.value.startswith("330 catches")
+
+
+# ── Does the waterfall find the traffic? A simulated dongle ─────────────────
+
+class _SimDongle:
+    """FM transmissions (freq, start s, seconds) in noise, on a simulated clock."""
+
+    def __init__(self, txs, until, snr_db=20):
+        from utils.radio import waterfall as w
+        self.w, self.txs, self.until, self.t, self.center = w, txs, until, 0.0, 0
+        rng = np.random.default_rng(1)
+        self.rng = rng
+        self.noise = ((rng.standard_normal(1_000_000) + 1j * rng.standard_normal(1_000_000)) * 0.7).astype(np.complex64)
+        self.amp = 10 ** (snr_db / 20) / np.sqrt(w.FS / 12.5e3) * 4       # ~snr_db over the channel's floor
+        self.stop = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def tune(self, c):
+        self.center, self.t = c, self.t + 0.06
+        if self.t >= self.until:
+            self.stop.set()
+        return True
+
+    def read(self, n):
+        w = self.w
+        t = self.t + np.arange(n) / w.FS
+        o = int(self.rng.integers(0, len(self.noise) - n))
+        x = self.noise[o:o + n].copy()
+        for f, start, dur in self.txs:
+            off = f - self.center
+            if abs(off) < w.FS / 2 and start < t[-1] and start + dur > t[0]:
+                on = (t >= start) & (t < start + dur)
+                x += (self.amp * on * np.exp(1j * (2 * np.pi * off * t + 3.75 * np.sin(2 * np.pi * 800 * t)))).astype(np.complex64)
+        self.t += n / w.FS
+        return x
+
+
+def _simulate(monkeypatch, txs, seconds, snr_db=20):
+    import threading
+    import utils.radio.dongle as dongle
+    from utils.radio import waterfall as w
+    d = _SimDongle(txs, seconds, snr_db)
+    d.stop = threading.Event()
+    monkeypatch.setattr(w, "time", NS(time=lambda: d.t))
+    monkeypatch.setattr(dongle, "Dongle", lambda **k: d)
+    caught = []
+    watcher = w.Watcher(caught.append, stop=d.stop, hops=w.hop_plan([c["freq_hz"] for c in scanner.seed_channels()]))
+    watcher.run()
+    import time as _t
+    _t.sleep(0.2)                                   # the catch worker drains
+    return sorted({round(c.freq_hz / 5000) * 5000 for c in caught}), caught
+
+
+def test_the_waterfall_hears_what_the_old_plan_missed(monkeypatch):
+    """Simulated against the old plan, 2 of 7 were caught: the reply 3 s after
+    an over (30 s cooldown), repeaters on a slice's blind centre (147.000,
+    445.000), a notebook channel between slices (463.848) and a short over
+    were all lost."""
+    txs = [(146_860_000, 40, 8), (146_860_000, 51, 6), (147_000_000, 65, 10),
+           (463_848_000, 82, 10), (443_675_000, 96, 2.5), (445_000_000, 104, 8), (160_425_000, 116, 6)]
+    freqs, caught = _simulate(monkeypatch, txs, 130)
+    assert sum(1 for c in caught if abs(c.freq_hz - 146_860_000) < 5000) == 2       # the over and its reply
+    for f in (147_000_000, 463_850_000, 443_675_000, 445_000_000, 160_425_000):
+        assert any(abs(g - f) <= 5000 for g in freqs), f
+
+
+def test_noise_alone_is_never_a_catch(monkeypatch):
+    freqs, caught = _simulate(monkeypatch, [], 120)
+    assert caught == []
+
+
+def test_a_weak_signal_is_confirmed_on_a_second_visit(monkeypatch):
+    freqs, _ = _simulate(monkeypatch, [(443_850_000, 40, 10)], 70, snr_db=12)
+    assert any(abs(f - 443_850_000) <= 5000 for f in freqs)
+
+
+def test_every_listed_channel_is_outside_a_blind_centre(monkeypatch):
+    """Local channels are deployment facts in config; the plan is built around them."""
+    from utils.radio import waterfall as w
+    monkeypatch.setattr(scanner, "_cfg", lambda k, d: [{"mhz": 147.000}, {"mhz": 443.000}, {"mhz": 464.600}]
+                        if k == "channels" else d)
+    chans = [c["freq_hz"] for c in scanner.seed_channels()]
+    fast, slow = w.hop_plan(chans)
+    assert all(w.covered(f, fast + slow) for f in chans)
+    for lo, hi in w.FAST_BANDS + w.SLOW_BANDS:                   # no gaps between slices
+        edges = sorted(c for c in fast + slow if lo - 2_000_000 < c < hi + 2_000_000)
+        assert all(b - a <= w.FS * w.USABLE for a, b in zip(edges, edges[1:]))

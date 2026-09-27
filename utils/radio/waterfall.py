@@ -33,29 +33,87 @@ FLOOR_PCT = 25
 WARM_VISITS = 8
 GATE_DB = 10.0
 PERSIST = 2
+# A signal this far over its floor is taken on first sight. Averaged over 32
+# frames and a 12.5 kHz channel, noise barely moves a decibel, so 16 dB is a
+# transmission; waiting for a second visit a whole pass later lost every over
+# shorter than a pass (a 2.5 s and a 3.5 s over, in simulation).
+STRONG_DB = GATE_DB + 6
 SILENCE_S = 2.0
 MAX_HOLD_S = 60.0
-COOLDOWN_S = 30.0
+# Long enough not to re-trigger on the tail of the transmission just released,
+# short enough to catch the reply: at 30 s the answer to every first over on a
+# simplex channel or a quiet repeater was ignored.
+COOLDOWN_S = 3.0
 LONG_COOLDOWN_S = 30 * 60        # after a hold that ran the whole MAX_HOLD_S: a near-constant carrier
 COOLDOWN_SPAN_HZ = 12_500        # one channel, whichever 2.5 kHz step a wide signal rounds to
 AUDIO_FS = 12_000
 
 MHZ = 1_000_000
-#: Slices visited every pass: the bands people talk on.
-FAST_HOPS = [int(f * MHZ) for f in (
-    145.0, 147.0,                                   # 2m ham
-    151.8, 153.8, 155.8, 157.4,                     # MURS, VHF business, marine
-    161.6,                                          # railroad + NOAA
-    441.0, 443.0, 445.0, 447.0, 449.0,              # 70cm repeaters
-    462.8, 467.3,                                   # FRS / GMRS
-)]
-#: One of these per pass, in rotation: wider, quieter territory.
-SLOW_HOPS = [int(f * MHZ) for f in (
-    223.0, 224.5,                                   # 1.25m ham
-    421.0, 423.0, 425.0, 427.0, 429.0, 431.0, 433.0, 435.0, 437.0, 439.0,
-    451.0, 453.0, 455.0, 457.0, 459.0, 461.0,       # UHF business
-    927.2,                                          # 900 MHz ham repeaters
-)]
+#: The bands people talk on, visited every pass: (low, high) in Hz.
+FAST_BANDS = [
+    (144_000_000, 148_000_000),        # 2m ham
+    (150_800_000, 162_560_000),        # MURS, VHF business and public safety, marine, railroad, NOAA
+    (440_000_000, 450_000_000),        # 70cm repeaters
+    (460_000_000, 470_000_000),        # UHF business, FRS / GMRS
+]
+#: Wider, quieter territory: SLOW_PER_PASS of these slices per pass, in rotation.
+SLOW_BANDS = [
+    (222_000_000, 225_000_000),        # 1.25m ham
+    (420_000_000, 440_000_000),        # 70cm below the repeaters
+    (450_000_000, 460_000_000),        # UHF business
+    (926_200_000, 928_200_000),        # 900 MHz ham repeater outputs
+]
+SLOW_PER_PASS = 3
+NUDGE_HZ = 90_000                     # how far a centre may move off its tile
+HOLE_MARGIN_HZ = 7_500                # a channel this close to the guard edge counts as in it
+
+
+def _tile(lo: int, hi: int, avoid: list[int]) -> list[int]:
+    """Slice centres covering lo..hi with no gaps, each moved (by up to
+    NUDGE_HZ) until no channel in `avoid` sits in its centre guard.
+
+    The plan this replaced had fixed round centres: 147.000, 443.000, 445.000
+    and 449.000 are all common repeater outputs and sat in the tuner's blind
+    centre, 80 kHz between neighbouring slices was never looked at, and whole
+    stretches (railroad, 158.4–160.6, 463.8–466.3) weren't visited at all —
+    two of the notebook channels among them."""
+    half = int(FS * USABLE / 2)
+    step = 2 * half - 2 * NUDGE_HZ                     # overlap enough to nudge without opening a gap
+    first, last = lo - NUDGE_HZ + half, hi + NUDGE_HZ - half
+    n = max(1, -(-(last - first) // step) + 1)
+    centres = [first + round(i * (last - first) / max(1, n - 1)) for i in range(n)] if n > 1 else [(lo + hi) // 2]
+    out = []
+    guard = DC_GUARD_HZ + HOLE_MARGIN_HZ
+    for c in centres:
+        for k in range(0, NUDGE_HZ // 2500 + 1):
+            for cand in ((c + k * 2500, c - k * 2500) if k else (c,)):
+                if not any(abs(f - cand) <= guard for f in avoid):
+                    out.append(cand)
+                    break
+            else:
+                continue
+            break
+        else:
+            out.append(c)                              # nothing clear within reach: keep the tile
+    return out
+
+
+def hop_plan(avoid: Optional[list[int]] = None) -> tuple[list[int], list[int]]:
+    """(fast, slow) slice centres for the bands above, clear of `avoid` — the
+    seeded and configured channels (scanner.seed_channels)."""
+    avoid = sorted(avoid or [])
+    fast = [c for lo, hi in FAST_BANDS for c in _tile(lo, hi, avoid)]
+    slow = [c for lo, hi in SLOW_BANDS for c in _tile(lo, hi, avoid)]
+    return fast, slow
+
+
+def covered(freq_hz: int, centres: list[int]) -> bool:
+    """Whether a slice in `centres` sees freq_hz outside its centre guard."""
+    half = FS * USABLE / 2
+    return any(DC_GUARD_HZ <= abs(freq_hz - c) <= half for c in centres)
+
+
+FAST_HOPS, SLOW_HOPS = hop_plan()
 
 
 def _smooth_spectrum(iq: np.ndarray) -> np.ndarray:
@@ -134,7 +192,8 @@ class Watcher:
 
     def __init__(self, on_catch: Callable[[Catch], None], gain_db: float = 40.0,
                  stop: Optional[threading.Event] = None,
-                 sink: Optional[Callable[[np.ndarray], None]] = None, ppm: int = 0):
+                 sink: Optional[Callable[[np.ndarray], None]] = None, ppm: int = 0,
+                 hops: Optional[tuple[list[int], list[int]]] = None):
         self.on_catch = on_catch
         self.ppm = ppm
         # Listen-along: 12 kHz int16 audio — a soft tick per hop, and the
@@ -142,14 +201,15 @@ class Watcher:
         self.sink = sink
         self.gain_db = gain_db
         self.stop = stop or threading.Event()
-        self.slices = {c: _Slice(c) for c in FAST_HOPS + SLOW_HOPS}
+        self.fast, self.slow = hops or (FAST_HOPS, SLOW_HOPS)
+        self.slices = {c: _Slice(c) for c in self.fast + self.slow}
         self.cooldown: dict[int, float] = {}
         self.catches: "queue.Queue[Optional[Catch]]" = queue.Queue()
         self.passes = 0
 
     def _schedule(self):
-        slow = SLOW_HOPS[self.passes % len(SLOW_HOPS)]
-        return FAST_HOPS + [slow]
+        k = (self.passes * SLOW_PER_PASS) % max(1, len(self.slow))
+        return self.fast + [self.slow[(k + i) % len(self.slow)] for i in range(min(SLOW_PER_PASS, len(self.slow)))]
 
     def _visit(self, dongle, center: int) -> Optional[tuple[int, float]]:
         """Measure one slice; return (freq, dB over floor) if something keyed up."""
@@ -166,7 +226,7 @@ class Watcher:
         over = spec - floor
         hot = (over > GATE_DB) & _valid_mask(center)
         s.persist = np.where(hot, (s.persist if s.persist is not None else 0) + 1, 0)
-        ready = np.where(s.persist >= PERSIST)[0]
+        ready = np.where((s.persist >= PERSIST) | (hot & (over >= STRONG_DB)))[0]
         if not len(ready):
             return None
         best = ready[np.argmax(over[ready])]
@@ -269,7 +329,7 @@ class Watcher:
 # queues.
 
 def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
-               stop, catches, audio, passes) -> None:
+               stop, catches, audio, passes, hops=None) -> None:
     import os
     # The bot leaves by os._exit, which skips multiprocessing's cleanup of
     # daemon children: an orphaned watcher kept the dongle, and the next boot's
@@ -296,7 +356,7 @@ def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
         def is_set(self):
             return stop.is_set()
 
-    w = Watcher(_send, gain_db=gain_db, stop=_Stop(), sink=_sink, ppm=ppm)
+    w = Watcher(_send, gain_db=gain_db, stop=_Stop(), sink=_sink, ppm=ppm, hops=hops)
     try:
         if mode == "pinned":
             w.run_pinned(freq_hz, until)

@@ -490,9 +490,12 @@ async def _watch(net: Optional[dict] = None) -> None:
         async with rtl.DEVICE:
             rtl.YIELD.clear()
             mode, freq, until = ("pinned", net["freq_hz"], net["until"]) if net else ("hop", 0, 0.0)
+            # The hop plan keeps every seeded and configured channel out of a
+            # slice's blind centre; config is read here, before the fork.
+            hops = waterfall.hop_plan([c["freq_hz"] for c in seed_channels()])
             proc = ctx.Process(target=waterfall.child_main, name="kaia-scanner", daemon=True,
                                args=(mode, freq, until, float(_cfg("gain", rtl.DEFAULT_GAIN)), rtl.ppm(),
-                                     stop, catches, audio, passes))
+                                     stop, catches, audio, passes, hops))
             proc.start()
             consumer = threading.Thread(target=_consume, name="scanner-classify", daemon=True)
             forwarder = threading.Thread(target=_forward, name="scanner-audio", daemon=True)

@@ -29,7 +29,7 @@ class FakeDongle:
 
 
 def test_a_carrier_keying_up_is_caught_on_the_right_channel():
-    w = wf.Watcher(on_catch=lambda c: None)
+    w = wf.Watcher(on_catch=lambda c: None, hops=([147_000_000], []))
     center = 147_000_000
     d = FakeDongle(146_860_000, on_after_reads=wf.WARM_VISITS + 1)
     hit = None
@@ -39,7 +39,7 @@ def test_a_carrier_keying_up_is_caught_on_the_right_channel():
 
 
 def test_a_constant_carrier_does_not_trigger():
-    w = wf.Watcher(on_catch=lambda c: None)
+    w = wf.Watcher(on_catch=lambda c: None, hops=([147_000_000], []))
     d = FakeDongle(146_860_000, on_after_reads=0)          # on from the start
     assert not any(w._visit(d, 147_000_000) for _ in range(wf.WARM_VISITS + 6))
 
@@ -55,7 +55,7 @@ def test_the_demodulator_recovers_the_tone():
 
 
 def test_cooldown_covers_the_channel_and_lengthens_for_a_constant_carrier(monkeypatch):
-    w = wf.Watcher(on_catch=lambda c: None)
+    w = wf.Watcher(on_catch=lambda c: None, hops=([147_000_000], []))
     center = 147_000_000
     d = FakeDongle(146_860_000, on_after_reads=wf.WARM_VISITS + 1)
     for _ in range(wf.WARM_VISITS + 3):
