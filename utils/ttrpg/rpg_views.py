@@ -53,73 +53,65 @@ __all__ = [
 
 # Lazy Load Dispatchers to cleanly handle UI callbacks without circular imports
 
-async def _handle_abandon(*args, **kwargs):
-    from utils.ttrpg.rpg_social_handler import _handle_abandon as _f
-    return await _f(*args, **kwargs)
+def _lazy(module: str, name: str):
+    """A handler imported on first call. `target()` is the real function, so
+    `_as_player` can see whether it takes the player's lock itself."""
+    import importlib
 
-async def _handle_bard_song(*args, **kwargs):
-    from utils.ttrpg.rpg_social_handler import _handle_bard_song as _f
-    return await _f(*args, **kwargs)
+    def target():
+        return getattr(importlib.import_module(module), name)
 
-async def _handle_event(*args, **kwargs):
-    from utils.ttrpg.rpg_social_handler import _handle_event as _f
-    return await _f(*args, **kwargs)
+    async def call(*args, **kwargs):
+        return await target()(*args, **kwargs)
+    call.__name__ = name
+    call.target = target
+    return call
 
-async def _handle_mail(*args, **kwargs):
-    from utils.ttrpg.rpg_social_handler import _handle_mail as _f
-    return await _f(*args, **kwargs)
 
-async def _handle_notices(*args, **kwargs):
-    from utils.ttrpg.rpg_social_handler import _handle_notices as _f
-    return await _f(*args, **kwargs)
+async def _as_player(uid: str, handler, *args):
+    """Run a handler from a button as the typed command runs: under the
+    player's lock, unless the handler takes that lock itself (asyncio.Lock is
+    not re-entrant, so holding it there would deadlock)."""
+    target = getattr(handler, "target", None)
+    if getattr(target() if target else handler, "_serialized", False):
+        return await handler(*args)
+    async with await get_action_lock(f"user:{uid}"):
+        return await handler(*args)
 
-async def _handle_quest_detail(*args, **kwargs):
-    from utils.ttrpg.rpg_social_handler import _handle_quest_detail as _f
-    return await _f(*args, **kwargs)
 
-async def _handle_quests(*args, **kwargs):
-    from utils.ttrpg.rpg_social_handler import _handle_quests as _f
-    return await _f(*args, **kwargs)
+_handle_abandon = _lazy("utils.ttrpg.rpg_social_handler", "_handle_abandon")
 
-async def _handle_talk(*args, **kwargs):
-    from utils.ttrpg.rpg_social_handler import _handle_talk as _f
-    return await _f(*args, **kwargs)
+_handle_bard_song = _lazy("utils.ttrpg.rpg_social_handler", "_handle_bard_song")
 
-async def _handle_accept(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _handle_accept as _f
-    return await _f(*args, **kwargs)
+_handle_event = _lazy("utils.ttrpg.rpg_social_handler", "_handle_event")
 
-async def _handle_attack(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _handle_attack as _f
-    return await _f(*args, **kwargs)
+_handle_mail = _lazy("utils.ttrpg.rpg_social_handler", "_handle_mail")
 
-async def _handle_duel(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _handle_duel as _f
-    return await _f(*args, **kwargs)
+_handle_notices = _lazy("utils.ttrpg.rpg_social_handler", "_handle_notices")
 
-async def _handle_dungeon(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _handle_dungeon as _f
-    return await _f(*args, **kwargs)
+_handle_quest_detail = _lazy("utils.ttrpg.rpg_social_handler", "_handle_quest_detail")
 
-async def _handle_flee(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _handle_flee as _f
-    return await _f(*args, **kwargs)
+_handle_quests = _lazy("utils.ttrpg.rpg_social_handler", "_handle_quests")
 
-async def _handle_hunt(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _handle_hunt as _f
-    return await _f(*args, **kwargs)
+_handle_talk = _lazy("utils.ttrpg.rpg_social_handler", "_handle_talk")
 
-async def _handle_hunts(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _handle_hunts as _f
-    return await _f(*args, **kwargs)
+_handle_accept = _lazy("utils.ttrpg.rpg_combat_handler", "_handle_accept")
 
-async def _dungeon_combat_round(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _dungeon_combat_round as _f
-    return await _f(*args, **kwargs)
+_handle_attack = _lazy("utils.ttrpg.rpg_combat_handler", "_handle_attack")
 
-async def _send_dungeon_room(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _send_dungeon_room as _f
-    return await _f(*args, **kwargs)
+_handle_duel = _lazy("utils.ttrpg.rpg_combat_handler", "_handle_duel")
+
+_handle_dungeon = _lazy("utils.ttrpg.rpg_combat_handler", "_handle_dungeon")
+
+_handle_flee = _lazy("utils.ttrpg.rpg_combat_handler", "_handle_flee")
+
+_handle_hunt = _lazy("utils.ttrpg.rpg_combat_handler", "_handle_hunt")
+
+_handle_hunts = _lazy("utils.ttrpg.rpg_combat_handler", "_handle_hunts")
+
+_dungeon_combat_round = _lazy("utils.ttrpg.rpg_combat_handler", "_dungeon_combat_round")
+
+_send_dungeon_room = _lazy("utils.ttrpg.rpg_combat_handler", "_send_dungeon_room")
 
 def _dungeon_room_color(*args, **kwargs):
     from utils.ttrpg.rpg_combat_handler import _dungeon_room_color as _f
@@ -166,233 +158,119 @@ def _get_item_effect_string(item):
     return f" — {effect}"
 
 
-async def _handle_rumor(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_rumor as _f
-    return await _f(*args, **kwargs)
+_handle_rumor = _lazy("utils.ttrpg.rpg_core_handler", "_handle_rumor")
 
-async def _handle_buy(*args, **kwargs):
-    from utils.ttrpg.rpg_shop_handler import _handle_buy as _f
-    return await _f(*args, **kwargs)
+_handle_buy = _lazy("utils.ttrpg.rpg_shop_handler", "_handle_buy")
 
-async def _handle_sell(*args, **kwargs):
-    from utils.ttrpg.rpg_shop_handler import _handle_sell as _f
-    return await _f(*args, **kwargs)
+_handle_sell = _lazy("utils.ttrpg.rpg_shop_handler", "_handle_sell")
 
-async def _handle_sell_all_gear(*args, **kwargs):
-    from utils.ttrpg.rpg_shop_handler import _handle_sell_all_gear as _f
-    return await _f(*args, **kwargs)
+_handle_sell_all_gear = _lazy("utils.ttrpg.rpg_shop_handler", "_handle_sell_all_gear")
 
-async def _handle_shop(*args, **kwargs):
-    from utils.ttrpg.rpg_shop_handler import _handle_shop as _f
-    return await _f(*args, **kwargs)
+_handle_shop = _lazy("utils.ttrpg.rpg_shop_handler", "_handle_shop")
 
-async def _handle_brew(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_brew as _f
-    return await _f(*args, **kwargs)
+_handle_brew = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_brew")
 
-async def _handle_buy_furniture(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_buy_furniture as _f
-    return await _f(*args, **kwargs)
+_handle_buy_furniture = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_buy_furniture")
 
-async def _handle_buy_house(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_buy_house as _f
-    return await _f(*args, **kwargs)
+_handle_buy_house = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_buy_house")
 
-async def _handle_buy_pet(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_buy_pet as _f
-    return await _f(*args, **kwargs)
+_handle_buy_pet = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_buy_pet")
 
-async def _handle_farm_view(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_farm_view as _f
-    return await _f(*args, **kwargs)
+_handle_farm_view = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_farm_view")
 
-async def _handle_feed_pet(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_feed_pet as _f
-    return await _f(*args, **kwargs)
+_handle_feed_pet = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_feed_pet")
 
-async def _handle_furniture_shop(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_furniture_shop as _f
-    return await _f(*args, **kwargs)
+_handle_furniture_shop = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_furniture_shop")
 
-async def _handle_harvest_crops(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_harvest_crops as _f
-    return await _f(*args, **kwargs)
+_handle_harvest_crops = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_harvest_crops")
 
-async def _handle_home_training(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_home_training as _f
-    return await _f(*args, **kwargs)
+_handle_home_training = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_home_training")
 
-async def _handle_my_home(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_my_home as _f
-    return await _f(*args, **kwargs)
+_handle_my_home = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_my_home")
 
-async def _handle_pet_shop(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_pet_shop as _f
-    return await _f(*args, **kwargs)
+_handle_pet_shop = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_pet_shop")
 
-async def _handle_plant_crop(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_plant_crop as _f
-    return await _f(*args, **kwargs)
+_handle_plant_crop = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_plant_crop")
 
-async def _handle_rename_house(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_rename_house as _f
-    return await _f(*args, **kwargs)
+_handle_rename_house = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_rename_house")
 
-async def _handle_seed_shop(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_seed_shop as _f
-    return await _f(*args, **kwargs)
+_handle_seed_shop = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_seed_shop")
 
-async def _handle_upgrade_house(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_upgrade_house as _f
-    return await _f(*args, **kwargs)
+_handle_upgrade_house = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_upgrade_house")
 
-async def _handle_visit_plots(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_visit_plots as _f
-    return await _f(*args, **kwargs)
+_handle_visit_plots = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_visit_plots")
 
-async def _handle_water_crops(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_water_crops as _f
-    return await _f(*args, **kwargs)
+_handle_water_crops = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_water_crops")
 
-async def _handle_bank(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_bank as _f
-    return await _f(*args, **kwargs)
+_handle_bank = _lazy("utils.ttrpg.rpg_core_handler", "_handle_bank")
 
-async def _handle_status(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_status as _f
-    return await _f(*args, **kwargs)
+_handle_status = _lazy("utils.ttrpg.rpg_core_handler", "_handle_status")
 
-async def _handle_sheet(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_sheet as _f
-    return await _f(*args, **kwargs)
+_handle_sheet = _lazy("utils.ttrpg.rpg_core_handler", "_handle_sheet")
 
-async def _handle_go(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_go as _f
-    return await _f(*args, **kwargs)
+_handle_go = _lazy("utils.ttrpg.rpg_core_handler", "_handle_go")
 
-async def _handle_look(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_look as _f
-    return await _f(*args, **kwargs)
+_handle_look = _lazy("utils.ttrpg.rpg_core_handler", "_handle_look")
 
-async def _handle_map(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_map as _f
-    return await _f(*args, **kwargs)
+_handle_map = _lazy("utils.ttrpg.rpg_core_handler", "_handle_map")
 
-async def _handle_rest(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_rest as _f
-    return await _f(*args, **kwargs)
+_handle_rest = _lazy("utils.ttrpg.rpg_core_handler", "_handle_rest")
 
-async def _handle_drink(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_drink as _f
-    return await _f(*args, **kwargs)
+_handle_drink = _lazy("utils.ttrpg.rpg_core_handler", "_handle_drink")
 
-async def _handle_pray(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_pray as _f
-    return await _f(*args, **kwargs)
+_handle_pray = _lazy("utils.ttrpg.rpg_core_handler", "_handle_pray")
 
-async def _handle_fountain(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_fountain as _f
-    return await _f(*args, **kwargs)
+_handle_fountain = _lazy("utils.ttrpg.rpg_core_handler", "_handle_fountain")
 
-async def _handle_offer(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_offer as _f
-    return await _f(*args, **kwargs)
+_handle_offer = _lazy("utils.ttrpg.rpg_core_handler", "_handle_offer")
 
-async def _handle_scout(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_scout as _f
-    return await _f(*args, **kwargs)
+_handle_scout = _lazy("utils.ttrpg.rpg_core_handler", "_handle_scout")
 
-async def _handle_use(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_use as _f
-    return await _f(*args, **kwargs)
+_handle_use = _lazy("utils.ttrpg.rpg_core_handler", "_handle_use")
 
-async def _handle_inventory(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_inventory as _f
-    return await _f(*args, **kwargs)
+_handle_inventory = _lazy("utils.ttrpg.rpg_core_handler", "_handle_inventory")
 
-async def _handle_equip(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_equip as _f
-    return await _f(*args, **kwargs)
+_handle_equip = _lazy("utils.ttrpg.rpg_core_handler", "_handle_equip")
 
-async def _handle_unequip(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_unequip as _f
-    return await _f(*args, **kwargs)
+_handle_unequip = _lazy("utils.ttrpg.rpg_core_handler", "_handle_unequip")
 
-async def _handle_roll(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_roll as _f
-    return await _f(*args, **kwargs)
+_handle_roll = _lazy("utils.ttrpg.rpg_core_handler", "_handle_roll")
 
-async def _handle_bestiary(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_bestiary as _f
-    return await _f(*args, **kwargs)
+_handle_bestiary = _lazy("utils.ttrpg.rpg_core_handler", "_handle_bestiary")
 
-async def _handle_rpg_help(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_rpg_help as _f
-    return await _f(*args, **kwargs)
+_handle_rpg_help = _lazy("utils.ttrpg.rpg_core_handler", "_handle_rpg_help")
 
-async def _handle_xp(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_xp as _f
-    return await _f(*args, **kwargs)
+_handle_xp = _lazy("utils.ttrpg.rpg_core_handler", "_handle_xp")
 
-async def _handle_give(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_give as _f
-    return await _f(*args, **kwargs)
+_handle_give = _lazy("utils.ttrpg.rpg_core_handler", "_handle_give")
 
-async def _handle_heal(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_heal as _f
-    return await _f(*args, **kwargs)
+_handle_heal = _lazy("utils.ttrpg.rpg_core_handler", "_handle_heal")
 
-async def _handle_gamble(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_gamble as _f
-    return await _f(*args, **kwargs)
+_handle_gamble = _lazy("utils.ttrpg.rpg_core_handler", "_handle_gamble")
 
-async def _handle_leaderboard(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_leaderboard as _f
-    return await _f(*args, **kwargs)
+_handle_leaderboard = _lazy("utils.ttrpg.rpg_core_handler", "_handle_leaderboard")
 
-async def _handle_bank_deposit(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_bank_deposit as _f
-    return await _f(*args, **kwargs)
+_handle_bank_deposit = _lazy("utils.ttrpg.rpg_core_handler", "_handle_bank_deposit")
 
-async def _handle_bank_withdraw(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_bank_withdraw as _f
-    return await _f(*args, **kwargs)
+_handle_bank_withdraw = _lazy("utils.ttrpg.rpg_core_handler", "_handle_bank_withdraw")
 
-async def _handle_weather(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_weather as _f
-    return await _f(*args, **kwargs)
+_handle_weather = _lazy("utils.ttrpg.rpg_core_handler", "_handle_weather")
 
-async def _handle_calendar(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_calendar as _f
-    return await _f(*args, **kwargs)
+_handle_calendar = _lazy("utils.ttrpg.rpg_core_handler", "_handle_calendar")
 
-async def _handle_advance(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_advance as _f
-    return await _f(*args, **kwargs)
+_handle_advance = _lazy("utils.ttrpg.rpg_core_handler", "_handle_advance")
 
-async def handle_fish_command(*args, **kwargs):
-    from utils.commands.fishing_handler import handle_fish_command as _f
-    return await _f(*args, **kwargs)
+handle_fish_command = _lazy("utils.commands.fishing_handler", "handle_fish_command")
 
-async def handle_fish_shop_command(*args, **kwargs):
-    from utils.commands.fishing_handler import handle_fish_shop_command as _f
-    return await _f(*args, **kwargs)
+handle_fish_shop_command = _lazy("utils.commands.fishing_handler", "handle_fish_shop_command")
 
-async def _handle_purify(*args, **kwargs):
-    from utils.ttrpg.rpg_core_handler import _handle_purify as _f
-    return await _f(*args, **kwargs)
+_handle_purify = _lazy("utils.ttrpg.rpg_core_handler", "_handle_purify")
 
-async def _handle_raid_blockade(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _handle_raid_blockade as _f
-    return await _f(*args, **kwargs)
+_handle_raid_blockade = _lazy("utils.ttrpg.rpg_combat_handler", "_handle_raid_blockade")
 
-async def _handle_rob_bandits(*args, **kwargs):
-    from utils.ttrpg.rpg_combat_handler import _handle_rob_bandits as _f
-    return await _f(*args, **kwargs)
+_handle_rob_bandits = _lazy("utils.ttrpg.rpg_combat_handler", "_handle_rob_bandits")
 
-async def _handle_farm_treat(*args, **kwargs):
-    from utils.ttrpg.rpg_housing_handler import _handle_farm_treat as _f
-    return await _f(*args, **kwargs)
+_handle_farm_treat = _lazy("utils.ttrpg.rpg_housing_handler", "_handle_farm_treat")
 
 LOCATION_COLORS = {
     "housing_district":  0x8b7355,   # warm earthy brown — home soil
@@ -694,9 +572,9 @@ class RPGFullLocationView(discord.ui.View):
                     
                     if chosen.startswith("visit_"):
                         target_uid = chosen.replace("visit_", "")
-                        await _handle_visit_plots(self._ctx, fake, sfn, target_uid, self._uid, self._uname, self._is_owner)
+                        await _as_player(self._uid, _handle_visit_plots, self._ctx, fake, sfn, target_uid, self._uid, self._uname, self._is_owner)
                     else:
-                        await _handle_go(self._ctx, fake, sfn, chosen, self._uid, self._uname, self._is_owner)
+                        await _as_player(self._uid, _handle_go, self._ctx, fake, sfn, chosen, self._uid, self._uname, self._is_owner)
                 except Exception as e:
                     import traceback
                     log_error(f"[rpg travel] {e}\n{traceback.format_exc()}")
@@ -729,8 +607,8 @@ class RPGFullLocationView(discord.ui.View):
             handler = self._handler_map.get(_cmd)
             if handler:
                 try:
-                    await handler(self._ctx, fake, sfn, _rest,
-                                  self._uid, self._uname, self._is_owner)
+                    await _as_player(self._uid, handler, self._ctx, fake, sfn, _rest,
+                                     self._uid, self._uname, self._is_owner)
                 except Exception as e:
                     import traceback
                     log_error(f"[rpg btn] {_cmd} failed: {e}\n{traceback.format_exc()}")
@@ -2054,7 +1932,7 @@ def _make_home_btn(ctx, uid, uname, is_owner, label, cmd, row, style=discord.But
         }
         handler = handler_map.get(cmd)
         if handler:
-            await handler(ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
+            await _as_player(uid, handler, ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
     btn.callback = _cb
     return btn
 

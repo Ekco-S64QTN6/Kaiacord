@@ -296,3 +296,48 @@ def test_the_unequip_menu_holds_the_players_lock(monkeypatch):
         await sel.callback(interaction)
         return seen
     assert asyncio.run(go()) == [True]
+
+
+def _click(uid=42):
+    from unittest.mock import AsyncMock, MagicMock
+    inter = MagicMock()
+    inter.user.id = uid
+    inter.response.defer = AsyncMock()
+    inter.followup.send = AsyncMock()
+    return inter
+
+
+def test_a_location_button_runs_its_handler_under_the_players_lock():
+    """The location view's buttons (Rest, Drink, Gamble, Pray, Dungeon...) called
+    their handlers directly, outside the lock the typed command takes. A handler
+    that takes the lock itself must still run, not deadlock."""
+    import utils.ttrpg.rpg_views as rv
+    from utils.ttrpg.session_manager import get_action_lock, serialize_user_action
+
+    async def go():
+        view = rv.RPGFullLocationView(None, None, "42", "p", False, "stone_hearth")
+        lock = await get_action_lock("user:42")
+        seen = []
+
+        async def rest(*a):
+            seen.append(lock.locked())
+
+        @serialize_user_action
+        async def go_somewhere(ctx, msg, send, rest, uid, uname, is_owner):
+            seen.append("ran")
+        view._handler_map["rest"], view._handler_map["go"] = rest, go_somewhere
+        view._add_btn("Rest", "🛏️", "rest", "", discord.ButtonStyle.green, 2)
+        view._add_btn("Go", "📍", "go", "oakhaven", discord.ButtonStyle.green, 2)
+        buttons = [b for b in view.children if getattr(b, "label", None) in ("Rest", "Go")]
+        for b in buttons[-2:]:
+            await asyncio.wait_for(b.callback(_click()), 2)
+        return seen
+    import discord
+    assert asyncio.run(go()) == [True, "ran"]
+
+
+def test_the_lazy_handlers_show_whether_they_lock_for_themselves():
+    import utils.ttrpg.rpg_views as rv
+    assert rv._handle_go.target()._serialized is True
+    assert not getattr(rv._handle_rest.target(), "_serialized", False)
+
