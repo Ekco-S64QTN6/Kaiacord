@@ -341,3 +341,36 @@ def test_the_lazy_handlers_show_whether_they_lock_for_themselves():
     assert rv._handle_go.target()._serialized is True
     assert not getattr(rv._handle_rest.target(), "_serialized", False)
 
+
+def test_descending_from_an_old_room_message_keeps_the_floor_as_it_is(monkeypatch, tmp_path):
+    """Descend and Ascend saved the floor captured when their room was posted,
+    undoing every room cleared since, and took stairs the player had walked away from."""
+    import copy
+    from unittest.mock import AsyncMock
+    import utils.ttrpg.spine_dungeon as sd
+    import utils.ttrpg.rpg_views as rv
+    monkeypatch.setattr(sd, "SPINE_DIR", str(tmp_path))
+    monkeypatch.setattr(rv, "_send_dungeon_room", AsyncMock())
+    monkeypatch.setattr(rv, "load", AsyncMock(return_value={"spine_defeated_guards": list(range(80))}))
+
+    async def go():
+        floor = sd.generate_spine_floor(1, 5)
+        stairs = next(k for k, r in floor["rooms"].items() if r.get("type") == "stairs_down")
+        floor["player_pos"] = [int(c) for c in stairs.split(",")]
+        await sd.save_spine_dungeon("42", floor)
+        old_view = rv.DungeonView(None, "42", "p", False, copy.deepcopy(floor))
+
+        now = await sd.load_spine_dungeon("42")
+        elsewhere = next(k for k, r in now["rooms"].items() if k != stairs and not r.get("cleared"))
+        now["rooms"][elsewhere]["cleared"] = True
+        now["player_pos"] = [int(c) for c in elsewhere.split(",")]
+        await sd.save_spine_dungeon("42", now)
+
+        descend = next(b for b in old_view.children if "Descend" in (b.label or ""))
+        await descend.callback(_click())
+        return elsewhere
+
+    elsewhere = asyncio.run(go())
+    current = asyncio.run(sd.load_spine_dungeon("42"))
+    assert current and current["floor_num"] == 1
+    assert current["rooms"][elsewhere]["cleared"] is True

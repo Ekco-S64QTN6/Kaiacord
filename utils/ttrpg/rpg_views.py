@@ -1411,12 +1411,17 @@ class DungeonView(discord.ui.View):
 
         if dungeon.get("is_spine"):
             rt = dungeon["rooms"].get(f"{px},{py}", {}).get("type", "empty")
+            stairs_floor, stairs_key = dungeon.get("floor_num", 1), f"{px},{py}"
             if rt == "stairs_down":
                 descend_btn = discord.ui.Button(label="🔽 Descend", style=discord.ButtonStyle.success, row=4)
+                @player_locked(self._uid)
                 async def _descend_cb(interaction: discord.Interaction):
                     if str(interaction.user.id) != self._uid: return
                     await interaction.response.defer()
                     from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, load_spine_dungeon, MAX_FLOOR, STAIR_GUARDIANS, _xy
+                    dungeon = await _still_on_stairs(interaction, self._uid, stairs_floor, stairs_key)
+                    if not dungeon:
+                        return
                     current_floor = dungeon.get("floor_num", 1)
                     if current_floor >= MAX_FLOOR:
                         await interaction.followup.send("You have reached the bottom. There is no deeper.", ephemeral=True)
@@ -1463,10 +1468,14 @@ class DungeonView(discord.ui.View):
                 self.add_item(descend_btn)
             elif rt == "stairs_up" and dungeon.get("floor_num", 1) > 1:
                 ascend_btn = discord.ui.Button(label="🔼 Ascend", style=discord.ButtonStyle.success, row=4)
+                @player_locked(self._uid)
                 async def _ascend_cb(interaction: discord.Interaction):
                     if str(interaction.user.id) != self._uid: return
                     await interaction.response.defer()
                     from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, load_spine_dungeon, _xy
+                    dungeon = await _still_on_stairs(interaction, self._uid, stairs_floor, stairs_key)
+                    if not dungeon:
+                        return
                     
                     # Deactivate current floor before leaving
                     dungeon["active"] = False
@@ -1483,6 +1492,24 @@ class DungeonView(discord.ui.View):
                     await _send_dungeon_room(self._ctx, interaction.channel, self._uid, self._uname, self._is_owner, new_state, extra_text="\n\n*You ascend the stairs.*")
                 ascend_btn.callback = _ascend_cb
                 self.add_item(ascend_btn)
+
+
+async def _still_on_stairs(interaction, uid, floor_num, room_key):
+    """The floor as it is now, if the player is still on the staircase this
+    message was posted for. The message's own copy is from when it was posted:
+    saving it would undo every room cleared since, and an old message would
+    take stairs the player has walked away from."""
+    from utils.ttrpg.spine_dungeon import load_spine_dungeon
+    current = await load_spine_dungeon(uid)
+    if (not current or current.get("floor_num", 1) != floor_num
+            or current.get("active_combat")
+            or "{},{}".format(*current["player_pos"]) != room_key):
+        try:
+            await interaction.followup.send("Those stairs are behind you now.", ephemeral=True)
+        except discord.NotFound:
+            pass
+        return None
+    return current
 
 
 class DungeonCombatView(discord.ui.View):
