@@ -222,9 +222,6 @@ def test_compaction_never_strips_the_identity_link():
         assert not is_self
         assert fields.get("known_as") == "Starkind"
         assert "Starkind" in suffix
-        # And it still survives the trip through YAML in both directions.
-        import yaml
-        assert yaml.safe_load(mod.identity_yaml(fields))["known_as"] == "Starkind"
 
     assert mod.uid_of(_P("knowledge_base/user_logs/forum_magnetaress_210090")) == 210090
     assert mod.uid_of(_P("knowledge_base/user_logs/forum_no_digits")) is None
@@ -270,3 +267,36 @@ def test_every_writer_of_user_profile_consults_the_identity_registry():
             f"{p} writes user_profile.md without consulting the identity "
             f"registry; it will overwrite is_self / known_as on its next run"
         )
+
+
+
+def test_repairing_identity_writes_real_frontmatter_and_only_when_needed(tmp_path, monkeypatch):
+    """`--repair-identity --apply`, the recovery CLAUDE.md §12 names, spliced in
+    a one-line flow mapping ("{linked_discord: ..., known_as: ...}") whenever
+    every value was a scalar, and compared by text, so six correctly linked
+    profiles read as broken on every run and would have been rewritten into
+    invalid frontmatter."""
+    import importlib.util, types, yaml
+    spec = importlib.util.spec_from_file_location("cfp_repair", "tools/maintenance/compact_forum_profiles.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    d = tmp_path / "forum_Ekco_251675"
+    d.mkdir()
+    profile = d / "user_profile.md"
+    fields = {"linked_discord": "177011971818782721", "known_as": "Ekco"}
+    monkeypatch.setattr(mod, "identity_of", lambda _d: (False, fields, " — this is Ekco from Discord"))
+    args = types.SimpleNamespace(dry_run=False)
+
+    profile.write_text('---\ntitle: "Forum profile — Ekco"\nlinked_discord: "177011971818782721"\n'
+                       'known_as: "Ekco"\n---\n\n# INTERNAL MEMORY: Ekco — this is Ekco from Discord '
+                       '(Project 1999 forum)\n', encoding="utf-8")
+    assert mod.repair_identity(d, args)[0] is None                      # already linked: left alone
+
+    profile.write_text('---\ntitle: "Forum profile — Ekco"\n---\n\n# INTERNAL MEMORY: Ekco '
+                       '(Project 1999 forum)\n', encoding="utf-8")
+    assert mod.repair_identity(d, args)[0] == "repaired"
+    text = profile.read_text(encoding="utf-8")
+    front = yaml.safe_load(text.split("---\n")[1])
+    assert front["known_as"] == "Ekco" and front["linked_discord"] == "177011971818782721"
+    assert "{linked_discord" not in text and "this is Ekco from Discord" in text
+    assert mod.repair_identity(d, args)[0] is None                      # and a second run changes nothing

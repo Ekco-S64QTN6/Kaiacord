@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import yaml
 
+from utils.core.atomic_write import write_atomic
 from utils.core.frontmatter import dump_frontmatter
 
 ROOT = Path("knowledge_base/user_logs")
@@ -116,22 +117,6 @@ def identity_of(d: Path) -> tuple:
     return False, fields, suffix
 
 
-def identity_yaml(fields: dict) -> str:
-    """`identity_of`'s dict as frontmatter lines, one key per line.
-
-    Quoted by the YAML writer rather than by an f-string: these are forum
-    display names and registry values, and nobody controls what is in them.
-    `f'known_as: "{known_as}"'` breaks on the first quote, and a name containing
-    a comma turns `also_posts_as: [a, b]` into the wrong list entirely.
-
-    `default_flow_style=None` keeps lists inline so every key stays on one line,
-    which the repair path below relies on; `width` stops the writer wrapping a
-    long value onto a second line for the same reason.
-    """
-    return yaml.safe_dump(fields, default_flow_style=None, sort_keys=False,
-                          allow_unicode=True, width=10 ** 9)
-
-
 SELF_PROFILE = (
     "---\n"
     'forum_username: "{name}"\n'
@@ -178,7 +163,8 @@ def build_profile(name: str, material: str, words: int, sources: int) -> str:
 
     model = config.chat_model
     opts = OllamaGPUManager(model).get_gpu_options(for_chat=True)
-    resp = Client().chat(
+    # A timeout, or a stalled daemon hangs the run with a profile half-done.
+    resp = Client(timeout=300).chat(
         model=model, options={**opts, "temperature": 0.4, "num_predict": 900}, keep_alive=-1,
         messages=[{"role": "user", "content": PROMPT.format(
             name=name, words=words, sources=sources, material=material[-22000:])}])
@@ -206,10 +192,8 @@ def compact(d: Path, args) -> tuple:
         # expects to find here.
         if args.dry_run:
             return "[dry run]", "own account — would restore the self-reference document"
-        profile.write_text(
-            SELF_PROFILE.format(name=re.sub(r"_\d+$", "", d.name[len("forum_"):]),
-                                uid=user_id),
-            encoding="utf-8")
+        write_atomic(profile, SELF_PROFILE.format(name=re.sub(r"_\d+$", "", d.name[len("forum_"):]),
+                                                  uid=user_id))
         return "written", "own account — self-reference document restored"
 
     material = "\n\n".join(filter(None, (prose_of(p) for p in sources)))
@@ -258,9 +242,7 @@ def compact(d: Path, args) -> tuple:
 
     front = dump_frontmatter(fields) + "\n"
     body = f"# INTERNAL MEMORY: {name}{header_suffix} (Project 1999 forum)\n\n{card}\n"
-    tmp = profile.with_suffix(".tmp")
-    tmp.write_text(front + body, encoding="utf-8")
-    tmp.replace(profile)                              # atomic, CLAUDE.md §4
+    write_atomic(profile, front + body)
 
     pruned = 0
     if args.prune and total_posts is None and (d / "post_history.md").exists():
@@ -295,36 +277,43 @@ def repair_identity(d: Path, args) -> tuple:
             return None, "already marked as self"
         if args.dry_run:
             return "[dry run]", "own account — would restore the self-reference document"
-        profile.write_text(
-            SELF_PROFILE.format(name=re.sub(r"_\d+$", "", d.name[len("forum_"):]),
-                                uid=uid_of(d)),
-            encoding="utf-8")
+        write_atomic(profile, SELF_PROFILE.format(name=re.sub(r"_\d+$", "", d.name[len("forum_"):]),
+                                                  uid=uid_of(d)))
         return "repaired", "own account — self-reference document restored"
 
     if not identity_fields:
         return None, "registry knows no link for this account"
-    identity_lines = identity_yaml(identity_fields)
-    wanted = [ln for ln in identity_lines.strip().split("\n") if ln]
-    if all(ln in text for ln in wanted):
-        return None, "identity already present"
-    if not text.startswith("---"):
+    from utils.core.frontmatter import parse_frontmatter
+    try:
+        data, body = parse_frontmatter(text)
+    except yaml.YAMLError:
+        return None, "frontmatter does not parse; left alone"
+    if not data:
         return None, "no frontmatter to amend"
-    if args.dry_run:
-        return "[dry run]", "would add " + ", ".join(w.split(":")[0] for w in wanted)
 
-    head, body = text[4:].split("---", 1)
-    # Replace rather than append, so re-running cannot stack duplicate keys.
-    keep = [ln for ln in head.split("\n")
-            if not ln.startswith(("linked_discord:", "known_as:", "also_posts_as:"))]
-    new = "---\n" + "\n".join(x for x in keep if x.strip()) + "\n" + identity_lines + "---" + body
+    def same(a, b) -> bool:
+        # By value, not by text: "Ekco" and Ekco, 210090 and '210090' are the same.
+        if isinstance(a, list) or isinstance(b, list):
+            return [str(x) for x in (a or [])] == [str(x) for x in (b or [])]
+        return str(a) == str(b)
+
+    wanted = [k for k, v in identity_fields.items() if not same(data.get(k), v)]
+    if not wanted:
+        return None, "identity already present"
+    if args.dry_run:
+        return "[dry run]", "would add " + ", ".join(wanted)
+
+    # Through the frontmatter writer. Splicing in pre-rendered YAML text put a
+    # one-line flow mapping ("{linked_discord: ..., known_as: ...}") where the
+    # keys belong whenever every value was a scalar, which is not frontmatter.
+    keep = {k: v for k, v in data.items() if k not in ("linked_discord", "known_as", "also_posts_as")}
+    new = dump_frontmatter({**keep, **identity_fields}) + body
     if header_suffix and header_suffix not in new:
         new = re.sub(r"^(# INTERNAL MEMORY: [^\n(]+?)( \(Project 1999 forum\))",
                      lambda m: m.group(1) + header_suffix + m.group(2), new, count=1,
                      flags=re.M)
-    tmp = profile.with_suffix(".tmp")
-    tmp.write_text(new, encoding="utf-8")
-    tmp.replace(profile)                              # atomic, CLAUDE.md §4
-    return "repaired", "added " + ", ".join(w.split(":")[0] for w in wanted)
+    write_atomic(profile, new)
+    return "repaired", "added " + ", ".join(wanted)
 
 
 def main() -> int:

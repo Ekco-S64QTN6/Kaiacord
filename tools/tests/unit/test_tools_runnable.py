@@ -150,8 +150,7 @@ def test_no_corpus_writer_builds_frontmatter_with_an_f_string():
     KEY_LINE = re.compile(r"^(?:title|summary|keywords|category|document_type"
                           r"|tags|author|participants|source_url|topic)"
                           r"\s*:\s*\S*\x00")
-    ESCAPERS = {"yaml_escape", "_escape_yaml", "dumps", "dump_frontmatter",
-                "safe_dump", "identity_yaml"}
+    ESCAPERS = {"yaml_escape", "_escape_yaml", "dumps", "dump_frontmatter", "safe_dump"}
 
     allowed = {
         Path("utils/core/frontmatter.py"),
