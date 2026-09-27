@@ -36,3 +36,21 @@ def test_pray_refuses_without_crashing(monkeypatch):
     asyncio.run(cor._handle_pray(_ctx(), _msg(sent), None, "", "42", "p", False))
     assert len(sent) == 2
 
+
+def _look(monkeypatch, target):
+    sheet = {"user_id": "42", "character_name": "P", "location": "shrine", "inventory": [], "secrets": []}
+    monkeypatch.setattr(cor, "load", AsyncMock(return_value=sheet))
+    save = AsyncMock()
+    monkeypatch.setattr(cor, "save", save)
+    sent = []
+    asyncio.run(cor._handle_look(_ctx(), _msg(sent), None, target, "42", "p", False))
+    return sheet, sent
+
+
+def test_look_at_matches_whole_words(monkeypatch):
+    """'look at l' matched 'flame' as a substring and recorded a piece of the
+    shrine puzzle."""
+    sheet, sent = _look(monkeypatch, "at l")
+    assert sheet["secrets"] == [] and "Nothing unusual" in sent[0].description
+    sheet, _ = _look(monkeypatch, "at the flame")
+    assert sheet["secrets"] == ["look_flame"]

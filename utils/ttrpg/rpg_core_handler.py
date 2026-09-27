@@ -1,6 +1,7 @@
 from utils.ttrpg.session_manager import serialize_combat_action
 from utils.ttrpg.narration import finish_cleanly
 import asyncio
+import re
 import time
 import uuid as _uuid
 import discord
@@ -850,6 +851,11 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+def _names(phrase: str, text: str) -> bool:
+    """`phrase` appears in `text` as whole words."""
+    return bool(re.search(rf"\b{re.escape(phrase)}\b", text))
+
+
 async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.world import LOCATION_DATA
     from utils.ttrpg.rpg_prompt_builder import build_look_prompt
@@ -874,7 +880,7 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
         if not result:
             # fuzzy match — "the flame" → "flame", "offering" → "offering bowl"
             for key in loc_targets:
-                if key in look_target or look_target in key:
+                if _names(key, look_target) or _names(look_target, key):
                     result = loc_targets[key]
                     matched = key
                     break
