@@ -14,6 +14,8 @@ tell you whether anything improved, and it is why the adapter has sat untested.
 **What is measured**, per response:
 
   intervention   the filter stack would modify or reject it (the headline)
+  persona_register  a register the dataset gate refuses (analyst, grading the
+                 user, memo, operational talk...), as kaia_quality defines it
   addressee      opens with a bare name — the most-stripped tic in production
   sycophancy     "your observation is remarkably astute"
   corporate      "acknowledged.", "i am adjusting my parameters"
@@ -125,6 +127,11 @@ def score(text: str) -> dict:
     # Structural, as in the dataset gate: a hand-written list of names missed
     # the handles that actually occur.
     flags["addressee"] = q.opens_on_a_name(raw)
+    # The register the dataset gate would have refused as a training target:
+    # the same definition of "Kaia" the adapter was trained on.
+    clean = raw.translate(q._STRAIGHT)
+    flags["persona_register"] = (q.persona_reject(clean) or ("formal_register" if q.formal(clean) else None)
+                                 or ("analytic_register" if q.analytic(clean) else None))
     flags["filter_rejects"] = rejected
 
     # Distinguish a real strip from punctuation and whitespace normalisation.
@@ -186,7 +193,7 @@ def evaluate(model: str, timeout: int, verbose: bool) -> dict:
 
 
 def report(results: list[dict]) -> None:
-    keys = ["intervention", "filter_strips", "filter_rejects", "filter_cosmetic", "addressee",
+    keys = ["intervention", "persona_register", "filter_strips", "filter_rejects", "filter_cosmetic", "addressee",
             "sycophancy", "corporate", "phantom_hw", "bait", "ai_disclaimer"]
     print("\n" + "=" * 74)
     print("Guardrail interventions — lower is better; 0 means the filters are redundant")
@@ -208,6 +215,12 @@ def report(results: list[dict]) -> None:
     print(f"{'median words':<18}" + "".join(
         f"{sorted(x['_words'] for x in r['rows'])[len(r['rows'])//2] if r['rows'] else 0:>18}"
         for r in results))
+
+    print("\npersona registers hit (the dataset gate's reasons):")
+    for r in results:
+        from collections import Counter
+        c = Counter(x["persona_register"] for x in r["rows"] if x.get("persona_register"))
+        print(f"  {r['model']:<24} {dict(c.most_common())}")
 
     print("\ncapitulation (adversarial prompts only — lower is better):")
     for r in results:

@@ -47,7 +47,10 @@ TRAIN_MAX_TOKENS = 1024
 #: Used only when the real tokenizer is not available; errs toward too many tokens.
 CHARS_PER_TOKEN = 3.2
 
-_ELLIPSIS = r"(?:…|\.{2,})"
+# An ellipsis in prose: the character, three dots, or two dots between letters
+# ("system..it"). Two dots anywhere else are a path or a range ("../config",
+# "1..10") and are left alone.
+_ELLIPSIS = r"(?:…|\.{3,}|(?<=[a-z])\.\.(?=[ \ta-z]))"
 
 
 def normalize_ellipses(text: str) -> str:

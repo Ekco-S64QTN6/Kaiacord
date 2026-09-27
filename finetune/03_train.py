@@ -68,8 +68,46 @@ def formatting_func(examples, tokenizer):
             tokenize=False,
             add_generation_prompt=False,
         )
-        texts.append(text.removeprefix(tokenizer.bos_token or "<bos>"))
+        # And the template ends on "<end_of_turn>\n" while the tokenizer's EOS is
+        # <end_of_turn>, so TRL appends a second one after the newline and every
+        # reply is trained to end "<end_of_turn>\n<end_of_turn>". Ending on the
+        # EOS itself stops that. (Both checked on every example of the dataset.)
+        texts.append(text.removeprefix(tokenizer.bos_token or "<bos>").rstrip("\n"))
     return {"text": texts}
+
+
+def write_run_record(trainer, training_args):
+    """What produced this adapter, next to it: the dataset (by hash, with the
+    builder's report), the settings, the library versions and the eval-loss
+    curve. A 05c score means little without knowing which data and which run
+    it belongs to."""
+    import hashlib
+    import importlib.metadata as md
+    import json
+
+    def sha(path):
+        return hashlib.sha256(open(path, "rb").read()).hexdigest()[:16] if os.path.isfile(path) else None
+
+    report = os.path.join(SCRIPT_DIR, "dataset", "build_report.json")
+    record = {
+        "model": MODEL_NAME,
+        "dataset": {"train_sha256": sha(TRAIN_FILE), "eval_sha256": sha(EVAL_FILE),
+                    "build_report": json.load(open(report)) if os.path.isfile(report) else None},
+        "lora": {"r": LORA_R, "alpha": LORA_ALPHA, "dropout": LORA_DROPOUT,
+                 "target_modules": LORA_TARGET_MODULES},
+        "training": {k: getattr(training_args, k) for k in (
+            "learning_rate", "num_train_epochs", "per_device_train_batch_size",
+            "gradient_accumulation_steps", "warmup_ratio", "lr_scheduler_type", "weight_decay",
+            "max_length", "seed")},
+        "best_checkpoint": trainer.state.best_model_checkpoint,
+        "best_eval_loss": trainer.state.best_metric,
+        "steps": trainer.state.global_step,
+        "eval_loss": [(h["step"], h["eval_loss"]) for h in trainer.state.log_history if "eval_loss" in h],
+        "versions": {p: md.version(p) for p in ("unsloth", "trl", "transformers", "peft", "torch")},
+    }
+    with open(os.path.join(OUTPUT_DIR, "run.json"), "w", encoding="utf-8") as f:
+        json.dump(record, f, indent=2, default=str)
+    print(f"Run record: {os.path.join(OUTPUT_DIR, 'run.json')}")
 
 
 def main():
@@ -84,6 +122,13 @@ def main():
             print(f"ERROR: Dataset file not found: {fpath}")
             print("Build it: python finetune/01_convert_logs.py --apply")
             sys.exit(1)
+
+    # The gate run_finetune.sh applies, so running this script directly cannot
+    # train on a dataset that fails it.
+    import subprocess
+    if subprocess.run([sys.executable, os.path.join(SCRIPT_DIR, "01f_check_dataset.py")]).returncode:
+        print("ERROR: the dataset check failed; rebuild with 01_convert_logs.py --apply.")
+        sys.exit(1)
 
     # -----------------------------------------------------------------
     # 1. Load model
@@ -136,9 +181,14 @@ def main():
     print(f"  Train: {len(dataset['train'])} examples")
     print(f"  Eval:  {len(dataset['eval'])} examples")
 
+    # For Gemma 3 Unsloth can hand back a multimodal processor; the chat
+    # template, the tokenization and TRL's text path all want the text
+    # tokenizer inside it (TRL treats a processor as a vision model).
+    text_tokenizer = getattr(tokenizer, "tokenizer", tokenizer)
+
     # Apply chat template formatting
     dataset = dataset.map(
-        lambda examples: formatting_func(examples, tokenizer),
+        lambda examples: formatting_func(examples, text_tokenizer),
         batched=True,
         remove_columns=dataset["train"].column_names,
     )
@@ -177,15 +227,15 @@ def main():
         seed=42,
         dataloader_num_workers=0,            # Avoid multiprocessing issues
         dataset_text_field="text",
+        max_length=MAX_SEQ_LENGTH,           # TRL >= 0.20 reads the window from the config
     )
 
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=text_tokenizer,     # `tokenizer=` was removed from TRL
         train_dataset=dataset["train"],
         eval_dataset=dataset["eval"],
         args=training_args,
-        max_seq_length=MAX_SEQ_LENGTH,
     )
 
     # Compute loss on Kaia's turns only.
@@ -203,8 +253,10 @@ def main():
         )
         print("Loss masked to assistant turns only (train_on_responses_only).")
     except Exception as e:
-        print(f"WARNING: could not mask user turns ({e}). "
-              "Training will also fit the user side, which wastes capacity.")
+        # Not a warning: unmasked, the run fits Ekco's and Starkind's turns as
+        # well as hers, which is a different model from the one intended.
+        print(f"ERROR: could not mask the user turns ({e}). Stopping.")
+        sys.exit(1)
 
     # Stop when eval loss has not improved for three evaluations. With
     # load_best_model_at_end the best checkpoint is still what gets exported,
@@ -238,6 +290,7 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     model.save_pretrained(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
+    write_run_record(trainer, training_args)
     print("Done! Adapter saved successfully.")
 
     # -----------------------------------------------------------------

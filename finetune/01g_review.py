@@ -100,6 +100,8 @@ def main() -> int:
                     print("  unchanged; choose again")
                     continue
                 record(key, "edit", new)
+                # The rebuilt dataset holds the rewrite, which has a key of its own.
+                record(q.review_key(new), "keep")
             elif choice == "q":
                 return 0
             elif choice != "s":

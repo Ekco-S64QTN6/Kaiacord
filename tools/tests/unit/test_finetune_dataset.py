@@ -254,3 +254,38 @@ def test_the_built_dataset_passes_the_check():
     trusted = {a for _, a in check._builder().IDENTITY}
     trusted |= {r["text"].strip() for r in q.load_reviews().values() if r["decision"] == "edit"}
     assert check.check(rows, trusted) == {}
+
+
+def test_paths_and_ranges_are_not_ellipses():
+    assert q.normalize_ellipses("run it from ../config and try again.") == "run it from ../config and try again."
+    assert q.normalize_ellipses("range 1..10 works.") == "range 1..10 works."
+    assert q.normalize_ellipses("it's just..dense. like fog.") == "it's just dense. like fog."
+
+
+def test_the_trainer_speaks_the_installed_trl():
+    """TRL removed `tokenizer=` and `max_seq_length=` from SFTTrainer; the
+    window lives in SFTConfig.max_length. The template's trailing newline made
+    TRL append a second <end_of_turn> to every example."""
+    src = (FT / "03_train.py").read_text(encoding="utf-8")
+    assert "processing_class=" in src and "max_length=MAX_SEQ_LENGTH" in src
+    assert "tokenizer=tokenizer" not in src
+    assert '.rstrip("\\n")' in src
+    assert "sys.exit(1)" in src.split("train_on_responses_only(")[1].split("EarlyStopping")[0], \
+        "a run that cannot mask the user turns must stop, not warn"
+
+
+def test_the_evaluation_prompt_is_the_trained_one(builder):
+    ev = _load("ft_eval_test", "05c_evaluate_persona.py")
+    assert ev.SYSTEM == builder.SYSTEM_PROMPT
+
+
+def test_a_rewrite_is_not_offered_for_review_again(tmp_path, monkeypatch):
+    rv = _load("ft_review_test", "01g_review.py")
+    monkeypatch.setattr(q, "REVIEW_FILE", tmp_path / "review.jsonl")
+    monkeypatch.setattr(rv, "rewrite", lambda text: "second pot, don't judge.")
+    monkeypatch.setattr(rv, "targets", lambda: iter([([], "second pot. the new machine pulls a decent shot.")]))
+    answers = iter(["e"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    rv.main.__globals__["sys"].argv = ["01g_review.py"]
+    rv.main()
+    assert q.review_key("second pot, don't judge.") in q.load_reviews()

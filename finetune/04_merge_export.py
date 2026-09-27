@@ -43,7 +43,21 @@ def find_gguf_file(directory: str) -> str | None:
     return None
 
 
+# save_pretrained_merged("merged_16bit") downloads the original 16-bit weights
+# (unsloth/gemma-3-12b-it, ~24 GB) and merges the adapter into those, not into
+# the 4-bit training base. Then the merged copy (~24 GB) and a temporary F16
+# GGUF (~24 GB) are written before the Q4_K_M. Running out of disk at that
+# point, after a night of training, wastes the night.
+MIN_FREE_GB = 60
+
+
 def main():
+    import shutil
+    free_gb = shutil.disk_usage(SCRIPT_DIR).free / 1024 ** 3
+    if free_gb < MIN_FREE_GB:
+        print(f"ERROR: {free_gb:.0f} GB free; the merge and export need about {MIN_FREE_GB} GB.")
+        sys.exit(1)
+
     # Verify adapter exists
     if not os.path.isdir(ADAPTER_DIR):
         print(f"ERROR: Adapter directory not found: {ADAPTER_DIR}")
