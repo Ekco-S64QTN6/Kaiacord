@@ -530,6 +530,7 @@ async def _watch(net: Optional[dict] = None) -> None:
         # listen waiting for it gives up after 90 s.
         await asyncio.to_thread(consumer.join, 120)
         log_info(f"[scanner] {'net' if net else 'waterfall'} watch stopped after {passes.value} passes")
+        await asyncio.to_thread(refresh_notebook)
     except Exception as e:
         _failed_at = time.time()
         log_warning(f"[scanner] waterfall watch failed: {type(e).__name__}: {e} — retrying in 15 minutes")
@@ -539,6 +540,26 @@ async def _watch(net: Optional[dict] = None) -> None:
         _running = False
         _stop_event = None
         _pinned = None
+
+
+def refresh_notebook() -> None:
+    """Rewrite the band notebook (docs/reports/reference/local_band_notebook.md)
+    from the ledger after a watch, so it holds what was heard without anyone
+    running the tool. Its "My notes" section is kept. A separate process: the
+    tool is not part of the bot, and it decodes clips with ffmpeg."""
+    import subprocess
+    import sys
+    tool = Path(__file__).resolve().parents[2] / "tools" / "maintenance" / "band_notebook.py"
+    if not tool.is_file():
+        return
+    try:
+        out = subprocess.run([sys.executable, str(tool), "--write"], capture_output=True, text=True, timeout=300)
+        if out.returncode:
+            log_warning(f"[scanner] band notebook not refreshed: {(out.stderr or out.stdout).strip()[-200:]}")
+        else:
+            log_debug(f"[scanner] {out.stdout.strip()}")
+    except Exception as e:
+        log_warning(f"[scanner] band notebook not refreshed: {e}")
 
 
 async def shutdown() -> None:

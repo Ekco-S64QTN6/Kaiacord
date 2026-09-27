@@ -334,3 +334,29 @@ def test_a_carrier_sample_is_short(monkeypatch):
     audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 60)) * 3000).astype(np.int16)
     scanner.classify(_catch(450_900_000, audio, seconds=60))
     assert saved == [scanner.CARRIER_SAMPLE_S * 12000]
+
+
+def test_the_band_notebook_describes_what_was_heard_and_keeps_the_notes(tmp_path, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("band_nb", "tools/maintenance/band_notebook.py")
+    nb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(nb)
+    db = tmp_path / "ledger.sqlite3"
+    monkeypatch.setattr(ledger, "telemetry_path", lambda p: str(db))
+    ledger.seed(scanner.seed_channels())
+    t0 = 1_790_000_000.0
+    for i in range(10):
+        ledger.record(462_275_000, "carrier", 5.0, 3000, 0.3, when=t0 + 60 * i)
+    ledger.record(460_575_000, "voice", 25.0, 2300, 0.16, transcript="engine 28, 812 meadows road", when=t0 + 30)
+    ledger.record(445_510_000, "voice", 30.0, 5600, 0.01, transcript="We'll be right back.", when=t0 + 90)
+    monkeypatch.setattr(nb, "LEDGER", db)
+    monkeypatch.setattr(nb, "CLIPS", tmp_path / "clips")
+    monkeypatch.setattr(nb, "OUT", tmp_path / "notebook.md")
+    (tmp_path / "notebook.md").write_text("old\n\n## My notes\n\nthe 462.275 thing is the water tower\n")
+    monkeypatch.setattr("sys.argv", ["band_notebook.py", "--write"])
+    nb.main()
+    text = (tmp_path / "notebook.md").read_text()
+    assert "462.2750" in text and "every ~60 s (regular" in text
+    assert "meadows road" in text
+    assert "not speech" in text                                          # the Whisper sign-off is flagged
+    assert text.rstrip().endswith("the 462.275 thing is the water tower")

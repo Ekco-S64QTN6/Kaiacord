@@ -555,6 +555,10 @@ it, and classifies it — voice, data or carrier — into `memory/radio/local_le
   caught 2 of 7: slice centres sat on repeater outputs (147.000, 445.000), 80 kHz between slices and
   whole bands were never visited, and a 30 s cooldown ignored every reply. `waterfall.hop_plan`
   tiles each band and moves centres off the seeded and configured channels; keep `COOLDOWN_S` short.
+- **The band notebook is regenerated after every watch** (`tools/maintenance/band_notebook.py`, into
+  git-ignored `docs/reports/reference/local_band_notebook.md`). It identifies what it can by
+  measurement (AFSK tones per 50 ms frame for packet; a carrier's audio band for data modems),
+  re-checks voice transcripts against today's filter, and keeps the "My notes" section as written.
 - **A transmission stands over its slice, not just over its floor.** Triggers and holds subtract the
   slice's median rise: a household noise source lifted whole slices 10+ dB, and the watch held a
   minute of hiss on frequency after frequency, deaf meanwhile, because the floor adapts only through
