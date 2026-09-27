@@ -555,6 +555,10 @@ it, and classifies it — voice, data or carrier — into `memory/radio/local_le
   caught 2 of 7: slice centres sat on repeater outputs (147.000, 445.000), 80 kHz between slices and
   whole bands were never visited, and a 30 s cooldown ignored every reply. `waterfall.hop_plan`
   tiles each band and moves centres off the seeded and configured channels; keep `COOLDOWN_S` short.
+- **A transmission stands over its slice, not just over its floor.** Triggers and holds subtract the
+  slice's median rise: a household noise source lifted whole slices 10+ dB, and the watch held a
+  minute of hiss on frequency after frequency, deaf meanwhile, because the floor adapts only through
+  visits and holds block visits.
 - **Every process that holds the dongle dies with the bot.** The bot exits by `os._exit`, which skips
   multiprocessing's cleanup; an orphaned watcher kept the dongle through two restarts. `child_main`
   and `rtl.open_stream` arm `PR_SET_PDEATHSIG`.
