@@ -218,7 +218,7 @@ def test_the_panel_counts_every_catch_of_the_night():
 class _SimDongle:
     """FM transmissions (freq, start s, seconds) in noise, on a simulated clock."""
 
-    def __init__(self, txs, until, snr_db=20):
+    def __init__(self, txs, until, snr_db=20, noise_step=None):
         from utils.radio import waterfall as w
         self.w, self.txs, self.until, self.t, self.center = w, txs, until, 0.0, 0
         rng = np.random.default_rng(1)
@@ -226,6 +226,7 @@ class _SimDongle:
         self.noise = ((rng.standard_normal(1_000_000) + 1j * rng.standard_normal(1_000_000)) * 0.7).astype(np.complex64)
         self.amp = 10 ** (snr_db / 20) / np.sqrt(w.FS / 12.5e3) * 4       # ~snr_db over the channel's floor
         self.stop = None
+        self.noise_step = noise_step          # (from s, amplitude factor): a household noise source switching on
 
     def __enter__(self):
         return self
@@ -244,6 +245,8 @@ class _SimDongle:
         t = self.t + np.arange(n) / w.FS
         o = int(self.rng.integers(0, len(self.noise) - n))
         x = self.noise[o:o + n].copy()
+        if self.noise_step and self.t >= self.noise_step[0]:
+            x *= self.noise_step[1]
         for f, start, dur in self.txs:
             off = f - self.center
             if abs(off) < w.FS / 2 and start < t[-1] and start + dur > t[0]:
@@ -253,11 +256,11 @@ class _SimDongle:
         return x
 
 
-def _simulate(monkeypatch, txs, seconds, snr_db=20):
+def _simulate(monkeypatch, txs, seconds, snr_db=20, noise_step=None):
     import threading
     import utils.radio.dongle as dongle
     from utils.radio import waterfall as w
-    d = _SimDongle(txs, seconds, snr_db)
+    d = _SimDongle(txs, seconds, snr_db, noise_step)
     d.stop = threading.Event()
     monkeypatch.setattr(w, "time", NS(time=lambda: d.t))
     monkeypatch.setattr(dongle, "Dongle", lambda **k: d)
@@ -303,3 +306,31 @@ def test_every_listed_channel_is_outside_a_blind_centre(monkeypatch):
     for lo, hi in w.FAST_BANDS + w.SLOW_BANDS:                   # no gaps between slices
         edges = sorted(c for c in fast + slow if lo - 2_000_000 < c < hi + 2_000_000)
         assert all(b - a <= w.FS * w.USABLE for a, b in zip(edges, edges[1:]))
+
+
+
+def test_a_rise_in_the_noise_is_not_a_run_of_catches(monkeypatch):
+    """On 27 Sept from 05:46, something nearby raised the noise across the UHF
+    slices: the watch held noise for a full minute on a new frequency almost
+    every minute, fourteen clips of hiss, and was deaf meanwhile. The floor
+    adapts only through visits, and every hot visit started another hold."""
+    freqs, caught = _simulate(monkeypatch, [(460_575_000, 110, 20)], 150, snr_db=30,
+                              noise_step=(60, 5.0))                      # +14 dB across every slice at 60 s
+    noise = [c for c in caught if abs(c.freq_hz - 460_575_000) > 5000]
+    assert noise == [], [(round(c.freq_hz / 1e6, 4), round(c.seconds)) for c in noise]
+    assert any(abs(f - 460_575_000) <= 5000 for f in freqs)              # the call after the rise is still heard
+
+
+def test_a_broadcast_sign_off_off_a_carrier_is_not_speech():
+    assert not scanner.looks_like_speech("We'll be right back.")
+    assert scanner.looks_like_speech("National 28, 8213 Meadows Road, number 1116")
+
+
+def test_a_carrier_sample_is_short(monkeypatch):
+    saved = []
+    monkeypatch.setattr(scanner, "_transcribe", lambda a: "")
+    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: saved.append(len(audio)) or "clip.ogg")
+    monkeypatch.setitem(scanner._carrier_samples, "date", "")
+    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 60)) * 3000).astype(np.int16)
+    scanner.classify(_catch(450_900_000, audio, seconds=60))
+    assert saved == [scanner.CARRIER_SAMPLE_S * 12000]

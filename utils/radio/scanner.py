@@ -235,7 +235,10 @@ def looks_like_speech(text: str) -> bool:
     low = text.strip().lower()
     if any(p in low for p in ("teksting av", "subtitles by", "amara.org", "nicolai winther")):
         return False
-    return low.rstrip(".") not in ("thank you", "thanks for watching", "you")
+    # Broadcast sign-offs Whisper writes onto a carrier: "We'll be right back."
+    # came off 445.51 with nothing on it.
+    return low.rstrip(".!") not in ("thank you", "thanks for watching", "you", "we'll be right back",
+                                    "we will be right back", "stay tuned", "thanks for listening")
 TRANSCRIBE_PER_NIGHT = 60
 _transcribed = {"date": "", "count": 0}
 
@@ -246,6 +249,7 @@ QUIET_CHANNEL_HITS = 8       # catches with no voice before a channel is transcr
 # carrier each channel sends a night keeps its clip, so a person — or a better
 # detector — can hear what "carrier" was.
 CARRIER_SAMPLES_PER_NIGHT = 40
+CARRIER_SAMPLE_S = 15
 _carrier_samples = {"date": "", "channels": set()}
 RECHECK_EVERY = 10
 _pinned: Optional[dict] = None   # the net being watched, while one is
@@ -291,7 +295,11 @@ def classify(catch) -> None:
               and len(_carrier_samples["channels"]) < CARRIER_SAMPLES_PER_NIGHT)
     if sample:
         _carrier_samples["channels"].add(catch.freq_hz)
-    clip = _save_clip(catch.audio, catch.freq_hz, catch.started) if kind != "carrier" or net or sample else None
+    audio = catch.audio
+    if sample and not net:
+        # Enough to hear what the "carrier" was; a minute of it is only hiss.
+        audio = audio[:CARRIER_SAMPLE_S * rtl.SAMPLE_RATE]
+    clip = _save_clip(audio, catch.freq_hz, catch.started) if kind != "carrier" or net or sample else None
     ledger.record(catch.freq_hz, kind, round(catch.seconds, 1), m.rms, m.hf_ratio, clip, transcript,
                   _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started)
     label = (ledger.channel(catch.freq_hz) or {}).get("label") or _service_of(catch.freq_hz)

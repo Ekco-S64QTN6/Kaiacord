@@ -224,7 +224,14 @@ class Watcher:
             return None
         floor = np.percentile(np.array(s.history[:-1]), FLOOR_PCT, axis=0)
         over = spec - floor
-        hot = (over > GATE_DB) & _valid_mask(center)
+        valid = _valid_mask(center)
+        # A transmission is a channel standing over the rest of its slice; a
+        # rise in the noise lifts the whole slice. Measured over the slice's
+        # typical rise, not the floor alone: on 27 Sept a household noise
+        # source put the UHF slices 10+ dB over their floors and the watch held
+        # hiss for a minute at a time on frequency after frequency.
+        over = over - np.median(over[valid])
+        hot = (over > GATE_DB) & valid
         s.persist = np.where(hot, (s.persist if s.persist is not None else 0) + 1, 0)
         ready = np.where((s.persist >= PERSIST) | (hot & (over >= STRONG_DB)))[0]
         if not len(ready):
@@ -242,6 +249,7 @@ class Watcher:
         s = self.slices[center]
         floor = np.percentile(np.array(s.history), FLOOR_PCT, axis=0)
         idx = int(np.argmin(np.abs(_bin_freqs(center) - freq)))
+        valid = _valid_mask(center)
         chunks, quiet, started = [], 0.0, time.time()
         chunk_n = FS // 5                                      # 0.2 s
         while not self.stop.is_set() and time.time() - started < MAX_HOLD_S:
@@ -249,7 +257,10 @@ class Watcher:
             chunks.append(demod(iq))
             if self.sink:
                 self.sink(chunks[-1])
-            level = _smooth_spectrum(iq)[idx] - floor[idx]
+            over = _smooth_spectrum(iq) - floor
+            # Over the slice's own rise, as the trigger is: against the floor
+            # alone, a hold begun during a rise in the noise never went quiet.
+            level = over[idx] - np.median(over[valid])
             quiet = quiet + 0.2 if level < GATE_DB - 3 else 0.0
             if quiet >= SILENCE_S:
                 break
@@ -294,8 +305,10 @@ class Watcher:
                     if len(s.history) < WARM_VISITS:
                         continue
                     floor = np.percentile(np.array(s.history[:-1]), FLOOR_PCT, axis=0)
-                    if spec[idx] - floor[idx] > GATE_DB:
-                        self.catches.put(self._hold(d, center, freq_hz, float(spec[idx] - floor[idx])))
+                    over = spec - floor
+                    level = over[idx] - np.median(over[_valid_mask(center)])
+                    if level > GATE_DB:
+                        self.catches.put(self._hold(d, center, freq_hz, float(level)))
         finally:
             self.catches.put(None)
 
