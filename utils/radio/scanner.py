@@ -17,6 +17,7 @@ the point; pagers and data are logged but not transcribed.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -202,12 +203,10 @@ def _save_clip(audio, freq_hz: int, when: float) -> Optional[str]:
     return name
 
 
-def _transcribe(audio) -> str:
+@contextlib.contextmanager
+def _wav(audio):
     import tempfile
     import wave
-    from utils.radio import transcribe
-    if not transcribe.available():
-        return ""
     with tempfile.TemporaryDirectory() as tmp:
         p = Path(tmp) / "catch.wav"
         with wave.open(str(p), "wb") as w:
@@ -215,9 +214,37 @@ def _transcribe(audio) -> str:
             w.setsampwidth(2)
             w.setframerate(rtl.SAMPLE_RATE)
             w.writeframes(audio.tobytes())
+        yield p
+
+
+def _transcribe(audio, speech_only: bool = True) -> str:
+    """`speech_only` keeps only segments Whisper scores as speech, which is
+    what stops it writing words onto a carrier; it also scores some real
+    repeater voice low, so a strong, speech-like catch gets a second pass
+    without it."""
+    from utils.radio import transcribe
+    if not transcribe.available():
+        return ""
+    with _wav(audio) as p:
         # English, not auto-detect: on static, auto-detect picked Norwegian and
         # Whisper produced a subtitle credit. radio.local.language overrides.
-        return transcribe.transcribe_speech(p, language=_cfg("language", "en")).strip()
+        run = transcribe.transcribe_speech if speech_only else transcribe.transcribe_file
+        return run(p, language=_cfg("language", "en")).strip()
+
+
+# A Morse ID keys fast on one tone: 150–257 key-downs a minute on 145.690's and
+# 448.775's IDs, where voice measured 133 or fewer.
+MORSE_KEYS_PER_MIN = 140
+MORSE_PROMINENCE_DB = 5.5
+ID_CLIP_EVERY_S = 6 * 3600       # an ID sent every few minutes is kept this often per channel
+_id_clips: dict = {}             # freq -> when its last Morse ID clip was kept
+
+
+def morse_id(audio) -> bool:
+    from utils.radio import watch
+    with _wav(audio) as p:
+        t = watch.keyed_tone(p)
+    return t.get("keys_per_min", 0) >= MORSE_KEYS_PER_MIN and t.get("prominence_db", 0) >= MORSE_PROMINENCE_DB
 
 
 MIN_CATCH_S = 1.5
@@ -293,17 +320,30 @@ def classify(catch) -> None:
     today = datetime.now().strftime("%Y-%m-%d")
     if _transcribed["date"] != today:
         _transcribed.update(date=today, count=0)
+    from utils.radio.waterfall import voice_like
+    speechlike = voice_like(catch.audio)
     if net or (not m.digital and not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT):
         if not net:
             _transcribed["count"] += 1
         text = _transcribe(catch.audio)
+        if not looks_like_speech(text) and speechlike and not morse_id(catch.audio):
+            text = _transcribe(catch.audio, speech_only=False)
         if looks_like_speech(text):
             kind, transcript = "voice", text
     # Only what's worth hearing is kept: voice, a net, and a carrier that sounds
     # like speech (a spoken or Morse ID, or words Whisper missed). Data bursts
-    # and bare carriers keep no clip; the ledger has their timing and hours.
-    from utils.radio.waterfall import voice_like
-    keep = kind == "voice" or net or (kind == "carrier" and voice_like(catch.audio))
+    # and bare carriers keep no clip; the ledger has their timing and hours. A
+    # Morse ID repeats every few minutes, so one is kept per channel per
+    # ID_CLIP_EVERY_S.
+    keep = kind == "voice" or net
+    if not keep and kind == "carrier" and speechlike:
+        keep = True
+        if morse_id(catch.audio):
+            recent = [f for f, t in _id_clips.items()
+                      if abs(f - catch.freq_hz) <= 5000 and catch.started - t < ID_CLIP_EVERY_S]
+            keep = not recent
+            if keep:
+                _id_clips[catch.freq_hz] = catch.started
     clip = _save_clip(catch.audio, catch.freq_hz, catch.started) if keep else None
     ledger.record(catch.freq_hz, kind, round(catch.seconds, 1), m.rms, m.hf_ratio, clip, transcript,
                   _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started)

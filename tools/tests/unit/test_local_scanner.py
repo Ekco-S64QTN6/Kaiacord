@@ -450,7 +450,7 @@ def test_a_data_burst_keeps_no_clip_and_a_spoken_id_does(monkeypatch):
     and voice Whisper missed are (448.775's ID transcribed to nothing)."""
     from utils.radio import waterfall as w
     clips = []
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: "")
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: "")
     monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
     burst = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 4)) * 3000).astype(np.int16)
     scanner.classify(_catch(462_275_000, burst, seconds=4))
@@ -458,4 +458,36 @@ def test_a_data_burst_keeps_no_clip_and_a_spoken_id_does(monkeypatch):
     scanner.classify(_catch(448_775_000, burst, seconds=4))
     assert clips == [448_775_000]
     assert [e["kind"] for e in ledger.recent(2)] == ["carrier", "carrier"]
+
+
+def test_a_repeated_morse_id_is_kept_once_every_six_hours(monkeypatch):
+    """145.690 sends its ID every few minutes; seven were kept in forty."""
+    from utils.radio import waterfall as w
+    clips = []
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: "")
+    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(t) or "clip.ogg")
+    monkeypatch.setattr(w, "voice_like", lambda a: True)
+    monkeypatch.setattr(scanner, "morse_id", lambda a: True)
+    monkeypatch.setattr(scanner, "_id_clips", {})
+    burst = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
+    for minutes in (0, 10, 20, 7 * 60):
+        c = _catch(145_690_000, burst, seconds=6)
+        c.started += minutes * 60
+        scanner.classify(c)
+    assert len(clips) == 2 and clips[1] - clips[0] == 7 * 3600
+
+
+def test_speech_the_strict_pass_drops_gets_a_second_pass(monkeypatch):
+    """The speech filter scored real repeater voice low on 145.690 ("I can't
+    believe this. Yeah, I can't either."); a speech-like catch that isn't Morse
+    is transcribed again without it."""
+    from utils.radio import waterfall as w
+    passes = []
+    monkeypatch.setattr(scanner, "_transcribe",
+                        lambda a, speech_only=True: passes.append(speech_only) or ("" if speech_only else "I can't believe this. Yeah, I can't either."))
+    monkeypatch.setattr(w, "voice_like", lambda a: True)
+    monkeypatch.setattr(scanner, "morse_id", lambda a: False)
+    burst = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
+    scanner.classify(_catch(145_690_000, burst, seconds=6))
+    assert passes == [True, False] and ledger.recent(1)[0]["kind"] == "voice"
 
