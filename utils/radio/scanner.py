@@ -308,7 +308,10 @@ def classify(catch) -> None:
             kind, transcript = "voice", text
     if _carrier_samples["date"] != today:
         _carrier_samples.update(date=today, channels=set())
-    sample = (kind == "carrier" and catch.freq_hz not in _carrier_samples["channels"]
+    from utils.radio.waterfall import DRIFT_SPAN_HZ, MAX_HOLD_S
+    # A full-minute carrier drifts: one sample for the whole run it wanders over.
+    span = DRIFT_SPAN_HZ if catch.seconds >= MAX_HOLD_S - 0.5 else 0
+    sample = (kind == "carrier" and not any(abs(f - catch.freq_hz) <= span for f in _carrier_samples["channels"])
               and len(_carrier_samples["channels"]) < CARRIER_SAMPLES_PER_NIGHT)
     if sample:
         _carrier_samples["channels"].add(catch.freq_hz)

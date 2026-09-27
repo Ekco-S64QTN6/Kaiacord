@@ -46,6 +46,10 @@ MAX_HOLD_S = 60.0
 COOLDOWN_S = 3.0
 LONG_COOLDOWN_S = 30 * 60        # after a hold that ran the whole MAX_HOLD_S: a near-constant carrier
 COOLDOWN_SPAN_HZ = 12_500        # one channel, whichever 2.5 kHz step a wide signal rounds to
+# A near-constant carrier that wanders (424.365–424.42, 450.83–450.96 on 27
+# Sept) took a full minute on each step it drifted to; its long cooldown covers
+# this far either side.
+DRIFT_SPAN_HZ = 75_000
 AUDIO_FS = 12_000
 # Following a conversation: once an over that sounds like voice ends, the
 # watch stays on the channel for the reply, recording each over into the same
@@ -303,7 +307,9 @@ class Watcher:
         best = ready[np.argmax(over[ready])]
         freq = int(round(_bin_freqs(center)[best] / 2500) * 2500)
         now = time.time()
-        if any(abs(f - freq) <= COOLDOWN_SPAN_HZ and now < until for f, until in self.cooldown.items()):
+        # Only a long cooldown (a near-constant carrier) runs past a few seconds.
+        if any(abs(f - freq) <= (DRIFT_SPAN_HZ if until - now > COOLDOWN_S * 10 else COOLDOWN_SPAN_HZ)
+               and now < until for f, until in self.cooldown.items()):
             return None
         return freq, float(over[best])
 

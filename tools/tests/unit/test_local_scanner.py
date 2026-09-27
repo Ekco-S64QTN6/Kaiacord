@@ -448,3 +448,24 @@ def test_the_notebook_never_calls_a_spoken_id_packet():
     packet = dict(spoken, voice_like=False)
     assert "packet" not in nb._what(448_775_000, {}, ev, spoken)
     assert "packet" in nb._what(448_775_000, {}, ev, packet)
+
+
+def test_a_drifting_constant_carrier_costs_one_minute_not_one_per_step(monkeypatch):
+    """424.365–424.42 took a full-minute hold on each step it wandered to."""
+    _, caught = _simulate(monkeypatch, [(147_300_000, 20, 75), (147_330_000, 100, 75)], 180)
+    near = [c for c in caught if abs(c.freq_hz - 147_315_000) <= 40_000]
+    assert len(near) == 1 and near[0].seconds >= 59
+
+
+def test_a_drifting_carrier_keeps_one_sample_a_night(monkeypatch):
+    clips = []
+    monkeypatch.setattr(scanner, "_transcribe", lambda a: "")
+    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
+    monkeypatch.setitem(scanner._carrier_samples, "date", "")
+    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 60)) * 3000).astype(np.int16)
+    for f in (424_365_000, 424_390_000, 424_420_000):
+        scanner.classify(_catch(f, audio, seconds=60))
+    short = audio[:12000 * 4]
+    for f in (463_725_000, 463_750_000):                      # separate bursts keep a sample each
+        scanner.classify(_catch(f, short, seconds=4))
+    assert clips == [424_365_000, 463_725_000, 463_750_000]
