@@ -1922,7 +1922,7 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     if not sheet:
-        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444), ephemeral=True)
+        return await msg.channel.send(embed=discord.Embed(description="No character found.", color=0xcc4444))
 
     from utils.ttrpg.housing import load_housing_async
     from utils.ttrpg.furniture import get_home_bonuses
@@ -1936,7 +1936,7 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
         return await msg.channel.send(embed=discord.Embed(
             description="You need to be at the Shrine of the Silent Ones to pray.\n`!rpg go shrine`\n\n*Or purchase a Shrine Replica for your home.*",
             color=0xcc4444
-        ), ephemeral=True)
+        ))
 
     from utils.ttrpg.calendar import get_special_day
     special = get_special_day()
@@ -1961,14 +1961,14 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
         return await msg.channel.send(embed=discord.Embed(
             description="🕯️ *The shrine is still. You've already made your offering today.*\nThe Silent Ones do not answer twice.",
             color=0x888888
-        ), ephemeral=True)
+        ))
 
     # Check if already blessed
     if "blessed" in sheet.get("conditions", []):
         return await msg.channel.send(embed=discord.Embed(
             description="🕯️ *You are already carrying the blessing of the Silent Ones.*\nUse it before asking for more.",
             color=0x888888
-        ), ephemeral=True)
+        ))
 
     # ── Quest Task Tracking: pray_shrine ────────────────────────────────────
     active_ids = sheet.get("active_quests", [])
