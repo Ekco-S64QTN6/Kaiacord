@@ -206,7 +206,7 @@ class LayoutManager:
         y += alerts_height
         
         # Menu text with cyberpunk separators
-        menu_footer = "[Q]uit ╭─╮ [C]lear ╭─╮ [R]efresh ╭─╮ [S]ave ╭─╮ [H]elp"
+        menu_footer = "[Q]uit ╭─╮ [C]lear ╭─╮ [S]ave ╭─╮ [H]elp"
         
         # Logs (full width)
         self.panes['logs'] = Pane(
@@ -256,8 +256,7 @@ class BtopDashboardV2:
                  cleanup_complete_event=None,
                  shared_stats=None,
                  log_queue=None,
-                 frame_interval: float = 0.1,  # ~10 FPS
-                 update_interval: float = 1.0):  # Stats update interval
+                 frame_interval: float = 0.1):  # ~10 FPS
         """
         Initialize dashboard.
         """
@@ -269,7 +268,6 @@ class BtopDashboardV2:
         self.shared_stats = shared_stats
         self.log_queue = log_queue
         self.frame_interval = frame_interval
-        self.update_interval = update_interval
         
         self.running = False
         self.stdscr = None
@@ -277,14 +275,12 @@ class BtopDashboardV2:
         
         # Internal state
         self._lock = threading.Lock()
-        self._last_update = 0
-        self._cached_state: Optional[DashboardState] = None
         
         # For standalone mode (when external sources not provided)
         self._internal_logs: Deque[dict] = deque(maxlen=200)
         self._internal_alerts: Deque[dict] = deque(maxlen=50)
         
-        # Network rate tracking (Bug 6 fix)
+        # Network rate tracking
         self._prev_net_sent: int = 0
         self._prev_net_recv: int = 0
         self._prev_net_time: float = 0.0
@@ -1045,8 +1041,6 @@ class BtopDashboardV2:
                 return False
             elif key in (ord('c'), ord('C')):
                 self._clear_logs()
-            elif key in (ord('r'), ord('R')):
-                self._cached_state = None  # Force refresh
             elif key in (ord('s'), ord('S')):
                 self._save_state()
             elif key in (ord('h'), ord('H')):
@@ -1090,7 +1084,6 @@ class BtopDashboardV2:
                 "",
                 "  Q - Quit dashboard",
                 "  C - Clear logs",
-                "  R - Force refresh",
                 "  S - Save state",
                 "  H - Show this help",
                 "",
