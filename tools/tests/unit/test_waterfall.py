@@ -68,6 +68,21 @@ def test_cooldown_covers_the_channel_and_lengthens_for_a_constant_carrier(monkey
     assert catch.seconds >= 0.4 and w.cooldown[146_860_000] - __import__("time").time() > 600
 
 
+def test_a_carrier_that_keeps_coming_back_is_left_alone_longer(monkeypatch):
+    """463.7125 ran the minute every time its half hour ran out."""
+    import time as _time
+    w = wf.Watcher(on_catch=lambda c: None, hops=([147_000_000], []))
+    d = FakeDongle(146_860_000, on_after_reads=wf.WARM_VISITS + 1)
+    for _ in range(wf.WARM_VISITS + 1):
+        w._visit(d, 147_000_000)
+    monkeypatch.setattr(wf, "MAX_HOLD_S", 0.4)
+    waits = []
+    for _ in range(5):
+        w._hold(d, 147_000_000, 146_860_000, 20.0)
+        waits.append(w.cooldown[146_860_000] - _time.time())
+    assert [round(x / 60) for x in waits] == [30, 60, 120, 240, 240]
+
+
 def test_the_hiss_reference_is_the_demodulators_level_on_an_empty_channel():
     """An FM discriminator reads phase, so noise at any input level comes out
     at one hiss level; carrier detection is measured against it."""

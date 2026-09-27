@@ -45,6 +45,9 @@ MAX_HOLD_S = 60.0
 # simplex channel or a quiet repeater was ignored.
 COOLDOWN_S = 3.0
 LONG_COOLDOWN_S = 30 * 60        # after a hold that ran the whole MAX_HOLD_S: a near-constant carrier
+# Doubled each time the same spot runs the minute again, to this: 463.7125 and
+# 462.35 came back every half hour, four minutes of deafness an hour.
+MAX_LONG_COOLDOWN_S = 4 * 3600
 COOLDOWN_SPAN_HZ = 12_500        # one channel, whichever 2.5 kHz step a wide signal rounds to
 # A near-constant carrier that wanders (424.365–424.42, 450.83–450.96 on 27
 # Sept) took a full minute on each step it drifted to; its long cooldown covers
@@ -279,6 +282,7 @@ class Watcher:
         self.fast, self.slow = hops or (FAST_HOPS, SLOW_HOPS)
         self.slices = {c: _Slice(c) for c in self.fast + self.slow}
         self.cooldown: dict[int, float] = {}
+        self.constant: dict[int, float] = {}     # freq -> the long cooldown it was last given
         self.catches: "queue.Queue[Optional[Catch]]" = queue.Queue()
         self.passes = 0
 
@@ -380,7 +384,14 @@ class Watcher:
                 break
         # Held the whole time: something near-constant (425.950 ran the full
         # minute eight times in an hour). Leave it for half an hour.
-        self.cooldown[freq] = time.time() + (LONG_COOLDOWN_S if constant else COOLDOWN_S)
+        wait = COOLDOWN_S
+        if constant:
+            # Again within twice its last lockout, near the same spot: longer.
+            prior = [v for f, v in self.constant.items() if abs(f - freq) <= DRIFT_SPAN_HZ
+                     and self.cooldown.get(f, 0) + v > time.time()]
+            wait = min(MAX_LONG_COOLDOWN_S, 2 * max(prior)) if prior else LONG_COOLDOWN_S
+            self.constant[freq] = wait
+        self.cooldown[freq] = time.time() + wait
         s.persist = None
         audio = np.concatenate(chunks) if chunks else np.zeros(0, np.int16)
         return Catch(freq, started, time.time() - started, peak_db, audio)
