@@ -76,4 +76,8 @@ def _fm_cmd(freq_hz: int, gain: int = DEFAULT_GAIN, mode: str = "fm") -> list[st
 def open_stream(freq_hz: int, gain: int = DEFAULT_GAIN, mode: str = "fm") -> subprocess.Popen:
     """A live stream of s16le mono at SAMPLE_RATE on stdout, for discord.py.
     The caller must hold DEVICE for the life of the stream."""
-    return subprocess.Popen(_fm_cmd(freq_hz, gain, mode), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    from utils.radio.kiwi import _die_with_parent
+    # Dies with the bot: an orphaned rtl_fm keeps the dongle open, and every
+    # scan after a restart then fails "busy" until someone kills it.
+    return subprocess.Popen(_fm_cmd(freq_hz, gain, mode), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            preexec_fn=_die_with_parent)

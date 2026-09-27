@@ -103,6 +103,22 @@ def record(freq_hz: int, kind: str, seconds: float, rms: float, hf_ratio: float,
                     (int(freq_hz), when, seconds, kind, rms, hf_ratio, clip, transcript))
 
 
+def catches_since(ts: float) -> list[dict]:
+    """Every catch since `ts` (frequency and kind), uncapped: `recent()` is for
+    display and stops at its limit, which a busy night passes."""
+    with _lock, _db() as con:
+        return [dict(r) for r in con.execute(
+            "SELECT freq_hz, kind, ts FROM events WHERE ts >= ? ORDER BY ts", (float(ts),))]
+
+
+def forget_clips(names: list[str]) -> None:
+    """Rows whose clip has been rotated off disk stop naming it."""
+    if not names:
+        return
+    with _lock, _db() as con:
+        con.executemany("UPDATE events SET clip = NULL WHERE clip = ?", [(n,) for n in names])
+
+
 def channel(freq_hz: int) -> Optional[dict]:
     with _lock, _db() as con:
         row = con.execute("SELECT * FROM channels WHERE freq_hz = ?", (int(freq_hz),)).fetchone()

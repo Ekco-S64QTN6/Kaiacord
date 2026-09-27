@@ -39,7 +39,7 @@ def panel_embed() -> discord.Embed:
     chans = ledger.channels()
     heard = [c for c in chans if c["hits"]]
     voice = [c for c in chans if c["voice"]]
-    tonight = [e for e in ledger.recent(200) if time.time() - e["ts"] < 12 * 3600]
+    tonight = ledger.catches_since(time.time() - 12 * 3600)     # uncapped: a night passes 200
     status = ("scanning now, with listeners" if scanner.listening_along() else
               "scanning now" if scanner.running() else
               "listening live" if any(s.local for s in live.active()) else

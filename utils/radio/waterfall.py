@@ -271,6 +271,14 @@ class Watcher:
 def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
                stop, catches, audio, passes) -> None:
     import os
+    # The bot leaves by os._exit, which skips multiprocessing's cleanup of
+    # daemon children: an orphaned watcher kept the dongle, and the next boot's
+    # watch failed "busy or could not be opened" every fifteen minutes.
+    parent = os.getppid()
+    from utils.radio.kiwi import _die_with_parent
+    _die_with_parent()
+    if os.getppid() != parent:           # the parent went before the signal was armed
+        os._exit(0)
     devnull = os.open(os.devnull, os.O_WRONLY)
     os.dup2(devnull, 1)
     os.dup2(devnull, 2)

@@ -152,9 +152,62 @@ def test_a_net_is_transcribed_and_clipped_whatever_the_nights_budget(monkeypatch
     monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
     monkeypatch.setitem(scanner._transcribed, "date", datetime.now().strftime("%Y-%m-%d"))
     monkeypatch.setitem(scanner._transcribed, "count", scanner.TRANSCRIBE_PER_NIGHT)
+    monkeypatch.setitem(scanner._carrier_samples, "date", datetime.now().strftime("%Y-%m-%d"))
+    monkeypatch.setitem(scanner._carrier_samples, "channels", {147_570_000})    # tonight's sample taken
     audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
     scanner.classify(_catch(147_570_000, audio, seconds=6))
     assert calls == [] and clips == []                    # open scan: budget spent, a carrier, no clip
     monkeypatch.setattr(scanner, "_pinned", {"freq_hz": 147_570_000, "label": "net", "until": 0})
     scanner.classify(_catch(147_570_000, audio, seconds=6))
     assert calls == [1] and clips == [147_570_000]        # on the net: transcribed, and kept to listen to
+
+
+
+def test_the_first_carrier_a_channel_sends_each_night_keeps_its_clip(monkeypatch):
+    """500 carrier events, not one clip: the verdict could never be checked,
+    and 56 of them were on the APRS frequency."""
+    clips = []
+    monkeypatch.setattr(scanner, "_transcribe", lambda a: "")
+    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
+    monkeypatch.setitem(scanner._carrier_samples, "date", "")
+    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
+    for _ in range(3):
+        scanner.classify(_catch(144_390_000, audio, seconds=3))
+    scanner.classify(_catch(462_275_000, audio, seconds=6))
+    assert clips == [144_390_000, 462_275_000]
+    assert [e["clip"] for e in ledger.recent(4)].count("clip.ogg") == 2
+
+
+def test_a_rotated_clip_is_not_named_by_the_ledger(tmp_path, monkeypatch):
+    ledger.record(146_860_000, "voice", 5.0, 5000, 0.4, clip="old.ogg")
+    ledger.forget_clips(["old.ogg"])
+    assert ledger.recent(1)[0]["clip"] is None
+
+
+def test_the_overnight_count_is_not_capped_at_the_display_limit(monkeypatch):
+    """ledger.recent(500) stops at 500, and a night's watch logs about that
+    many: a busier night would have been reported as exactly 500 catches."""
+    import asyncio
+    from datetime import timezone
+    from unittest.mock import AsyncMock
+    from utils.radio import overnight
+    t0 = 1_790_000_000.0
+    for i in range(620):
+        ledger.record(462_275_000 if i % 3 else 144_390_000, "carrier", 5.0, 3000, 0.3, when=t0 + i)
+    monkeypatch.setattr("utils.sky.feeds.space_weather", AsyncMock(side_effect=RuntimeError))
+    monkeypatch.setattr("utils.sky.feeds.close_approaches", AsyncMock(return_value=[]))
+    monkeypatch.setattr("utils.sky.feeds.quakes", AsyncMock(return_value=[]))
+    facts = asyncio.run(overnight.gather(since=datetime.fromtimestamp(t0 - 1, timezone.utc)))
+    local = [f for f in facts if f.section == "local"][0]
+    assert "620 transmissions" in local.text and "462.2750" in local.text
+
+
+def test_the_panel_counts_every_catch_of_the_night():
+    """recent(200) capped "Last 12 hours" at 200 on a night of 330."""
+    import time as _t
+    from utils.commands import scanner_handler
+    now = _t.time()
+    for i in range(330):
+        ledger.record(462_275_000, "carrier", 5.0, 3000, 0.3, when=now - i)
+    field = next(f for f in scanner_handler.panel_embed().fields if f.name == "Last 12 hours")
+    assert field.value.startswith("330 catches")

@@ -104,17 +104,23 @@ async def start(channel, khz: float, mode: str, region: str, label: str, request
     if proc is None:
         raise RuntimeError(f"none of {len(receivers)} receivers sent audio on {khz:g} kHz")
     reader = _CountingReader(proc.stdout)
-    # stderr to /dev/null: left alone, ffmpeg inherits the bot's real terminal
-    # (fd 2, beneath the logging redirect) and its warnings land on the curses
-    # dashboard, which then cannot redraw.
-    source = discord.FFmpegPCMAudio(reader, pipe=True, before_options="-f s16le -ar 12000 -ac 1",
-                                    stderr=_DEVNULL)
-    vc = channel.guild.voice_client
-    if vc and vc.is_connected():
-        await vc.move_to(channel)
-    else:
-        vc = await channel.connect(timeout=30.0, reconnect=True)
-    vc.play(source, after=lambda e: log_error(f"[radio] playback error: {e}") if e else None)
+    try:
+        # stderr to /dev/null: left alone, ffmpeg inherits the bot's real terminal
+        # (fd 2, beneath the logging redirect) and its warnings land on the curses
+        # dashboard, which then cannot redraw.
+        source = discord.FFmpegPCMAudio(reader, pipe=True, before_options="-f s16le -ar 12000 -ac 1",
+                                        stderr=_DEVNULL)
+        vc = channel.guild.voice_client
+        if vc and vc.is_connected():
+            await vc.move_to(channel)
+        else:
+            vc = await channel.connect(timeout=30.0, reconnect=True)
+        vc.play(source, after=lambda e: log_error(f"[radio] playback error: {e}") if e else None)
+    except Exception:
+        # A voice join that fails must not leave the stream holding a slot on
+        # someone's receiver with nothing to stop it.
+        kiwi.close_stream(proc)
+        raise
     session = LiveSession(guild_id, vc, proc, receiver, khz, mode, label, requested_by, reader=reader)
     session.watchdog = asyncio.create_task(_watch(session))
     _sessions[guild_id] = session
@@ -135,6 +141,7 @@ async def start_local(channel, freq_hz: int, label: str, requested_by: str, gain
         raise RuntimeError("the scanner is mid-recording; try again in a minute")
     finally:
         rtl.YIELD.clear()
+    proc = None
     try:
         proc = rtl.open_stream(freq_hz, gain)
         if not await asyncio.to_thread(kiwi.first_audio, proc):
@@ -150,6 +157,8 @@ async def start_local(channel, freq_hz: int, label: str, requested_by: str, gain
             vc = await channel.connect(timeout=30.0, reconnect=True)
         vc.play(source, after=lambda e: log_error(f"[radio] playback error: {e}") if e else None)
     except Exception:
+        if proc is not None:
+            kiwi.close_stream(proc)           # or rtl_fm keeps the dongle after the lock is gone
         rtl.DEVICE.release()
         raise
     session = LiveSession(guild_id, vc, proc, None, freq_hz / 1e3, "fm", label, requested_by,

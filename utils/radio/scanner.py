@@ -195,8 +195,10 @@ def _save_clip(audio, freq_hz: int, when: float) -> Optional[str]:
     except Exception as e:
         log_debug(f"[scanner] clip not saved: {e}")
         return None
-    for old in sorted(d.glob("*.ogg"))[:-300]:
+    rotated = sorted(d.glob("*.ogg"))[:-300]
+    for old in rotated:
         old.unlink(missing_ok=True)
+    ledger.forget_clips([p.name for p in rotated])
     return name
 
 
@@ -239,6 +241,12 @@ _transcribed = {"date": "", "count": 0}
 
 
 QUIET_CHANNEL_HITS = 8       # catches with no voice before a channel is transcribed only now and then
+# A carrier keeps no audio, so the verdict could never be checked: 500 events
+# in a night, every one "carrier", 56 of them on the APRS frequency. The first
+# carrier each channel sends a night keeps its clip, so a person — or a better
+# detector — can hear what "carrier" was.
+CARRIER_SAMPLES_PER_NIGHT = 40
+_carrier_samples = {"date": "", "channels": set()}
 RECHECK_EVERY = 10
 _pinned: Optional[dict] = None   # the net being watched, while one is
 
@@ -277,7 +285,13 @@ def classify(catch) -> None:
         text = _transcribe(catch.audio)
         if looks_like_speech(text):
             kind, transcript = "voice", text
-    clip = _save_clip(catch.audio, catch.freq_hz, catch.started) if kind != "carrier" or net else None
+    if _carrier_samples["date"] != today:
+        _carrier_samples.update(date=today, channels=set())
+    sample = (kind == "carrier" and catch.freq_hz not in _carrier_samples["channels"]
+              and len(_carrier_samples["channels"]) < CARRIER_SAMPLES_PER_NIGHT)
+    if sample:
+        _carrier_samples["channels"].add(catch.freq_hz)
+    clip = _save_clip(catch.audio, catch.freq_hz, catch.started) if kind != "carrier" or net or sample else None
     ledger.record(catch.freq_hz, kind, round(catch.seconds, 1), m.rms, m.hf_ratio, clip, transcript,
                   _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started)
     label = (ledger.channel(catch.freq_hz) or {}).get("label") or _service_of(catch.freq_hz)
@@ -500,8 +514,11 @@ async def _watch(net: Optional[dict] = None) -> None:
             if proc.exitcode not in (0, None) and time.time() - started < 30:
                 raise RuntimeError(f"the scanner process exited with code {proc.exitcode} — "
                                    "is the RTL-SDR busy or unplugged?")
-            await asyncio.to_thread(consumer.join, 120)
-            log_info(f"[scanner] {'net' if net else 'waterfall'} watch stopped after {passes.value} passes")
+        # Outside the device lock: finishing the last classifications (Whisper
+        # on a catch can take a minute) doesn't need the dongle, and a live
+        # listen waiting for it gives up after 90 s.
+        await asyncio.to_thread(consumer.join, 120)
+        log_info(f"[scanner] {'net' if net else 'waterfall'} watch stopped after {passes.value} passes")
     except Exception as e:
         _failed_at = time.time()
         log_warning(f"[scanner] waterfall watch failed: {type(e).__name__}: {e} — retrying in 15 minutes")

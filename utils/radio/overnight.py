@@ -101,7 +101,7 @@ async def gather(since: Optional[datetime] = None) -> list[Fact]:
                               f"an {name} was broadcasting on ADS-B{alt}"))
 
     try:
-        caught = [e for e in ledger.recent(500) if e["ts"] >= since.timestamp()]
+        caught = ledger.catches_since(since.timestamp())
         if caught:
             kinds = {k: sum(1 for e in caught if e["kind"] == k) for k in ("voice", "data", "carrier")}
             busiest = max({e["freq_hz"] for e in caught}, key=lambda f: sum(1 for e in caught if e["freq_hz"] == f))
