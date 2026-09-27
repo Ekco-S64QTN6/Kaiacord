@@ -97,3 +97,7 @@ def test_voice_is_followed_only_under_a_full_quieting_carrier():
         return np.clip(np.concatenate([body, tail]), -32767, 32767).astype(np.int16)
 
     assert wf.voice_like(over(14)) and not wf.voice_like(over(7))
+    # A carrier fluttering in and out of quieting four times a second.
+    flutter = np.where(np.sin(2 * np.pi * 2 * t) > 0, 10 ** (-14 / 20), 1.0)
+    fluttering = np.clip(np.concatenate([hiss * flutter + speech, tail]), -32767, 32767).astype(np.int16)
+    assert not wf.voice_like(fluttering)

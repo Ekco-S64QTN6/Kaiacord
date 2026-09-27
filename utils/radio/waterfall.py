@@ -242,6 +242,13 @@ def voice_like(audio: np.ndarray) -> bool:
     on = hiss < HISS_DB - QUIET_DB
     if on.sum() < 50 or HISS_DB - np.median(hiss[on]) < FULL_QUIETING_DB:
         return False
+    # And steadily: a fluttering carrier drops in and out of quieting several
+    # times a second (469.04: 57% of its carried frames fully quieted, 7.7
+    # flips a second); every voice clip held 90% or more and 0.2 flips or fewer.
+    first, last = np.where(on)[0][[0, -1]]
+    flips = np.abs(np.diff(on[first:last + 1].astype(int))).sum() / ((last - first + 1) / 50)
+    if (hiss[on] < HISS_DB - FULL_QUIETING_DB).mean() < 0.85 or flips > 1.0:
+        return False
     return float(np.std(voice[on])) >= VOICE_SWING_DB
 
 
