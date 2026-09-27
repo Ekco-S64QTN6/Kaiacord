@@ -45,11 +45,26 @@ def test_dsn_links_name_the_spacecraft_and_the_light_time():
 def test_asteroid_numbers_are_computed_not_narrated():
     assert feeds.size_from_h("22.0") == "~141 m"
     assert feeds.size_from_h("28.6") == "~7 m"
+    soon = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%b-%d %H:%M")
     with patch.object(feeds, "get_json", AsyncMock(return_value={
             "fields": ["des", "cd", "dist", "v_rel", "h"],
-            "data": [["2026 SA8", "2026-Sep-28 06:45", "0.00253925938809526", "6.6", "28.6"]]})):
+            "data": [["2026 SA8", soon, "0.00253925938809526", "6.6", "28.6"]]})):
         rows = asyncio.run(feeds.close_approaches())
     assert round(rows[0]["ld"], 2) == 0.99       # inside the Moon's distance
+
+
+def test_a_short_window_does_not_become_the_cached_month():
+    """The overnight log asked for two days; that list was cached under the
+    feed's one key and !rocks then called it the next thirty days."""
+    fmt = lambda d: (datetime.now(timezone.utc) + timedelta(days=d)).strftime("%Y-%b-%d %H:%M")
+    api = AsyncMock(return_value={"fields": ["des", "cd", "dist", "v_rel", "h"],
+                                  "data": [["NEAR", fmt(1), "0.01", "5", "25"], ["LATER", fmt(20), "0.02", "5", "24"]]})
+    with patch.object(feeds, "get_json", api):
+        two = asyncio.run(feeds.close_approaches(days=2))
+        month = asyncio.run(feeds.close_approaches())
+    assert [r["name"] for r in two] == ["NEAR"]
+    assert [r["name"] for r in month] == ["NEAR", "LATER"]
+    assert api.await_args.args[1]["date-max"] == "+30"
 
 
 def test_starman_is_not_counted_as_crew():

@@ -225,17 +225,31 @@ def kp_words(kp: float) -> str:
 
 # ── asteroids, launches, earthquakes ────────────────────────────────────────
 
-async def close_approaches(days: int = 30, max_au: float = 0.05) -> list[dict]:
+CAD_DAYS, CAD_MAX_AU = 30, 0.05
+
+
+async def close_approaches(days: int = CAD_DAYS, max_au: float = CAD_MAX_AU) -> list[dict]:
+    """Close approaches in the next `days`, nearest first. One cached query
+    covers the widest window and every caller filters it here: the cache is
+    keyed on the feed alone, so the overnight log's 2-day request was cached
+    and then served to !rocks and chat as "the next 30 days"."""
     async def f():
         d = await get_json("https://ssd-api.jpl.nasa.gov/cad.api",
-                           {"dist-max": str(max_au), "date-min": "now", "date-max": f"+{days}", "sort": "dist"})
+                           {"dist-max": str(CAD_MAX_AU), "date-min": "now", "date-max": f"+{CAD_DAYS}",
+                            "sort": "dist"})
         _need(isinstance(d, dict) and "fields" in d, "JPL close-approach API")
-        rows = [dict(zip(d["fields"], r)) for r in d.get("data") or []]
-        return rows
+        return [dict(zip(d["fields"], r)) for r in d.get("data") or []]
     rows = (await _cached("sky_cad", 6 * 3600, f))["data"]
+    until = datetime.now(timezone.utc) + timedelta(days=min(days, CAD_DAYS))
     out = []
     for r in rows:
         au = float(r["dist"])
+        try:
+            when = datetime.strptime(r["cd"], "%Y-%b-%d %H:%M").replace(tzinfo=timezone.utc)
+        except (KeyError, ValueError):
+            continue
+        if au > max_au or when > until:
+            continue
         out.append({"name": r["des"], "when": r["cd"], "au": au, "ld": au * AU_KM / LD_KM,
                     "km_s": float(r.get("v_rel") or 0), "h": r.get("h")})
     return out
