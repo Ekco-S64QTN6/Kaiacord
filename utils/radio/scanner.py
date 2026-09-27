@@ -240,8 +240,44 @@ ID_CLIP_EVERY_S = 6 * 3600       # an ID sent every few minutes is kept this oft
 _id_clips: dict = {}             # freq -> when its last Morse ID clip was kept
 
 
+MORSE_ON_STD_DB = 4.0            # a keyed tone's "on" level: IDs held 0.6–3.9 dB, voice 5.1 and up
+
+
+def _steady_keyed_tone(audio) -> bool:
+    """One fixed tone switching fully on and off, at the same level each time
+    it's on. keyed_tone, built for shortwave, picked 2440 Hz on W5EBQ's
+    1045 Hz ID and diluted its key rate over the squelch tail."""
+    import numpy as np
+    from utils.radio.waterfall import FRAME, carried
+    on, _ = carried(audio)
+    if on.sum() < 50:
+        return False
+    first, last = np.where(on)[0][[0, -1]]
+    x = audio[first * FRAME:(last + 1) * FRAME].astype(float)
+    n = 480                                                         # 40 ms, 25 Hz bins
+    k = len(x) // n
+    if k < 10:
+        return False
+    sp = np.abs(np.fft.rfft(x[:k * n].reshape(k, n) * np.hanning(n), axis=1)) ** 2
+    f = np.fft.rfftfreq(n, 1 / rtl.SAMPLE_RATE)
+    band = np.where((f >= 400) & (f <= 1600))[0]
+    b = band[np.argmax(sp[:, band].mean(axis=0))]
+    level = 10 * np.log10(sp[:, b - 1:b + 2].sum(axis=1) + 1e-9)
+    lo, hi = np.percentile(level, 10), np.percentile(level, 90)
+    up = level > (lo + hi) / 2
+    keys_per_s = np.count_nonzero(np.diff(up.astype(int)) == 1) / (k * n / rtl.SAMPLE_RATE)
+    # The level while on, away from the edges: a frame a key-down or key-up
+    # falls in is only partly on.
+    inside = up[1:-1] & up[:-2] & up[2:]
+    if inside.sum() < 3:
+        return False
+    return hi - lo >= 20 and keys_per_s >= 1.5 and float(np.std(level[1:-1][inside])) <= MORSE_ON_STD_DB
+
+
 def morse_id(audio) -> bool:
     from utils.radio import watch
+    if _steady_keyed_tone(audio):
+        return True
     with _wav(audio) as p:
         t = watch.keyed_tone(p)
     return t.get("keys_per_min", 0) >= MORSE_KEYS_PER_MIN and t.get("prominence_db", 0) >= MORSE_PROMINENCE_DB

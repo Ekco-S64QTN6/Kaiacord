@@ -491,3 +491,21 @@ def test_speech_the_strict_pass_drops_gets_a_second_pass(monkeypatch):
     scanner.classify(_catch(145_690_000, burst, seconds=6))
     assert passes == [True, False] and ledger.recent(1)[0]["kind"] == "voice"
 
+
+
+def test_a_steady_keyed_tone_is_a_morse_id_and_speech_is_not():
+    """W5EBQ's 1045 Hz ID was missed by the shortwave detector, which picked
+    2440 Hz; an ID keys one tone at one level, speech never holds a level."""
+    rng = np.random.default_rng(0)
+    t = np.arange(12000 * 6) / 12000
+    quiet = rng.normal(size=len(t)) * 30                                   # a carrier's quieted hiss
+    keying = (np.sin(2 * np.pi * 3 * t) > 0).astype(float)                 # 3 key-downs a second
+    morse = quiet + keying * np.sin(2 * np.pi * 1045 * t) * 6000
+    # Syllables at uneven loudness on a pitch that glides, as a voice's does.
+    pitch = 1045 + 150 * np.sin(2 * np.pi * 0.7 * t)
+    loud = np.repeat(rng.uniform(0.2, 1.0, 20), len(t) // 20 + 1)[:len(t)]
+    speech = quiet + np.sin(2 * np.pi * np.cumsum(pitch) / 12000) * 6000 * np.abs(np.sin(2 * np.pi * 2.3 * t)) * loud
+    tail = rng.normal(size=12000 * 2) * 6000                               # squelch tail
+    as_clip = lambda x: np.clip(np.concatenate([x, tail]), -32767, 32767).astype(np.int16)
+    assert scanner._steady_keyed_tone(as_clip(morse))
+    assert not scanner._steady_keyed_tone(as_clip(speech))
