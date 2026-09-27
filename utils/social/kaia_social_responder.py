@@ -14,6 +14,7 @@ import re
 import random
 import time
 import traceback
+import zlib
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
@@ -373,6 +374,13 @@ async def check_and_reply_mentions(on_message_func):
     return total_replies
 
 
+def mention_channel_id(platform: str, author_id: Any) -> int:
+    """The channel a platform user's mentions are remembered under. crc32, not
+    hash(): hash() is salted per process, so each restart opened a new channel
+    and the saved history was never read again."""
+    return zlib.crc32(f"{platform}_{author_id}".encode())
+
+
 async def mock_external_mention(on_message_func, content: str, author_name: str, author_id: Any, platform: str, parent_text: Optional[str] = None, root_text: Optional[str] = None):
     import uuid
     from utils.infrastructure.system.messaging import MockMessage, MockUser, MockChannel
@@ -393,8 +401,7 @@ async def mock_external_mention(on_message_func, content: str, author_name: str,
 
     # Use unified Mock infrastructure
     mock_author = MockUser(id=author_id, name=author_name, display_name=author_name)
-    # Stable int hash for channel ID ensures memory persistence across runs
-    channel_id = abs(hash(f"{platform}_{author_id}")) % 10**12
+    channel_id = mention_channel_id(platform, author_id)
     mock_channel = MockChannel(id=channel_id, name=f"{platform}_mentions")
     
     msg = MockMessage(content=content, author=mock_author, channel=mock_channel, platform=platform)
