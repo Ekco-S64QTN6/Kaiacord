@@ -25,7 +25,15 @@ def test_the_seed_names_the_listed_channels(monkeypatch):
     assert ledger.channel(462_562_500)["label"] == "FRS/GMRS ch 1"
 
 
+def _hiss(seconds: float) -> np.ndarray:
+    """FM with nothing on the channel: loud noise rising with frequency."""
+    rng = np.random.default_rng(1)
+    return (np.diff(rng.normal(size=int(12000 * seconds) + 1)) * 5000).astype(np.int16)
+
+
 def _catch(freq, audio, seconds=8.0):
+    # Every hold ends in the squelch tail it waited out.
+    audio = np.concatenate([audio, _hiss(2.0)]) if len(audio) >= 12000 else audio
     return NS(freq_hz=freq, started=datetime(2026, 9, 26, 2, 30).timestamp(), seconds=seconds,
               peak_db=20.0, audio=audio)
 
@@ -51,9 +59,27 @@ def test_digital_audio_is_data_and_not_transcribed(monkeypatch):
     monkeypatch.setattr(scanner, "_transcribe", lambda a: called.append(1) or "")
     # FM-demodulated digital audio rises with frequency (the Fusion repeater on
     # 444.200 measured 73% above 3 kHz); differentiated noise has that shape.
-    noise = (np.diff(np.random.default_rng(0).normal(size=12000 * 5 + 1)) * 5000).astype(np.int16)
+    # Under a carrier, well below the hiss of an empty channel.
+    noise = (np.diff(np.random.default_rng(0).normal(size=12000 * 5 + 1)) * 1000).astype(np.int16)
     scanner.classify(_catch(444_200_000, noise, seconds=5))
     assert ledger.recent(1)[0]["kind"] == "data" and not called
+
+
+def test_static_is_ledgered_as_noise_and_never_transcribed_or_kept(monkeypatch):
+    """Hiss that trips the trigger has no carrier under it; Whisper would
+    write words onto it ("We'll be right back." on 445.51)."""
+    called, saved = [], []
+    monkeypatch.setattr(scanner, "_transcribe", lambda a: called.append(1) or "we'll be right back")
+    monkeypatch.setattr(scanner, "_save_clip", lambda *a: saved.append(1) or "clip.ogg")
+    scanner.classify(_catch(445_510_000, _hiss(8.0)))
+    rows = ledger.catches_since(0)
+    assert not called and not saved and not rows and not (ledger.channel(445_510_000) or {}).get("hits")
+
+
+def test_a_digital_channel_is_not_taken_for_static(monkeypatch):
+    monkeypatch.setattr(scanner, "_cfg", lambda k, d: [{"mhz": 444.2, "mode": "digital"}] if k == "channels" else d)
+    scanner.classify(_catch(444_200_000, _hiss(5.0), seconds=5))
+    assert ledger.recent(1)[0]["kind"] == "data"
 
 
 @pytest.mark.parametrize("hhmm,inside", [("00:05", True), ("05:59", True), ("06:00", False), ("23:30", False)])
@@ -247,16 +273,18 @@ class _SimDongle:
         x = self.noise[o:o + n].copy()
         if self.noise_step and self.t >= self.noise_step[0]:
             x *= self.noise_step[1]
-        for f, start, dur in self.txs:
+        for f, start, dur, *kind in self.txs:
             off = f - self.center
             if abs(off) < w.FS / 2 and start < t[-1] and start + dur > t[0]:
                 on = (t >= start) & (t < start + dur)
-                x += (self.amp * on * np.exp(1j * (2 * np.pi * off * t + 3.75 * np.sin(2 * np.pi * 800 * t)))).astype(np.complex64)
+                # A tone, or a voice: the same tone swelling and fading at a syllable rate.
+                dev = 3.75 * (0.1 + np.abs(np.sin(2 * np.pi * 2.5 * t))) if kind == ["voice"] else 3.75
+                x += (self.amp * on * np.exp(1j * (2 * np.pi * off * t + dev * np.sin(2 * np.pi * 800 * t)))).astype(np.complex64)
         self.t += n / w.FS
         return x
 
 
-def _simulate(monkeypatch, txs, seconds, snr_db=20, noise_step=None):
+def _simulate(monkeypatch, txs, seconds, snr_db=20, noise_step=None, sink=None):
     import threading
     import utils.radio.dongle as dongle
     from utils.radio import waterfall as w
@@ -265,7 +293,7 @@ def _simulate(monkeypatch, txs, seconds, snr_db=20, noise_step=None):
     monkeypatch.setattr(w, "time", NS(time=lambda: d.t))
     monkeypatch.setattr(dongle, "Dongle", lambda **k: d)
     caught = []
-    watcher = w.Watcher(caught.append, stop=d.stop, hops=w.hop_plan([c["freq_hz"] for c in scanner.seed_channels()]))
+    watcher = w.Watcher(caught.append, stop=d.stop, sink=sink, hops=w.hop_plan([c["freq_hz"] for c in scanner.seed_channels()]))
     watcher.run()
     import time as _t
     _t.sleep(0.2)                                   # the catch worker drains
@@ -283,6 +311,33 @@ def test_the_waterfall_hears_what_the_old_plan_missed(monkeypatch):
     assert sum(1 for c in caught if abs(c.freq_hz - 146_860_000) < 5000) == 2       # the over and its reply
     for f in (147_000_000, 463_850_000, 443_675_000, 445_000_000, 160_425_000):
         assert any(abs(g - f) <= 5000 for g in freqs), f
+
+
+def test_a_conversation_is_followed_into_one_recording(monkeypatch):
+    """Voice keeps the watch on the channel for the reply; each over within
+    FOLLOW_IDLE_S joins the same catch, the gaps cut to SILENCE_S, and the
+    listener hears silence rather than hiss between overs. An over after the
+    channel has sat idle is a new catch."""
+    from utils.radio import waterfall as w
+    heard = []
+    txs = [(146_860_000, 40, 6, "voice"), (146_860_000, 52, 5, "voice"), (146_860_000, 63, 4, "voice"),
+           (146_860_000, 100, 5, "voice")]
+    _, caught = _simulate(monkeypatch, txs, 125, sink=heard.append)
+    mine = [c for c in caught if abs(c.freq_hz - 146_860_000) < 5000]
+    assert len(mine) == 2
+    first = mine[0]
+    assert first.seconds >= 63 + 4 - 40 + w.FOLLOW_IDLE_S - 3            # stayed through the replies, then waited
+    kept = len(first.audio) / w.AUDIO_FS
+    assert 15 - 2 <= kept <= 15 + 3 * (w.SILENCE_S + 0.5)                # three overs, gaps trimmed
+    assert w.voice_like(first.audio) and any(not c.any() for c in heard if len(c) == w.AUDIO_FS // 5)
+
+
+def test_a_data_burst_is_not_followed(monkeypatch):
+    """A steady tone is not voice: the watch goes back to hopping after it."""
+    from utils.radio import waterfall as w
+    _, caught = _simulate(monkeypatch, [(146_860_000, 40, 4)], 60)
+    c = next(c for c in caught if abs(c.freq_hz - 146_860_000) < 5000)
+    assert not w.voice_like(c.audio) and c.seconds < 4 + w.SILENCE_S + 2
 
 
 def test_noise_alone_is_never_a_catch(monkeypatch):
@@ -360,3 +415,23 @@ def test_the_band_notebook_describes_what_was_heard_and_keeps_the_notes(tmp_path
     assert "meadows road" in text
     assert "not speech" in text                                          # the Whisper sign-off is flagged
     assert text.rstrip().endswith("the 462.275 thing is the water tower")
+
+
+def test_scanner_scan_joins_the_callers_voice_channel(monkeypatch):
+    """`!scanner scan` is the 🎧 button typed: the same listen-along."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from utils.commands import scanner_handler as sh
+    from utils.radio import rtl
+    started = []
+    monkeypatch.setattr(rtl, "available", lambda: True)
+    monkeypatch.setattr(scanner, "start_listen_along", AsyncMock(side_effect=lambda v, t, who: started.append((v, who))))
+    vc = MagicMock()
+    vc.name = "Night Shift"
+    msg = MagicMock(content="!scanner scan")
+    msg.author.voice.channel = vc
+    msg.author.display_name = "ekco"
+    msg.channel.send = AsyncMock()
+    asyncio.run(sh.handle_scanner_command(None, msg))
+    assert started == [(vc, "ekco")]
+    assert "Night Shift" in msg.channel.send.call_args.kwargs["embed"].description

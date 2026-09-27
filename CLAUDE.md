@@ -563,6 +563,12 @@ it, and classifies it — voice, data or carrier — into `memory/radio/local_le
   slice's median rise: a household noise source lifted whole slices 10+ dB, and the watch held a
   minute of hiss on frequency after frequency, deaf meanwhile, because the floor adapts only through
   visits and holds block visits.
+- **Voice is followed; hiss is not kept.** After an over that `waterfall.voice_like` passes (the
+  voice band swinging under a carrier; data and tones sit flat), `_hold` stays on the channel and
+  records each reply into the same catch until `FOLLOW_IDLE_S` of quiet. A catch whose audio never
+  quiets against its own squelch tail (`carrier_seconds`) is ledgered as `noise`: not transcribed,
+  not clipped, not a channel. Measure a catch over `carried_audio` — its tail and gaps are hiss,
+  which has the digital shape.
 - **Every process that holds the dongle dies with the bot.** The bot exits by `os._exit`, which skips
   multiprocessing's cleanup; an orphaned watcher kept the dongle through two restarts. `child_main`
   and `rtl.open_stream` arm `PR_SET_PDEATHSIG`.

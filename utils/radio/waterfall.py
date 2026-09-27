@@ -47,6 +47,14 @@ COOLDOWN_S = 3.0
 LONG_COOLDOWN_S = 30 * 60        # after a hold that ran the whole MAX_HOLD_S: a near-constant carrier
 COOLDOWN_SPAN_HZ = 12_500        # one channel, whichever 2.5 kHz step a wide signal rounds to
 AUDIO_FS = 12_000
+# Following a conversation: once an over that sounds like voice ends, the
+# watch stays on the channel for the reply, recording each over into the same
+# catch, and goes back to hopping after FOLLOW_IDLE_S with nothing on it.
+FOLLOW_IDLE_S = 15.0
+FOLLOW_MAX_S = 300.0
+QUIET_DB = 6.0                   # hiss this far under the recording's own squelch tail: a carrier is up
+VOICE_SWING_DB = 3.0             # voice-band level spread under a carrier: speech swings, data and tones sit flat
+SQUELCH_S = 0.4                  # a listener hears silence, not hiss, this long after a channel drops
 
 MHZ = 1_000_000
 #: The bands people talk on, visited every pass: (low, high) in Hz.
@@ -177,6 +185,59 @@ _TICK = np.concatenate([
     np.zeros(AUDIO_FS // 12, np.int16)])
 
 
+FRAME = AUDIO_FS // 50                                        # 20 ms
+
+
+def _frame_levels(audio: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per 20 ms frame of demodulated audio: the hiss level above 3.2 kHz and
+    the voice-band level, both in dB."""
+    k = len(audio) // FRAME
+    if not k:
+        return np.zeros(0), np.zeros(0)
+    frames = audio[:k * FRAME].astype(float).reshape(k, FRAME) * np.hanning(FRAME)
+    sp = np.abs(np.fft.rfft(frames, axis=1)) ** 2
+    f = np.fft.rfftfreq(FRAME, 1 / AUDIO_FS)
+    hiss = 10 * np.log10(sp[:, f > 3200].sum(axis=1) + 1e-9)
+    voice = 10 * np.log10(sp[:, (f >= 300) & (f <= 2500)].sum(axis=1) + 1e-9)
+    return hiss, voice
+
+
+def carried(audio: np.ndarray, tail_s: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+    """Which frames had a carrier under them, and the voice-band levels.
+
+    FM demodulates to loud hiss with nothing on the channel and goes quiet
+    under a carrier. Every hold ends in the squelch tail it waited out, so the
+    recording's last second is its own reference for "nothing there"; a clip
+    of static never quiets against it."""
+    hiss, voice = _frame_levels(audio)
+    n = int(tail_s * 50)
+    if len(hiss) < 2 * n:
+        return np.zeros(len(hiss), bool), voice
+    return hiss < np.median(hiss[-n:]) - QUIET_DB, voice
+
+
+def carried_audio(audio: np.ndarray) -> np.ndarray:
+    """Only the frames with a carrier under them: what a measure of the
+    signal should see, without the squelch tail and the gaps between overs."""
+    on, _ = carried(audio)
+    k = len(on)
+    return audio[:k * FRAME].reshape(k, FRAME)[on].ravel() if k else audio[:0]
+
+
+def carrier_seconds(audio: np.ndarray) -> float:
+    return float(carried(audio)[0].sum()) / 50
+
+
+def voice_like(audio: np.ndarray) -> bool:
+    """Speech under a carrier, from level alone: syllables swing the voice
+    band several dB, where a data burst, a tone or a dead carrier holds flat.
+    Measured on the 27 Sept clips, voice spread 4.2–9.7 dB and data 0.4–1.8."""
+    on, voice = carried(audio)
+    if on.sum() < 50:
+        return False
+    return float(np.std(voice[on])) >= VOICE_SWING_DB
+
+
 @dataclass
 class Catch:
     freq_hz: int
@@ -244,30 +305,50 @@ class Watcher:
         return freq, float(over[best])
 
     def _hold(self, dongle, center: int, freq: int, peak_db: float) -> Catch:
-        """Record the channel until it's been quiet SILENCE_S, or MAX_HOLD_S."""
+        """Record the channel until it's been quiet SILENCE_S, or MAX_HOLD_S.
+
+        If what was recorded sounds like voice, stay for the reply: each over
+        that follows within FOLLOW_IDLE_S goes into the same catch, with only
+        SILENCE_S of each gap kept, until the channel has been idle that long
+        or FOLLOW_MAX_S has passed."""
         demod = NbfmDemod(freq - center)
         s = self.slices[center]
         floor = np.percentile(np.array(s.history), FLOOR_PCT, axis=0)
         idx = int(np.argmin(np.abs(_bin_freqs(center) - freq)))
         valid = _valid_mask(center)
         chunks, quiet, started = [], 0.0, time.time()
+        follow = constant = False
         chunk_n = FS // 5                                      # 0.2 s
-        while not self.stop.is_set() and time.time() - started < MAX_HOLD_S:
+        while not self.stop.is_set():
             iq = dongle.read(chunk_n)
-            chunks.append(demod(iq))
-            if self.sink:
-                self.sink(chunks[-1])
+            audio = demod(iq)
             over = _smooth_spectrum(iq) - floor
             # Over the slice's own rise, as the trigger is: against the floor
             # alone, a hold begun during a rise in the noise never went quiet.
             level = over[idx] - np.median(over[valid])
-            quiet = quiet + 0.2 if level < GATE_DB - 3 else 0.0
             if quiet >= SILENCE_S:
+                # Between overs only a full key-up, as the trigger takes, resumes.
+                quiet = 0.0 if level > GATE_DB else quiet + 0.2
+            else:
+                quiet = quiet + 0.2 if level < GATE_DB - 3 else 0.0
+            if quiet <= SILENCE_S:
+                chunks.append(audio)
+            if self.sink:
+                self.sink(audio if quiet < SQUELCH_S else np.zeros_like(audio))
+            held = time.time() - started
+            if not follow:
+                if held >= MAX_HOLD_S:
+                    constant = True                            # keyed the whole minute
+                    break
+                if quiet >= SILENCE_S:
+                    if not voice_like(np.concatenate(chunks)):
+                        break
+                    follow = True
+            elif quiet >= SILENCE_S + FOLLOW_IDLE_S or held >= FOLLOW_MAX_S:
                 break
-        held = time.time() - started
         # Held the whole time: something near-constant (425.950 ran the full
         # minute eight times in an hour). Leave it for half an hour.
-        self.cooldown[freq] = time.time() + (LONG_COOLDOWN_S if held >= MAX_HOLD_S - 0.5 else COOLDOWN_S)
+        self.cooldown[freq] = time.time() + (LONG_COOLDOWN_S if constant else COOLDOWN_S)
         s.persist = None
         audio = np.concatenate(chunks) if chunks else np.zeros(0, np.int16)
         return Catch(freq, started, time.time() - started, peak_db, audio)

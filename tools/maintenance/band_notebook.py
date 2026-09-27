@@ -52,6 +52,11 @@ def _rows() -> tuple[list[dict], list[dict]]:
     return channels, events
 
 
+def _split(events: list[dict]) -> tuple[list[dict], int]:
+    """Catches, and how many trips were hiss with no carrier (kind noise)."""
+    return [e for e in events if e["kind"] != "noise"], sum(1 for e in events if e["kind"] == "noise")
+
+
 def clip_profile(clip: Path) -> dict | None:
     """What a clip holds, measured in 50 ms frames: how long a carrier was
     present (the demodulated noise above 3 kHz goes quiet under a signal), how
@@ -165,6 +170,7 @@ def _what(freq: int, ch: dict, evs: list[dict], prof: dict | None) -> str:
 
 def build() -> str:
     channels, events = _rows()
+    events, noise = _split(events)
     by_freq = defaultdict(list)
     for e in events:
         by_freq[e["freq_hz"]].append(e)
@@ -199,7 +205,9 @@ def build() -> str:
         f"Everything the RTL-SDR scanner has heard around the station, from its ledger "
         f"({len(events)} catches on {len(entries)} frequencies, {first} to {last}). "
         f"Regenerate with `python tools/maintenance/band_notebook.py --write`; the notes at the "
-        f"bottom are kept.",
+        f"bottom are kept."
+        + (f" Another {noise} trips of the trigger were hiss with no carrier in the audio and are "
+           f"left out." if noise else ""),
         "",
         "Frequencies are what the scanner snapped the catch to (5 kHz amateur, 6.25 kHz land-mobile "
         "grid), so a transmitter can appear on a neighbouring step. \"Carrier\" means the scanner "

@@ -2,6 +2,7 @@
 
 !scanner            the panel: what the scanner is, its status, a dropdown of
                     presets from the ledger, Listen / Off / History / Refresh
+!scanner scan       join your voice channel and scan out loud (the 🎧 button)
 !scanner history    the latest catches
 !scanner off        stop listening
 """
@@ -162,22 +163,14 @@ class ScannerView(discord.ui.View):
     async def along(self, interaction: discord.Interaction, _button):
         """Hear the scan as it happens: a tick per hop, the channel when it holds,
         each catch posted here."""
-        from utils.radio import rtl, scanner
+        from utils.radio import rtl
         member = interaction.user
         if not getattr(member, "voice", None) or not member.voice.channel:
             return await interaction.response.send_message("Join a voice channel first.", ephemeral=True)
         if not rtl.available():
             return await interaction.response.send_message("The RTL-SDR isn't connected.", ephemeral=True)
         await interaction.response.defer()
-        try:
-            await scanner.start_listen_along(member.voice.channel, interaction.channel, member.display_name)
-        except Exception as e:
-            log_error(f"[scanner] listen along failed: {e}")
-            return await interaction.followup.send(embed=box("📻  Scanner", clean(str(e), 200), COLOR_ERROR))
-        await interaction.followup.send(embed=box(
-            "🎧  Listening along", f"I'm in **{member.voice.channel.name}** scanning the bands. You'll hear a "
-            "soft tick each time I step, and the channel itself whenever something keys up — I'll post each "
-            "catch here as I log it. ⏹ Off to stop.", COLOR_SCANNER))
+        await interaction.followup.send(embed=await _listen_along(member, interaction.channel))
 
     @discord.ui.button(label="⏹ Off", style=discord.ButtonStyle.danger, row=1)
     async def off(self, interaction: discord.Interaction, _button):
@@ -198,6 +191,21 @@ class ScannerView(discord.ui.View):
         await interaction.response.edit_message(embed=panel_embed(), view=ScannerView(ledger.presets()))
 
 
+async def _listen_along(member, text_channel) -> discord.Embed:
+    """Join the member's voice channel and scan out loud; the reply to post."""
+    from utils.radio import scanner
+    try:
+        await scanner.start_listen_along(member.voice.channel, text_channel, member.display_name)
+    except Exception as e:
+        log_error(f"[scanner] listen along failed: {e}")
+        return box("📻  Scanner", clean(str(e), 200), COLOR_ERROR)
+    return box(
+        "🎧  Listening along", f"I'm in **{member.voice.channel.name}** scanning the bands. You'll hear a "
+        "soft tick each time I step, and the channel itself whenever something keys up. When it's voice I "
+        "stay for the replies until the channel's been quiet a while, then go back to searching. I'll post "
+        "each catch here as I log it. `!scanner off` to stop.", COLOR_SCANNER)
+
+
 async def handle_scanner_command(ctx, msg, send_kaia_response=None):
     from utils.radio import ledger, live, scanner
     parts = msg.content.strip().split()
@@ -209,6 +217,14 @@ async def handle_scanner_command(ctx, msg, send_kaia_response=None):
             catches = _recorded()
             return await msg.channel.send(embed=history_embed(20),
                                           **({"view": HistoryView(catches)} if catches else {}))
+        if verb in ("scan", "along", "listen"):
+            from utils.radio import rtl
+            member = msg.author
+            if not getattr(member, "voice", None) or not member.voice.channel:
+                return await msg.channel.send(embed=box("📻  Scanner", "Join a voice channel first.", COLOR_SCANNER))
+            if not rtl.available():
+                return await msg.channel.send(embed=box("📻  Scanner", "The RTL-SDR isn't connected.", COLOR_SCANNER))
+            return await msg.channel.send(embed=await _listen_along(member, msg.channel))
         if verb == "off":
             stopped = msg.guild and (await live.stop(msg.guild.id) | await scanner.stop_listen_along(msg.guild.id))
             return await msg.channel.send(embed=box("📻  Scanner", "off the air." if stopped else "nothing was playing.",

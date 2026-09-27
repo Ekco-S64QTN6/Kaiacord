@@ -116,8 +116,11 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   business and 900 MHz in rotation, and records anything that keys up into a ledger of frequencies
   and active hours. The hop plan is built around the channels listed in `radio.local.channels`, so
   none sits in a slice's blind centre. Voice and data keep their recording; so does the first carrier
-  each channel sends a night, so a "carrier" can be listened to. The panel has a presets dropdown,
-  ▶ Listen (live in voice), 🎧 Listen along (hear her scan), and History with recordings to replay.
+  each channel sends a night, so a "carrier" can be listened to. When a transmission sounds like
+  voice she stays on the channel for the replies, recording the whole exchange as one clip, and goes
+  back to searching once it has been quiet 15 s. A trip of the trigger with no carrier in the audio
+  (hiss) is neither transcribed nor kept. The panel has a presets dropdown, ▶ Listen (live in voice),
+  🎧 Listen along (hear her scan; `!scanner scan` typed), and History with recordings to replay.
   Nets listed in `radio.local.nets` are watched for their whole window.
 
 Recording and transcription need a one-time `python tools/maintenance/fetch_radio_assets.py`.

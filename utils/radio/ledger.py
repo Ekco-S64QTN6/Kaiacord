@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS events (
     freq_hz     INTEGER,
     ts          REAL,
     seconds     REAL,
-    kind        TEXT,              -- 'voice' | 'data' | 'carrier'
+    kind        TEXT,              -- 'voice' | 'data' | 'carrier' | 'noise' (hiss that tripped the trigger)
     rms         REAL,
     hf_ratio    REAL,
     clip        TEXT,
@@ -86,6 +86,12 @@ def record(freq_hz: int, kind: str, seconds: float, rms: float, hf_ratio: float,
     when = when or time.time()
     hour = time.localtime(when).tm_hour
     with _lock, _db() as con:
+        if kind == "noise":
+            # Hiss is not a channel: it's kept as an event, for counting how
+            # often the trigger trips, and never adds a row or a hit.
+            con.execute("INSERT INTO events (freq_hz, ts, seconds, kind, rms, hf_ratio, clip, transcript) "
+                        "VALUES (?, ?, ?, ?, ?, ?, NULL, '')", (int(freq_hz), when, seconds, kind, rms, hf_ratio))
+            return
         con.execute("INSERT OR IGNORE INTO channels (freq_hz, band, service, label, source, first_seen) "
                     "VALUES (?, ?, ?, '', 'found', ?)", (int(freq_hz), band, service, when))
         row = con.execute("SELECT hours, first_seen FROM channels WHERE freq_hz = ?", (int(freq_hz),)).fetchone()
@@ -108,7 +114,7 @@ def catches_since(ts: float) -> list[dict]:
     display and stops at its limit, which a busy night passes."""
     with _lock, _db() as con:
         return [dict(r) for r in con.execute(
-            "SELECT freq_hz, kind, ts FROM events WHERE ts >= ? ORDER BY ts", (float(ts),))]
+            "SELECT freq_hz, kind, ts FROM events WHERE ts >= ? AND kind != 'noise' ORDER BY ts", (float(ts),))]
 
 
 def forget_clips(names: list[str]) -> None:

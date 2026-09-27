@@ -221,6 +221,11 @@ def _transcribe(audio) -> str:
 
 
 MIN_CATCH_S = 1.5
+# Under this much carrier in the audio a catch was hiss that tripped the
+# trigger: nothing is transcribed or kept, and it's ledgered as noise. A
+# channel configured `mode: digital` is exempt: its audio is hiss-shaped. The
+# shortest real burst on 27 Sept (463.5125) held 0.3 s; static held 0.0.
+STATIC_BELOW_S = 0.25
 
 
 def looks_like_speech(text: str) -> bool:
@@ -272,11 +277,23 @@ def classify(catch) -> None:
     if not _NAMED_CACHE.get("rows"):
         _NAMED_CACHE["rows"] = [c["freq_hz"] for c in seed_channels()]
     catch.freq_hz = snap_channel(catch.freq_hz)
-    m = rtl.measure(catch.audio, catch.freq_hz)
+    net = _on_net(catch.freq_hz)
+    from utils.radio.waterfall import carried_audio
+    signal = carried_audio(catch.audio)
+    digital = any(c.get("mode") == "digital" and abs(c["freq_hz"] - catch.freq_hz) <= 3000 for c in seed_channels())
+    # Measured over the carrier alone: the squelch tail and the gaps of a
+    # followed conversation are hiss, which has a digital mode's shape.
+    m = rtl.measure(catch.audio if digital else signal, catch.freq_hz)
+    if not net and not digital and len(signal) / rtl.SAMPLE_RATE < STATIC_BELOW_S:
+        # Whisper writes words onto static ("We'll be right back." on 445.51),
+        # so it never gets the chance.
+        ledger.record(catch.freq_hz, "noise", round(catch.seconds, 1), m.rms, m.hf_ratio, None, "",
+                      _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started)
+        log_debug(f"[scanner] noise on {catch.freq_hz / MHZ:.4f} MHz, {catch.seconds:.0f}s: no carrier in the audio")
+        return
     known = ledger.channel(catch.freq_hz) or {}
     # A channel that keys up every minute with no words (telemetry, a trunked
     # system's data) would spend the night's transcriptions in an hour.
-    net = _on_net(catch.freq_hz)
     quiet_channel = not net and known.get("hits", 0) >= QUIET_CHANNEL_HITS and not known.get("voice") \
         and known.get("hits", 0) % RECHECK_EVERY
     kind, transcript = ("data" if m.digital else "carrier"), ""
