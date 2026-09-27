@@ -181,47 +181,74 @@ def looks_like_eam(transcript: str) -> bool:
     return sum(c in low for c in cues) >= 2
 
 
-def _tonal(wav: Path) -> bool:
-    """A steady narrowband tone in the speech band — Morse, a buzzer, a
-    signalling tone: in a good share of half-second frames, one bin stands
-    20 dB over the frame's median."""
+def keyed_tone(wav: Path) -> dict:
+    """Is there a keyed tone — Morse, a signalling tone — and how sure.
+
+    Two tests, because each alone kept static:
+    - the tone stands out within the recording's own passband. Measured
+      against the whole 300–3000 Hz band, CW mode's ~450 Hz filter made every
+      recording "tonal": the empty band outside the filter is the median, so
+      whatever noise the filter passed towered over it. An M12 slot of pure
+      static was kept and posted that way.
+    - it switches on and off. A stray carrier in static stands out too, and
+      kept an E11 slot on a steady 1500 Hz whistle.
+    Returns {"keyed": bool, "prominence_db", "on_share", "keys_per_min", "hz"}."""
     import wave as _wave
     import numpy as np
+    out = {"keyed": False, "prominence_db": 0.0, "on_share": 0.0, "keys_per_min": 0.0, "hz": 0}
     try:
         with _wave.open(str(wav), "rb") as w:
             rate = w.getframerate()
             a = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(float)
     except Exception:
-        return False
-    n = rate // 2
-    hits = frames = 0
-    for i in range(0, len(a) - n, n):
-        spec = np.abs(np.fft.rfft(a[i:i + n] * np.hanning(n))) ** 2
-        f = np.fft.rfftfreq(n, 1 / rate)
-        band = spec[(f > 300) & (f < 3000)]
-        if len(band) == 0:
-            continue
-        frames += 1
-        if 10 * np.log10(band.max() / (np.median(band) + 1e-9)) > 20:
-            hits += 1
-    return frames > 0 and hits / frames > 0.15
+        return out
+    n = rate // 20                                        # 50 ms frames
+    frames = len(a) // n
+    if frames < 40:
+        return out
+    win = np.hanning(n)
+    spec = np.abs(np.fft.rfft(a[:frames * n].reshape(frames, n) * win, axis=1)) ** 2
+    f = np.fft.rfftfreq(n, 1 / rate)
+    avg = spec.mean(axis=0)
+    speech = (f > 300) & (f < 3000)
+    peak = int(np.argmax(np.where(speech, avg, 0)))
+    # The passband: bins the receiver's filter let through (within 30 dB of the
+    # loudest), found with the tone masked out, so a clean tone's own skirt
+    # doesn't become the reference it is measured against.
+    rest = speech.copy()
+    rest[max(0, peak - 5):peak + 6] = False
+    if rest.sum() < 3:
+        return out
+    passband = rest & (avg > avg[rest].max() / 1000)
+    out["hz"] = int(f[peak])
+    out["prominence_db"] = round(float(10 * np.log10(avg[peak] / np.median(avg[passband]))), 1)
+    env = 10 * np.log10(spec[:, max(0, peak - 1):peak + 2].sum(axis=1) + 1e-9)
+    on = env > np.percentile(env, 20) + 8
+    out["on_share"] = round(float(on.mean()), 2)
+    out["keys_per_min"] = round(float(np.count_nonzero(np.diff(on.astype(int)) == 1) / (frames * 0.05 / 60)), 1)
+    # 8 dB: weak synthetic Morse measures ~9, the E11 whistle 5.3.
+    out["keyed"] = bool(out["prominence_db"] >= 8 and 0.1 <= out["on_share"] <= 0.9
+                        and out["keys_per_min"] >= 20)
+    return out
 
 
-def numbers_signal(wav: Path) -> str:
+def numbers_signal(wav: Path) -> tuple[str, dict]:
     """Why a number-station recording is worth keeping — "tones" or "speech" —
-    or '' for static. A scheduled station that doesn't show, or doesn't
-    propagate, records seven minutes of noise, and that was being posted."""
-    if _tonal(wav):
-        return "tones"
+    or '' for static, with the measurements behind the verdict. A scheduled
+    station that doesn't show, or doesn't propagate, records seven minutes of
+    noise, and that was being posted."""
+    tone = keyed_tone(wav)
+    if tone["keyed"]:
+        return "tones", tone
     if transcribe.available():
         try:
             text = transcribe.transcribe_speech(wav, language=None)
         except Exception as e:
             log_warning(f"[radio] speech check failed for {wav.name}: {e}")
-            return "unchecked"
+            return "unchecked", tone
         if len(text.split()) >= 3 and len(set(text.lower().split())) / len(text.split()) >= 0.3:
-            return "speech"
-    return ""
+            return "speech", {**tone, "words": len(text.split())}
+    return "", tone
 
 
 async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: datetime) -> Optional[dict]:
@@ -237,10 +264,13 @@ async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: dateti
             transcript = await transcribe.transcribe(wav, language="en")
         except Exception as e:
             log_warning(f"[radio] transcription failed for {wav.name}: {e}")
+    heard, measured = "", None
     if job["kind"] == "numbers":
-        heard = await asyncio.to_thread(numbers_signal, wav)
+        heard, measured = await asyncio.to_thread(numbers_signal, wav)
         if not heard:
-            log_info(f"[radio] {job['station']} on {job['khz']:g} kHz: nothing but static — not kept")
+            log_info(f"[radio] {job['station']} on {job['khz']:g} kHz: nothing but static — not kept "
+                     f"(tone {measured['prominence_db']:+.0f} dB, on {measured['on_share']:.0%}, "
+                     f"{measured['keys_per_min']:.0f} keys/min; no speech)")
             wav.unlink(missing_ok=True)
             return None
     parsed = None
@@ -263,6 +293,9 @@ async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: dateti
         "started": started.isoformat(), "seconds": round(seconds, 1), "clip": clip.name,
         "transcript": transcript, "parsed": parsed, "check": None, "posted": False,
     }
+    if heard:
+        # Why it was kept, so a clip can be audited against the verdict.
+        entry["heard"], entry["measured"] = heard, measured
     radio_log.add(entry)
     return entry
 
@@ -334,7 +367,13 @@ async def run_job(job: dict, poster=None) -> list[dict]:
                  f"{len(wavs)} recording(s)")
         entries = []
         for wav in wavs:
-            entry = await process(job, wav, receiver, heard_at(wav, started))
+            try:
+                entry = await process(job, wav, receiver, heard_at(wav, started))
+            except Exception as e:
+                # One bad file must not strand the rest in work/ or end the job.
+                log_warning(f"[radio] processing {wav.name} failed: {type(e).__name__}: {e}")
+                wav.unlink(missing_ok=True)
+                continue
             if entry:
                 entries.append(entry)
                 if poster:

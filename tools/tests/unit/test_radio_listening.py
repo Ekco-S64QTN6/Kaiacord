@@ -252,9 +252,10 @@ def test_a_number_station_is_kept_as_a_recording_without_a_transcript(tmp_path):
     """Whisper looped on E11's digit groups — "8-1-4-0-8-0-0" forty times,
     "he was born on the hill". The catch is posted as a recording instead."""
     from utils.commands import radio_handler as rh
-    p = tmp_path / "e11.wav"
-    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=40",
-                    "-ar", "12000", str(p)], check=True)
+    import numpy as np
+    t = np.arange(12000 * 40) / 12000
+    p = _wav(tmp_path, "e11.wav", np.sin(2 * np.pi * 800 * t) * 8000 * ((t * 4).astype(int) % 2)
+             + np.random.default_rng(4).normal(size=t.size) * 300)
     rec = kiwi.Receiver("h", 8073, "n", "loc", 0, 0, 0, 8, 10, 0, 30_000_000)
     job = {"kind": "numbers", "station": "E11", "khz": 9951.0, "mode": "usb"}
     with patch.object(watch.transcribe, "available", return_value=True), \
@@ -297,9 +298,40 @@ def test_a_recorder_dies_with_the_process_that_started_it(tmp_path):
 
 
 def test_every_recorder_spawn_dies_with_its_parent():
-    src = Path("utils/radio/kiwi.py").read_text(encoding="utf-8")
-    spawns = src.count("create_subprocess_exec(") + src.count("subprocess.Popen(")
-    assert spawns and src.count("preexec_fn=_die_with_parent") == spawns
+    for f in ("utils/radio/kiwi.py", "utils/radio/rtl.py"):
+        src = Path(f).read_text(encoding="utf-8")
+        spawns = src.count("create_subprocess_exec(") + src.count("subprocess.Popen(")
+        assert spawns and src.count("preexec_fn=_die_with_parent") == spawns, f
+
+
+def test_the_scanner_child_dies_with_the_bot():
+    """The bot exits by os._exit, which skips multiprocessing's cleanup: an
+    orphaned watcher held the dongle and every watch after a restart failed
+    "busy or could not be opened"."""
+    src = Path("utils/radio/waterfall.py").read_text(encoding="utf-8")
+    body = src.split("def child_main(")[1]
+    assert body.index("_die_with_parent()") < body.index("Watcher(")
+
+
+def test_a_failed_voice_join_closes_the_receiver_stream(monkeypatch):
+    """The stream held a slot on someone's KiwiSDR with nothing left to stop it."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from utils.radio import live
+    rec = kiwi.Receiver("rx", 8073, "rx", "", 50, 0, 0, 4, 20, 0, 30_000_000)
+    closed = []
+    monkeypatch.setattr(kiwi, "directory", AsyncMock(return_value=[rec]))
+    monkeypatch.setattr(kiwi, "choose", lambda *a, **k: [rec])
+    monkeypatch.setattr(kiwi, "open_stream", lambda *a: MagicMock())
+    monkeypatch.setattr(kiwi, "first_audio", lambda p: True)
+    monkeypatch.setattr(kiwi, "close_stream", lambda p: closed.append(p))
+    monkeypatch.setattr(live, "free_voice", AsyncMock())
+    channel = MagicMock()
+    channel.guild.voice_client = None
+    channel.connect = AsyncMock(side_effect=RuntimeError("voice gateway timeout"))
+    with pytest.raises(RuntimeError, match="voice gateway"):
+        asyncio.run(live.start(channel, 8992, "usb", "na", "HFGCS", "tester"))
+    assert len(closed) == 1 and not live.active()
 
 
 FAKE_RECORDER = '''
@@ -311,6 +343,9 @@ if "--crash" in open(os.path.join(os.path.dirname(__file__), "mode")).read():
     sys.exit(0)
 with open(os.path.join(out, "20260925T000000Z_8423000_e11_usb.wav"), "wb") as f:
     f.write(b"\\0" * 12000 * 2 * 5)
+if "--short" in open(os.path.join(os.path.dirname(__file__), "mode")).read():
+    with open(os.path.join(out, "20260925T000100Z_8423000_e11_usb.wav"), "wb") as f:
+        f.write(b"\\0" * 12000 * 2 * 1)
 '''
 
 
@@ -336,6 +371,32 @@ def test_a_recording_lands_in_a_relative_work_folder(tmp_path, monkeypatch):
     wavs = asyncio.run(kiwi.record(r, 8423, "usb", 5, Path("memory/radio/work"), label="e11"))
     assert [w.name for w in wavs] == ["20260925T000000Z_8423000_e11_usb.wav"]
     assert (tmp_path / "memory/radio/work" / wavs[0].name).is_file()
+
+
+def test_a_noise_length_squelch_opening_is_deleted_not_just_skipped(tmp_path, monkeypatch):
+    """Openings under three seconds were left out of the result and left on
+    disk: a one-second HFGCS file sat in memory/radio/work/ from then on."""
+    import asyncio
+    from utils.radio import kiwi
+    r = _fake_kiwiclient(tmp_path, monkeypatch, mode="--short")
+    wavs = asyncio.run(kiwi.record(r, 8992, "usb", 5, tmp_path / "work", label="hfgcs", squelch_db=12))
+    assert [w.name for w in wavs] == ["20260925T000000Z_8423000_e11_usb.wav"]
+    assert sorted(p.name for p in (tmp_path / "work").iterdir()) == [wavs[0].name]
+
+
+def test_a_second_readback_fills_the_first_ones_gaps():
+    """A real HFGCS catch: Whisper heard "message followed", the marker went
+    unrecognised, and only the first readback was used; its "7th, 6th" became
+    '??' though the second read "Seven Six" plainly."""
+    from utils.radio import phonetic
+    t = ("All stations, all stations, this is K-State, K-State, breaks, K-Back, hotel, K-Back, 6, Yankee, Echo, "
+         "standby. Quebec, 6, Yankee, Echo, standby, message followed, Quebec, Hotel, Quebec, 6, Yankee, Echo, 5, 7, "
+         "3, Oscar, 3, Delta, 3, X-Ray, 6, Yankee, Echo, Golf, Oscar, 5, Yankee, Oscar, Oscar, Kilo, Alpha, Yankees, "
+         "7th, 6th, November, Tango, I see you again, Quebec, Hotel, Quebec, 6, Yankee, Echo, 5, 7, 3, Oscar, 3, Delta, "
+         "3, X-Ray, 6, Yankee, Echo Gold Oscar Five Yankee Oscar Oscar Kilo Alpha Yankee Seven Six November Tango "
+         "This is TakeFake out.")
+    p = phonetic.parse(t)
+    assert p.message == "QHQ6YE573O3D3X6YEGO5YOOKAY76NT" and p.uncertain == 0
 
 
 def test_a_recorder_that_quits_with_nothing_is_a_failure(tmp_path, monkeypatch):
@@ -375,8 +436,42 @@ def test_a_number_station_recording_of_static_is_not_kept(tmp_path):
     morse = np.sin(2 * np.pi * 800 * np.arange(12000 * 10) / 12000) * 8000 * (np.arange(12000 * 10) // 3000 % 2)
     with patch.object(watch.transcribe, "available", return_value=True), \
          patch.object(watch.transcribe, "transcribe_speech", return_value=""):
-        assert watch.numbers_signal(_wav(tmp_path, "static.wav", noise)) == ""
-        assert watch.numbers_signal(_wav(tmp_path, "morse.wav", morse + noise * 0.1)) == "tones"
+        assert watch.numbers_signal(_wav(tmp_path, "static.wav", noise))[0] == ""
+        assert watch.numbers_signal(_wav(tmp_path, "morse.wav", morse + noise * 0.1))[0] == "tones"
     with patch.object(watch.transcribe, "available", return_value=True), \
          patch.object(watch.transcribe, "transcribe_speech", return_value="one two three four five one two three"):
-        assert watch.numbers_signal(_wav(tmp_path, "voice.wav", noise)) == "speech"
+        assert watch.numbers_signal(_wav(tmp_path, "voice.wav", noise))[0] == "speech"
+
+
+def _cw_filter(x, rate=12000, lo=470, hi=900):
+    import numpy as np
+    spec = np.fft.rfft(x)
+    f = np.fft.rfftfreq(len(x), 1 / rate)
+    spec[(f < lo) | (f > hi)] *= 1e-4
+    return np.fft.irfft(spec, len(x))
+
+
+def test_static_through_the_cw_filter_is_not_a_tone(tmp_path):
+    """Measured against the whole speech band, CW mode's narrow filter made
+    every recording tonal: an M12 slot of pure static was kept and posted."""
+    import numpy as np
+    noise = _cw_filter(np.random.default_rng(1).normal(size=12000 * 30) * 6000)
+    assert not watch.keyed_tone(_wav(tmp_path, "m12_static.wav", noise))["keyed"]
+
+
+def test_a_steady_carrier_in_static_is_not_a_tone(tmp_path):
+    """A stray whistle stands out but never keys: an E11 slot was kept on one."""
+    import numpy as np
+    t = np.arange(12000 * 30) / 12000
+    x = np.random.default_rng(2).normal(size=t.size) * 3000 + np.sin(2 * np.pi * 1500 * t) * 2500
+    assert not watch.keyed_tone(_wav(tmp_path, "carrier.wav", x))["keyed"]
+
+
+def test_morse_in_the_cw_filter_is_a_tone(tmp_path):
+    import numpy as np
+    t = np.arange(12000 * 30) / 12000
+    keying = ((t * 8).astype(int) % 3 != 0)              # dots and gaps at about 20 wpm
+    x = _cw_filter(np.random.default_rng(3).normal(size=t.size) * 3000
+                   + np.sin(2 * np.pi * 700 * t) * 4000 * keying)
+    got = watch.keyed_tone(_wav(tmp_path, "m12_morse.wav", x))
+    assert got["keyed"] and abs(got["hz"] - 700) < 30, got

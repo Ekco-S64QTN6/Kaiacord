@@ -225,9 +225,14 @@ def parse(transcript: str, known_callsigns: Iterable[str] = ()) -> ParsedEAM:
     # the second one ("I say again") is often the part the recogniser loses.
     readings = []
     for i in range(len(norm) - 1):
-        if (norm[i], norm[i + 1]) in (("message", "follows"), ("message", "follow")):
+        # "followed" is how Whisper often hears it.
+        if (norm[i], norm[i + 1]) in (("message", "follows"), ("message", "follow"), ("message", "followed")):
             readings = [r for r in after(i + 2) if len(r) >= 20]
             break
+    if not readings:
+        # No marker heard: every long run is a reading. Only the longest was
+        # used, which threw away the second readback that filled its gaps.
+        readings = [r for _, r in runs if len(r) >= 20]
     if not readings:
         longest = max((r for _, r in runs), key=len, default="")
         readings = [longest] if len(longest) >= 12 else []

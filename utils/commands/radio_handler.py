@@ -280,6 +280,14 @@ def entry_embed(e: dict):
                 footer=f"via {e.get('receiver_location') or e['receiver']} (KiwiSDR) · `?` = not sure\n{_others('radio')}")
     add_field(embed, "Heard", f"{datetime.fromisoformat(e['started']):%d %b %H:%M}Z", inline=True)
     add_field(embed, "Length", f"{e['seconds']:.0f} s", inline=True)
+    heard, measured = e.get("heard"), e.get("measured") or {}
+    if heard == "tones":
+        add_field(embed, "Why I kept it", f"a keyed tone near {measured.get('hz', 0)} Hz, "
+                                         f"{measured.get('prominence_db', 0):.0f} dB over the band", inline=True)
+    elif heard == "speech":
+        add_field(embed, "Why I kept it", "a voice came through", inline=True)
+    elif heard == "unchecked":
+        add_field(embed, "Why I kept it", "couldn't check it for a voice; kept to be safe", inline=True)
     if parsed.get("callsign"):
         add_field(embed, "Callsign", parsed["callsign"], inline=True)
     if parsed.get("preamble"):

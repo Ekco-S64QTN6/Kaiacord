@@ -219,8 +219,15 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
     if quit_early and not written:
         # kiwirecorder exits 0 even when a thread of it crashed.
         raise FeedError(f"{receiver.host} recorder stopped early: {last or 'no output'}")
-    # Drop a squelch opening that is only noise-length.
-    return [p for p in written if p.stat().st_size > SAMPLE_RATE * 2 * 3]
+    # Drop a squelch opening that is only noise-length — from disk too, or it
+    # stays in work/ for good.
+    kept = []
+    for p in written:
+        if p.stat().st_size > SAMPLE_RATE * 2 * 3:
+            kept.append(p)
+        else:
+            p.unlink(missing_ok=True)
+    return kept
 
 
 _REFUSALS = ("Failed to connect", "server closed the connection", "Too busy", "too many users",
