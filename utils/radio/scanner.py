@@ -249,13 +249,6 @@ _transcribed = {"date": "", "count": 0}
 
 
 QUIET_CHANNEL_HITS = 8       # catches with no voice before a channel is transcribed only now and then
-# A carrier keeps no audio, so the verdict could never be checked: 500 events
-# in a night, every one "carrier", 56 of them on the APRS frequency. The first
-# carrier each channel sends a night keeps its clip, so a person — or a better
-# detector — can hear what "carrier" was.
-CARRIER_SAMPLES_PER_NIGHT = 40
-CARRIER_SAMPLE_S = 15
-_carrier_samples = {"date": "", "channels": set()}
 RECHECK_EVERY = 10
 _pinned: Optional[dict] = None   # the net being watched, while one is
 
@@ -306,20 +299,12 @@ def classify(catch) -> None:
         text = _transcribe(catch.audio)
         if looks_like_speech(text):
             kind, transcript = "voice", text
-    if _carrier_samples["date"] != today:
-        _carrier_samples.update(date=today, channels=set())
-    from utils.radio.waterfall import DRIFT_SPAN_HZ, MAX_HOLD_S
-    # A full-minute carrier drifts: one sample for the whole run it wanders over.
-    span = DRIFT_SPAN_HZ if catch.seconds >= MAX_HOLD_S - 0.5 else 0
-    sample = (kind == "carrier" and not any(abs(f - catch.freq_hz) <= span for f in _carrier_samples["channels"])
-              and len(_carrier_samples["channels"]) < CARRIER_SAMPLES_PER_NIGHT)
-    if sample:
-        _carrier_samples["channels"].add(catch.freq_hz)
-    audio = catch.audio
-    if sample and not net:
-        # Enough to hear what the "carrier" was; a minute of it is only hiss.
-        audio = audio[:CARRIER_SAMPLE_S * rtl.SAMPLE_RATE]
-    clip = _save_clip(audio, catch.freq_hz, catch.started) if kind != "carrier" or net or sample else None
+    # Only what's worth hearing is kept: voice, a net, and a carrier that sounds
+    # like speech (a spoken or Morse ID, or words Whisper missed). Data bursts
+    # and bare carriers keep no clip; the ledger has their timing and hours.
+    from utils.radio.waterfall import voice_like
+    keep = kind == "voice" or net or (kind == "carrier" and voice_like(catch.audio))
+    clip = _save_clip(catch.audio, catch.freq_hz, catch.started) if keep else None
     ledger.record(catch.freq_hz, kind, round(catch.seconds, 1), m.rms, m.hf_ratio, clip, transcript,
                   _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started)
     label = (ledger.channel(catch.freq_hz) or {}).get("label") or _service_of(catch.freq_hz)

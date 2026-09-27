@@ -178,30 +178,12 @@ def test_a_net_is_transcribed_and_clipped_whatever_the_nights_budget(monkeypatch
     monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
     monkeypatch.setitem(scanner._transcribed, "date", datetime.now().strftime("%Y-%m-%d"))
     monkeypatch.setitem(scanner._transcribed, "count", scanner.TRANSCRIBE_PER_NIGHT)
-    monkeypatch.setitem(scanner._carrier_samples, "date", datetime.now().strftime("%Y-%m-%d"))
-    monkeypatch.setitem(scanner._carrier_samples, "channels", {147_570_000})    # tonight's sample taken
     audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
     scanner.classify(_catch(147_570_000, audio, seconds=6))
     assert calls == [] and clips == []                    # open scan: budget spent, a carrier, no clip
     monkeypatch.setattr(scanner, "_pinned", {"freq_hz": 147_570_000, "label": "net", "until": 0})
     scanner.classify(_catch(147_570_000, audio, seconds=6))
     assert calls == [1] and clips == [147_570_000]        # on the net: transcribed, and kept to listen to
-
-
-
-def test_the_first_carrier_a_channel_sends_each_night_keeps_its_clip(monkeypatch):
-    """500 carrier events, not one clip: the verdict could never be checked,
-    and 56 of them were on the APRS frequency."""
-    clips = []
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: "")
-    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
-    monkeypatch.setitem(scanner._carrier_samples, "date", "")
-    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
-    for _ in range(3):
-        scanner.classify(_catch(144_390_000, audio, seconds=3))
-    scanner.classify(_catch(462_275_000, audio, seconds=6))
-    assert clips == [144_390_000, 462_275_000]
-    assert [e["clip"] for e in ledger.recent(4)].count("clip.ogg") == 2
 
 
 def test_a_rotated_clip_is_not_named_by_the_ledger(tmp_path, monkeypatch):
@@ -381,16 +363,6 @@ def test_a_broadcast_sign_off_off_a_carrier_is_not_speech():
     assert scanner.looks_like_speech("National 28, 8213 Meadows Road, number 1116")
 
 
-def test_a_carrier_sample_is_short(monkeypatch):
-    saved = []
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: "")
-    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: saved.append(len(audio)) or "clip.ogg")
-    monkeypatch.setitem(scanner._carrier_samples, "date", "")
-    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 60)) * 3000).astype(np.int16)
-    scanner.classify(_catch(450_900_000, audio, seconds=60))
-    assert saved == [scanner.CARRIER_SAMPLE_S * 12000]
-
-
 def test_the_band_notebook_describes_what_was_heard_and_keeps_the_notes(tmp_path, monkeypatch):
     import importlib.util
     spec = importlib.util.spec_from_file_location("band_nb", "tools/maintenance/band_notebook.py")
@@ -457,20 +429,6 @@ def test_a_drifting_constant_carrier_costs_one_minute_not_one_per_step(monkeypat
     assert len(near) == 1 and near[0].seconds >= 59
 
 
-def test_a_drifting_carrier_keeps_one_sample_a_night(monkeypatch):
-    clips = []
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: "")
-    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
-    monkeypatch.setitem(scanner._carrier_samples, "date", "")
-    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 60)) * 3000).astype(np.int16)
-    for f in (424_365_000, 424_390_000, 424_420_000):
-        scanner.classify(_catch(f, audio, seconds=60))
-    short = audio[:12000 * 4]
-    for f in (463_725_000, 463_750_000):                      # separate bursts keep a sample each
-        scanner.classify(_catch(f, short, seconds=4))
-    assert clips == [424_365_000, 463_725_000, 463_750_000]
-
-
 def test_a_conversation_that_keeps_the_repeater_keyed_is_not_locked_out(monkeypatch):
     """A linked node holds its carrier up through a conversation; at the
     minute mark speech is followed, not given the half-hour cooldown."""
@@ -485,3 +443,19 @@ def test_a_carrier_keyed_the_whole_minute_is_still_left_alone(monkeypatch):
     _, caught = _simulate(monkeypatch, [(146_860_000, 20, 110)], 140)
     mine = [c for c in caught if abs(c.freq_hz - 146_860_000) < 5000]
     assert len(mine) == 1 and w.MAX_HOLD_S - 1 <= mine[0].seconds < w.MAX_HOLD_S + 2
+
+
+def test_a_data_burst_keeps_no_clip_and_a_spoken_id_does(monkeypatch):
+    """Data isn't worth hearing back; a repeater's ID, spoken or in Morse,
+    and voice Whisper missed are (448.775's ID transcribed to nothing)."""
+    from utils.radio import waterfall as w
+    clips = []
+    monkeypatch.setattr(scanner, "_transcribe", lambda a: "")
+    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
+    burst = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 4)) * 3000).astype(np.int16)
+    scanner.classify(_catch(462_275_000, burst, seconds=4))
+    monkeypatch.setattr(w, "voice_like", lambda a: True)
+    scanner.classify(_catch(448_775_000, burst, seconds=4))
+    assert clips == [448_775_000]
+    assert [e["kind"] for e in ledger.recent(2)] == ["carrier", "carrier"]
+
