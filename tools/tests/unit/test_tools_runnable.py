@@ -356,3 +356,17 @@ def test_repair_frontmatter_leaves_a_body_opening_on_a_rule_alone():
     assert rf.repair(doc) is None
     stacked = "---\ntitle: A\n---\n---\nsummary: from the inner block\nkeywords: [- a\n---\nBody.\n"
     assert "summary: from the inner block" in rf.repair(stacked)
+
+
+def test_ebook_furniture_strip_keeps_a_title_that_appears_once():
+    """Every all-caps line was stripped from PDFs, chapter titles and shouted
+    dialogue with the running headers; only a recurring line is furniture."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("e2k", "tools/maintenance/ebook_to_kb_md.py")
+    e2k = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(e2k)
+    t = ("THE PRECESSION OF SIMULACRA\n\nThe simulacrum is never what hides the truth.\n\n"
+         "JANUARY 2014\n\nmore\n\nJANUARY 2014\n\nGET OUT.\n\nJANUARY 2014\n\n12\n")
+    out = e2k.strip_page_furniture(t)
+    assert "THE PRECESSION OF SIMULACRA" in out and "GET OUT." in out
+    assert "JANUARY 2014" not in out and "\n12\n" not in out

@@ -232,7 +232,15 @@ def strip_page_furniture(text: str) -> str:
     chunks and pollute the surrounding one.
     """
     text = RE_FURNITURE_CI.sub("", text)
-    return RE_FURNITURE_CS.sub("", text)
+    # A running header recurs on every page; a chapter title ("THE PRECESSION
+    # OF SIMULACRA", "PART TWO") or a shouted line of dialogue appears once.
+    # Stripping every all-caps line deleted those too, before heading promotion
+    # could make them headings, so only a line that recurs is furniture.
+    seen: dict[str, int] = {}
+    for m in RE_FURNITURE_CS.finditer(text):
+        key = m.group(0).strip()
+        seen[key] = seen.get(key, 0) + 1
+    return RE_FURNITURE_CS.sub(lambda m: "" if seen.get(m.group(0).strip(), 0) >= 3 else m.group(0), text)
 
 
 RE_DROPCAP = re.compile(r"^([A-Z])\n{1,2}([a-z]{2,})", re.M)
