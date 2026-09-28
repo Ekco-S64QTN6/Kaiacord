@@ -78,8 +78,26 @@ menu_height() {
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+# The bot's own command line, anchored at its start, not any process naming the
+# file: `pgrep -f "Kaiacord.py"` also matched an editor with it open and the
+# terminal the bot was launched from (`kitty ... -e bash -c "... && python
+# Kaiacord.py"`), and `stop` would have killed both.
+BOT_PATTERN='^([^ ]*/)?python[0-9.]* ([^ ]*/)?Kaiacord\.py'
+
 bot_running() {
-    pgrep -f "Kaiacord.py" > /dev/null 2>&1
+    pgrep -f "$BOT_PATTERN" > /dev/null 2>&1
+}
+
+# Stop the bot and wait until it has gone. A fixed `sleep 3` after pkill let a
+# restart start a second bot on the same token while the first was still
+# saving state (the scanner alone waits up to 80 s for its last catch).
+stop_bot() {
+    pkill -TERM -f "$BOT_PATTERN" || return 1
+    local waited=0
+    while bot_running && (( waited < 90 )); do
+        sleep 1; waited=$(( waited + 1 ))
+    done
+    ! bot_running
 }
 
 ollama_running() {
@@ -436,7 +454,7 @@ menu_system() {
             ;;
         5)
             if bot_running; then
-                warn "Bot is already running (PID: $(pgrep -f Kaiacord.py))."
+                warn "Bot is already running (PID: $(pgrep -f "$BOT_PATTERN"))."
                 pause; continue
             fi
             MODE=$(ui_dialog --title "Start Bot" --menu "Choose mode:" 10 50 2 \
@@ -447,7 +465,7 @@ menu_system() {
             info "Starting Kaiacord.py..."
             mkdir -p logs
             if [[ "$MODE" == "2" ]]; then
-                nohup $PYTHON Kaiacord.py --no-gui > logs/kaiacord_startup.log 2>&1 &
+                nohup "$PYTHON" Kaiacord.py --no-gui > logs/kaiacord_startup.log 2>&1 &
                 ok "Started (PID $!). Tailing logs/kaiacord_startup.log for 10s..."
                 sleep 10
                 tail -20 logs/kaiacord_startup.log 2>/dev/null || true
@@ -455,7 +473,7 @@ menu_system() {
             else
                 info "Launching curses dashboard (this menu will close)..."
                 sleep 1
-                exec $PYTHON Kaiacord.py
+                exec "$PYTHON" Kaiacord.py
             fi
             ;;
         6)
@@ -464,7 +482,8 @@ menu_system() {
                 pause; continue
             fi
             if confirm "Stop Kaiacord.py?"; then
-                pkill -f "Kaiacord.py" && ok "Bot stopped." || fail "Could not stop process."
+                info "Stopping (the bot saves its state first; up to 90 s)..."
+                if stop_bot; then ok "Bot stopped."; else fail "Still running after 90 s — check it before starting another."; fi
                 pause
             fi
             ;;
@@ -472,8 +491,11 @@ menu_system() {
             if confirm "Restart bot? (stop existing, then start fresh)"; then
                 if bot_running; then
                     info "Stopping bot..."
-                    pkill -f "Kaiacord.py" && ok "Stopped." || warn "Could not stop cleanly."
-                    sleep 3
+                    if ! stop_bot; then
+                        fail "The old bot is still running after 90 s; not starting a second one."
+                        pause; continue
+                    fi
+                    ok "Stopped."
                 fi
                 MODE=$(ui_dialog --title "Restart Bot" --menu "Choose mode:" 10 50 2 \
                     "1" "Curses dashboard (default)" \
@@ -482,13 +504,13 @@ menu_system() {
                 info "Starting bot..."
                 mkdir -p logs
                 if [[ "$MODE" == "2" ]]; then
-                    nohup $PYTHON Kaiacord.py --no-gui > logs/kaiacord_startup.log 2>&1 &
+                    nohup "$PYTHON" Kaiacord.py --no-gui > logs/kaiacord_startup.log 2>&1 &
                     ok "Started (PID $!). Check logs/kaiacord_startup.log"
                     pause
                 else
                     info "Launching curses dashboard (this menu will close)..."
                     sleep 1
-                    exec $PYTHON Kaiacord.py
+                    exec "$PYTHON" Kaiacord.py
                 fi
             fi
             ;;
