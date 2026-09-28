@@ -82,7 +82,8 @@ fi
 # ---------------------------------------------------------------------------
 echo ">>> Step 4/4: Loading into Ollama and running validation"
 echo "---------------------------------------------"
-ollama rm kaia-lora 2>/dev/null || true
+# create replaces a model of the same name; removing it first left no model at
+# all whenever the create then failed.
 ollama create kaia-lora -f finetune/Modelfile
 echo ""
 $PYTHON -u finetune/05b_test_ollama.py

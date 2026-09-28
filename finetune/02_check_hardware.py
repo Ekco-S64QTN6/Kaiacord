@@ -14,7 +14,10 @@ TRAIN_FILE = os.path.join(DATASET_DIR, "train.jsonl")
 EVAL_FILE = os.path.join(DATASET_DIR, "eval.jsonl")
 
 MIN_VRAM_GB = 10.0
-WARN_VRAM_GB = 12.0
+WARN_VRAM_GB = 11.5      # a 12 GB card reports ~11.7 GiB; the warning is for smaller ones
+# Free, not total: with gemma3:12b resident in Ollama (the bot running) a 12 GB
+# card has ~1.5 GB left, and training loaded the model and then ran out of memory.
+MIN_FREE_GB = 9.5
 
 
 def check_cuda():
@@ -39,8 +42,15 @@ def check_cuda():
     vram_bytes = torch.cuda.get_device_properties(0).total_memory
     vram_gb = vram_bytes / (1024 ** 3)
 
+    free_gb = torch.cuda.mem_get_info(0)[0] / (1024 ** 3)
     print(f"  GPU:  {gpu_name}")
-    print(f"  VRAM: {vram_gb:.1f} GB")
+    print(f"  VRAM: {vram_gb:.1f} GB ({free_gb:.1f} GB free)")
+
+    if free_gb < MIN_FREE_GB:
+        print(f"  ERROR: only {free_gb:.1f} GB free; training needs about {MIN_FREE_GB} GB.")
+        print("  Something holds the card — usually Ollama with the bot's model loaded.")
+        print("  Stop the bot and unload it (ollama stop gemma3:12b), then re-run.")
+        return False, vram_gb
 
     if vram_gb < MIN_VRAM_GB:
         print(f"  ERROR: VRAM ({vram_gb:.1f} GB) is below minimum {MIN_VRAM_GB} GB.")
