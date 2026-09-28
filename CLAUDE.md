@@ -751,7 +751,11 @@ feature has one code path whether it is clicked or typed.
   `{}` over the running bot's `file_manifest.json` — 1,094 entries replaced with two bytes,
   eight times in one day. `reindex_rag.py` refuses to touch that directory while the bot is
   running; the suite had no such guard. If you add a component that persists anything, redirect
-  it here first.
+  it here first. The TTRPG world state was not: every run saved the test's `test_storm` /
+  `atk_mod: -5` over `memory/ttrpg/world_state.json`, and every player fought at -5 until the
+  next dawn tick. To check the whole suite at once, run it under a `sys.addaudithook` that
+  records `open` in a write mode, `os.replace`/`os.remove` under `memory/`, `knowledge_base/`
+  and the production log, attributed per test; anything without `.test` in its path is a leak.
 - Elevate core cognitive actions (monologue, dream summaries, belief shifts, anchor formation),
   scraper operations, and mood changes to `log_info`/`log_warning` so they surface in the
   dashboard.
