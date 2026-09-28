@@ -302,3 +302,17 @@ def test_repairing_identity_writes_real_frontmatter_and_only_when_needed(tmp_pat
     assert front["known_as"] == "Ekco" and front["linked_discord"] == "177011971818782721"
     assert "{linked_discord" not in text and "this is Ekco from Discord" in text
     assert mod.repair_identity(d, args)[0] is None                      # and a second run changes nothing
+
+
+def test_refresh_forum_profiles_does_not_take_a_real_profile_for_a_stub(tmp_path):
+    """Its own copy of the check wanted double quotes; compaction writes the
+    type bare, so --stubs would have regenerated all 148 real profiles."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rfp", "tools/maintenance/refresh_forum_profiles.py")
+    rfp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rfp)
+    real, stub = tmp_path / "forum_A_1", tmp_path / "forum_B_2"
+    real.mkdir(); stub.mkdir()
+    (real / "user_profile.md").write_text("---\ndocument_type: User Personality Profile\n---\n\n# A\n")
+    (stub / "user_profile.md").write_text("---\ndocument_type: Narrative/Log\n---\n\n# B\n")
+    assert not rfp.is_stub(real) and rfp.is_stub(stub) and rfp.is_stub(tmp_path / "forum_C_3")

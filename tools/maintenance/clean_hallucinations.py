@@ -30,6 +30,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))   # for utils.core.atomic_write
+
 LOGS_DIR = Path("./knowledge_base/user_logs")
 
 # Phrasing seen in contaminated output. These are ordinary words in ordinary
@@ -64,6 +66,22 @@ def scan_file(path: Path, patterns: list[re.Pattern], bot_name: str):
             current = who
         if any(p.search(line) for p in patterns):
             yield i, current, line
+
+
+def strip_lines(lines: list[str], remove: set[int]) -> list[str]:
+    """Drop the numbered lines (1-based), except that a turn's header keeps
+    its "[time] Speaker:" prefix and loses only its text. Deleting a header
+    left the turn's following lines under the previous speaker — usually the
+    user — so her words would have become theirs."""
+    out = []
+    for i, line in enumerate(lines, 1):
+        if i not in remove:
+            out.append(line)
+            continue
+        m = SPEAKER.match(line)
+        if m:
+            out.append(line[:m.end()] + "\n")
+    return out
 
 
 def main() -> int:
@@ -109,11 +127,10 @@ def main() -> int:
             print(f"  line {line_no} [{tag}]: {line.strip()[:150]}")
 
         if args.apply and removable:
+            from utils.core.atomic_write import write_atomic
             text = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
-            path.with_suffix(path.suffix + ".bak").write_text(
-                "".join(text), encoding="utf-8")
-            kept = [l for i, l in enumerate(text, 1) if i not in set(removable)]
-            path.write_text("".join(kept), encoding="utf-8")
+            write_atomic(path.with_suffix(path.suffix + ".bak"), "".join(text))
+            write_atomic(path, "".join(strip_lines(text, set(removable))))
             print(f"  removed {len(removable)} line(s); backup at {rel}.bak")
             changed += 1
 

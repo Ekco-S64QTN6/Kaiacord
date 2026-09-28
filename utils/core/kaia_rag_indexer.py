@@ -1196,8 +1196,8 @@ class RAGIndexerMixin:
             
             if extracted_pages:
                 text = f"# {title}\n\n" + "\n\n".join(extracted_pages)
-                with open(md_path, "w", encoding="utf-8") as f:
-                    f.write(text)
+                from utils.core.atomic_write import write_atomic
+                write_atomic(md_path, text)
                 log_success(f"Successfully converted to Markdown")
                 log_info(md_path)
                 self._pdf_breaker.record_success()
@@ -1234,8 +1234,8 @@ class RAGIndexerMixin:
                 title = basename[:-5] if basename.lower().endswith('.docx') else basename
                 
                 md_content = f"# {title}\n\n{text}"
-                with open(md_path, "w", encoding="utf-8") as f:
-                    f.write(md_content)
+                from utils.core.atomic_write import write_atomic
+                write_atomic(md_path, md_content)
                 log_success(f"Successfully converted to Markdown")
                 log_info(md_path)
                 self._docx_breaker.record_success()

@@ -32,6 +32,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))   # for utils.core.atomic_write
+
 RE_BARE_NUM = re.compile(r"^[ \t]*(\d{1,4})[ \t]*$")
 RE_BODY_H1 = re.compile(r"^# (?!.*\Z)", re.M)
 
@@ -160,7 +162,8 @@ def repair(path: Path, apply: bool, quiet: bool) -> None:
         print(f"{'APPLY ' if (apply and changed) else 'dry   '}{path.name[:56]:58} {status}")
 
     if apply and changed:
-        path.write_text(new, encoding="utf-8")
+        from utils.core.atomic_write import write_atomic
+        write_atomic(path, new)
 
 
 def main() -> None:

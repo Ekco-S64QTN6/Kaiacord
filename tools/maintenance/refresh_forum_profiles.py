@@ -19,7 +19,8 @@ plan.
     # everyone still on a placeholder profile
     python tools/maintenance/refresh_forum_profiles.py --stubs --limit 20
 
-Kaia's own account is always skipped. Rate-limited between users, because this
+A dry run by default: it lists what it would refresh. Add --apply to scrape and
+write. Kaia's own account is always skipped. Rate-limited between users, because this
 is someone else's server.
 """
 import argparse
@@ -46,11 +47,12 @@ def account_dirs():
 
 
 def is_stub(d: Path) -> bool:
+    """No real profile yet. The forum client's own test, not a copy: this one
+    wanted document_type in double quotes, which compaction does not write, so
+    all 148 real profiles read as stubs and --stubs would have redone them."""
+    from utils.social.kaia_forum import _is_synthesised_profile
     p = d / "user_profile.md"
-    if not p.exists():
-        return True
-    return 'document_type: "User Personality Profile"' not in \
-        p.read_text(encoding="utf-8", errors="replace")[:400]
+    return not (p.exists() and _is_synthesised_profile(p))
 
 
 async def refresh(client, forum_id: int, username: str, directory: Path,
@@ -83,18 +85,8 @@ async def refresh(client, forum_id: int, username: str, directory: Path,
     return f"profiled from {len(history)} posts" + (f" — known as {known}" if known else "")
 
 
-async def main_async(args) -> int:
-    from utils.social.kaia_forum import get_forum_client, is_forum_configured
+def select(args) -> list:
     from utils.social.kaia_identities import registry
-
-    if not is_forum_configured():
-        print("Forum is not configured (forum.enabled + VBULLETIN_* in .env).")
-        return 1
-    client = await get_forum_client()
-    if not client or not client._logged_in:
-        print("Could not log in to the forum.")
-        return 1
-
     accounts = list(account_dirs())
     if args.user:
         accounts = [a for a in accounts if a[0] in args.user]
@@ -104,10 +96,29 @@ async def main_async(args) -> int:
         accounts = [a for a in accounts if is_stub(a[2])]
     if args.limit:
         accounts = accounts[:args.limit]
+    return accounts
 
+
+async def main_async(args) -> int:
+    from utils.social.kaia_forum import get_forum_client, is_forum_configured
+
+    accounts = select(args)
     if not accounts:
         print("Nothing matched.")
         return 0
+    if not args.apply:
+        print(f"{len(accounts)} account(s) would be refreshed (dry run; --apply to do it):")
+        for fid, name, d in accounts:
+            print(f"  {name} ({fid}){'' if is_stub(d) else ' — has a real profile'}")
+        return 0
+
+    if not is_forum_configured():
+        print("Forum is not configured (forum.enabled + VBULLETIN_* in .env).")
+        return 1
+    client = await get_forum_client()
+    if not client or not client._logged_in:
+        print("Could not log in to the forum.")
+        return 1
 
     print(f"{len(accounts)} account(s) to refresh\n")
     for i, (fid, name, d) in enumerate(accounts, 1):
@@ -134,6 +145,7 @@ def main() -> int:
     ap.add_argument("--limit", type=int, help="stop after this many")
     ap.add_argument("--max-pages", type=int, default=10, help="history pages per user (default 10)")
     ap.add_argument("--delay", type=float, default=2.0, help="seconds between users (default 2)")
+    ap.add_argument("--apply", action="store_true", help="scrape and write (default: list only)")
     args = ap.parse_args()
     if not (args.stubs or args.user or args.all):
         args.linked = True

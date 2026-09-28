@@ -284,3 +284,18 @@ def test_no_corpus_write_bypasses_the_atomic_helper():
     assert not offenders, (
         "corpus write bypassing utils.core.atomic_write.write_atomic: "
         f"{offenders}")
+
+
+def test_clean_hallucinations_never_moves_a_turn_to_another_speaker():
+    """Deleting a matching header line left the turn's continuation under the
+    previous speaker's header — the user's."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ch", "tools/maintenance/clean_hallucinations.py")
+    ch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ch)
+    log = ["[2026-09-01 10:00:00] Ekco: what's new?\n",
+           "[2026-09-01 10:00:05] Kaia: the Eurasian bloc again.\n",
+           "and the rest of what i said.\n"]
+    out = ch.strip_lines(log, {2})
+    assert out[1].startswith("[2026-09-01 10:00:05] Kaia:") and "Eurasian" not in out[1]
+    assert out[2] == "and the rest of what i said.\n"

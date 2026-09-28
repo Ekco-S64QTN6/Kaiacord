@@ -122,10 +122,10 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
             print(f"  SELF {username} — would restore the self-reference document")
             return None
         m = re.search(r"^forum_(.+)_(\d+)$", username)
-        user_dir.joinpath("user_profile.md").write_text(
-            SELF_PROFILE.format(name=m.group(1) if m else username,
-                                uid=m.group(2) if m else 0),
-            encoding="utf-8")
+        from utils.core.atomic_write import write_atomic
+        write_atomic(user_dir.joinpath("user_profile.md"),
+                     SELF_PROFILE.format(name=m.group(1) if m else username,
+                                         uid=m.group(2) if m else 0))
         print(f"  ✔ {username} — own account, self-reference document restored")
         return True
 

@@ -49,6 +49,8 @@ import sys
 import unicodedata
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))   # for utils.core.atomic_write
+
 # --- pandoc extensions that generate the noise documented above -------------------
 _PANDOC_MD = (
     "markdown"
@@ -651,7 +653,8 @@ def main() -> None:
         if dest.exists() and not args.force:
             print(f"skip: {dest} exists (use --force)", file=sys.stderr)
             continue
-        dest.write_text(body, encoding="utf-8")
+        from utils.core.atomic_write import write_atomic
+        write_atomic(dest, body)
         print(f"wrote {dest}  ({len(body):,} chars)")
 
 

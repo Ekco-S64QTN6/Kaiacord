@@ -396,7 +396,8 @@ def main() -> int:
     while path.exists():
         path = out / safe_filename(f"{stats['title']} ({n})")
         n += 1
-    path.write_text(markdown, encoding="utf-8")
+    from utils.core.atomic_write import write_atomic
+    write_atomic(path, markdown)
     print(f"{path}  —  {stats['words']:,} words, {stats['paragraphs']} paragraphs, "
           f"{timestamp(stats['duration_seconds'])}")
     return 0
