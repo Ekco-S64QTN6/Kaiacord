@@ -133,10 +133,13 @@ Both platforms have independent `CircuitBreaker` instances:
 
 #### 401 Auto-Recovery (X)
 If X returns 401/Unauthorized:
-1. Cookies are automatically cleared
-2. Fresh login is attempted
+1. The cached client is dropped and the saved cookies are cleared
+2. The next post logs in afresh
 3. If Cloudflare blocks direct login, browser cookie extraction is attempted (Chrome, Firefox, Firedragon)
 4. Extracted cookies are verified for `auth_token` before injection
+
+A login that fails is not cached either, so the next attempt starts clean rather than reusing a
+client that never authenticated.
 
 ---
 

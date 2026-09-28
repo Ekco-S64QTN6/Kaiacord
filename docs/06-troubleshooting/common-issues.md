@@ -6,20 +6,19 @@ Quick solutions to common Kaiacord problems.
 
 **Symptom**: Boot stuck at Phase 1 for 3+ minutes then fails.
 
-**Cause**: `model_load_seconds` timeout too short, or Ollama needs recovery time after being killed at startup.
+**Cause**: the model load outran `timeouts.model_load_seconds` (300 s by default) — a cold disk
+cache, or Ollama still recovering after being killed.
 
-**Solution**:
-```bash
-# In config/kaia.yaml add:
+**Solution**: raise the timeout in `config/kaia.yaml` if loads are simply slow on your disk:
+```yaml
 timeouts:
-  model_load_seconds: 240.0
+  model_load_seconds: 420.0
 ```
 
-If still failing, Ollama may need a manual restart:
+If still failing, restart Ollama, wait a few seconds, then start the bot:
 ```bash
 sudo systemctl restart ollama
-# Wait 5 seconds, then start bot
-python Kaiacord.py
+venv/bin/python3 Kaiacord.py
 ```
 
 ---
@@ -28,7 +27,7 @@ python Kaiacord.py
 
 **Symptom**: VRAM exhausted, model fails to load at boot.
 
-**Cause**: Another application (e.g. games, video editors) consuming VRAM alongside `gemma3:12b` + 8k KV cache (~9-10GB total).
+**Cause**: Another application (a game, a video editor, a second model) using VRAM that `gemma3:12b` needs — about 9.5 GiB at the default 16,384-token context, before the desktop's share.
 
 **Solution**:
 ```bash
@@ -39,11 +38,15 @@ nvidia-smi
 curl http://localhost:11434/api/generate \
   -d '{"model":"gemma3:12b","keep_alive":0}'
 
-# Reduce context window if needed
+# Reduce the context window if needed (the KV cache shrinks with it)
 # In config/kaia.yaml:
 # performance:
-#   max_context_tokens: 4096
+#   max_context_tokens: 12288
 ```
+
+`OLLAMA_KV_CACHE_TYPE=q8_0` with `OLLAMA_FLASH_ATTENTION=1` in Ollama's service environment
+halves the KV cache without losing context — see
+[GPU management](../03-architecture/gpu-management.md).
 
 ---
 
@@ -51,54 +54,18 @@ curl http://localhost:11434/api/generate \
 
 **Symptom**: `logs/kaiacord_startup.log` is missing, or you're looking for startup messages.
 
-**Cause**: Hardened Logging (v2.1+). All output is now consolidated.
+**Cause**: all output is consolidated into one log.
 
 **Solution**:
 ```bash
-# All startup and runtime messages are now in:
+# All startup and runtime messages are in:
 tail -f logs/kaiacord.log
 
-# Search specifically for startup sequence:
-grep "Starting Kaia" logs/kaiacord.log
+# Each boot begins with this line (test runs go to logs/kaiacord.test.log instead):
+grep -n "Unified logging system initialized" logs/kaiacord.log
 ```
 
 **Note**: External shell redirection (e.g., `> kaiacord_startup.log`) is no longer necessary as the bot programmatically captures all output.
-
----
-
-## 🔴 stats_poller NameError
-
-**Symptom**: `NameError: name 'stats_poller' is not defined`
-
-**Cause**: Fixed in v2.0 with safe helpers
-
-**Solution**:
-```bash
-# Update to latest version
-git pull origin main
-
-# Verify fix references in Kaiacord.py
-```
-
----
-
-## 🔴 !news Command Not Working
-
-**Symptom**: `!news` says "temporarily disabled"
-
-**Cause**: Fixed in v2.0+
-
-**Solution**:
-```bash
-# Update to latest
-git pull origin main
-
-# Verify news exists:
-python tools/maintenance/update_kaia_news.py
-
-# Test in Discord:
-!news technology
-```
 
 ---
 
@@ -110,12 +77,13 @@ python tools/maintenance/update_kaia_news.py
 
 **Solution**:
 ```bash
-# Use simple dashboard fallback
-KAIA_DASHBOARD=simple python Kaiacord.py
+# Use the simple dashboard, or none
+KAIA_DASHBOARD=simple venv/bin/python3 Kaiacord.py
+venv/bin/python3 Kaiacord.py --no-gui
 
 # Or update TERM:
 export TERM=xterm-256color
-python Kaiacord.py
+venv/bin/python3 Kaiacord.py
 ```
 
 ---
@@ -144,21 +112,18 @@ sudo systemctl start ollama
 
 ## 🔴 Import Errors
 
-**Symptom**: `ModuleNotFoundError: No module named 'utils'`
+**Symptom**: `ModuleNotFoundError` — `utils`, or a package such as `bs4` or `google.genai` failing
+deep inside one subsystem
 
-**Cause**: Virtual environment not activated or dependencies missing
+**Cause**: the wrong interpreter. `Kaiacord.py` re-launches itself in the venv, but a tool run
+with the system `python3` does not, and a package installed with the system `pip` lands outside
+the venv.
 
 **Solution**:
 ```bash
-# Activate venv
-source venv/bin/activate
-
-# Reinstall dependencies
-pip install -r requirements.txt --force-reinstall
-
-# Run from project root
 cd /path/to/Kaiacord
-python Kaiacord.py
+venv/bin/pip install -r requirements.txt
+venv/bin/python3 tools/maintenance/health_check.py   # says if it is not running in the venv
 ```
 
 ---
@@ -188,22 +153,17 @@ venv/bin/python3 tools/maintenance/reindex_rag.py --trigger
 
 ## 🟡 Slow Response Times
 
-**Symptom**: Kaia takes 10+ seconds to respond
+**Symptom**: replies take much longer than usual. A normal turn is 10–20 s, nearly all of it
+inference; the log warns `Slow response` past 30 s.
 
-**Cause**: Model not GPU-accelerated or VRAM pressure
-
-**Solution**:
-```bash
-# Check GPU usage
-nvidia-smi
-
-# Should see GPU at 90%+ during chat
-# If CPU-only, check Ollama GPU settings
-
-# Reduce context window in config/kaia.yaml if needed:
-performance:
-  max_context_tokens: 4096
-```
+**Causes and checks**:
+- **Queued behind other model work.** Model calls go one at a time, first come first served: a
+  dream, a forum draft or a batch tool running beside her makes a chat turn wait. The dashboard
+  and `!sysmon` show the queue.
+- **The model was reloaded.** A call with different runner options makes Ollama reload it:
+  `journalctl -u ollama | grep "n_ctx  "` lists every load.
+- **Not on the GPU, or VRAM pressure.** `nvidia-smi` should show the GPU busy during a reply and
+  only `llama-server` holding memory for her.
 
 ---
 
@@ -224,9 +184,12 @@ venv/bin/python3 tools/diagnostics/check_indexing_health.py
 # Force re-index
 venv/bin/python3 tools/maintenance/reindex_rag.py --trigger
 
-# Check RAG logs
-grep "RAG" logs/kaiacord.log
+# Ask the index the question yourself, the way a chat turn would
+venv/bin/python3 tools/diagnostics/ask_index.py "your question here"
 ```
+
+If the right document is in the index but not in the answer, the question's wording routed it
+elsewhere; `!explain` after her reply shows what she was given.
 
 ---
 
@@ -245,8 +208,11 @@ grep "online" logs/kaiacord.log
 
 # Check bot permissions
 # Discord Developer Portal → Bot → Permissions
-# Enable: Send Messages, Read Message History
+# Enable: Send Messages, Read Message History, and the Message Content intent
 ```
+
+If she answers every message **twice**, two bots are running on one token. Stop and restart
+through `bash scripts/kaia-tools.sh`, which waits for the old process to exit.
 
 ---
 
@@ -271,9 +237,9 @@ venv/bin/python3 tools/maintenance/reindex_rag.py --clear
 # Check circuit breaker state in logs
 grep "circuit" logs/kaiacord.log
 
-# Clear X cookies and force re-login
+# Clear X cookies and force re-login, then restart the bot
 rm memory/x_cookies.json
-python Kaiacord.py
+bash scripts/kaia-tools.sh    # → restart
 
 # If Cloudflare blocks direct login:
 # 1. Log into X in Chrome or Firefox manually
@@ -283,10 +249,20 @@ python Kaiacord.py
 
 ---
 
+## 🟡 Scanner: "is the RTL-SDR busy or unplugged?"
+
+**Cause**: something else holds the dongle — usually a hand-run survey or `rtl_fm`. The bot cannot
+see a lock held outside its own process, so its watch fails and backs off for 15 minutes.
+
+**Solution**: stop the other process before `radio.local.hours` or a configured net begins;
+`lsusb` confirms the dongle is still attached.
+
+---
+
 ## Getting Help
 
 1. **Check logs**: `tail -f logs/kaiacord.log`
-2. **Run health check**: `python tools/maintenance/health_check.py`
+2. **Run health check**: `venv/bin/python3 tools/maintenance/health_check.py`
 3. **See docs**: [03-Architecture](../03-architecture/overview.md)
 4. **GitHub Issues**: Report bugs with logs
 

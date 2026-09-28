@@ -119,7 +119,8 @@ The thread reaches her as **conversation history**, the same channel memory
 Discord reads: her own posts become assistant turns, everyone else's become user
 turns prefixed with their name. The live scrape supplies the most recent posts
 and the locally scraped copy under `knowledge_base/forum_posts/` supplies the
-earlier ones, up to `MAX_THREAD_HISTORY_TURNS` (12).
+earlier ones, up to `MAX_THREAD_HISTORY_TURNS` (12). The thread's history is held to
+`max_memory_messages`, the same limit a Discord channel's is.
 
 Those scraped threads are deliberately **not** in the RAG index
 (`kaia_rag_indexer.py`): indexing strangers' forum claims would let them surface
@@ -156,10 +157,14 @@ The periodic scraper only deep-scrapes people it finds in *recent* threads, so a
 quiet for a few months never gets a real profile. To build one on demand:
 
 ```
-python tools/maintenance/refresh_forum_profiles.py --linked   # everyone she knows
-python tools/maintenance/refresh_forum_profiles.py --user 228819
-python tools/maintenance/refresh_forum_profiles.py --stubs --limit 20
+python tools/maintenance/refresh_forum_profiles.py --linked --apply   # everyone she knows
+python tools/maintenance/refresh_forum_profiles.py --user 228819 --apply
+python tools/maintenance/refresh_forum_profiles.py --stubs --limit 20 --apply
 ```
+
+Without `--apply` it only lists who it would refresh. A user the deep scrape meets for the first
+time gets a real profile on that pass; until then their file is a placeholder, and a placeholder
+never counts as "already profiled".
 
 ### Not repeating herself
 
@@ -221,13 +226,19 @@ To guarantee safety and prevent automated errors, Kaia never writes directly to 
 
 ### Draft Submission
 - When the scraper identifies a thread to reply to, Kaia generates a draft.
-- The draft is sent as a rich Discord embed to the configured moderation channel `#kaia-opolis`.
-- If the draft is a quote-reply, the embed displays both the quoted post context and Kaia's proposed response.
+- The draft is sent as a Discord embed to the configured moderation channel `#kaia-opolis`:
+  the thread (linked), who she is answering, and the whole draft with its quote block. It is an
+  embed rather than message text because message text stops at 2,000 characters and a quote
+  reply passes that.
 
 ### Interactive View
 - Embeds are accompanied by Discord UI buttons (`ForumDraftReviewView` in `kaia_forum.py`):
   - **🟢 Accept**: Submits the post immediately to the Project 1999 forum using the bot's credentials, incrementing the "Approved" dashboard stat.
-  - **🔴 Reject**: Deletes the Discord draft message, incrementing the "Rejected" dashboard stat.
+  - **🔴 Reject**: Marks the draft rejected and retires the post it answered, so the same reply is
+    not drafted again; the rejected text is remembered, so a later draft cannot arrive at it
+    again either. Increments the "Rejected" dashboard stat.
+  - Either button changes only the status line above the embed; the draft stays readable. The
+    buttons expire after 24 hours, and each draft takes one decision.
 - **Access Control**: By design, there are no per-user or administrative locks on the review buttons. Anyone with channel access to `#kaia-opolis` can review, accept, or reject Kaia's drafts.
 
 ---
@@ -255,4 +266,6 @@ To prevent excessive server requests and respect forum bandwidth, the crawler em
 - **Cooldown Caching**:
   - Profile metadata: 1-hour cooldown.
   - Full post history: 4-hour cooldown.
-- **Delta Check**: The crawler first scrapes the user's lightweight profile page. It only fetches the user's detailed post list if their total post count has changed since the last cached crawl.
+- **Delta Check**: The crawler first scrapes the user's lightweight profile page. For someone who
+  already has a real profile, it fetches the detailed post list only if their total post count has
+  changed since the last crawl; someone with only a placeholder is always crawled.

@@ -26,7 +26,7 @@ The Aethelgard TTRPG is in **S-tier operational health**. Eighteen phases of dev
 - ✅ Dungeon persistence methods fully async
 - ✅ `broadcast.log_world_event()` uses `asyncio.to_thread`
 - ✅ Dawn task cleanup of `_winter_resolve_applied` and `_new_year_applied` confirmed
-- ✅ Quest system: 9 quests (L1, L3, L4, L5, L7, L9, L11, L13, L15)
+- ✅ Quest system: 12 quests, L1 to L15, each offered by an NPC players can talk to
 - ✅ `get_season_day()` correctly handles winter year-wrap (Dec 1→day 1, Jan 1→day 32, Feb 15→day 77)
 - ✅ Monster to-hit uses actual ATK stat — no more tier-based flat lookups
 - ✅ Overworld ATK scaling uses logarithmic dampening (capped at 1.35×) — no more +31 to-hit
@@ -183,6 +183,7 @@ The Aethelgard TTRPG is in **S-tier operational health**. Eighteen phases of dev
 - ✅ XP cap enforcement at L15/256001 across all paths
 - ✅ `broadcast.log_world_event()` wrapped in `asyncio.to_thread`
 - ✅ `world_state.py` bare `except:` narrowed to specific exception types
+- ✅ The test suite no longer writes the live `memory/ttrpg/world_state.json` (28 Sept 2026): every run had left a test storm with `atk_mod: -5` in play until the next dawn tick; the live file was restored to its defaults
 - ✅ Mognet letter consumption fixed (single `.remove()`)
 - ✅ Duel non-lethal cap applied after all proc damage
 - ✅ Dawn task cleanup of stale holiday flags
@@ -368,7 +369,7 @@ Only 3 sync `load_housing()` calls remain in the entire codebase, all in **synch
 | **Architecture** | A | Clean handler decomposition. Deterministic game math / LLM narration split enforced. |
 | **Data Integrity** | A | All 369 monsters, 453 items, 12 quests cross-validated. No orphan keys. No deprecated items in active paths. |
 | **Combat Balance** | A | Power curve well-controlled L1–L15. Logarithmic ATK scaling prevents impossible-to-dodge hits. Boss caps ensure ~50-55% hit rate at all levels. Spine uses floor-based progressive scaling. |
-| **Content Depth** | A | 369 monsters (44 boss-tier, 50+ unique Spine dungeon creatures per zone), 453 equipment items, 20 forest events, 9 quests, 10 classes. Thin at L8–L10 quests. |
+| **Content Depth** | A | 369 monsters (44 boss-tier, 50+ unique Spine dungeon creatures per zone), 453 equipment items, 20 forest events, 12 quests, 10 classes. |
 | **Feature Completeness** | A | Calendar/seasonal data fully wired. All subsystems operational. 3 shop locations active. |
 | **Code Quality** | A | Zero `random` violations. Zero bare `except:`. All async handlers use non-blocking I/O. Consistent patterns throughout. |
 | **Performance** | A | No bottlenecks. All housing I/O non-blocking. Pre-computed lookups. Background thread caching. |

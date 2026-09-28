@@ -6,8 +6,8 @@ Kaia builds persistent user profiles and tracks per-user relationships to create
 `relationship_manager.py` maintains a per-user event store; `!scores` reads it.
 
 - **Familiarity is a float, not a ladder.** There are no discrete stages to
-  unlock. `scores_handler._get_stage_badge` turns the score into a label at
-  four thresholds:
+  unlock. `scores_handler._get_stage_badge` turns the score into one of five
+  labels at four thresholds:
 
   | Familiarity | Shown as |
   |:--|:--|
@@ -36,13 +36,21 @@ Kaia bridges a user's presence across multiple platforms for comprehensive profi
 - **Command**: `!forum link <uid>` (See [Commands Guide](commands.md)).
 
 ## 4. Integration with RAG
-Profiles are stored in the user's log directory and indexed by the RAG system.
-- **Identity Retrieval**: When a user asks "who am i?", Kaia retrieves their profile for a personalized summary.
+Profiles are stored in the user's log directory and indexed on their own (`user_profiles`).
+- **Whose profile**: a profile reaches a turn only when it is about the person asking or about
+  someone the message names — "who am i?" gets the asker's, "who is starkind?" gets Starkind's
+  (and the forum accounts linked to them). A stranger's profile never reaches an unrelated turn.
 - **Contextual Awareness**: Profile data tailors responses to the user's known preferences.
+- In the prompt a profile is labelled `USER PROFILE SUMMARY`, so she knows it is her summary of a
+  person, not something they said.
 
 ## 5. Maintenance
-Profiles are regenerated periodically or triggered manually with
-`venv/bin/python3 tools/maintenance/generate_user_profiles.py`.
+Discord profiles are refreshed by the nightly dream cycle when they go stale (new logs a week
+newer than the profile, or 15 KB of them), and on demand with
+`venv/bin/python3 tools/maintenance/generate_user_profiles.py`. Forum profiles are built by the
+forum scraper when it meets someone, and on demand with
+`tools/maintenance/refresh_forum_profiles.py --apply` (see
+[forum-integration](forum-integration.md)).
 
 Each profile is written to `knowledge_base/user_logs/<Name>_<id>/user_profile.md`
 — there is no `knowledge_base/user_profiles/` folder. Two tools write that file

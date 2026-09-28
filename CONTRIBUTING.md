@@ -33,7 +33,7 @@ otherwise, and why the failure surfaces hours later somewhere unrelated.
 ```bash
 # The default invocation — no Ollama, no GPU
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-27: 2,540 passed, 1 skipped, 48 deselected, 1 xfailed. Take the count from your own run.
+# 2026-09-28: 2,602 passed, 1 skipped, 49 deselected, 1 xfailed. Take the count from your own run.
 # Re-run rather than trusting this line — the count moves every phase.
 
 # One file, or one test
@@ -45,7 +45,8 @@ venv/bin/python3 -c "from utils.ttrpg.combat_engine import *; print('ok')"
 ```
 
 There is no linter or formatter in this project, so a green suite plus an exercised code path is
-the bar. New tests go in `tools/tests/unit/`; see `tools/tests/README.md` for the markers and the
+the bar. A bug fix comes with a test that fails without the fix — stash the fix and run it to be
+sure. New tests go in `tools/tests/unit/`; see `tools/tests/README.md` for the markers and the
 suite-hygiene rules (every collected file must assert, no hardcoded home directories, no
 module-level execution, no writes into `memory/`).
 
@@ -77,8 +78,8 @@ Branch naming: `fix/description`, `feat/description`, or `balance/description`.
 
 - **One logical change per PR.** Don't mix a bug fix with a balance pass.
 - Follow the architecture rules in `CLAUDE.md` §4 — deterministic state stays in Python, atomic
-  writes (`.tmp` → `os.replace()`), `secrets` for security-relevant randomness, blocking work off
-  the event loop.
+  writes (`utils/core/atomic_write.write_atomic`), `secrets` for security-relevant randomness,
+  blocking work off the event loop.
 
 ### 3. Commit
 
@@ -106,19 +107,18 @@ Areas: `ttrpg`, `combat`, `fishing`, `housing`, `alchemy`, `core`, `docs`, `conf
 See `docs/ttrpg/ttrpg_report.md` for current balance state. Good first contributions:
 
 ### 🟢 Easy Picks
-- Add missing alchemy recipes (only 2 exist, infrastructure supports many more)
+- Add alchemy recipes (14 exist; the discovery tables support more)
 - Add monster stat blocks for gaps in tier coverage
 - Fix data consistency issues in registries
 - Improve item descriptions and flavor text
 
 ### 🟡 Medium
-- Wire calendar special day effects (`encounter_mod`, `shop_special`, `shrine_gift`) to handlers
-- Integrate furniture bonuses (`home_brewing`, `daily_training`, `home_pray`) into `rpg_handler.py`
 - Expand seasonal monster pools
+- More Spine of the World floor variety (`docs/ttrpg/Spine_Variety_Audit.md`)
 
 ### 🔴 Hard (Coordinate First)
 - Combat engine balance changes (defense soft-cap, lifesteal caps)
-- `rpg_handler.py` modifications (2000+ line file, high blast radius)
+- The command handlers (`utils/ttrpg/rpg_*_handler.py`, ~6,600 lines between them; high blast radius)
 - New game systems (require design doc approval first)
 
 ## Do NOT Touch

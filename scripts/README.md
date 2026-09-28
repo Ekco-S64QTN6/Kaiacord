@@ -18,7 +18,7 @@ Executive shell automation, interactive TUI, and pipeline execution wrappers for
 
 ### 1. `kaia-tools.sh` — Interactive Whiptail TUI
 The primary operational control menu for Kaiacord administrators. Provides menu-driven access to:
-- **System & Bot Control:** Process state check, log tailing, channel memory clearing (`memory/bot_state.json`), startup troubleshooting.
+- **System & Bot Control:** Process state check, start / stop / restart, log tailing, channel memory clearing (`memory/bot_state.json`), startup troubleshooting. Stop waits up to 90 s for the bot to save and exit; restart will not start a second bot while the first is still running. The bot is found by its command line (a Python process running `Kaiacord.py`), so the terminal it runs in is never matched.
 - **Ollama Management:** Unload model VRAM, systemctl restart/stop/start, and journalctl log inspection.
 - **RAG Operations:** Incremental reindexing (`.trigger_reindex`), single-file reindexing, and full storage rebuilds (`reindex_rag.py --clear`).
 - **Knowledge Base Utilities:** OCR artifact cleaning, log sanitization, user profile generation, and Project 1999 forum support synthesis.
@@ -43,10 +43,10 @@ it open corrupts both the on-disk store and the in-process copy.
 ### 2. `run_finetune.sh` — LoRA Fine-Tuning Automation
 Build the dataset first (`python finetune/01_convert_logs.py --apply`, optionally reviewed with
 `01g_review.py`). The runner then:
-1. **Pre-flight:** refuses to start unless `01f_check_dataset.py` passes, and checks the GPU (`02_check_hardware.py`).
+1. **Pre-flight:** refuses to start unless `01f_check_dataset.py` passes, and unless `02_check_hardware.py` finds at least 9.5 GB of VRAM free — stop the bot first, since its model holds most of the card.
 2. **LoRA Training:** Unsloth/TRL (`03_train.py`; `--resume` to continue a run).
 3. **Merge & Export:** merges the adapter and writes a Q4_K_M GGUF (`04_merge_export.py`).
-4. **Ollama Deployment & Validation:** creates `kaia-lora` from `finetune/Modelfile`, prints samples (`05b_test_ollama.py`) and counts guardrail interventions against the base model (`05c_evaluate_persona.py`).
+4. **Ollama Deployment & Validation:** creates `kaia-lora` from `finetune/Modelfile` — over the old one, which stays in place until the new one exists — prints samples (`05b_test_ollama.py`) and counts guardrail interventions against the base model (`05c_evaluate_persona.py`).
 
 ### 3. `run_jspace_probe.sh` — Behavioral & J-Space Probe Wrapper
 Executes offline behavioral probe batteries to measure persona adherence and linguistic distribution:

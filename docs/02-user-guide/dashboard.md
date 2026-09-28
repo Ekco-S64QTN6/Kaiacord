@@ -38,7 +38,9 @@ Tracks Kaia's internal cognitive layers and Project 1999 forum stats:
 ## 📊 Span Panels & Live Logging
 
 ### RAG Health Panel
-Located below the three vertical columns on the right, displaying RAG vector database statuses, cache hit ratios, and search latency.
+Located below the three vertical columns on the right: the last retrieval's confidence and node
+count, a running coherence average, the index size, the log file's size, the number of indexed
+files and the dream count.
 
 ### 📝 Live Logging (Bottom Half)
 - **High-Visibility Elevation**: While standard `DEBUG` logs are suppressed, elevated operations (inner monologues, dream summaries, belief shifts, scraper stages, proactive checks, and emotional arc updates) are logged as `INFO` or `WARNING` to stream directly to this panel.

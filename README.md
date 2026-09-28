@@ -75,9 +75,11 @@ flowchart TD
 
 1. **Intent** is decided by regex matchers on the CPU, so the model is never woken just to
    label a message.
-2. **Retrieval** runs BM25 and dense vectors (`nomic-embed-text-cpu`) in parallel over the
-   persona, books and articles, news briefs, her dream reflections and each person's
-   conversation history.
+2. **Retrieval** runs BM25 and dense vectors (`nomic-embed-text-cpu`) in parallel over books
+   and articles, the Project 1999 wiki and guides, news briefs, her dream reflections and notes,
+   and conversation history — the asker's, and that of anyone the message names. Every chunk
+   reaches the prompt labelled as what it is: something said to her, something she thought,
+   or something she read. The persona is not retrieved; it goes into every prompt whole.
 3. **Context** is budgeted once, by `optimize_context`: a system reserve and the reply are set
    aside, and what remains is split between retrieval and conversation history.
 4. **Generation** uses two temperatures: 0.70 for conversation and 0.35 for answers grounded in
@@ -183,7 +185,7 @@ Settings resolve in order: environment variables, then `config/kaia.yaml` (your 
 | `features.self_model_injection` | `false` | Injects her self-model, about 900 tokens a turn. |
 | `generation.max_response_tokens` | `1024` | Reserved for the reply every turn. |
 | `generation.base_temperature` / `rag_temperature` | `0.70` / `0.35` | Conversation, and answers grounded in documents. |
-| `unprompted.sources.<name>` | all on except `monologue` | Which kinds of unprompted post may appear. A kind switched off still runs; nobody sees it. |
+| `unprompted.sources.<name>` | all on | Which kinds of unprompted post may appear. A kind switched off still runs; nobody sees it. |
 | `unprompted.max_per_day` / `min_interval_minutes` | `8` / `90` | Daily posts across every source / each source's own gap. |
 | `unprompted.shared_gap_minutes` | `10` | Spacing between any two posts; a post held by it queues. |
 | `unprompted.per_source.<source>` | — | Per-source `min_interval_minutes` and `max_per_day`. |
@@ -221,7 +223,7 @@ bash scripts/kaia-tools.sh
 The direct commands:
 
 ```bash
-venv/bin/python3 tools/maintenance/health_check.py          # Ollama, models, GPU, knowledge base, config
+venv/bin/python3 tools/maintenance/health_check.py          # venv and packages, Ollama, models, GPU, knowledge base
 venv/bin/python3 tools/maintenance/reindex_rag.py --trigger # incremental re-index of the running bot
 venv/bin/python3 tools/maintenance/reindex_rag.py --clear   # full rebuild; refused while she is running
 venv/bin/python3 tools/maintenance/audit_knowledge_base.py  # every known corpus fault, read-only
@@ -318,7 +320,7 @@ captured into Discord voice. No model is involved and no VRAM is used.
 | `!tacamo` | Whether the E-6B and E-4B relay aircraft are broadcasting their position |
 | `!beacons` | Which continents she can hear on the worldwide beacon chain |
 | `!overnight` | Her night shift in a box: a paragraph in her voice, then the readings by section — on the air, the local scanner, beacons, space weather, near Earth (she also posts one each morning) |
-| `!scanner` | The local RTL-SDR, if one is attached: a waterfall watch over 2m, VHF business to NOAA, 70cm and 460–470 MHz (1.25m, UHF business and 900 MHz in rotation) during `radio.local.hours`, a ledger of every frequency it hears and when, presets to play live in voice, and recordings to replay. The hop plan is built around the channels you list in config so none sits in a slice's blind centre |
+| `!scanner` | The local RTL-SDR, if one is attached: a waterfall watch over 2m, VHF business to NOAA, 70cm and 460–470 MHz (1.25m, the rest of 70cm, UHF business and 900 MHz in rotation) during `radio.local.hours`. It stays on a channel for a whole conversation, keeps recordings only of voice and spoken or Morse IDs, and ledgers every frequency it hears and when. Presets play live in voice, `!scanner scan` lets you hear it search, and recordings replay. The hop plan is built around the channels you list in config so none sits in a slice's blind centre |
 | `!iss` | The station, its crew, and its next visible pass over you |
 | `!nasa` · `!earth` | The astronomy picture of the day, the Deep Space Network, and the whole sunlit Earth |
 | `!spaceweather` | The sun, geomagnetic storms and HF conditions |

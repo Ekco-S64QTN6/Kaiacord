@@ -1,24 +1,23 @@
 # Installation Guide
 
-Complete installation guide for Kaiacord v2.0.
+Complete installation guide for Kaiacord.
 
 ## Prerequisites
 
 ### Required
 - **Operating System**: Linux (Ubuntu 20.04+, Debian 11+, Arch, etc.)
-- **Python**: 3.12 or higher
-- **GPU**: NVIDIA GPU with 8GB+ VRAM (12GB recommended)
-  - RTX 3060 (12GB) - Recommended ✅
-  - RTX 3070 (8GB) - Works but tight on VRAM
-  - RTX 3080+ (10GB+) - Excellent
-- **Disk Space**: 30GB+ for models
+- **Python**: 3.12 (the project's venv; `Kaiacord.py` re-launches itself in it)
+- **GPU**: NVIDIA with 12 GB of VRAM (RTX 3060 or better). `gemma3:12b` takes about 9.5 GiB at
+  the default 16,384-token context, and the desktop needs its share of the rest; an 8 GB card
+  cannot hold it.
+- **Disk Space**: about 10 GB for the models, plus ~3 GB if you fetch the radio assets
 - **RAM**: 16GB+ system RAM (32GB recommended)
 - **Discord**: Bot token ([Get one here](https://discord.com/developers/applications))
 
 ### Optional
 - **Gemini API Key**: For news generation feature
 - **SSD Storage**: Recommended for faster model loading
-- **ffmpeg, pactl**: `!music` and live radio in voice; `python tools/maintenance/fetch_music_assets.py` and `fetch_radio_assets.py` fetch Strudel and kiwiclient
+- **ffmpeg, pactl**: `!music` and live radio in voice; `venv/bin/python3 tools/maintenance/fetch_music_assets.py` and `fetch_radio_assets.py` fetch Strudel, kiwiclient and faster-whisper
 - **An RTL-SDR dongle** and the `rtl-sdr` package (librtlsdr, `rtl_fm`): the local `!scanner`. Name your local repeaters and nets under `radio.local` in `kaia.yaml`
 
 ---
@@ -59,7 +58,7 @@ sudo systemctl enable ollama  # Auto-start on boot
 ## Step 3: Clone Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/Kaiacord.git
+git clone https://github.com/Ekco-S64QTN6/Kaiacord.git
 cd Kaiacord
 ```
 
@@ -78,14 +77,17 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+`discord.py` 2.7 and `davey` are required, not optional: Discord refuses any voice connection
+without its DAVE end-to-end encryption, which older discord.py lacks.
+
 ---
 
 ## Step 5: Pull AI Models
 
-**This will download ~20GB of models. Ensure you have space and bandwidth.**
+**About 9 GB to download.**
 
 ```bash
-# Chat model (~7GB VRAM)
+# Chat, narration and vision (~9.5 GiB of VRAM once loaded)
 ollama pull gemma3:12b
 
 # Embedding model (runs on CPU)
@@ -102,12 +104,13 @@ pulled it for an earlier version, `ollama rm gemma2:2b` reclaims 1.6 GB.
 
 ### Option A: Quick Setup (.env)
 ```bash
-# Create .env file
-cat > .env << EOF
-DISCORD_TOKEN=your_discord_bot_token_here
-GEMINI_API_KEY=your_gemini_api_key_here  # Optional
-EOF
+cp .env.example .env
+# then set DISCORD_TOKEN; everything else is optional
 ```
+
+`GEMINI_API_KEY` is used only for the daily news brief, and `NASA_API_KEY` lifts `!nasa` and
+`!earth` off NASA's shared demo key. Bluesky, X and the forum each need their credentials
+**and** their `enabled` flag in `config/kaia.yaml`.
 
 ### Option B: Advanced Setup (YAML)
 ```bash
@@ -123,49 +126,31 @@ nano config/kaia.yaml
 ## Step 7: Verify Installation
 
 ```bash
-# Run health check
-python tools/maintenance/health_check.py
+venv/bin/python3 tools/maintenance/health_check.py
 ```
 
-Expected output:
-```
-✅ Ollama server: ONLINE
-✅ gemma3:12b: Found
-✅ nomic-embed-text-cpu: Found
-✅ GPU: NVIDIA RTX 3060 (12GB)
-✅ Knowledge base: Accessible
-✅ Configuration: Valid
-```
+It prints one line per check — the venv and packages, the GPU, Ollama and each model, the
+Discord token, the knowledge base, directory permissions — with ✅ or ❌, then any warnings and
+errors. Fix every ❌ before the first run.
 
 ---
 
 ## Step 8: First Run
 
 ```bash
-# Start Kaiacord
-python Kaiacord.py
+venv/bin/python3 Kaiacord.py            # with the terminal dashboard
+venv/bin/python3 Kaiacord.py --no-gui   # headless
 ```
 
-You should see:
-```
-[INFO] 🤖 Kaia is online!
-[INFO] 📊 Dashboard started (curses mode)
-[INFO] 🟢 Ollama: ONLINE
-```
+The first boot loads `gemma3:12b` onto the GPU, then comes online, then indexes the knowledge
+base in the background — the first full index of a large corpus takes a while on the CPU.
 
 ---
 
 ## Step 9: Test in Discord
 
-In your Discord server:
-```
-@kaia status
-```
-
-Expected response:
-```
-online. gpu loaded. all systems nominal.
-```
+In your Discord server, say `kaia` or `status`: she answers with a short, casual word about her
+day. `!help` lists the commands.
 
 ---
 
@@ -192,12 +177,15 @@ sudo pacman -S nvidia nvidia-utils  # Arch
 
 ### Module Import Errors
 ```bash
-# Ensure virtual environment is activated
-source venv/bin/activate
+# Run with the venv's interpreter, not the system one
+venv/bin/python3 tools/maintenance/health_check.py
 
-# Reinstall dependencies
-pip install -r requirements.txt --force-reinstall
+# Reinstall dependencies into the venv
+venv/bin/pip install -r requirements.txt --force-reinstall
 ```
+
+A package installed with the system `pip` lands outside the venv and fixes nothing; a
+`No module named …` deep inside a subsystem usually means the wrong interpreter.
 
 ### Models Not Loading
 ```bash
@@ -241,7 +229,7 @@ Type=simple
 User=your_username
 WorkingDirectory=/home/your_username/Kaiacord
 Environment="PATH=/home/your_username/Kaiacord/venv/bin"
-ExecStart=/home/your_username/Kaiacord/venv/bin/python Kaiacord.py
+ExecStart=/home/your_username/Kaiacord/venv/bin/python Kaiacord.py --no-gui
 Restart=always
 
 [Install]

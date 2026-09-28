@@ -4,7 +4,7 @@
 tools/tests/
 ├── unit/           # Fast, isolated tests — no network, no Ollama, no GPU
 ├── integration/    # More than one subsystem together, and anything that needs a live service
-└── conftest.py     # Shared fixtures
+└── conftest.py     # Puts the repo root on sys.path; nothing else
 ```
 
 Configuration lives in `pytest.ini` at the repo root: `testpaths`, marker
@@ -24,10 +24,10 @@ sat in `unit/` with no marker and embedded through the bot's own Ollama on every
 ## Running
 
 ```bash
-pytest                                        # everything
-pytest -m "not ollama and not gpu and not slow"   # no external services
-pytest tools/tests/unit -q                    # just the fast ones
-pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent
+venv/bin/python3 -m pytest                                          # everything (loads gemma3:12b)
+venv/bin/python3 -m pytest -m "not ollama and not gpu and not slow" # no external services
+venv/bin/python3 -m pytest tools/tests/unit -q                      # just the fast ones
+venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent
 ```
 
 ## Markers
@@ -66,7 +66,10 @@ The checks:
   every suite run unloaded and reloaded `gemma3:12b`, evicting the production
   model from VRAM. Guard scripts with `if __name__ == "__main__":`.
 - **No writes into `memory/`.** Four tests persisted artifacts into the live
-  memory directory. Use `tmp_path` or `monkeypatch`.
+  memory directory. Use `tmp_path` or `monkeypatch`. The hygiene test sees
+  only what it scans: the TTRPG world state was written live by every run until
+  28 Sept, found by running the suite under an audit hook
+  (`docs/04-development/testing.md`).
 
 ## Notable suites
 
@@ -103,7 +106,8 @@ deleting the test would not.
 
 ## Fixtures
 
-See `conftest.py`: `temp_dir`, `mock_config`, `mock_ollama_client`,
-`mock_discord_message`, `mock_bot_state`, `mock_torch`, and others. `mock_config`
-points at `tmp_path`; it previously used relative paths that resolved against
-the caller's working directory and left index artifacts in the test tree.
+`conftest.py` holds none. Its fifteen fixtures were used by no test, and several
+no longer worked (a bot-state fixture called the instance as if it were the
+class, a mock Ollama listed the removed `gemma2:2b`, an `event_loop` override that
+pytest-asyncio 1.x ignores). Use pytest's own `tmp_path` and `monkeypatch`, and
+put a shared fixture in `conftest.py` when a second test needs it.

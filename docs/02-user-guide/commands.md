@@ -20,7 +20,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!nightshift` | A control panel: a button for every radio and sky feature, live receivers included (`!nightshift list` for the commands) | All |
 | `!beacons [20\|17\|15\|12\|10]` | Kaia listens to the worldwide HF beacon chain; which continents she can hear | All |
 | `!overnight` | Kaia writes up what her night shift saw, from real data, now | All |
-| `!scanner` | The local RTL-SDR scanner: what it caught overnight, presets to play live in voice, recordings to replay | All |
+| `!scanner [scan \| history \| off]` | The local RTL-SDR scanner: what it caught overnight, presets to play live in voice, recordings to replay | All |
 | `!iss` | Where the space station is, who's in orbit, the next visible pass | All |
 | `!nasa` | NASA's picture of the day; who the Deep Space Network is talking to now (`!apod`, `!dsn`) | All |
 | `!earth` | The latest full-Earth image from DSCOVR | All |
@@ -35,9 +35,9 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!flag <reason>` | Flag the previous message for audit/review | Admin |
 | `!forum [cmd]` | VBulletin forum management | Mixed |
 | `!dream [cmd]` | Dream engine management | Admin |
-| `!memory [cmd]` | Memory and beliefs management (100-cap) | Admin |
+| `!memory [beliefs \| anchors \| self]` | Her beliefs, memory anchors and self-model (100-cap each) | Admin |
 | `!audit [cmd]` | Inspect flagged interactions and hallucination logs | Admin |
-| `!snapshot` | Create an instant state backup snapshot | Admin |
+| `!snapshot` | Save the channel's recent conversation as a retrievable snapshot | Admin |
 | `!enrich [text]` | Run manual entity/context enrichment | Admin |
 | `!reindex` | Trigger background knowledge base reindexing | Admin |
 | `!selfmodel` | Regenerate Kaia's self-model | Admin |
@@ -120,9 +120,12 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   ledgered without one. When a transmission sounds like voice she stays on the channel for the
   replies, recording the whole exchange as one clip, and goes back to searching once it has been
   quiet 15 s. A trip of the trigger with no carrier in the audio
-  (hiss) is neither transcribed nor kept. The panel has a presets dropdown, ▶ Listen (live in voice),
-  🎧 Listen along (hear her scan; `!scanner scan` typed), and History with recordings to replay.
-  Nets listed in `radio.local.nets` are watched for their whole window.
+  (hiss) is neither transcribed nor kept. A repeater's Morse ID keeps one recording per channel
+  every six hours, and a carrier that stays up a full minute without speech is locked out for half
+  an hour, longer each time it returns. The panel has a presets dropdown, ▶ Listen (live in voice),
+  🎧 Listen along (hear her scan; `!scanner scan` typed), and History with recordings to replay
+  (`!scanner history`); `!scanner off` stops either. Nets listed in `radio.local.nets` are watched
+  for their whole window.
 
 Recording and transcription need a one-time `python tools/maintenance/fetch_radio_assets.py`.
 
@@ -176,7 +179,7 @@ fetch in that case.
 Triggers a social media quip — a short post cross-posted to Bluesky and/or X, grounded in Kaia's recent conversation history. 10-minute cooldown for non-owners.
 
 ### 🔍 Explain (`!explain [n]`)
-Deep-dive into the RAG retrieval logic for the last response — shows top retrieved sources with similarity scores, retrieval method (HYBRID/VECTOR/BM25/INJECTION), clean category paths, and audit flags in color-coded ANSI code blocks.
+Where the last response's retrieved context came from, in an embed: each source by name with its score, retrieval method (hybrid, vector, BM25, whole document), folder and any audit flags.
 
 `!explain 2` opens source 2 of that list and shows the passages she was given from it. `!explain back` shows the retrieval before, `!explain back 3` three back, from a short in-memory history per channel, so an answer can still be checked after someone else has spoken. The history does not survive a restart. Open to everyone: it shows what a previous answer was grounded in and changes nothing.
 
@@ -198,13 +201,18 @@ Manages VBulletin 3.x integration and Discord ↔ Forum identity linking.
 Puts Kaia in your voice channel performing a live-coded set.
 
 ```
-!music on [--genre <name>]   join and start playing
+!music on                    join; she picks a genre for her mood and the hour
+!music on --<genre>          join with a genre (!music <genre> switches while playing)
+!music darker | faster | …   a request, edited into the parts that are playing
 !music off                   stop and leave
-!music status                what is currently playing
-!music genres                list available genres
+!music status                what is playing, the section and the tempo
+!music genres                the fourteen genres
+!music help                  every request
 ```
 
-House, techno, trance, dnb, ambient and more. **No model is involved and no VRAM
+Genres: psytrance, techno, house, deephouse, trance, drumnbass, acid, breakbeat, dub, lofi,
+triphop, synthwave, berlinschool, ambient. Requests: darker, brighter, faster, slower, drop,
+build, calmer, harder, more <part>, no <part>. **No model is involved and no VRAM
 is used** — the arrangement is scripted in `strudel_patterns.py` and driven
 through a real browser, so it is safe to run alongside inference. See
 `docs/03-architecture/` and `CLAUDE.md` §7 for why the browser runs headed and
@@ -216,15 +224,15 @@ why patterns are applied by clicking a real button.
 
 ### 💤 Dream (`!dream`)
 Manages Kaia's autonomous Dream Mode — nightly processing of daily interaction logs into associative reflections and belief extractions.
-- `!dream list` — Recent reflections
-- `!dream generate` — Force an immediate dream cycle
-- `!dream stats` — Reflection counts and category distribution
-- `!dream test [trigger]` — Test prompt construction on a trigger phrase
+- `!dream list` — Recent reflections (the default)
+- `!dream generate` — Run a dream cycle now; she says in the channel when it finishes
+- `!dream stats` — Reflection counts by kind
 
 ### 🧠 Memory (`!memory`)
 Manages Kaia's persistent memory systems.
 - `!memory beliefs` — View active revisable beliefs (100-cap)
 - `!memory anchors` — View episodic memory anchors (100-cap)
+- `!memory self` — Her current self-model
 
 ### 🏷️ Audit & Flag (`!flag` / `!audit`)
 - `!flag <construct>` — Tag the last retrieval's nodes with a Data Rot label (`circular_justification`, `linguistic_mimicry`, `anthropocentric_exceptionalism`, `paternalistic_framing`, `hedge_density`) to penalize retrieval weight.
@@ -258,10 +266,12 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Trigger | What it does |
 |:---|:---|
-| **Status** | Real-time GPU/VRAM health and Ollama status |
-| **What's new** | Discusses recently ingested documents or news |
-| **Dream recall** | Reflections from associative memory |
+| **"kaia"** or **"status"** alone | A casual greeting, or a short word on her mood and her day (`!sysmon` has the hardware) |
+| **Dream recall** ("what did you dream about") | Answers from her dream reflections |
 | **"who do you know" / "list profiles"** | Lists known server users from profile store |
+
+The document most recently filed into the knowledge base is also offered to her on every turn,
+to mention if the conversation touches it.
 
 ---
 
@@ -269,7 +279,7 @@ Kaia responds naturally to specific phrases when mentioned or addressed — no `
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!scanner`, `!beacons`, `!overnight`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!quip`, `!forum link` |
+| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!scanner`, `!beacons`, `!overnight`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!music`, `!download`, `!youtube`, `!explain`, `!quip`, `!forum link` |
 | **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!stance`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).

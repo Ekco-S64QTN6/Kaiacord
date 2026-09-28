@@ -9,7 +9,7 @@
 
 | Model | Purpose | Runs On | VRAM Impact |
 |:------|:--------|:--------|:------------|
-| **gemma3:12b** | Chat / Generation | GPU | ~7.0 GB |
+| **gemma3:12b** | Chat / Generation / Vision | GPU | 6.8 GiB weights; ~9.5 GiB loaded at 16,384 context (table below) |
 | **nomic-embed-text-cpu** | RAG Embeddings | CPU (`num_gpu: 0`) | 0 GB |
 
 Two models, and only two. A `gemma2:2b` intent classifier was listed here until
@@ -29,6 +29,10 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
   (`temperature`, `num_predict`) only. Until September 2026 the inner monologue sent no
   `num_ctx`, and its journal entries show gemma3 reloading at 4,096 context every 15 minutes.
   `journalctl -u ollama | grep "n_ctx  "` lists every load with its context size.
+  Send `keep_alive: -1` as well: this Ollama sets no `OLLAMA_KEEP_ALIVE`, so a request without it
+  resets the loaded model to a five-minute expiry. Raw HTTP calls count too — the nightly metadata
+  enrichment sent none and the model unloaded after every pass. `test_chat_model_calls.py` checks
+  both the client calls and raw payloads.
 - **Embedding Model** (`nomic-embed-text-cpu`): Runs on CPU via `ollama_additional_kwargs: {"num_gpu": 0}`. Zero VRAM usage.
 
 ### 2. Context Window Optimization
@@ -85,7 +89,7 @@ this repository is resumable and idempotent for that reason.
 
 ### 4. Boot Sequence (Phase 1/2/3)
 On startup, `on_ready()` runs a sequenced boot:
-- **Phase 1**: `gemma3:12b` loaded exclusively via direct `ollama.generate()` under `_gpu_startup_lock`. Timeout: `model_load_seconds` (default 240s). A 5s recovery delay after Ollama cleanup ensures the daemon is ready.
+- **Phase 1**: `gemma3:12b` loaded exclusively via direct `ollama.generate()` under `_gpu_startup_lock`. Timeout: `timeouts.model_load_seconds` (default 300 s). A 5s recovery delay after Ollama cleanup ensures the daemon is ready.
 - **Phase 1.5**: `IntentParser` (regex, no model) is attached to the message processor.
 - **Phase 2**: Bot marked ready to serve messages.
 - **Phase 3**: RAG init and knowledge refresh — background, non-blocking. There is no
@@ -114,14 +118,19 @@ If the application is stopped (either via `Ctrl+C` or the dashboard `[Q]uit` key
 
 ### CUDA Out of Memory (OOM) (`cudaMalloc failed`)
 If you encounter OOM errors (e.g., during model pre-warming or generation):
-1. **Video Games / Background Apps**: `gemma3:12b` combined with a 8K token context window consumes ~8GB of VRAM. This provides high stability even if other apps are running.
-   - *Fix*: If you still hit VRAM issues, open `config/kaia.yaml` and reduce `max_context_tokens` to `4096` to lower the KV cache size footprint and free up space.
-2. **Restart Kaia**: `python Kaiacord.py`
-3. **Clear GPU Cache**: Run `python utils/infrastructure/gpu/clear_gpu_memory.py` manually.
+1. **Something else holds VRAM.** At 16,384 context the model takes ~9.5 GiB and the desktop about
+   another 1.2, so a game or a second model leaves too little.
+   `nvidia-smi --query-compute-apps=pid,used_memory --format=csv` shows who holds what.
+   - *Fix*: free the card, or lower `performance.max_context_tokens` in `config/kaia.yaml` (the
+     KV cache shrinks with it), or set `OLLAMA_KV_CACHE_TYPE=q8_0` as above.
+2. **Restart Kaia**: `bash scripts/kaia-tools.sh` → restart, which waits for the old process to exit.
+3. **Clear GPU Cache**: `venv/bin/python3 utils/infrastructure/gpu/clear_gpu_memory.py`.
+4. **Fine-tuning** wants the card to itself: `finetune/02_check_hardware.py` refuses to start with
+   less than 9.5 GB free, which is what it finds while the bot holds the model.
 
 ## Summary
 ✅ **Chat model always resident** for low latency.
-✅ **Classification & embeddings on CPU** — zero GPU contention.
-✅ **8K Context window** config-driven, optimized for 12GB hardware stability.
+✅ **Embeddings on CPU, no classifier model** — the GPU belongs to the chat model.
+✅ **16,384-token context** by default (`performance.max_context_tokens`), measured against the 12 GB card.
 ✅ **Semaphore guard** prevents concurrent GPU access.
 ✅ Sequenced Phase 1/2/3 boot prevents VRAM contention at startup.

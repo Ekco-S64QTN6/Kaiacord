@@ -67,8 +67,9 @@ the ceiling, `max_response_tokens` and the system prompt's size are the levers.
 `KaiaRAG` keeps exactly one retrieval per channel in
 `_last_retrieval_results`, so the turn worth investigating is overwritten by the
 next thing anyone says. `utils/infrastructure/monitoring/retrieval_trace.py` is a
-small in-memory ring buffer alongside it: `!explain 3` reads the third-most-recent
-retrieval, bare `!explain` still reads the live cache. In memory deliberately —
+small in-memory ring buffer alongside it: `!explain back 3` reads the retrieval three before
+the latest, `!explain 3` opens the third source of the latest, and bare `!explain` reads the
+live cache. In memory deliberately —
 traces quote corpus text and user queries, and on disk that is user content
 somewhere nobody prunes.
 
@@ -98,7 +99,9 @@ inference discarded, nothing delivered.
 
 Keeps `gemma3:12b` resident in VRAM before the first message, and reloads it if
 an external process evicts it. All Ollama calls go through `gpu_memory_manager`
-with a `GPUTaskPriority`; background work yields to live chat.
+with a `GPUTaskPriority`, which is logged but does not reorder anything: the
+semaphore is first come, first served, so a chat turn queued behind a dream waits
+for it. See [`gpu-management.md`](gpu-management.md).
 
 ### 6 · Output guards (`safety_pipeline.py`, `response_filter.py`)
 
@@ -137,7 +140,9 @@ suffixed `.test`, so fixtures are never mistaken for production incidents.
 2. **Match** — `MessageIntent` by regex; high-confidence greetings skip RAG,
    unless the message quotes a post
 3. **Enrich** — reply context, URLs, attachments
-4. **Retrieve** — `KaiaRAG`, hybrid BM25 + vector with RRF
+4. **Retrieve** — `KaiaRAG`, hybrid BM25 + vector with RRF, scoped to the asker and anyone the
+   message names; each chunk is labelled by what it is (her conversation, her dream, her note, a
+   document) — see [`rag-system.md`](rag-system.md)
 5. **Budget** — `optimize_context`
 6. **Generate** — up to 3 passes with salvage
 7. **Filter** — the guards above, then send

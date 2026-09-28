@@ -22,19 +22,19 @@ Design specifications, system architecture, maintenance procedures, and developm
 ### 🏗️ [03 — Architecture Spec](03-architecture/)
 *   [System Overview](03-architecture/overview.md) — Monolithic overview of the orchestrator and AppContext dependency hub.
 *   [GPU & VRAM Management](03-architecture/gpu-management.md) — VRAM budgeting constraints, KV cache limits, and CPU model pinning.
-*   [Grounding & RAG Subsystem](03-architecture/rag-system.md) — BM25, dense vector search, Reciprocal Rank Fusion, and custom index storage.
+*   [Grounding & RAG Subsystem](03-architecture/rag-system.md) — Ingestion, routing by intent, hybrid search, whose logs a turn may see, and how chunks are labelled in the prompt.
 *   [Intelligence & Decision Layer](03-architecture/intelligence-layer.md) — Regex intent matching (no classifier model) and self-healing LLM loops.
 *   [Utilities Library](03-architecture/utils-reference.md) — Developer reference to standard helpers and modules.
 
 ### 💻 [04 — Development & Testing](04-development/)
-*   [Testing Framework](04-development/testing.md) — Async pytest setups, mock engines, and verification suites.
+*   [Testing Framework](04-development/testing.md) — Running the suite, markers, and the rules that keep a test honest and out of live state.
 
 ### 🔒 [04 — Security & API Keys](04-security/)
 *   [Twikit Credential Management](04-security/x-twikit-credentials.md) — Local cookie persistence, twikit API handling, and security notices.
 
 ### 🔧 [05 — Maintenance Procedures](05-maintenance/)
 *   [Standard Operating Procedures](05-maintenance/procedures.md) — Daily tasks, database optimization, and manual cache invalidations.
-*   [Fixes & Phase History](05-maintenance/fixes-history.md) — Chronological history of software patches and version releases.
+*   [Fixes & Phase History](05-maintenance/fixes-history.md) — Where the change history lives: `git log` for the public record, the local reports for the rest.
 
 ### 🛠️ [06 — Technical Troubleshooting](06-troubleshooting/)
 *   [Common Issues & Remedies](06-troubleshooting/common-issues.md) — Setup errors, dependency conflicts, VRAM exceptions, and database lockups.

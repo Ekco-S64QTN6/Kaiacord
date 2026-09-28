@@ -43,8 +43,8 @@ nobody is talking to her.
 | `build_user_folder_index.py` | Writes a README into each user folder. |
 | `clean_hallucinations.py` | Reports contaminated phrasing; with `--apply` touches only Kaia's lines. |
 | `generate_user_profiles.py` | Rebuilds each user's `user_profile.md` from their logs. |
-| `compact_forum_profiles.py` | Folds a forum user's scattered logs into one profile. `--repair-identity` restores Kaia's own. |
-| `refresh_forum_profiles.py` | Deep-scrapes forum users the periodic scraper missed. |
+| `compact_forum_profiles.py` | Folds a forum user's scattered logs into one profile. `--repair-identity --apply` puts the identity keys back on compacted profiles (Kaia's own, linked accounts) with no model call. |
+| `refresh_forum_profiles.py` | Deep-scrapes forum users the periodic scraper missed (`--linked`, `--user`, `--stubs`); lists them unless `--apply`. |
 | `prune_relationship_events.py` | Drops stored relationship events the current detector would not record. |
 
 **Ingestion and news**
@@ -65,10 +65,11 @@ nobody is talking to her.
 | Script | What it does |
 |:--|:--|
 | `reindex_rag.py` | `--trigger` asks the running bot to refresh; `--clear` rebuilds from scratch (bot stopped). |
-| `health_check.py` | Python, GPU, Ollama models, token, config, permissions, dependencies. |
+| `health_check.py` | That it runs in the project venv, packages (including `davey`), the GPU from `nvidia-smi`, Ollama models, token, config, permissions. |
 | `fetch_music_assets.py` | Fetches Strudel and the samples `!music` needs. Run once after cloning. |
 | `fetch_radio_assets.py` | Fetches kiwiclient for `!radio`. Run once. |
 | `audition_tracks.py` | Plays each `!music` track and measures every part; `--calibrate` writes `levels.json`. |
+| `band_notebook.py` | The local scanner's ledger as a notebook, one entry per frequency; `--write` updates the git-ignored `docs/reports/reference/local_band_notebook.md`, keeping its "My notes". Runs after every watch. |
 | `check_md_anchors.py` | Validates in-page Markdown anchors against GitHub's slug rules. |
 
 ## diagnostics/
@@ -76,7 +77,7 @@ nobody is talking to her.
 | Script | What it does |
 |:--|:--|
 | `ask_index.py` | Asks the RAG index a question the way a chat turn does and prints what comes back. Reads a copy of the index. |
-| `check_indexing_health.py` | Manifest against the files on disk. |
+| `check_indexing_health.py` | Manifest against the files on disk, judged by the indexer's own exclusion rules. |
 | `jspace_probe.py` | Replays prompts through Ollama persona'd, bare and fine-tuned. Bot stopped. |
 | `list_gemini_models.py` | Lists the Gemini models this API key can call. |
 
@@ -84,7 +85,7 @@ nobody is talking to her.
 
 | Script | What it does |
 |:--|:--|
-| `generate_self_model.py` | Kaia's first-person self-model from her recent logs and dreams. |
+| `generate_self_model.py` | Kaia's first-person self-model from her recent conversations with everyone she talks to, and her dreams' text. |
 | `build_spine_layouts.py` | Regenerates `utils/ttrpg/spine_layouts.json`, the 77 Spine of the World floors. Random per run. |
 
 ## social/
@@ -92,8 +93,8 @@ nobody is talking to her.
 | Script | What it does |
 |:--|:--|
 | `scrape_p99_wiki.py` | Crawls the Project 1999 wiki into `wiki/`. |
-| `scrape_technical_discussion.py` | Scrapes the technical forum, resumably. |
-| `synthesize_technical_knowledge.py` | Turns the technical forum and wiki into troubleshooting guides. |
+| `scrape_technical_discussion.py` | Scrapes the technical forum, resumably; a thread whose post count has not changed is skipped. |
+| `synthesize_technical_knowledge.py` | Turns the technical forum and wiki into troubleshooting guides. The dry run makes no model call; `--apply` writes, and retries threads that errored. |
 | `scrape_music_thread.py` | The "What Are You Listening To?" thread to a Google Sheet. |
 | `export_x_cookies.py` | Writes `memory/x_cookies.json` for twikit from a browser session, a profile file, or two pasted cookies. |
 | `smoke_test_x.py` | Logs into X and reads the account back. |

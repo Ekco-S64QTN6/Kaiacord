@@ -19,8 +19,8 @@ time, and the shape no longer said anything about the contents: `corrupt_files`
 | `transcripts/` | Podcast and talk transcripts | `<Topic> - <Title>.md` |
 | `kaia_dreams/` | Her own reflections. `consolidated/` holds one document per subject | see below |
 | `kaia_notes/` | Notes she keeps when she says she is keeping one (`utils/core/kaia_notes.py`): what was shared and what she made of it. Retrieved labelled as her own note. Deliberately **not** in `process_ingress.ALLOWED_FOLDERS` — nothing a user downloads may be filed as her note | `<name>.md`, dated sections |
-| `user_logs/` | Per-user interaction history and profiles | `interactions_<date>.md` |
-| `runtime/` | What the running bot wrote about itself: `snapshots/` (`system_logs/` is retired — `!sysmon` writes `memory/sysmon/`, which is not indexed) | timestamped |
+| `user_logs/` | Per-user interaction history, and each person's `user_profile.md` (its own index). A turn sees the logs and profile of the asker and of anyone it names | `interactions_<date>.md` |
+| `runtime/` | What the running bot wrote: `snapshots/`, conversations saved by `!snapshot`, retrieved labelled as a conversation snapshot (`system_logs/` is retired — `!sysmon` writes `memory/sysmon/`, which is not indexed) | timestamped |
 
 `kaia_persona.md` and `identity_registry.json` sit at the root and are special —
 the persona is never truncated and never indexed as a document.
@@ -31,14 +31,14 @@ the persona is never truncated and never indexed as a document.
 |:--|:--|
 | `_ingress/` | Staging. `!download` and `!youtube` write here; `process_ingress.py` files each document into an allow-listed folder. The exclusion is what makes those commands safe to leave open to everyone. |
 | `_quarantine/` | Files pulled out of the corpus: unparseable (`corrupt_files/`), and 868 dream files that were chat transcripts and scraped prose rather than reflections. Nothing here is deleted. |
-| `forum_posts/` | 9,236 scraped threads. Excluded from *global* retrieval so strangers' claims cannot surface as fact in an unrelated conversation; the drafting path reads the one thread it is posting in directly. |
+| `forum_posts/` | Scraped threads. Excluded from *global* retrieval so strangers' claims cannot surface as fact in an unrelated conversation; the drafting path reads the one thread it is posting in directly. |
 | `.compacted_backup/`, `.dream_archive/`, `.test/` | Working data. **Any dot-directory is skipped** — these hold the originals that compaction and consolidation superseded, and indexing them handed her the summary *and* everything it summarised. |
 
-## The two folding tools
+## The folding tools
 
 `kaia_dreams/` and `user_logs/forum_*/` both accumulate one small file per event,
-which is right for writing and wrong for retrieving. Two tools fold them, both
-dry-run by default, both reachable from `kaia-tools.sh` → Dreams & Curation:
+which is right for writing and wrong for retrieving. These tools fold them, each
+a dry run by default and reachable from `kaia-tools.sh` → Dreams & Curation:
 
 - `triage_dreams.py` — sorts `kaia_dreams/`, quarantines what is not a reflection.
 - `consolidate_dreams.py` — one document per book, person and topic. **Extends**

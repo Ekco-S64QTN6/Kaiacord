@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes the technical architecture after Phase 53 refactors.
+Kaia is a self-hosted Discord AI bot with local inference and RAG-based memory. This document describes how the pieces fit together; CLAUDE.md holds the rules each one has to keep.
 
 ## System Architecture
 
@@ -110,9 +110,9 @@ Kaiacord/
 
 **Pipeline Stages**:
 1. **Entry Checks**: Rate limiting, blacklist/whitelist, boot guard.
-2. **Intelligence**: Classification, Hallucination detection.
-3. **Retrieval**: Parallel RAG retrieval, News enhancement, Persona adaptation.
-4. **Generation**: Self-healing prompt construction and multi-pass AI call.
+2. **Intent**: regex matching (`IntentParser.fast_parse`), no model; a greeting or command skips retrieval.
+3. **Retrieval**: RAG, channel history, news when asked for, and the behavioural injections, in parallel.
+4. **Generation**: one context budget (`optimize_context`), then generation with the guard pipeline and retries.
 
 ---
 
@@ -163,7 +163,7 @@ Kaiacord/
 **Features**:
 - Deterministic game math handled entirely by Python; LLM handles narration only.
 - Per-user async locks prevent race conditions during combat or item generation.
-- Full registry system (369 monsters with 44 bosses, 453 equipment items across 7 tiers, 248 fish species) integrated with procedural dungeon generation.
+- Full registry system (369 monsters with 44 bosses, 395 pieces of gear across 7 tiers plus 58 consumables, 248 fish species) integrated with procedural dungeon generation.
 - Endgame gil sinks: gear enhancement (+1..+5) and pooled town-wall projects (`enhancement.py`, `town_projects.py`).
 
 ### 9. Project 1999 Forum Client (`utils/social/kaia_forum.py`)
@@ -171,8 +171,8 @@ Kaiacord/
 **Responsibility**: Scrapes and interacts with the Project 1999 vBulletin forums.
 
 **Features**:
-- Crawls threads in Forum 19 (Off-Topic) and Forum 40 (Technical Discussion) periodically.
-- Forwards drafts to the Discord moderation queue `#kaia-opolis` with interactive view buttons.
+- Crawls threads in Forum 19 (Off-Topic) and Forum 40 (Technical Discussion) periodically; posting in Forum 40 is off (`forum.tech_support_enabled`).
+- Forwards drafts to the Discord moderation queue `#kaia-opolis` as embeds with Accept / Reject buttons.
 - Caches forum user post profiles (4h/1h cooldowns) and delta-verifies post count changes before running heavy scraper operations.
 - Enforces strict zero-hallucination support guidelines for Technical Discussion replies.
 
@@ -206,11 +206,15 @@ sequenceDiagram
 
 ## GPU Memory Management Strategy
 
-**Priority Levels**:
-1. **CHAT** (P1): Main LLM (e.g., gemma3:12b) remains resident in VRAM for fast response.
-2. **MAINTENANCE**: Periodic RAG re-indexing and nightly Dream cycles.
+The chat model (`gemma3:12b`) stays resident in VRAM (`keep_alive: -1`), and every call to it
+sends the same runner options (`gpu_manager.chat_options`) so Ollama never reloads it. Model calls
+inside the bot pass through one semaphore (`run_with_gpu_guard`), first come, first served; the
+`GPUTaskPriority` a caller names is logged, not used to reorder. A standalone tool has its own
+semaphore, so a batch job and a chat turn are serialised by Ollama's queue instead.
 
-Kaia is optimized for 12GB VRAM GPUs (like the RTX 3060). Classification and embeddings run on CPU (`num_gpu: 0`), leaving the full GPU budget for the chat model and its 8K-token KV cache.
+Kaia targets 12 GB cards (RTX 3060). Embeddings run on the CPU (`num_gpu: 0`) and there is no
+classifier model, leaving the whole GPU to the chat model and its context
+(`performance.max_context_tokens`, 16,384 by default). See [gpu-management](gpu-management.md).
 
 ---
 
@@ -222,11 +226,12 @@ All social media API calls (Bluesky, X/Twitter) are wrapped in `CircuitBreaker` 
 - Auto-resets after 5-minute timeout.
 - Prevents cascade failures from taking down the main bot loop.
 
-### Self-Healing Generation Loop
-Kaia implements a 3-pass self-healing generation loop:
-1. **Attempt 1**: Standard parameters.
-2. **Attempt 2**: Temperature scaling on failure/hallucination.
-3. **Attempt 3**: Fallback safety response if generation persists in failing.
+### Generation retries
+A reply the guards reject is generated again, up to `generation.max_retry_attempts` (3), each
+attempt a little warmer (`generation.temperature_scaling`). If every attempt is rejected, the
+rejected attempts are kept, the best is repaired (`defuse_ellipsis_affect`) and sent through the
+whole pipeline again; it is used only if it passes on its own merits. A good reply is never
+emptied to force a retry.
 
 ---
 

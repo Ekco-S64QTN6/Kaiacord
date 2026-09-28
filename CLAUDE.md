@@ -753,7 +753,7 @@ feature has one code path whether it is clicked or typed.
   running; the suite had no such guard. If you add a component that persists anything, redirect
   it here first. The TTRPG world state was not: every run saved the test's `test_storm` /
   `atk_mod: -5` over `memory/ttrpg/world_state.json`, and every player fought at -5 until the
-  next dawn tick. To check the whole suite at once, run it under a `sys.addaudithook` that
+  next dawn tick; it goes through `telemetry_path()` now. To check the whole suite at once, run it under a `sys.addaudithook` that
   records `open` in a write mode, `os.replace`/`os.remove` under `memory/`, `knowledge_base/`
   and the production log, attributed per test; anything without `.test` in its path is a leak.
 - Elevate core cognitive actions (monologue, dream summaries, belief shifts, anchor formation),

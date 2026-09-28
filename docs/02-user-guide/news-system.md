@@ -5,10 +5,11 @@ The Daily News Updater is an automated system that keeps Kaia informed about cur
 The system uses the Gemini API with **Google Search grounding** to generate accurate daily briefs based on real, current news stories.
 
 - **Generation**: `tools/maintenance/update_kaia_news.py` calls the Gemini API (`gemini-2.5-flash`) with Google Search grounding enabled.
-- **Grounding**: Uses `tools='google_search_retrieval'` to pull real news from Google Search, preventing hallucinated stories.
+- **Grounding**: passes the `google_search` tool, so the brief is written from real search results rather than the model's memory.
 - **Ingestion**: The brief is saved to `knowledge_base/news/daily/news_brief_YYYYMMDD.md`.
-- **Summarization**: A condensed version is created as `knowledge_base/news/daily/news_summary_YYYYMMDD.md` using the local `gemma3:12b` model.
-- **Reindexing**: The script triggers a RAG reindex, making the new information available to Kaia immediately.
+- **Summarization**: A condensed version is created as `knowledge_base/news/daily/news_summary_YYYYMMDD.md` using the local `gemma3:12b` model. It is the quick reference for `!news` and is deliberately **not** indexed — it would retrieve each day's news twice, once undated.
+- **Reindexing**: The script requests a RAG refresh (`rag_utils.request_reindex`), so the brief is searchable within minutes.
+- **Retrieval**: news reaches a conversation only when the turn is about news; a turn asking what is *current* is also offered the newest briefs on its topic, and briefs are dated by their filename, not the file's mtime.
 
 ## 2. Categories
 Kaia supports specific news categories for targeted queries:
@@ -24,14 +25,13 @@ Kaia supports specific news categories for targeted queries:
 ## 3. Usage
 ```bash
 # Generate today's news (skips backfill to conserve API quota)
-python tools/maintenance/update_kaia_news.py
+venv/bin/python3 tools/maintenance/update_kaia_news.py
 
 # Generate with backfill (fills in missing days, uses more API quota)
-python tools/maintenance/update_kaia_news.py --backfill
-
-# Manual mode prompt generator (if no API key)
-python tools/maintenance/update_kaia_news.py --manual
+venv/bin/python3 tools/maintenance/update_kaia_news.py --backfill
 ```
+
+Without `GEMINI_API_KEY` it stops and says how to file a brief by hand (below).
 
 ## 4. Manual Ingestion
 If you manually generate a news brief (e.g., via the Gemini web interface), you can ingest it into Kaia's knowledge base using the ingestion tool:
@@ -40,7 +40,7 @@ If you manually generate a news brief (e.g., via the Gemini web interface), you 
 2. Name it with a date (e.g., `NEWS_BRIEF: 2026-02-01.md` or `WEEKLY_NEWS_BRIEF: 2026-01-26 to 2026-02-01.md`).
 3. Run the ingestion script:
    ```bash
-   python tools/maintenance/ingest_manual_news.py
+   venv/bin/python3 tools/maintenance/ingest_manual_news.py
    ```
 The script will:
 - Rename and move the file to the proper format (`news_brief_YYYYMMDD.md` for daily, `weekly_summary_YYYYMMDD.md` for weekly).
@@ -49,13 +49,12 @@ The script will:
 - Trigger a RAG reindex.
 
 ## 5. Automation
-To enable fully automated daily updates:
-1. **API Key**: Set the `GEMINI_API_KEY` in your `.env` file.
-2. **Billing**: Enable billing on your Google Cloud project for higher API quota.
-3. **Cron Job**: Add the script to your crontab.
-   ```bash
-   0 9 * * * cd /path/to/Kaiacord && source venv/bin/activate && python tools/maintenance/update_kaia_news.py
-   ```
+The running bot refreshes the news itself every 12 hours, as a subprocess (and at startup too
+when `startup.news_update` is on; it is off by default). All it needs is `GEMINI_API_KEY` in `.env`; enable billing
+on the Google Cloud project for more quota. Without the bot, a cron line does the same:
+```bash
+0 9 * * * cd /path/to/Kaiacord && venv/bin/python3 tools/maintenance/update_kaia_news.py
+```
 
 ## 6. API Quota
 - **Free tier**: 20 requests/day per model (may hit limits with backfill enabled)
@@ -65,11 +64,10 @@ To enable fully automated daily updates:
 ## 7. Maintenance
 The script automatically archives news briefs and summaries older than **14 days** to `knowledge_base/news/archive/` to keep the knowledge base focused.
 
-## 8. Formatting
-Kaia's news responses are optimized for readability:
-- **No Empty Lines**: Output is compact with no blank lines between sections.
-- **Bullet Points**: News is presented as a numbered list with dates.
-- **Options Footer**: Every news response includes a list of available categories for quick reference.
+## 8. `!news`
+`!news` answers in the standard embed box: today's headlines, numbered. `!news 3` opens story 3
+with its background from earlier briefs, and `!news security` (or any category above) shows one
+section. `!news hacking` is accepted for `hacker`.
 
 ## 9. Dependencies
 - **google-genai**: New Google GenAI SDK with grounding support

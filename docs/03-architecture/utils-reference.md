@@ -7,22 +7,33 @@ Core utility modules used by Kaiacord.
 | Module | Purpose |
 |--------|---------|
 | `kaia_rag.py` | RAG facade — delegates to query, indexer, persistence, and retriever modules |
-| `kaia_rag_query.py` | Hybrid BM25+vector retrieval, dynamic scoring, and identity resolution |
-| `kaia_rag_indexer.py` | Document ingestion, BM25 indexing, and parallel background updates |
-| `kaia_rag_persistence.py` | RAG state persistence (JSON manifest and the llama_index stores) and pre-warming |
-| `kaia_rag_retriever.py` | Shared RAG utilities and thread-safe lock decorators |
+| `kaia_rag_query.py` | Routing by intent, hybrid BM25+vector retrieval, scoring, and scoping to the asker and the people a turn names |
+| `kaia_rag_indexer.py` | Document ingestion, chunking, node typing, and parallel background updates |
+| `kaia_rag_persistence.py` | Atomic persistence of the llama_index stores |
+| `kaia_rag_retriever.py` | `SimpleBM25Retriever`, `HybridRetriever` (RRF), and the RAG lock decorators |
+| `rag_utils.py` | Node text/metadata helpers, `is_news_node` / `is_profile_node`, speaker from a log path, `request_reindex` |
+| `rag_executor.py` | The thread pool retrieval runs in, off the event loop |
+| `knowledge_boundary.py` | Flags names in the user's message that nothing in her corpus contains (logged only; nothing reads the result) |
 | `kaia_intelligence.py` | Intelligence facade — coordinates intent matching, budgeting and enrichment |
 | `intent_classifier.py` | Intent detection by regex. No model — the `gemma2:2b` second pass was removed in Sept 2026 because its verdict was never read |
-| `context_optimizer.py` | Dynamic context window management and token budgeting |
+| `context_optimizer.py` | The one context budget, and the labels retrieved chunks carry into the prompt |
+| `context_enricher.py` | Reply context, embeds, attachments and fetched pages, each in its own labelled block |
+| `message_context.py` | `MessageContext`, the state one turn carries through the pipeline |
 | `hallucination_detector.py` | Canonical detector for AI structural leaks and fabrications |
-| `message_processor.py` | Modular on_message pipeline with timeout guards and self-healing (~2310 lines) |
+| `message_processor.py` | The on_message pipeline: intent, retrieval, behavioural injections, generation with retries and salvage |
 | `response_filter.py` | BotSpeakFilter, boilerplate filtering, and response cleaning |
 | `safety_pipeline.py` | Post-generation safety pipeline and dogtag replay. Steps are numbered in the source; the count in this table was wrong twice, so it is not asserted here. |
-| `sanitizer.py` | Output sanitization and artifact cleanup |
+| `sanitizer.py` | Input sanitising, and `user_authored_text()` — what the user typed, without quotes or fetched pages |
+| `code_blocks.py` | Keeps code she writes out of the prose filters |
+| `atomic_write.py` | `write_atomic()`, the one way to write anything under `knowledge_base/` or `memory/` |
+| `ingress.py` | Files staged documents from `knowledge_base/_ingress/` into the corpus |
 | `frontmatter.py` | The one writer for YAML frontmatter blocks. Every corpus writer that built one with an f-string eventually produced invalid YAML. |
 | `timezone_helper.py` | 4-clock Newsroom Wall timezone engine (12-hour AM/PM format, IANA safety) |
 | `background_tasks.py` | Afterthoughts, dawn tasks, presence loops, and forum scheduling |
 | `kaia_art.py` | Fractal flame renderer (CPU-only, NumPy/SciPy) |
+| `kaia_art_intent.py` | What she decides to make before a fractal is drawn |
+| `kaia_expression.py` | A set she played or a piece she made, remembered as something she did |
+| `stance_harness.py` | `!stance`: pressure scenarios through the real pipeline |
 | `kaia_reactions.py` | Non-verbal emoji reactions — 85 emoji across 11 mood-biased pools, graded so the heaviest is not as likely as the mildest |
 
 ## Cognitive Pipeline (`utils/core/`)
@@ -46,6 +57,11 @@ Core utility modules used by Kaiacord.
 | `kaia_notes.py` | Writes `knowledge_base/kaia_notes/<name>.md` when a reply says she is keeping a note |
 | `sky_facts.py` | Live space-weather, launch, asteroid, quake and ISS readings for turns that ask about them |
 | `architecture_claims.py` | Notices a user stating how she works, and adds a soft note |
+| `conversation_beliefs.py` | Beliefs a conversation can change: an argued point, raised on two days, gets a nightly review, bounded in Python |
+| `growth_recall.py` | Her own past shifts, recalled when a conversation touches them |
+| `relationship_impressions.py` | How she sees each person, in prose |
+| `self_claims.py`, `self_correction.py` | A self-model that can be wrong, and correcting herself when a source says she was |
+| `kaia_telemetry.py` | Real numbers about herself, offered only at extremes |
 | `dm_log.py` | Direct messages logged to `memory/dm_logs/`, never to the shared user logs |
 
 ## Infrastructure (`utils/infrastructure/`)
@@ -57,7 +73,17 @@ Core utility modules used by Kaiacord.
 | `system/yaml_config.py` | Hierarchical configuration management |
 | `system/messaging.py` | Discord message utilities and chunking guard ($\le 1990$ chars) |
 | `system/rate_limiter.py` | Per-user interaction rate limiting |
+| `system/dashboard_manager.py` | Run modes, the phased boot, the dashboard process and ordered shutdown |
+| `system/shutdown_fixed.py` | Clean shutdown: tasks, model unload, RAG persist, clients |
+| `system/external_mention.py` | `process_external_mention`: forum, social and broadcast turns through the Discord pipeline |
+| `system/maintenance_tasks.py` | RAG maintenance and memory audit loops |
+| `system/self_healing.py`, `system/performance_optimizer.py` | A model call retried with fallback options; the slow-response warning |
+| `system/kaia_sysmon.py` | The data behind `!sysmon` |
+| `circuit_breaker.py` | Stop calling a service that keeps failing, and try again later |
 | `logging/kaia_logger.py` | Structured logging |
+| `logging/unified_logging.py` | The logger behind it; sends test runs to `logs/kaiacord.test.log` |
+| `logging/log_sanitize.py` | `summarize_payload`: report a document's size, never its text |
+| `monitoring/telemetry_paths.py` | Where telemetry, corpus writes and the RAG store go, redirected under pytest |
 | `monitoring/retrieval_trace.py` | In-memory ring buffer of recent RAG retrievals, so `!explain N` can look past the single cached one |
 | `monitoring/btop_dashboard_v2.py` | Live curses monitoring dashboard |
 | `monitoring/async_task_registry.py`| Background task lifecycle tracking. Register fire-and-forget tasks here: asyncio holds tasks weakly, so a bare `create_task` can be collected mid-run |
@@ -70,7 +96,8 @@ Core utility modules used by Kaiacord.
 | Module | Purpose |
 |--------|---------|
 | `gpu_manager.py` | Ollama GPU options. `chat_options(**overrides)` is how every chat-model call builds its options — the runner options must match or Ollama reloads the model |
-| `gpu_memory_manager.py` | GPU task queue with priority scheduling (Semaphore Guard) |
+| `gpu_manager.py` → `gpu_memory_manager` | `run_with_gpu_guard`: one semaphore for model calls, first come first served; the priority is logged, not used to reorder |
+| `clear_gpu_memory.py` | Unloads models and stops orphaned runners at shutdown |
 
 ## Specialized Handlers (`utils/commands/`)
 
@@ -88,9 +115,9 @@ Core utility modules used by Kaiacord.
 | `social_handler.py` | `!quip` and Bluesky/X social posting |
 | `forum_handler.py` | `!forum` linking, scrapers, and `!forum reply` (drafts through `forum_drafting`) |
 | `audit_handler.py` | `!audit` and `!flag` moderation audit handlers |
-| `snapshot_handler.py` | `!snapshot` state archiving |
+| `snapshot_handler.py` | `!snapshot` — saves the channel's recent conversation as a retrievable snapshot |
 | `selfmodel_handler.py` | `!selfmodel` regeneration |
-| `enrich_handler.py` | `!enrich` contextual text enrichment |
+| `enrich_handler.py` | `!enrich` — metadata enrichment of the knowledge base |
 | `reindex_handler.py` | `!reindex` background knowledge refresh |
 | `sysmon_handler.py` | `!sysmon` monitoring |
 | `explain_handler.py` | `!explain` RAG retrieval diagnostics |
@@ -100,7 +127,9 @@ Core utility modules used by Kaiacord.
 | `radio_handler.py` | `!skyking`, `!numbers`, `!radio`, `!buzzer`, `!tacamo`, `!beacons`, `!overnight` |
 | `sky_handler.py` | `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky` |
 | `nightshift.py` | `!nightshift`, and the small print on each radio/sky box naming its siblings |
-| `profile_handler.py` | Answers "what do you know about <user>" from their profile document |
+| `profile_handler.py` | Answers "kaia, who do you know?" with the names she has logs for |
+| `scanner_handler.py` | `!scanner` — the panel, listen-along, history and presets |
+| `stance_handler.py` | `!stance` — the stance-stability harness |
 | `embed_style.py` | The embed box every `!` command answers in (`box`, `add_field`, `notice`, `clean`) |
 
 ## Music (`utils/audio/`)
@@ -134,10 +163,17 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `adsb.py` | E-6B/E-4B sightings on adsb.lol |
 | `overnight.py` | The morning box: facts gathered in Python shown by section, one model call for her account above them, invented numbers rejected |
 | `log.py` | `memory/radio/log.json` and the clips |
-| `scanner.py` | The local RTL-SDR: nightly schedule, nets, classification (voice/data/carrier), listen-along |
-| `waterfall.py` | The hopping waterfall watch and NBFM demodulator, run in a forked child with its output on /dev/null |
+| `scanner.py` | The local RTL-SDR: nightly schedule, nets, classification (voice/data/carrier/noise, Morse IDs), which catches keep a clip, listen-along |
+| `waterfall.py` | The hopping waterfall watch, NBFM demodulator and carrier measurement; follows a conversation, locks out constant carriers; run in a forked child with its output on /dev/null |
 | `ledger.py` | `memory/radio/local_ledger.sqlite3`: channels with an hour-of-day histogram, and every catch |
 | `dongle.py`, `rtl.py` | librtlsdr through ctypes; the device lock, `rtl_fm` streams and audio measurement |
+
+## News (`utils/news/`)
+
+| Module | Purpose |
+|--------|---------|
+| `kaia_news.py` | Reads the filed briefs for retrieval and news turns |
+| `brief.py` | A brief as headlines and stories, for `!news` |
 
 ## Sky (`utils/sky/`)
 
@@ -154,6 +190,10 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `kaia_twitter.py` | X/Twitter API client (Twikit lazy-loaded) |
 | `kaia_forum.py` | Project 1999 VBulletin 3.x forum client, crawler & moderation UI |
 | `forum_tasks.py` | Periodic scraping and auto-posting background tasks |
+| `forum_drafting.py` | A thread turned into a draft through the Discord pipeline, with the thread as history |
+| `forum_participation.py` | When she posts and to what: interest scoring, the post ledger, novelty |
+| `social_tasks.py`, `social_bluesky_polling.py`, `social_twitter_polling.py` | The idle-quip and mention loops, per-platform polling and replies |
+| `social_tracker.py` | Per-thread reply counts that stop bot loops |
 | `kaia_social_responder.py` | Multi-platform social mention listener & responder |
 | `social_response_generator.py` | Social response generation prompts and filters |
 | `kaia_identities.py` | Discord ID ↔ Forum UID identity bridge |
@@ -175,3 +215,7 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `calendar.py` | Seasons, dynamic weather, and 13 special calendar holidays |
 | `quest_registry.py` | 12 progressive quests (L1–L15) |
 | `npc_registry.py` & `loot_tables.py` | NPC dialogue definitions and tiered drop tables |
+| `world.py`, `world_state.py` | The map, and the shared world (weather, events) saved in `memory/ttrpg/world_state.json` |
+| `rpg_*_handler.py`, `rpg_views.py`, `rpg_ui.py`, `session_manager.py` | Command routing by area, the Discord views, and sessions |
+| `dice_engine.py`, `progression.py`, `encounter_tables.py`, `forest_events.py`, `micro_events.py` | Rolls (`secrets`), levelling, encounters and events |
+| `rpg_prompt_builder.py`, `narration.py`, `broadcast.py` | What the model is given to narrate, and posting it |

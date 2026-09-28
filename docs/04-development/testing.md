@@ -29,12 +29,12 @@ venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harde
 4. **Skipping External Services** (the invocation to use by default):
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-27: 2,540 passed, 1 skipped, 48 deselected, 1 xfailed. Take the count from your own run.
+# 2026-09-28: 2,602 passed, 1 skipped, 49 deselected, 1 xfailed. Take the count from your own run.
 # Re-run rather than trusting this line — the count moves every phase, and it
 # has been stale in three files at once. What matters is that nothing failed.
 ```
-Only **2** tests need Ollama or a GPU (26 Sept 2026). The rest of what that invocation deselects
-is the ~46 marked `slow`. A bare `pytest -q` runs them, which loads `gemma3:12b` and evicts the production
+Only **2** tests need Ollama or a GPU (28 Sept 2026; `--collect-only -m "ollama or gpu"` gives
+today's figure). The rest of what that invocation deselects is the 47 marked `slow`. A bare `pytest -q` runs them, which loads `gemma3:12b` and evicts the production
 model from VRAM. A test that reaches the Ollama daemon at all — even just to embed — is marked
 `ollama`; two were not, and ran against the bot's own daemon on every run.
 
@@ -108,9 +108,32 @@ async def test_my_new_feature():
 
 ---
 
+### Rules the suite has learned
+
+- **A fix's test fails on the old code.** Before trusting a new test, stash the fix
+  (`git stash -- <file>`) and run it: a test that passes both ways guards nothing.
+- **A test that reads the clock pins it.** Two unprompted-gate tests recorded at `time.time()` and
+  checked 70 minutes later, so after about 22:50 they crossed midnight and failed. Anchor to a
+  fixed time of day or pass `now` in.
+- **A test does not stub what it guards.** A lock test that replaced the handler with a stub could
+  never see a deadlock inside the real handler. Run the real path, with a timeout if a hang is the
+  risk.
+- **Nothing a test writes lands in live state.** `utils/infrastructure/monitoring/telemetry_paths.py`
+  redirects telemetry, corpus writes, the RAG store and the TTRPG world state under pytest; a new
+  component that persists anything needs the same. To check the whole suite at once, run it under
+  a `sys.addaudithook` that records writes, renames and removes under `memory/`, `knowledge_base/`
+  and `logs/`, attributed per test — anything without `.test` in its path is a leak. That is how
+  the live world state was found carrying a test's `atk_mod: -5`.
+- **A test that runs a tool is a tool run.** Import a script's module under any name but
+  `__main__` rather than invoking it; several tools have no argument parsing and rewrite the corpus
+  whatever they are passed.
+
 ## Pre-Flight Health Check
 
-Before submitting a Pull Request or starting the bot for the first time, you should run the comprehensive health check script. This script verifies your `.env` tokens, local installation of Ollama, connectivity to models, and file permissions.
+Before submitting a pull request or starting the bot for the first time, run the health check. It
+checks that it is running in the project venv with the required packages (including `davey`), the
+Discord token, Ollama and the models, the GPU as `nvidia-smi` reports it, the knowledge base and
+the directories it writes to.
 
 ```bash
 venv/bin/python3 tools/maintenance/health_check.py

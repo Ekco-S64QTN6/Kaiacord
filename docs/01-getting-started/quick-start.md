@@ -6,10 +6,10 @@ Get Kaia up and running in 5 minutes.
 
 Before starting, ensure you have:
 - ✅ Linux system
-- ✅ Python 3.12+
-- ✅ NVIDIA GPU (8GB+ VRAM)
+- ✅ Python 3.12
+- ✅ NVIDIA GPU with 12 GB of VRAM
 - ✅ Discord bot token
-- ✅ 30GB free disk space
+- ✅ About 10 GB free disk space for the models
 
 **Don't have these?** → [Full Installation Guide](installation.md)
 
@@ -19,21 +19,21 @@ Before starting, ensure you have:
 
 ```bash
 # Clone
-git clone https://github.com/YOUR_USERNAME/Kaiacord.git && cd Kaiacord
+git clone https://github.com/Ekco-S64QTN6/Kaiacord.git && cd Kaiacord
 
 # Install Python deps
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
 
 # Pull AI models (this takes time!)
 ollama pull gemma3:12b
 ollama pull nomic-embed-text-cpu
 
-# Configure
-echo "DISCORD_TOKEN=your_token_here" > .env
+# Configure: set DISCORD_TOKEN
+cp .env.example .env
 
 # Launch!
-python Kaiacord.py
+venv/bin/python3 Kaiacord.py
 ```
 
 ---
@@ -42,7 +42,7 @@ python Kaiacord.py
 
 ### Test 1: Health Check
 ```bash
-python tools/maintenance/health_check.py
+venv/bin/python3 tools/maintenance/health_check.py
 ```
 
 Expected: All ✅ green checks
@@ -50,13 +50,10 @@ Expected: All ✅ green checks
 ### Test 2: Discord Interaction
 In Discord:
 ```
-@kaia status
+kaia
 ```
 
-Expected response:
-```
-online. gpu loaded. all systems nominal.
-```
+Expected: a short, casual greeting asking what's up.
 
 ### Test 3: Chat
 ```
