@@ -1367,31 +1367,17 @@ class CoreTaskManager:
                     log_warning("Discord channel 'kaia-opolis' not found. Cannot send draft for review.")
                     return
 
-                # Build review message content
-                thread_link = f"https://www.project1999.com/forums/showthread.php?t={thread_id}"
-                
+                # The draft goes in an embed (draft_review_embed says why).
+                from utils.commands.embed_style import clean
+                from utils.social.kaia_forum import draft_review_embed
                 if quote_post:
                     qp_dict = quote_post if isinstance(quote_post, dict) else quote_post.to_dict()
-                    quote_author = qp_dict.get('author', 'Unknown')
-                    quote_content = qp_dict.get('content', '')
-                    
-                    review_msg = (
-                        f"📰 **[P99 Forum Auto-Post Draft Review]**\n"
-                        f"**Thread:** [{title}]({thread_link})\n"
-                        f"**Type:** Quote Reply to **{quote_author}**\n"
-                        f"**Quoted Post:**\n"
-                        f"> {quote_content[:400] + ('...' if len(quote_content) > 400 else '')}\n\n"
-                        f"**Kaia's Draft:**\n"
-                        f"```\n{final_reply}\n```"
-                    )
+                    details = (f"**Type:** quote reply to **{clean(qp_dict.get('author', 'Unknown'), 80)}**",
+                               f"> {clean(qp_dict.get('content', ''), 400)}")
                 else:
-                    review_msg = (
-                        f"📰 **[P99 Forum Auto-Post Draft Review]**\n"
-                        f"**Thread:** [{title}]({thread_link})\n"
-                        f"**Type:** Direct Reply\n\n"
-                        f"**Kaia's Draft:**\n"
-                        f"```\n{final_reply}\n```"
-                    )
+                    details = ("**Type:** direct reply",)
+                review = draft_review_embed("📰 P99 forum auto-post draft", thread_id, title,
+                                            final_reply, details)
 
                 # Instantiate interactive review view
                 from utils.social.forum_participation import INITIATION
@@ -1399,7 +1385,7 @@ class CoreTaskManager:
                 view = ForumDraftReviewView(client, thread_id, title, final_reply,
                                             forum_type="off_topic", kind=INITIATION,
                                             last_seen_post_id=newest)
-                await channel.send(review_msg, view=view)
+                await channel.send(embed=review, view=view)
                 log_success(f"Dispatched forum post draft for '{title}' to #kaia-opolis for review.")
                 
                 # Increment draft count
@@ -1637,19 +1623,14 @@ class CoreTaskManager:
                     log_warning("Discord channel 'kaia-opolis' not found. Cannot send support draft.")
                     return
 
-                # Build review message content
-                thread_link = f"https://www.project1999.com/forums/showthread.php?t={thread_id}"
-                review_msg = (
-                    f"🔧 **[P99 Forum Tech Support Draft Review]**\n"
-                    f"**Thread:** [{title}]({thread_link})\n"
-                    f"**Replies:** {chosen_thread.reply_count} (Prioritized Unanswered)\n\n"
-                    f"**Kaia's Support Draft:**\n"
-                    f"```\n{final_reply}\n```"
-                )
+                from utils.social.kaia_forum import draft_review_embed
+                review = draft_review_embed(
+                    "🔧 P99 forum tech-support draft", thread_id, title, final_reply,
+                    (f"**Replies:** {chosen_thread.reply_count} (prioritised unanswered)",))
 
                 # Instantiate interactive review view using same confirming views
                 view = ForumDraftReviewView(client, thread_id, title, final_reply, forum_type="technical")
-                await channel.send(review_msg, view=view)
+                await channel.send(embed=review, view=view)
                 log_success(f"Dispatched forum tech support draft for '{title}' to #kaia-opolis for review.")
                 
                 # Increment draft count

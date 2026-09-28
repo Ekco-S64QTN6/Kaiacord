@@ -1093,3 +1093,37 @@ def test_the_queue_path_records_the_skip():
     queued = src.index("queued for review.")
     window = src[queued:queued + 500]
     assert "note_skip" in window, "the review-queue path must record the thread state"
+
+
+def test_a_long_quote_reply_fits_the_review_message():
+    """Message text stops at 2,000 characters; a quote reply passed it, the
+    send failed, and the next scrape drafted the same reply again."""
+    from utils.social.kaia_forum import draft_review_embed
+    draft = "[QUOTE=Jimjam;123]" + "q" * 700 + "[/QUOTE]" + ("a sentence of reply. " * 90) + "```x```"
+    e = draft_review_embed("📰 P99 forum draft", 443378, "A thread", draft,
+                           ("**Type:** quote reply to **Jimjam**", "> quoted"))
+    assert len(e.description) <= 4096 and "```" not in e.description
+    assert "showthread.php?t=443378" in e.description
+
+
+def test_a_rejection_is_recorded_even_when_the_message_edit_fails(monkeypatch):
+    """The edit came before note_skip; when it threw, the rejected reply was
+    re-drafted on the next sweep."""
+    import asyncio
+    import discord
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from utils.social import forum_participation as fp
+    from utils.social.kaia_forum import ForumDraftReviewView
+    calls = []
+    monkeypatch.setattr(fp, "PostLedger", lambda *a, **k: SimpleNamespace(
+        note_skip=lambda tid, pid, body="": calls.append((tid, pid))))
+
+    async def go():
+        view = ForumDraftReviewView(MagicMock(), 443378, "T", "x" * 2500, last_seen_post_id="3800500")
+        failing = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=400), "Must be 2000 or fewer"))
+        interaction = SimpleNamespace(user=SimpleNamespace(name="ekco", mention="@ekco", id=1, discriminator="0"),
+                                      response=SimpleNamespace(edit_message=failing))
+        await view.reject.callback(interaction)
+    asyncio.run(go())
+    assert calls == [(443378, "3800500")]

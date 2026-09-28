@@ -244,7 +244,8 @@ def _readable(content: str) -> str:
     return "\n".join(keep).strip()
 
 
-def seed_thread_history(ctx, thread_id: int, earlier_posts: list, username: str) -> int:
+def seed_thread_history(ctx, thread_id: int, earlier_posts: list, username: str,
+                        scraped: Optional[list] = None) -> int:
     """Load a thread's earlier posts into channel memory as conversation turns.
 
     Kaia's own posts become `assistant` turns and everyone else's become `user`
@@ -267,7 +268,8 @@ def seed_thread_history(ctx, thread_id: int, earlier_posts: list, username: str)
 
     # Prefer the local copy where it reaches further back than the live scrape,
     # keeping the live posts for the tail because they are the current state.
-    scraped = load_scraped_thread(thread_id)
+    if scraped is None:
+        scraped = load_scraped_thread(thread_id)
     if len(scraped) > len(earlier_posts):
         live_numbers = {_as_dict(p).get("post_number") for p in earlier_posts}
         older = [p for p in scraped if p.get("post_number") not in live_numbers]
@@ -381,7 +383,11 @@ async def draft_forum_reply(ctx, *, thread_id: int, title: str, posts: list,
     # nothing ever writes to, so `optimize_context` received an empty list and
     # she answered every post cold. That is most of what "boilerplate one
     # sentence" was: no conversation to be in the middle of.
-    seed_thread_history(ctx, thread_id, posts[:-1] if len(posts) > 1 else [], username)
+    # The scraped copy is read off the event loop (§4); the seeding itself
+    # stays on it, since channel_memory is shared with the loop.
+    import asyncio
+    scraped = await asyncio.to_thread(load_scraped_thread, thread_id)
+    seed_thread_history(ctx, thread_id, posts[:-1] if len(posts) > 1 else [], username, scraped=scraped)
 
     from utils.infrastructure.system.external_mention import process_external_mention
 

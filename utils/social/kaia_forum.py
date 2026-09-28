@@ -1903,6 +1903,18 @@ class ForumClient:
         return None
 
 
+def draft_review_embed(heading: str, thread_id: int, title: str, draft: str,
+                       details: tuple = ()) -> discord.Embed:
+    """A forum draft as the reviewer sees it: in an embed, not in the message
+    text. Message content stops at 2,000 characters and a quote reply passes
+    that, so the send failed and the next scrape drafted the same reply again;
+    the draft also sat in a code fence that a ``` in it would close."""
+    from utils.commands.embed_style import COLOR_INFO, box, clean, clean_block
+    link = f"https://www.project1999.com/forums/showthread.php?t={thread_id}"
+    body = [f"**Thread:** [{clean(title, 200)}]({link})", *details, "", clean_block(draft, 3500)]
+    return box(heading, "\n".join(body), COLOR_INFO)
+
+
 class ForumDraftReviewView(discord.ui.View):
     """Interactive Discord Moderation View for P99 Forum drafts."""
     def __init__(self, client, thread_id, title, final_reply, forum_type="off_topic",
@@ -1950,13 +1962,15 @@ class ForumDraftReviewView(discord.ui.View):
         
         if success:
             dest_name = "P99 TECHNICAL SUPPORT" if self.forum_type == "technical" else "P99 OFF-TOPIC"
-            await interaction.message.edit(
-                content=f"**[✅ POSTED TO {dest_name}]**\n"
-                        f"**Thread:** {self.title}\n"
-                        f"**Approved by:** {interaction.user.mention}\n\n"
-                        f"```\n{self.final_reply}\n```",
-                view=self
-            )
+            # The status only: the draft is in the embed, which an edit keeps. With
+            # the draft in the text an over-long edit threw after the post was live,
+            # and the moderation log below was never written.
+            try:
+                await interaction.message.edit(
+                    content=f"**[✅ POSTED TO {dest_name}]** — approved by {interaction.user.mention}",
+                    view=self)
+            except discord.HTTPException as ee:
+                log_warning(f"Forum: posted, but the review message could not be updated: {ee}")
             log_success(f"Moderator {interaction.user.name} approved and posted P99 reply to thread {self.thread_id}")
             
             # Log to forum moderation file
@@ -1997,12 +2011,12 @@ class ForumDraftReviewView(discord.ui.View):
             # against the daily cap, halving it silently.
         else:
             dest_name = "P99 TECHNICAL SUPPORT" if self.forum_type == "technical" else "P99 OFF-TOPIC"
-            await interaction.message.edit(
-                content=f"**[❌ FAILED TO POST TO {dest_name}]**\n"
-                        f"Check rate limits or credentials.\n\n"
-                        f"```\n{self.final_reply}\n```",
-                view=self
-            )
+            try:
+                await interaction.message.edit(
+                    content=f"**[❌ FAILED TO POST TO {dest_name}]** — check rate limits or credentials.",
+                    view=self)
+            except discord.HTTPException as ee:
+                log_warning(f"Forum: the review message could not be updated: {ee}")
 
     @discord.ui.button(label="❌ Reject", style=discord.ButtonStyle.danger)
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2015,13 +2029,14 @@ class ForumDraftReviewView(discord.ui.View):
         for item in self.children:
             item.disabled = True
             
-        await interaction.response.edit_message(
-            content=f"**[❌ DRAFT REJECTED]**\n"
-                    f"**Thread:** {self.title}\n"
-                    f"**Rejected by:** {interaction.user.mention}\n\n"
-                    f"```\n{self.final_reply}\n```",
-            view=self
-        )
+        # Before the rejection is recorded, so this must not throw: with the draft
+        # in the text an over-long edit did, and the watcher re-drafted the reply
+        # that had just been turned down.
+        try:
+            await interaction.response.edit_message(
+                content=f"**[❌ DRAFT REJECTED]** — by {interaction.user.mention}", view=self)
+        except discord.HTTPException as ee:
+            log_warning(f"Forum: the review message could not be updated: {ee}")
         log_info(f"Moderator {interaction.user.name} rejected P99 reply draft for thread {self.thread_id}")
 
         # A rejection retires this post. Without recording the id the watcher

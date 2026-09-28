@@ -96,22 +96,19 @@ async def _queue_for_review(ctx, client, thread_id: int, title: str, text: str,
     """Send a draft to #kaia-opolis with accept/reject buttons."""
     try:
         import discord
-        from utils.social.kaia_forum import ForumDraftReviewView
+        from utils.social.kaia_forum import ForumDraftReviewView, draft_review_embed
 
         channel = discord.utils.get(ctx.bot.get_all_channels(), name="kaia-opolis")
         if not channel:
             log_warning("Discord channel 'kaia-opolis' not found; dropping forum draft.")
             return False
 
-        link = f"https://www.project1999.com/forums/showthread.php?t={thread_id}"
-        header = (f"💬 **[P99 Forum Reply Draft]** — {replying_to} replied to her"
-                  if replying_to else "📰 **[P99 Forum Draft]**")
+        heading = (f"💬 P99 forum reply draft — {replying_to} replied to her"
+                   if replying_to else "📰 P99 forum draft")
         view = ForumDraftReviewView(client, thread_id, title, text,
                                     forum_type="off_topic", kind=kind,
                                     last_seen_post_id=last_seen_post_id)
-        await channel.send(
-            f"{header}\n**Thread:** [{title}]({link})\n\n"
-            f"**Kaia's Draft:**\n```\n{text}\n```", view=view)
+        await channel.send(embed=draft_review_embed(heading, thread_id, title, text), view=view)
         try:
             from utils.infrastructure.monitoring.stats_tracker import stats_tracker
             stats_tracker.increment_forum_drafts()
