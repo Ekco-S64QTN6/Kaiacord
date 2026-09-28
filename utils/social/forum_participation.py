@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -125,10 +124,8 @@ class PostLedger:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             cutoff = time.time() - 60 * 86400          # keep two months
             self.posts = [p for p in self.posts if p.get("ts", 0) > cutoff]
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"posts": self.posts, "skips": self.skips},
-                                      indent=2), encoding="utf-8")
-            os.replace(tmp, self.path)
+            from utils.core.atomic_write import write_atomic
+            write_atomic(self.path, json.dumps({"posts": self.posts, "skips": self.skips}, indent=2))
         except Exception as e:
             log_debug(f"Forum ledger save failed (non-fatal): {e}")
 

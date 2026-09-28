@@ -118,11 +118,16 @@ async def get_x_client(force_new: bool = False):
                                 log_error(f"Failed to load injected cookies ({type(e).__name__}): {e}")
                     
                     log_error(f"Failed to create X client ({error_type}): {login_err}")
+                    # Not kept: a client that never logged in was being handed to
+                    # every later caller, so one failed login ended X posting
+                    # until a restart.
+                    _client = None
                     return None
             except Exception as e:
                 log_error(f"Unexpected error creating X client ({type(e).__name__}): {e}")
                 import traceback
                 log_debug(f"X client error traceback:\n{traceback.format_exc()}")
+                _client = None
                 return None
         
         return _client
@@ -166,6 +171,10 @@ async def post_to_x(text: str) -> tuple[bool, Optional[str]]:
             is_auth_error = True
             
         if is_auth_error:
+            # The cached client holds the dead session too; drop it with the
+            # cookies so the next call logs in again.
+            global _client
+            _client = None
             if _cookies_path.exists():
                 _cookies_path.unlink()
                 log_warning(f"Cleared dead X cookies (received auth error: {error_msg})")
