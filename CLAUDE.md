@@ -1003,14 +1003,28 @@ retrieval never reported:
   And four words or fewer meant casual, which searches only profiles and logs, so "who wrote
   Neuromancer?" never reached the book — `_is_short_question` keeps real short questions out of
   that bucket. Check a change here by asking the index real questions, not by reading scores.
+  Ask them the way chat does — as a user, with `strict_identity` — because that is where
+  scoping bites: "who is starkind" is identity-scoped, and scoped to the asker alone it reached
+  nothing Starkind had said. Logs and profiles are scoped to the asker *and anyone the question
+  names*, matched against the `user_logs/` folder names. Every error question is a diagnostic,
+  and diagnostics searched chat logs only, so no troubleshooting guide was ever retrieved.
+- **A node's type is only as good as the test that assigned it, and path tests go most-specific
+  first.** A profile lives at `user_logs/<user>/user_profile.md`, so the `user_logs` test typed
+  all 241 profile nodes as logs; a dream about a brief is named `…_news_brief_…`, so 116 dream
+  nodes were news. Old nodes keep their old type until their file changes, so readers use
+  `rag_utils.is_profile_node` / `is_news_node`, which go by the path. `"news" in path` is not a
+  news test: it dropped every dream about a brief and every document with *news* in its title.
 - **`reindex_rag.py --clear` removes only the index artefacts.** `dream_history.json` and
   `kaia_continuity.md` live in the same directory and are not rebuilt from anything.
 
 ### Dreams
 
-`knowledge_base/kaia_dreams/` is its own RAG index, and `context_optimizer` labels anything
-retrieved from it **INTERNAL REFLECTION (DREAM)** — as something Kaia thought. Two consequences
-follow, and both had already gone wrong by September 2026:
+`knowledge_base/kaia_dreams/` is its own RAG index, and `context_optimizer` labels what is
+retrieved from it **INTERNAL REFLECTION (DREAM)** — as something Kaia thought — except an
+`## Original Fragment`, which is what she read and goes in as recorded knowledge. That is decided
+per chunk: chunking splits a dream file, and until 28 Sept only a chunk holding *both* halves was
+recognised, so 78% of dream chunks, her reflections included, went in as reference material. Two
+consequences follow, and both had already gone wrong by September 2026:
 
 - **Only reflections belong in it.** 868 of 2,399 files were cleaned chat transcripts and scraped
   prose written there by an older pipeline, one of them an American Express advertisement,

@@ -34,6 +34,7 @@ RE_ORIGINAL_FRAG_HEADER = re.compile(r"## Original Fragment\s*", flags=re.IGNORE
 RE_SOURCE_HEADER_MATCH = re.compile(r"Source:\s*(.+)", flags=re.IGNORECASE)
 RE_SOURCE_HEADER_STRIP = re.compile(r"Source:\s*.+", flags=re.IGNORECASE)
 RE_KAIA_REFLECTION_HEADER = re.compile(r"## Kaia's Reflection\s*", flags=re.IGNORECASE)
+RE_LEADING_FRONTMATTER = re.compile(r"\A\s*---\n.*?\n---\s*\n", flags=re.DOTALL)
 # Anchored against a digit run and matched on the basename only. An unanchored
 # `(\d{4})(\d{2})(\d{2})` over the whole path matches inside a 19-digit Discord
 # id and raises on the impossible month, so no user-log chunk carries a date —
@@ -164,7 +165,7 @@ class ContextOptimizer:
         reference_nodes = []
         news_nodes = []
         
-        from utils.core.rag_utils import get_node_text, get_node_metadata
+        from utils.core.rag_utils import get_node_text, get_node_metadata, is_news_node
         for n in rag_nodes:
             content_raw = get_node_text(n)
             metadata = get_node_metadata(n)
@@ -209,6 +210,24 @@ class ContextOptimizer:
                 # Add Kaia's Reflection as LIVED EXPERIENCE
                 kaia_reflection = RE_KAIA_REFLECTION_HEADER.sub("", kaia_reflection).strip()
                 history_nodes.append(f"[INTERNAL REFLECTION (DREAM)]\n{kaia_reflection}")
+                continue
+
+            # A dream chunk holding only part of the composite, or a
+            # consolidated synthesis. The fragment half is what she read; the
+            # rest is what she thought, and went in as recorded knowledge.
+            if "/kaia_dreams/" in "/" + path.replace("\\", "/") or source_type in ('dream', 'kaia_reflection'):
+                if RE_ORIGINAL_FRAG_HEADER.search(content_raw):
+                    fragment = RE_ORIGINAL_FRAG_HEADER.sub("", content_raw)
+                    file_origin = os.path.basename(path_raw or 'Dream Source')
+                    source_match = RE_SOURCE_HEADER_MATCH.search(fragment)
+                    if source_match:
+                        file_origin = os.path.basename(source_match.group(1).strip())
+                        fragment = RE_SOURCE_HEADER_STRIP.sub("", fragment)
+                    fragment = RE_LEADING_FRONTMATTER.sub("", fragment).strip()
+                    reference_nodes.append(f"<recorded_knowledge source=\"{file_origin}\">\n{fragment}\n</recorded_knowledge>")
+                else:
+                    reflection = RE_LEADING_FRONTMATTER.sub("", RE_KAIA_REFLECTION_HEADER.sub("", content_raw)).strip()
+                    history_nodes.append(f"[INTERNAL REFLECTION (DREAM)]\n{reflection}")
                 continue
 
             # Standard Logic for non-composite nodes
@@ -266,7 +285,7 @@ class ContextOptimizer:
                 # Something she wrote down herself, not something she read.
                 note = os.path.basename(path_raw or 'note')
                 history_nodes.append(f"[YOUR OWN NOTE: {note}]\n{content_raw}")
-            elif source_type == 'news' or "news" in path:
+            elif is_news_node(metadata):
                 news_nodes.append(f"{content_raw}")
             else:
                 # Learned Knowledge - Isolated Records (Books, Injected Dream Sources, etc)

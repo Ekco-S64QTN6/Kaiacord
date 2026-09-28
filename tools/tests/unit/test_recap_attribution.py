@@ -161,3 +161,20 @@ def test_a_snapshot_is_conversation_not_recorded_knowledge():
     assert "recorded_knowledge" not in out["rag"]
     line = next(l for l in out["rag"].split("\n") if "CONVERSATION SNAPSHOT" in l)
     assert "Sep 20" in line, line
+
+
+@pytest.mark.parametrize("content, reflection", [
+    ("## Kaia's Reflection\nthe whisperwood lore. it's dense, isn't it?", True),
+    ("---\ntitle: 2026-08\n---\nit feels like a slow sinking.", True),
+    ("---\ntitle: x\n---\n## Original Fragment\nSource: lore_bible.md\nTrees have memories.", False),
+])
+def test_a_partial_dream_chunk_is_labelled_by_which_half_it_holds(content, reflection):
+    """Chunking splits a dream file, so most chunks hold one half of it. What
+    she thought is her reflection; only the fragment is what she read."""
+    node = {"content": content,
+            "metadata": {"source_type": "dream", "file_path": "/kb/kaia_dreams/books/dream_1.md"}}
+    out = ContextOptimizer().optimize_context(
+        "general", "persona", [node], [], "DREAM_RECALL", "what did you dream")["rag"]
+    assert ("[INTERNAL REFLECTION (DREAM)]" in out) is reflection
+    assert ("<recorded_knowledge" in out) is (not reflection)
+    assert "title:" not in out and "## " not in out
