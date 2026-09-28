@@ -343,3 +343,16 @@ def test_tidy_troubleshooting_sets_a_field_holding_json_escapes():
     spec.loader.exec_module(tt)
     out = tt.set_field("---\nsummary: old\n---", "summary", json.dumps("the client’s crash"))
     assert yaml.safe_load(out.strip("-\n"))["summary"] == "the client’s crash"
+
+
+def test_repair_frontmatter_leaves_a_body_opening_on_a_rule_alone():
+    """Frontmatter followed by a horizontal rule looked "stacked", and the text
+    up to the next rule would have been dropped as a broken block."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("rf", "tools/maintenance/repair_frontmatter.py")
+    rf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rf)
+    doc = "---\ntitle: A\n---\n---\nThe first paragraph of the body.\nMore of it.\n---\nThe rest.\n"
+    assert rf.repair(doc) is None
+    stacked = "---\ntitle: A\n---\n---\nsummary: from the inner block\nkeywords: [- a\n---\nBody.\n"
+    assert "summary: from the inner block" in rf.repair(stacked)

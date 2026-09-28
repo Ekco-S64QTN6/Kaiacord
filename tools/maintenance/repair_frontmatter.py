@@ -61,6 +61,13 @@ def find_stacked(text: str):
     fences = [i for i, l in enumerate(lines[:400]) if l.strip() == "---"]
     if len(fences) < 4 or fences[1] + 1 != fences[2]:
         return None
+    # A horizontal rule opening the body has the same shape, and treating the
+    # text up to the next rule as a broken block would delete it. Stacked only
+    # if that "block" reads as frontmatter: mostly `key:` lines and `- ` items.
+    inner = [l for l in lines[fences[2] + 1:fences[3]] if l.strip()]
+    yamlish = sum(bool(re.match(r"^\s*(?:[A-Za-z_][\w-]*:|- )", l)) for l in inner)
+    if not inner or yamlish < 0.6 * len(inner):
+        return None
     return lines, fences
 
 
