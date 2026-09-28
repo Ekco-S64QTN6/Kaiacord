@@ -391,3 +391,14 @@ def test_the_self_model_hears_everyone_recent_not_the_first_names(tmp_path, monk
     out = gsm._gather_interaction_logs()
     assert all(f"[{n} —" in out for n in ("Aaron", "Bea", "Zed")) and "Stranger" not in out
     assert "NEWEST TURN" in out and "OLDEST TURN" not in out
+
+
+def test_tech_synthesis_retries_a_file_that_errored():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("stk", "tools/social/synthesize_technical_knowledge.py")
+    stk = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stk)
+    files = [Path(n) for n in ("a.md", "b.md", "c.md", "d.md")]
+    ck = {"a.md": "SYNTHESIZED", "b.md": "NO_DATA", "c.md": "ERROR: timed out"}
+    assert [f.name for f in stk.pending(files, ck)] == ["c.md", "d.md"]

@@ -173,7 +173,7 @@ async def stage1_extract(client, model_name, options):
     
     # Process ALL unprocessed files without any post-count or keyword filters!
     # A single post is still an extremely valuable technical question to learn from.
-    target_files = [f for f in md_files if f.name not in checkpoint_data]
+    target_files = pending(md_files, checkpoint_data)
 
     if not target_files:
         print("Stage 1 complete! All files extracted.")
@@ -186,6 +186,12 @@ async def stage1_extract(client, model_name, options):
         target_files = target_files[:LIMIT]
         print(f"--limit {LIMIT}: taking the {len(target_files)} largest unprocessed files")
     
+    if DRY_RUN:
+        # A dry run spends no inference: extraction is a model call per file.
+        print(f"[dry run] would extract from {len(target_files)} file(s); "
+              f"{len(checkpoint_data)} already in the checkpoint.")
+        return
+
     print(f"Processing {len(target_files)} remaining files for synthesis...")
 
     # We use a semaphore of 4 to process in parallel
@@ -250,6 +256,14 @@ async def stage1_extract(client, model_name, options):
     tasks = [process_file(i, f) for i, f in enumerate(target_files)]
     await asyncio.gather(*tasks)
 
+def pending(md_files, checkpoint: dict) -> list:
+    """Files still to extract. An entry that failed ("ERROR: ...", usually a
+    timeout) is tried again; only a finished verdict is final. Skipping every
+    checkpointed name meant one transient error dropped a thread for good."""
+    return [f for f in md_files
+            if not str(checkpoint.get(f.name, "")).startswith(("SYNTHESIZED", "NO_DATA"))]
+
+
 def stage2_group():
     print("\n--- STAGE 2: Grouping Issues ---")
     if not EXTRACTED_FILE.exists():
@@ -283,7 +297,14 @@ async def stage3_and_4_consolidate(client, model_name, options, grouped_issues):
         
         chunk_size = 20
         all_synthesized_sections = []
-        
+
+        if DRY_RUN:
+            # The consolidation is where the inference is; the old dry run ran
+            # every chunk through the model and then skipped the write.
+            print(f"  [dry run] would write {output_file} from {len(issues)} reports "
+                  f"in {(len(issues) - 1) // chunk_size + 1} chunk(s)")
+            continue
+
         print(f"Consolidating {len(issues)} issues for category: {category}")
         
         for i in range(0, len(issues), chunk_size):
@@ -315,10 +336,6 @@ async def stage3_and_4_consolidate(client, model_name, options, grouped_issues):
             await asyncio.sleep(1)
             
         if all_synthesized_sections:
-            if DRY_RUN:
-                print(f"  [dry run] would write {output_file} "
-                      f"({len(all_synthesized_sections)} sections from {len(issues)} reports)")
-                continue
             readable = category.replace("_", " ")
             keywords = sorted({
                 "Project 1999", "EverQuest", "troubleshooting", readable,
