@@ -28,12 +28,21 @@ def check_health():
     disk_files = {}
     supported_exts = [".pdf", ".txt", ".md", ".docx"]
     
-    for root, _, files in os.walk(knowledge_base_dir):
-        if "_quarantine" in root: continue
+    # The indexer's own exclusion rules, not a copy: skipping only _quarantine
+    # reported every forum thread, the persona and each _ingress or dot-folder
+    # file as "not indexed" — 7,230 false alarms beside 1,051 real entries.
+    from utils.core.kaia_rag_indexer import RAGIndexerMixin
+    for root, dirs, files in os.walk(knowledge_base_dir):
+        if RAGIndexerMixin._is_excluded_dir(root):
+            dirs[:] = []
+            continue
         for file in files:
             ext = os.path.splitext(file)[1].lower()
-            if ext in supported_exts:
-                full_path = os.path.abspath(os.path.join(root, file))
+            full_path = os.path.abspath(os.path.join(root, file))
+            # The persona is injected whole every turn and never indexed; the
+            # indexer skips it by name rather than through the predicate.
+            if (ext in supported_exts and file != "kaia_persona.md"
+                    and not RAGIndexerMixin._is_excluded_path(full_path)):
                 disk_files[full_path] = {
                     "mtime": os.path.getmtime(full_path),
                     "size": os.path.getsize(full_path)
