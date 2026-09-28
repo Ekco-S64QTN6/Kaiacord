@@ -2,17 +2,19 @@
 
 A channel that carries one transmission an hour is missed by any scheme that
 visits it for a few seconds per cycle. This hops the dongle across the bands
-people talk on — about fourteen 2 MHz slices, a full pass every couple of
-seconds — and keeps, for every frequency bin, a rolling floor of what that bin
+people talk on — every slice of the busy bands each pass (hop_plan), a few of
+the quieter ones in rotation, a pass every two or three seconds — and keeps, for every frequency bin, a rolling floor of what that bin
 usually reads. A bin that stands well over its own floor on consecutive visits
 is a transmission: the watcher holds on that slice, demodulates the channel,
-records until it has been quiet a couple of seconds, and goes back to hopping.
+records until it has been quiet a couple of seconds — longer if it is voice,
+to catch the reply — and goes back to hopping.
 
 The approach — a rolling per-channel noise floor (low percentile of recent
 frames), activation only after persistence over consecutive frames, then
 scan-and-hold with a silence release and a per-channel cooldown — follows
 radiotui (github.com/n0nuser/radiotui, MIT). A constant carrier (NOAA, a
-birdie) raises its own floor and stops triggering within a minute.
+birdie) raises its own floor and stops triggering within a minute; one that
+runs a whole hold anyway is left alone for a lengthening cooldown.
 """
 from __future__ import annotations
 
@@ -382,8 +384,9 @@ class Watcher:
                 resumed = None
             elif quiet >= SILENCE_S + FOLLOW_IDLE_S or held >= FOLLOW_MAX_S:
                 break
-        # Held the whole time: something near-constant (425.950 ran the full
-        # minute eight times in an hour). Leave it for half an hour.
+        # Held the whole minute with no speech: something near-constant (425.950
+        # ran the full minute eight times in an hour). Left alone for
+        # LONG_COOLDOWN_S, doubling on each return.
         wait = COOLDOWN_S
         if constant:
             # Again within twice its last lockout, near the same spot: longer.

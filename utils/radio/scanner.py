@@ -650,7 +650,7 @@ async def shutdown() -> None:
         _stop_event.set()
     for guild_id in list(_along):
         await stop_listen_along(guild_id)
-    for _ in range(80):                       # a hold can run to 60 s
+    for _ in range(80):                       # a hold stops within a chunk; the last classification can take a minute
         if not _running:
             return
         await asyncio.sleep(1)

@@ -67,6 +67,16 @@ def test_a_short_window_does_not_become_the_cached_month():
     assert api.await_args.args[1]["date-max"] == "+30"
 
 
+def test_an_approach_already_past_is_not_listed_as_coming():
+    """The cache holds a query up to six hours old; what passed since is gone."""
+    fmt = lambda h: (datetime.now(timezone.utc) + timedelta(hours=h)).strftime("%Y-%b-%d %H:%M")
+    api = AsyncMock(return_value={"fields": ["des", "cd", "dist", "v_rel", "h"],
+                                  "data": [["GONE", fmt(-3), "0.01", "5", "25"], ["SOON", fmt(5), "0.02", "5", "24"]]})
+    with patch.object(feeds, "get_json", api):
+        rows = asyncio.run(feeds.close_approaches())
+    assert [r["name"] for r in rows] == ["SOON"]
+
+
 def test_starman_is_not_counted_as_crew():
     with patch.object(feeds, "get_json", AsyncMock(return_value={"results": [
             {"name": "Jessica Meir", "agency": {"abbrev": "NASA"}},

@@ -240,7 +240,8 @@ async def close_approaches(days: int = CAD_DAYS, max_au: float = CAD_MAX_AU) -> 
         _need(isinstance(d, dict) and "fields" in d, "JPL close-approach API")
         return [dict(zip(d["fields"], r)) for r in d.get("data") or []]
     rows = (await _cached("sky_cad", 6 * 3600, f))["data"]
-    until = datetime.now(timezone.utc) + timedelta(days=min(days, CAD_DAYS))
+    now = datetime.now(timezone.utc)
+    until = now + timedelta(days=min(days, CAD_DAYS))
     out = []
     for r in rows:
         au = float(r["dist"])
@@ -248,7 +249,8 @@ async def close_approaches(days: int = CAD_DAYS, max_au: float = CAD_MAX_AU) -> 
             when = datetime.strptime(r["cd"], "%Y-%b-%d %H:%M").replace(tzinfo=timezone.utc)
         except (KeyError, ValueError):
             continue
-        if au > max_au or when > until:
+        # The cached list is up to six hours old: an approach since then is past.
+        if au > max_au or not now <= when <= until:
             continue
         out.append({"name": r["des"], "when": r["cd"], "au": au, "ld": au * AU_KM / LD_KM,
                     "km_s": float(r.get("v_rel") or 0), "h": r.get("h")})
