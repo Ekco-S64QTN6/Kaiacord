@@ -1127,3 +1127,51 @@ def test_a_rejection_is_recorded_even_when_the_message_edit_fails(monkeypatch):
         await view.reject.callback(interaction)
     asyncio.run(go())
     assert calls == [(443378, "3800500")]
+
+
+def test_an_unchanged_thread_is_not_rewritten(tmp_path, monkeypatch):
+    """The scrape time is the only thing that changes between two scrapes of a
+    quiet thread; the comparison missed it and every pass rewrote the file and
+    requested a reindex."""
+    from utils.social.kaia_forum import ForumClient
+    monkeypatch.setattr(ForumClient, "KNOWLEDGE_DIR", tmp_path)
+    client = ForumClient("https://example.invalid", 1)
+    data = {"thread_id": 5, "title": "A \"quoted\": title", "posts": [
+        {"post_number": 1, "author": "Ekco", "content": "hello"}]}
+    assert client.save_thread_scrape(data) is True
+    assert client.save_thread_scrape(data) is False
+
+
+def test_a_metadata_refresh_keeps_the_heading_and_the_notes(tmp_path, monkeypatch):
+    """The refresh replaced the first line after "# INTERNAL MEMORY:", which is
+    the rest of the heading: the name and "this is Ekco from Discord" went."""
+    from utils.social.kaia_forum import ForumClient
+    monkeypatch.setattr(ForumClient, "USER_LOGS_DIR", tmp_path)
+    monkeypatch.setattr(ForumClient, "KNOWLEDGE_DIR", tmp_path / "fp")
+    c = ForumClient("https://example.invalid", 1)
+    u = tmp_path / "forum_Ekco_210090"
+    u.mkdir()
+    heading = "# INTERNAL MEMORY: Ekco (Project 1999 forum) — this is Ekco from Discord"
+    (u / "user_profile.md").write_text(f"---\nknown_as: Ekco\n---\n\n{heading}\n\n"
+                                       "a forum user with the rank of 'Rat'. they've posted 3 times since joining Norrath's digital extension in 2009. \n"
+                                       "sharp, dry, likes old games.\n")
+    c.update_forum_user_profiles([{"author": "Ekco", "user_id": 210090, "post_id": 1, "content": "hi"}],
+                                 profile_metadata={"username": "Ekco", "rank": "Fire Beetle",
+                                                   "total_posts": 12, "join_date": "2010"})
+    text = (u / "user_profile.md").read_text()
+    assert heading in text and "sharp, dry, likes old games." in text
+    assert "'Fire Beetle'" in text and "'Rat'" not in text
+
+
+def test_a_scraped_rank_with_quotes_leaves_parseable_frontmatter(tmp_path, monkeypatch):
+    from utils.core.frontmatter import parse_frontmatter
+    from utils.social.kaia_forum import ForumClient
+    monkeypatch.setattr(ForumClient, "USER_LOGS_DIR", tmp_path)
+    monkeypatch.setattr(ForumClient, "KNOWLEDGE_DIR", tmp_path / "fp")
+    c = ForumClient("https://example.invalid", 1)
+    c._write_profile_file("Zukan", 77, {"rank": 'The "Real" Deal: Sage', "total_posts": 5}, "notes")
+    data, body = parse_frontmatter((tmp_path / "forum_Zukan_77" / "user_profile.md").read_text())
+    assert data["rank"] == 'The "Real" Deal: Sage' and "notes" in body
+    c._write_self_marker("Kaia", 99)
+    data, _ = parse_frontmatter((tmp_path / "forum_Kaia_99" / "user_profile.md").read_text())
+    assert data["is_self"] is True

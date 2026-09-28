@@ -245,8 +245,10 @@ def test_every_writer_of_user_profile_consults_the_identity_registry():
     # A *write*, not a mention. `tools/diagnostics/jspace_probe.py` names the
     # file only to skip it, and a whole-file "does this contain write_text"
     # test flagged it. Look for the write within a few lines of the name.
+    # utils/ as well: the forum client writes this file from inside the bot,
+    # and a tools-only scan never saw it.
     writers = []
-    for p in _P("tools").rglob("*.py"):
+    for p in [*_P("tools").rglob("*.py"), *_P("utils").rglob("*.py")]:
         # Tests write fixtures into tmp directories; the rule is about the tools
         # that write the real corpus.
         if "tests" in p.parts:
@@ -257,7 +259,7 @@ def test_every_writer_of_user_profile_consults_the_identity_registry():
             if "user_profile.md" not in line:
                 continue
             window = "\n".join(lines[max(0, i - 4):i + 6])
-            if re.search(r"\bwrite_text\b|\bopen\([^)]*['\"]w", window):
+            if re.search(r"\bwrite_text\b|\bwrite_atomic\b|\bopen\([^)]*['\"]w", window):
                 writers.append((p, src))
                 break
 

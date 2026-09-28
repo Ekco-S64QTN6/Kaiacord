@@ -212,7 +212,7 @@ def test_no_corpus_write_bypasses_the_atomic_helper():
     import ast
     import re
 
-    CORPUS = re.compile(r"knowledge_base|KNOWLEDGE_DIR|KB_DIR|corpus_dir|[\"'/]memory[/\"']")
+    CORPUS = re.compile(r"knowledge_base|KNOWLEDGE_DIR|USER_LOGS_DIR|user_logs|KB_DIR|corpus_dir|[\"'/]memory[/\"']")
 
     offenders = []
     for root in (Path("utils"), Path("tools")):
@@ -231,10 +231,23 @@ def test_no_corpus_write_bypasses_the_atomic_helper():
                 fn = node.func
                 name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
                 if name == "write_text":
-                    # The receiver is usually a variable bound a few lines up
-                    # (`filepath = self.KNOWLEDGE_DIR / "x.md"`), so judge this
-                    # one on its surroundings.
+                    # The receiver is usually a variable bound earlier
+                    # (`filepath = self.KNOWLEDGE_DIR / "x.md"`): judge it on its
+                    # surroundings and on the assignments behind the variable.
+                    # Surroundings alone missed save_thread_scrape, whose path
+                    # was bound fifty lines above the write.
                     near = "\n".join(lines[max(0, node.lineno - 4):node.lineno])
+                    recv = fn.value if isinstance(fn, ast.Attribute) else None
+                    if isinstance(recv, ast.Name):
+                        names, seen = {recv.id}, set()
+                        for _ in range(4):
+                            found = [ln for ln in lines[:node.lineno] for nm in names - seen
+                                     if re.match(rf"\s*{re.escape(nm)}\s*=", ln)]
+                            seen |= names
+                            near += "\n" + "\n".join(found)
+                            names |= set(re.findall(r"\b([a-z_][a-z0-9_]*)\b", "\n".join(found))) - seen
+                            if not found:
+                                break
                 elif name == "open" and any(
                         isinstance(a, ast.Constant) and isinstance(a.value, str)
                         and "w" in a.value for a in node.args):

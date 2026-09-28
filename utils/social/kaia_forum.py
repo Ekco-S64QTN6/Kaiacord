@@ -956,9 +956,12 @@ class ForumClient:
         if filepath.exists():
             try:
                 old_content = filepath.read_text(encoding='utf-8')
-                # Function to strip the dynamic 'scraped_at' line for accurate comparison
+                # The scrape time changes on every pass; nothing else should count.
+                # Matched however the value is quoted: dump_frontmatter writes
+                # 'single quotes', and the old '"…"' pattern never matched, so every
+                # unchanged thread was rewritten and requested a reindex.
                 def strip_volatiles(text):
-                    return re.sub(r'scraped_at: ".*?"\n', '', text)
+                    return re.sub(r"^scraped_at:.*\n", "", text, flags=re.M)
 
                 if strip_volatiles(old_content) == strip_volatiles(new_content):
                     log_debug(f"Thread {thread_id} content unchanged. Skipping write.")
@@ -966,7 +969,8 @@ class ForumClient:
             except Exception as e:
                 log_warning(f"Failed to read existing thread file for comparison: {e}")
 
-        filepath.write_text(new_content, encoding='utf-8')
+        from utils.core.atomic_write import write_atomic
+        write_atomic(filepath, new_content)
         log_info(f"Saved thread scrape to {filepath}")
         return True
 
@@ -1080,24 +1084,18 @@ class ForumClient:
                 write_atomic(profile_path, profile_content)
                 log_info(f"Created forum user profile for {author}")
             elif profile_metadata:
-                # Update existing profile with new metadata if provided
+                # Refresh the generated rank line, and only that. The old loop
+                # replaced "the first non-heading line" after the split, which was
+                # the rest of the heading itself — the name and "this is Ekco from
+                # Discord" — and on a compacted profile it would have been her own
+                # notes. A profile without the generated line keeps what it has.
                 content = profile_path.read_text(encoding='utf-8', errors='replace')
-                # Try to replace the first line of narrative if it matches a pattern
-                if "# INTERNAL MEMORY:" in content:
-                    parts = content.split("# INTERNAL MEMORY:", 1)
-                    header = parts[0]
-                    body = parts[1]
-                    
-                    lines = body.split('\n')
-                    for i, line in enumerate(lines):
-                        if line.strip() and not line.strip().startswith('#'):
-                            # Overwrite the first narrative line with fresh metadata
-                            lines[i] = narrative
-                            # Keep the rest of the personality notes
-                            break
-                    
-                    new_content = header + "# INTERNAL MEMORY:" + '\n'.join(lines)
-                    profile_path.write_text(new_content, encoding='utf-8', errors='replace')
+                if "is_self: true" not in content:
+                    refreshed = re.sub(r"(?m)^a forum user with the rank of .*$",
+                                       lambda _m: narrative.rstrip(), content, count=1)
+                    if refreshed != content:
+                        from utils.core.atomic_write import write_atomic
+                        write_atomic(profile_path, refreshed)
 
     # ── Deep user scraping ──────────────────────────────────────────────
 
@@ -1263,12 +1261,22 @@ class ForumClient:
         # Only write fields that mean something. A synthetic grouping key has
         # no Discord name behind it, and `known_as: "None"` was being written
         # into the frontmatter literally.
-        identity = ""
+        # Through the YAML writer: rank and join date come off a scraped page,
+        # and a quote in either made the f-string frontmatter unparseable.
+        fields = {
+            "rank": metadata.get("rank", "Unknown"),
+            "total_posts": metadata.get("total_posts", 0),
+            "join_date": metadata.get("join_date", "Unknown"),
+            "scraped_at": datetime.now().isoformat(),
+            "document_type": "User Personality Profile",
+        }
+        # Only fields that mean something. A synthetic grouping key has no
+        # Discord name behind it, and `known_as: "None"` was written literally.
         if known_as:
-            identity += f'linked_discord: "{discord_id}"\nknown_as: "{known_as}"\n'
+            fields.update(linked_discord=str(discord_id), known_as=known_as)
         others = registry.other_accounts(user_id)
         if others:
-            identity += f'also_posts_as: [{", ".join(str(o) for o in others)}]\n'
+            fields["also_posts_as"] = [str(o) for o in others]
 
         header = f"# {username}"
         if known_as:
@@ -1276,17 +1284,9 @@ class ForumClient:
         elif others:
             header += f" — also posts as {', '.join(str(o) for o in others)}"
 
-        (user_dir / "user_profile.md").write_text(
-            "---\n"
-            f'rank: "{metadata.get("rank", "Unknown")}"\n'
-            f'total_posts: {metadata.get("total_posts", 0)}\n'
-            f'join_date: "{metadata.get("join_date", "Unknown")}"\n'
-            f'scraped_at: "{datetime.now().isoformat()}"\n'
-            'document_type: "User Personality Profile"\n'
-            f"{identity}"
-            "---\n\n"
-            f"{header}\n\n{body}\n",
-            encoding="utf-8", errors="replace")
+        from utils.core.atomic_write import write_atomic
+        from utils.core.frontmatter import dump_frontmatter
+        write_atomic(user_dir / "user_profile.md", dump_frontmatter(fields) + f"\n{header}\n\n{body}\n")
 
     def _write_self_marker(self, username: str, user_id: int) -> None:
         """Replace a profile of Kaia's own account with a note saying so.
@@ -1297,20 +1297,18 @@ class ForumClient:
         """
         user_dir = self.USER_LOGS_DIR / f"forum_{username}_{user_id}"
         user_dir.mkdir(parents=True, exist_ok=True)
-        (user_dir / "user_profile.md").write_text(
-            "---\n"
-            f'forum_username: "{username}"\n'
-            f"forum_user_id: {user_id}\n"
-            'document_type: "Self Reference"\n'
-            "is_self: true\n"
-            "---\n\n"
+        from utils.core.atomic_write import write_atomic
+        from utils.core.frontmatter import dump_frontmatter
+        write_atomic(user_dir / "user_profile.md", dump_frontmatter({
+            "forum_username": username, "forum_user_id": user_id,
+            "document_type": "Self Reference", "is_self": True}) +
+            "\n"
             f"# THIS IS KAIA'S OWN FORUM ACCOUNT\n\n"
             f"`{username}` on Project 1999 is me. Posts under this name are my own; "
             f"they are not another user's, and this directory is not a record of "
             f"somebody I have met.\n\n"
             f"Do not describe this account in the third person and do not treat "
-            f"anything filed here as information about a stranger.\n",
-            encoding="utf-8", errors="replace")
+            f"anything filed here as information about a stranger.\n")
 
     async def generate_personality_profile(self, username: str, user_id: int, 
                                           history: List[Dict[str, Any]], 
@@ -1416,13 +1414,16 @@ class ForumClient:
                 attempt_prompt = prompt if attempt == 0 else (
                     prompt + "\nWrite it plainly. No trailing ellipses, no drifting "
                              "half-sentences — finish each thought.\n")
-                response = await asyncio.to_thread(
-                    client.chat,
-                    model=model_name,
-                    messages=[{"role": "user", "content": attempt_prompt}],
-                    options=options,
-                    keep_alive=-1
-                )
+                from utils.infrastructure.gpu.gpu_manager import GPUTaskPriority, gpu_memory_manager
+                response = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=model_name, priority=GPUTaskPriority.BACKGROUND,
+                    task_id=f"forum_profile_{user_id}",
+                    coro=asyncio.to_thread(
+                        client.chat,
+                        model=model_name,
+                        messages=[{"role": "user", "content": attempt_prompt}],
+                        options=options,
+                        keep_alive=-1))
                 raw = response['message']['content'].strip()
                 filtered = _ECF.filter_response(raw)
                 if not filtered:
@@ -1651,7 +1652,8 @@ class ForumClient:
             lines.append("")
 
         filepath = user_dir / "post_history.md"
-        filepath.write_text('\n'.join(lines), encoding='utf-8')
+        from utils.core.atomic_write import write_atomic
+        write_atomic(filepath, '\n'.join(lines))
         log_info(f"Saved post history for {username} ({len(posts)} posts) to {filepath}")
         return str(filepath)
 
