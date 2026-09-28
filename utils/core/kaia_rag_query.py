@@ -413,7 +413,10 @@ class RAGQueryMixin:
         if is_kaia_query or strategy == "PRECISE_RECALL" or is_entity_query:
             target_itypes = ['knowledge', 'logs', 'user_profiles']
         elif strategy == "DIAGNOSTIC_DEEP_DIVE":
-            target_itypes = ['logs']
+            # Any message naming an error or a crash is a diagnostic, and most
+            # are someone's own problem: the wiki and troubleshooting guides
+            # that answer them live in the knowledge index.
+            target_itypes = ['knowledge', 'logs']
             retrieve_count = 15
         elif strategy == "DREAM_RECALL" or is_dream_query:
             target_itypes = ['dreams']
@@ -763,6 +766,7 @@ class RAGQueryMixin:
             if source_type == "persona": label = "Kaia Persona Fragment"
             elif source_type == "user_profile": label = f"Profile: {metadata.get('user_name', 'Unknown')}"
             elif source_type == "user_logs": label = f"Log: {metadata.get('user_name', 'Unknown')}"
+            elif source_type == "snapshot": label = f"Snapshot [{os.path.basename(file_path)}]"
             
             # Store retrieval method in metadata to make it accessible to !explain
             metadata["retrieval_method"] = retrieval_method

@@ -104,3 +104,20 @@ def test_precise_recall_is_about_her_only_when_she_is_the_subject(text, about_he
     r = rag._route_retrieval_strategy("general", text, SimpleNamespace(suggested_strategy="PRECISE_RECALL"), text)
     assert r["is_kaia_query"] is about_her
     assert r["is_entity_query"] is (not about_her)
+
+
+@pytest.mark.parametrize("text", [
+    "how do I fix error 1017 on project 1999",
+    "my eqgame keeps crashing at zoning",
+])
+def test_a_diagnostic_searches_the_guides_as_well_as_the_logs(text):
+    """An error question is answered from knowledge_base/troubleshooting and
+    wiki; searching chat logs alone never reached them."""
+    from utils.core.intent_classifier import IntentParser
+    from utils.core.kaia_rag import KaiaRAG
+    intent = IntentParser().fast_parse(text)
+    assert intent.suggested_strategy == "DIAGNOSTIC_DEEP_DIVE"
+    rag = KaiaRAG.__new__(KaiaRAG)
+    routing = rag._route_retrieval_strategy("tech", text.lower(), intent, text.lower())
+    targets, _ = rag._target_indices(routing, 5)
+    assert "knowledge" in targets and "logs" in targets

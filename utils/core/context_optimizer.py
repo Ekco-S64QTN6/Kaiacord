@@ -255,6 +255,13 @@ class ContextOptimizer:
                     if date_str: provenance.append(date_str)
                     if provenance: type_label += f": {' | '.join(provenance)}"
                 history_nodes.append(f"[{type_label}]\n{content_raw}")
+            elif source_type == 'snapshot' or "runtime/snapshots" in path:
+                # A saved conversation (!snapshot): what was said, not something
+                # she read.
+                label = "CONVERSATION SNAPSHOT"
+                date_str = self._extract_date_from_path(path)
+                if date_str: label += f": {date_str}"
+                history_nodes.append(f"[{label}]\n{content_raw}")
             elif source_type == 'kaia_note' or "kaia_notes" in path:
                 # Something she wrote down herself, not something she read.
                 note = os.path.basename(path_raw or 'note')

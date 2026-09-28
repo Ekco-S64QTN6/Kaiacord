@@ -146,3 +146,18 @@ def test_an_older_year_is_named_and_the_current_one_is_not():
     old_arch = f"knowledge_base/user_logs/Someone_519557167779676160/interactions_{this_year - 1}08_archive.md"
     assert ContextOptimizer._extract_date_from_path(cur_arch) == f"Aug {this_year}"
     assert ContextOptimizer._extract_date_from_path(old_arch) == f"Aug {this_year - 1}"
+
+
+def test_a_snapshot_is_conversation_not_recorded_knowledge():
+    """!snapshot saves a channel's conversation; wrapped as recorded knowledge,
+    her own past lines came back as reference material."""
+    node = {
+        "content": "**[08:22] Starkind:** nala knocked the plant over again",
+        "metadata": {"source_type": "snapshot",
+                     "file_path": "/kb/runtime/snapshots/snapshot_20260920_052800.md"},
+    }
+    out = ContextOptimizer().optimize_context(
+        "general", "persona", [node], [], "PRECISE_RECALL", "what did starkind say about nala")
+    assert "recorded_knowledge" not in out["rag"]
+    line = next(l for l in out["rag"].split("\n") if "CONVERSATION SNAPSHOT" in l)
+    assert "Sep 20" in line, line
