@@ -370,3 +370,24 @@ def test_ebook_furniture_strip_keeps_a_title_that_appears_once():
     out = e2k.strip_page_furniture(t)
     assert "THE PRECESSION OF SIMULACRA" in out and "GET OUT." in out
     assert "JANUARY 2014" not in out and "\n12\n" not in out
+
+
+def test_the_self_model_hears_everyone_recent_not_the_first_names(tmp_path, monkeypatch):
+    """Alphabetical order and a small budget built her self-model from Cecily
+    and Ekco only, and from the oldest turns of each file."""
+    import importlib.util
+    from datetime import datetime
+    spec = importlib.util.spec_from_file_location("gsm", "tools/development/generate_self_model.py")
+    gsm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gsm)
+    today = datetime.now().strftime("%Y%m%d")
+    for name in ("Aaron_1", "Bea_2", "Zed_3", "forum_Stranger_4"):
+        d = tmp_path / name
+        d.mkdir()
+        (d / f"interactions_{today}.md").write_text("OLDEST TURN\n" + "x" * 5000 + "\nNEWEST TURN\n")
+    monkeypatch.setattr(gsm, "KB_USER_LOGS", tmp_path)
+    monkeypatch.setattr(gsm, "MAX_LOG_CHARS", 6500)
+    monkeypatch.setattr(gsm, "_info", lambda m: None)
+    out = gsm._gather_interaction_logs()
+    assert all(f"[{n} —" in out for n in ("Aaron", "Bea", "Zed")) and "Stranger" not in out
+    assert "NEWEST TURN" in out and "OLDEST TURN" not in out

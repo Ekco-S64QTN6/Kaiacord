@@ -63,57 +63,52 @@ def _read_persona() -> str:
 
 
 def _gather_interaction_logs(days_back: int = 60) -> str:
-    """Gather recent interaction log content across all users."""
+    """Recent conversation, a turn at a time across the people she talks to.
+
+    It walked the folders alphabetically until the budget ran out, so the
+    self-model was written from the first two names (Cecily and Ekco) and never
+    from Starkind, whom she talks to daily; each chunk was also the *start* of a
+    day's file, its oldest turns. Now: Discord people only (a forum_ folder holds
+    strangers' forum posts; Kaia-/injected_ folders are hers), newest file first,
+    one file per person per round, and the end of each file."""
     if not KB_USER_LOGS.exists():
         _warn(f"User logs directory not found: {KB_USER_LOGS}")
         return ""
 
     cutoff = datetime.now() - timedelta(days=days_back)
-    all_content = []
-    total_chars  = 0
-    users_found  = 0
 
-    for user_folder in sorted(KB_USER_LOGS.iterdir()):
-        if not user_folder.is_dir():
+    def dated(f: Path):
+        tail = f.stem.rsplit("_", 1)[-1]
+        try:
+            return datetime.strptime(tail, "%Y%m%d") if len(tail) == 8 and tail.isdigit() else None
+        except ValueError:
+            return None
+
+    people = []
+    for folder in KB_USER_LOGS.iterdir():
+        if not folder.is_dir() or folder.name.startswith(("forum_", "Kaia-", "injected_", ".", "_")):
             continue
+        files = sorted((f for f in folder.glob("interactions_*.md") if dated(f) and dated(f) >= cutoff),
+                       key=dated, reverse=True)[:5]
+        if files:
+            people.append((dated(files[0]), folder.name.rsplit("_", 1)[0].replace("_", " "), files))
+    people.sort(key=lambda x: x[0], reverse=True)          # most recently active first
 
-        # Folder format is typically "Name_DiscordID"
-        folder_name = user_folder.name
-        user_name   = folder_name.rsplit("_", 1)[0].replace("_", " ")
-
-        log_files = sorted(user_folder.glob("interactions_*.md"), reverse=True)
-        if not log_files:
-            continue
-
-        users_found += 1
-        user_chunks = []
-
-        for log_file in log_files[:5]:  # last 5 files per user
-            try:
-                stem = log_file.stem  # e.g. "interactions_20260301"
-                parts = stem.split("_")
-                if len(parts) >= 2:
-                    date_str = parts[-1]
-                    if len(date_str) == 8 and date_str.isdigit():
-                        file_date = datetime.strptime(date_str, "%Y%m%d")
-                        if file_date < cutoff:
-                            break  # files are date-sorted desc, can stop
-
-                content = log_file.read_text(encoding="utf-8", errors="ignore")
-                if content.strip():
-                    chunk = f"[{user_name} — {log_file.name}]\n{content[:2000]}"
-                    user_chunks.append(chunk)
-                    total_chars += len(chunk)
-            except Exception:
+    all_content, total_chars = [], 0
+    for rnd in range(5):
+        for _, user_name, files in people:
+            if rnd >= len(files) or total_chars >= MAX_LOG_CHARS:
                 continue
+            try:
+                content = files[rnd].read_text(encoding="utf-8", errors="ignore").strip()
+            except OSError:
+                continue
+            if content:
+                chunk = f"[{user_name} — {files[rnd].name}]\n{content[-2000:]}"
+                all_content.append(chunk)
+                total_chars += len(chunk)
 
-        if user_chunks:
-            all_content.extend(user_chunks)
-
-        if total_chars >= MAX_LOG_CHARS:
-            break
-
-    _info(f"Gathered logs from {users_found} user folder(s) — {total_chars:,} chars total")
+    _info(f"Gathered logs from {len(people)} person(s) — {total_chars:,} chars total")
     return "\n\n---\n\n".join(all_content)
 
 
@@ -133,7 +128,12 @@ def _gather_dream_reflections() -> str:
     total = 0
     for df in dream_files[:10]:
         try:
-            content = df.read_text(encoding="utf-8", errors="ignore")[:600]
+            # The body, not the file's head: frontmatter runs 400-680 characters,
+            # so a 600-character slice of the file was often nothing but YAML.
+            raw = df.read_text(encoding="utf-8", errors="ignore")
+            if raw.startswith("---\n") and "\n---" in raw[4:]:
+                raw = raw[raw.index("\n---", 4) + 4:]
+            content = raw.strip()[:600]
             if content.strip():
                 parts.append(f"[Dream: {df.name}]\n{content}")
                 total += len(content)
