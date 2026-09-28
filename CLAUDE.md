@@ -64,7 +64,7 @@ matches a doc.
 
 The no-external-services invocation is the default because only **2** of ~2,600 tests need Ollama
 or a GPU (checked 27 Sept 2026 — take the figure from `--collect-only -m "ollama or gpu"`, not
-here). The rest of what it deselects is the ~46 marked `slow`. Two such tests were once unmarked
+here). The rest of what it deselects is the ~47 marked `slow`. Two such tests were once unmarked
 until September 2026 and ran on every "no external services" invocation, embedding through the
 bot's own live Ollama — Ollama's journal (`journalctl -u ollama`) is where that showed up. A test
 that touches the daemon is marked `ollama`, whatever else it does. The full `pytest -q` additionally
@@ -298,9 +298,14 @@ sycophantic prose.
 > in ordinary conversation. A guard cannot tell that apart from a scene, and
 > every attempt has cost more than it caught — guards in this file have deleted
 > publication titles, stranded sentence fragments, emptied good responses and
-> eaten one-word replies. **Before changing anything here, have a real user
-> report of the behaviour being wrong.** A log line you find suspicious is not
-> that.
+> eaten one-word replies. **Before adding a guard or making one catch more, have
+> a real user report of the behaviour being wrong.** A log line you find
+> suspicious is not that.
+>
+> The converse is not restricted: damage a guard *did* — a fragment, a deleted
+> title, an emptied reply — confirmed in what was actually sent (the user log,
+> the channel), is fixed on sight, in the guard and in the log (see the rules
+> below). Making a guard remove less never needs a report.
 
 
 `response_filter.py` guards run in two modes and the distinction matters:
@@ -354,6 +359,17 @@ Rules that follow:
   as the rest of the offence — never saw one. Match up to the boundary and leave the connector
   in the tail with a lookahead. The same goes for the praised noun: `that's an astute` stopping
   before `observation` stranded it.
+- **A pattern that stops at a verb strands its object.** `thank you for correcting` excised from
+  "thank you for correcting me again, cecily." shipped "me again, cecily." to Cecily — no stranded
+  article, no fused word, so `excision_broke_grammar` passed it. `_DANGLING_TAIL` now treats a tail
+  opening on an object-only pronoun (me, us, him, them) as the rest of the offence; "it" and "her"
+  can open a real clause and are not in it.
+- **Fragments that shipped are repaired in the log they landed in.** Kaia's turns in
+  `knowledge_base/user_logs/` may be corrected (§12), and a fragment left there is retrievable. Scan
+  for the known shapes (a sentence opening on "me", "the is", ", and .", a cut clause standing
+  alone), read each hit, and repair only the damage — her clipped cadence ("insightful. and
+  practical.") is style, not rubble. Where the cut words are unknown, make the smallest change that
+  reads ("the is" → "that is"); never invent them.
 - Punctuation is not survival. `tail.strip()` on a bare `"."` is truthy, so the trailing-connector
   repair never ran when the offence reached the end of the sentence.
 
@@ -545,9 +561,9 @@ models, raw audio and the VAD filter all hallucinated on HF audio; don't "optimi
 without re-running that comparison.
 
 **The local scanner** (`utils/radio/scanner.py`, `waterfall.py`, `ledger.py`, `dongle.py`) drives an
-RTL-SDR attached to the bot. During `radio.local.hours` it hops the voice bands (a pass every ~2.5 s),
+RTL-SDR attached to the bot. During `radio.local.hours` it hops the voice bands (a pass every ~3 s),
 holds on anything standing 10 dB over its own rolling floor (16 dB is taken on first sight), records
-it, and classifies it — voice, data or carrier — into `memory/radio/local_ledger.sqlite3`.
+it, and classifies it — voice, data, carrier or noise — into `memory/radio/local_ledger.sqlite3`.
 `radio.local.nets` pins it to one channel for a net's window. Rules, each from something that broke:
 
 - **Test coverage with the simulated dongle, not by reading the plan.** `test_local_scanner.py` runs
@@ -556,19 +572,33 @@ it, and classifies it — voice, data or carrier — into `memory/radio/local_le
   whole bands were never visited, and a 30 s cooldown ignored every reply. `waterfall.hop_plan`
   tiles each band and moves centres off the seeded and configured channels; keep `COOLDOWN_S` short.
 - **The band notebook is regenerated after every watch** (`tools/maintenance/band_notebook.py`, into
-  git-ignored `docs/reports/reference/local_band_notebook.md`). It identifies what it can by
-  measurement (AFSK tones per 50 ms frame for packet; a carrier's audio band for data modems),
-  re-checks voice transcripts against today's filter, and keeps the "My notes" section as written.
+  git-ignored `docs/reports/reference/local_band_notebook.md`). It identifies what it can from the
+  clips that exist (AFSK tones for packet, a spoken or Morse ID), re-checks voice transcripts against
+  today's filter, and keeps the "My notes" section as written. Data bursts keep no clip any more, so
+  a data channel first heard now is described by its cadence alone.
 - **A transmission stands over its slice, not just over its floor.** Triggers and holds subtract the
   slice's median rise: a household noise source lifted whole slices 10+ dB, and the watch held a
   minute of hiss on frequency after frequency, deaf meanwhile, because the floor adapts only through
   visits and holds block visits.
-- **Voice is followed; hiss is not kept.** After an over that `waterfall.voice_like` passes (the
-  voice band swinging under a carrier; data and tones sit flat), `_hold` stays on the channel and
-  records each reply into the same catch until `FOLLOW_IDLE_S` of quiet. A catch whose audio never
-  quiets against its own squelch tail (`carrier_seconds`) is ledgered as `noise`: not transcribed,
-  not clipped, not a channel. Measure a catch over `carried_audio` — its tail and gaps are hiss,
-  which has the digital shape.
+- **Carrier is measured against a fixed hiss level.** An FM discriminator reads phase, so an empty
+  channel demodulates to the same hiss at any input level (`waterfall.HISS_DB`, pinned by a test); a
+  frame 6 dB under it has a carrier. A recording's own tail is not a reference: a hold cut off at
+  its limit has none. Measure a catch over `carried_audio` — its tail and gaps are hiss, which has
+  the digital shape and filed followed voice as data.
+- **Voice is followed; hiss is not kept.** After an over that `waterfall.voice_like` passes, `_hold`
+  stays on the channel and records each reply into the same catch until `FOLLOW_IDLE_S` of quiet
+  (`FOLLOW_MAX_S` at most). `voice_like` wants the voice band swinging under a carrier that quiets
+  the hiss 10 dB and holds steady: a weak carrier fading in and out swings too, and was followed for
+  five minutes. A reply with no carrier under it ends the follow. A hold that runs the whole minute
+  is still followed if it is speech — a linked repeater keeps its transmitter up through a
+  conversation. A catch with under 0.1 s of carrier is ledgered as `noise`: not transcribed, not
+  clipped, not a channel; a channel configured `mode: digital` is exempt.
+- **Only what is worth hearing keeps a clip:** voice, a net, and a carrier that sounds like speech (a
+  spoken or Morse ID, or words Whisper missed). A Morse ID (`scanner.morse_id`) is kept once per
+  channel per six hours; 145.690's node sends one every few minutes.
+- **A constant carrier is locked out, and the lockout grows.** A full-minute hold that is not speech
+  locks ±75 kHz (drifting carriers wandered 55–130 kHz and cost a minute a step) for 30 minutes,
+  doubling on each return to 4 h. That reach is a trade-off: roadmap R5d.
 - **Every process that holds the dongle dies with the bot.** The bot exits by `os._exit`, which skips
   multiprocessing's cleanup; an orphaned watcher kept the dongle through two restarts. `child_main`
   and `rtl.open_stream` arm `PR_SET_PDEATHSIG`.
@@ -579,8 +609,10 @@ it, and classifies it — voice, data or carrier — into `memory/radio/local_le
 - **librtlsdr through ctypes, not pyrtlsdr.** pyrtlsdr 0.4/0.5 need `rtlsdr_set_dithering`, which the
   distribution's librtlsdr 2.0.3 does not export.
 - **One dongle.** `rtl.DEVICE` is held by the watch; a live listen sets `rtl.YIELD` and the watch
-  gives it up within a hop. Local repeaters and nets are deployment facts and live in config,
-  never in code or docs.
+  gives it up within a hop. A process outside the bot (a hand-run survey) holds the device where
+  `rtl.DEVICE` cannot see it, and the bot's watch then fails "busy" and backs off 15 minutes — stop
+  any such run before a configured net or the nightly hours. Local repeaters and nets are
+  deployment facts and live in config, never in code or tracked docs.
 - **Transcription on FM static hallucinates.** Auto-detected language on a bare carrier produced a
   Norwegian subtitle credit three times in an hour. The scanner transcribes in English through
   `transcribe.transcribe_speech`, which keeps only segments Whisper scores as speech. Human repeater
@@ -685,6 +717,14 @@ Every `!` command answers in the embed box `!help` uses — `utils/commands/embe
 around such text is one fence away from breaking: `!explain 1` on a query that contained a
 pasted ```` ```ansi ```` block closed the block early and rendered the rest as escape codes.
 `test_command_handlers_reply_in_the_box_not_raw_code_blocks` keeps new ones out.
+
+The rule is wider than `!` commands: **anything posted to Discord that carries a model's or a
+user's text goes in an embed.** Message content stops at 2,000 characters; an embed description
+takes 4,096. The forum review drafts sat in the message text inside a fence, and a quote reply
+passed the limit: the send failed, nothing recorded the attempt, and the next scrape drafted the
+same reply. A button that later edits such a message changes only the status line
+(`kaia_forum.draft_review_embed`), and an edit that runs before bookkeeping must not be able to
+throw past it — Reject's did, and the rejected reply came back.
 
 `!nightshift` and `!scanner` are button panels (`discord.ui.View`). A button runs the same handler
 the typed command does, with a message-shaped stand-in for the click (`nightshift._Click`), so a
@@ -1047,6 +1087,20 @@ stripped the identity frontmatter off eight forum profiles, twice, while claimin
 read-only check, and the repair had to be run again afterwards. Exercise a script's *import block*
 with `importlib.util.spec_from_file_location` + `exec_module` under any name but `__main__`;
 anything guarded by `if __name__ == "__main__":` then stays unexecuted.
+
+**A test that reads the clock must pin it.** Two unprompted-gate tests recorded at `time.time()`
+and checked 70 minutes later; from about 22:50 that is tomorrow, the daily count resets, and the
+suite failed every late evening for a reason that had nothing to do with the code. Anchor to a
+fixed time of day (midday), or pass `now` in.
+
+**A test must not stub the thing it guards.** The unequip lock test replaced the handler with a
+stub to observe the lock, so a deadlock inside the real handler — the one failure a lock test
+exists for — could never show. Run the real path, with a timeout if a hang is the risk.
+
+**`pkill -f <pattern>` matches your own shell.** The command line that runs it contains the
+pattern, so it kills the tool call it was issued from (exit 144, the rest of the command lost).
+Find the PID first (`ps -eo pid,args | awk '/[s]urvey/ {print $1}'` — the bracket keeps awk from
+matching itself) and kill that.
 
 **A regex across many files is a change you have not read.** Converting 35 `write_text` calls in
 21 modules to the atomic helper looked mechanical. The pattern matched the receiver greedily, so
