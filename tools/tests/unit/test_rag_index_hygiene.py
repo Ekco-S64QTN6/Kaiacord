@@ -223,3 +223,40 @@ def test_logging_keeps_the_users_bracketed_words():
     from utils.core.kaia_rag_retriever import sanitize_log_content
     assert sanitize_log_content("[EDIT] fixed it [USER_MESSAGE] ok", users_words=True) == "[EDIT] fixed it ok"
     assert sanitize_log_content("see [IMAGE] here") == "see here"
+
+
+def test_a_converted_pdf_is_not_retried_every_sweep(indexer, monkeypatch):
+    """The original was recorded with size 0, and the scan reads any size
+    change as an edit, so every sweep failed on it and converted it again."""
+    ix, kb = indexer
+    pdf = kb / "documents" / "paper.pdf"
+    pdf.parent.mkdir()
+    pdf.write_bytes(b"%PDF-1.4 not really a pdf")
+    monkeypatch.setattr(ix, "_convert_pdf_to_md", lambda p: str(pdf.with_suffix(".md")))
+    ix._handle_corrupt_file(str(pdf), "knowledge", str(kb / "_quarantine"))
+    assert str(pdf.resolve()) not in {os.path.abspath(p) for p, *_ in ix._find_changed_files()}
+
+
+def test_a_write_during_indexing_is_picked_up_next_sweep(indexer, monkeypatch):
+    """The file's mtime and size were read after its text, so a write between
+    the two was recorded as indexed and never re-read."""
+    ix, kb = indexer
+    doc = kb / "documents" / "notes.md"
+    doc.parent.mkdir()
+    doc.write_text("first version")
+    old_mtime = os.path.getmtime(doc)
+    import llama_index.core as li
+    real_reader = li.SimpleDirectoryReader
+
+    class ReadThenWrite:
+        def __init__(self, **kw):
+            self.inner = real_reader(**kw)
+
+        def load_data(self):
+            docs = self.inner.load_data()
+            doc.write_text("second version, written while the first was indexing")
+            os.utime(doc, (old_mtime + 5, old_mtime + 5))
+            return docs
+    monkeypatch.setattr(li, "SimpleDirectoryReader", ReadThenWrite)
+    ix._index_regular_file(str(doc), str(doc.resolve()), "knowledge")
+    assert str(doc.resolve()) in {os.path.abspath(p) for p, *_ in ix._find_changed_files()}

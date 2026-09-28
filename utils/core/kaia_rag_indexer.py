@@ -955,6 +955,10 @@ class RAGIndexerMixin:
     def _index_regular_file(self, file_path: str, abs_path: str, itype: str) -> bool:
         """Load and index a standard document file."""
         from llama_index.core import SimpleDirectoryReader, Document as LlamaDocument
+        # Stat before reading: a write landing mid-read then leaves a newer
+        # mtime than the one recorded, and the next scan picks it up.
+        mtime = os.path.getmtime(file_path)
+        size = os.path.getsize(file_path)
         docs = None
         try:
             docs = SimpleDirectoryReader(input_files=[file_path]).load_data()
@@ -970,7 +974,6 @@ class RAGIndexerMixin:
             with open(file_path, 'rb') as f:
                 docs = [LlamaDocument(text=f.read().decode('utf-8', errors='replace'))]
         
-        mtime = os.path.getmtime(file_path)
         parser = self._get_node_parser_for_doc(itype, file_path)
         all_node_ids = []
         
@@ -996,7 +999,7 @@ class RAGIndexerMixin:
             
             self.indexed_files[abs_path] = {
                 "mtime": mtime,
-                "size": os.path.getsize(file_path),
+                "size": size,
                 "nodes": all_node_ids,
                 "itype": itype
             }
@@ -1020,10 +1023,12 @@ class RAGIndexerMixin:
                 # The converted Markdown sits beside the original and is
                 # indexed by the next scan like any other document, with its
                 # own manifest entry — indexing it here as well put it in twice.
-                # The original is recorded as seen so it is not retried.
+                # The original is recorded as seen so it is not retried: with
+                # its real size, since the scan treats any size change as an edit.
                 with self._data_lock:
                     self.indexed_files[os.path.abspath(file_path)] = {
-                        "mtime": os.path.getmtime(file_path), "size": 0, "nodes": [], "itype": itype}
+                        "mtime": os.path.getmtime(file_path), "size": os.path.getsize(file_path),
+                        "nodes": [], "itype": itype}
                 return False
         
         # Logged, not moved. A file that fails to index stays where it is;
