@@ -530,3 +530,14 @@ def test_a_row_of_dots_survives_the_pipeline():
         assert out.endswith(dots)
     # The cleanup still does its job after a word.
     assert BotSpeakFilter.harden("the answer is 4 .") == "the answer is 4."
+
+
+def test_an_excised_thanks_does_not_strand_its_object():
+    """Shipped to Cecily 27 Sept: 'thank you for correcting me again, cecily.'
+    came out as 'me again, cecily.' An object pronoun opening the tail is the
+    rest of the clause removed; "it" can open a real clause and is kept."""
+    from utils.core.response_filter import BotSpeakFilter as B
+    assert B.harden("thank you for correcting me again, cecily. i appreciate your clarity.") \
+        == "i appreciate your clarity."
+    assert B.harden("you're right; it was the cron job.") == "it was the cron job."
+    assert "me;" not in B.harden("thank you for correcting me; i am adjusting my analytical parameters accordingly.")

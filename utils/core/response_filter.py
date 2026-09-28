@@ -978,7 +978,9 @@ class BotSpeakFilter:
     # removed, not a sentence standing on its own: "you're right to point that
     # out" excises to "to point that out", which means nothing without the half
     # that was deleted.
-    _DANGLING_TAIL = re.compile(r"^(?:to|that|about|for|on|in|with|of)\b", re.IGNORECASE)
+    # Object pronouns too: "thank you for correcting" stranded "me again, cecily."
+    # Only the ones that cannot open a clause; "it" and "her" can.
+    _DANGLING_TAIL = re.compile(r"^(?:to|that|about|for|on|in|with|of|me|us|him|them)\b", re.IGNORECASE)
 
     # A finite verb, which is what separates a clause that can stand alone from
     # a phrase that cannot. Contractions are in it because a first attempt
