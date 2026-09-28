@@ -1097,6 +1097,12 @@ fixed time of day (midday), or pass `now` in.
 stub to observe the lock, so a deadlock inside the real handler — the one failure a lock test
 exists for — could never show. Run the real path, with a timeout if a hang is the risk.
 
+**An enforcement test is only as wide as what it scans.** `test_no_corpus_write_bypasses_the_atomic_helper`
+judged a `write_text` on the four lines above it and did not know `USER_LOGS_DIR`;
+`test_every_writer_of_user_profile_consults_the_identity_registry` read `tools/` and never
+`utils/`. Both passed while the forum client broke both rules four times. When a rule's test
+passes, check that it would have seen the code you are looking at — make it fail on a copy first.
+
 **`pkill -f <pattern>` matches your own shell.** The command line that runs it contains the
 pattern, so it kills the tool call it was issued from (exit 144, the rest of the command lost).
 Find the PID first (`ps -eo pid,args | awk '/[s]urvey/ {print $1}'` — the bracket keeps awk from
