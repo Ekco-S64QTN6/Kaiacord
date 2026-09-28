@@ -1175,3 +1175,37 @@ def test_a_scraped_rank_with_quotes_leaves_parseable_frontmatter(tmp_path, monke
     c._write_self_marker("Kaia", 99)
     data, _ = parse_frontmatter((tmp_path / "forum_Kaia_99" / "user_profile.md").read_text())
     assert data["is_self"] is True
+
+
+def test_a_real_profile_is_recognised_however_its_type_is_quoted(tmp_path):
+    """Compaction and dump_frontmatter write the type bare; the check wanted
+    double quotes, so none of the 148 real profiles counted as real."""
+    from utils.social.kaia_forum import _is_synthesised_profile
+    for line in ('document_type: User Personality Profile', "document_type: 'User Personality Profile'",
+                 'document_type: "User Personality Profile"'):
+        f = tmp_path / "p.md"
+        f.write_text(f"---\n{line}\n---\n\n# x\n")
+        assert _is_synthesised_profile(f), line
+    f.write_text("---\ndocument_type: Narrative/Log\n---\n")
+    assert not _is_synthesised_profile(f)
+
+
+def test_a_new_forum_user_is_profiled_on_the_first_deep_scrape(tmp_path, monkeypatch):
+    """The placeholder written just before the check made the profile look
+    present and fresh, so nobody new was ever profiled."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from utils.social.kaia_forum import ForumClient, PostInfo
+    monkeypatch.setattr(ForumClient, "USER_LOGS_DIR", tmp_path)
+    monkeypatch.setattr(ForumClient, "KNOWLEDGE_DIR", tmp_path / "fp")
+    c = ForumClient("https://example.invalid", 1)
+    c.scrape_user_profile = AsyncMock(return_value={"username": "Zukan", "total_posts": 40, "rank": "Rat"})
+    history = [{"author": "Zukan", "user_id": 77, "post_id": i, "content": f"post {i}",
+                "content_preview": f"post {i}", "thread_title": "t"} for i in range(5)]
+    c.scrape_user_post_history = AsyncMock(return_value=history)
+    c.scrape_user_threads_started = AsyncMock(return_value=[])
+    c.deep_crawl_user_posts = AsyncMock(return_value=[])
+    c.generate_personality_profile = AsyncMock(return_value="notes")
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    asyncio.run(c.scrape_active_users([], [PostInfo(user_id=77, author="Zukan", post_id=1, content="hi")]))
+    assert c.generate_personality_profile.await_count == 1

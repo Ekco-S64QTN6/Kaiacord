@@ -147,11 +147,14 @@ def _watermark_covers(total_posts: int, *paths: Path) -> bool:
 def _is_synthesised_profile(path: Path) -> bool:
     """True if this profile came from the LLM deep scrape rather than the
     placeholder writer. The two share a filename but not a document_type."""
+    # Matched however the value is quoted. The check required double quotes,
+    # and compaction and dump_frontmatter write it bare, so none of the 148
+    # real profiles counted as real.
     try:
-        return 'document_type: "User Personality Profile"' in path.read_text(
-            encoding="utf-8", errors="replace")[:400]
+        head = path.read_text(encoding="utf-8", errors="replace")[:600]
     except OSError:
         return False
+    return bool(re.search(r"""^document_type:\s*["']?User Personality Profile["']?\s*$""", head, re.M))
 
 
 def is_forum_configured() -> bool:
@@ -1706,6 +1709,13 @@ class ForumClient:
                         log_info(f"Skipping {username} profile — scraped within 1h")
                         continue
 
+                # Decided before anything below writes the profile: the placeholder
+                # writer creates or refreshes it, so asked afterwards the file
+                # always existed and was always new, and nobody was ever profiled.
+                had_real_profile = profile_path.exists() and _is_synthesised_profile(profile_path)
+                real_profile_age = ((datetime.now() - datetime.fromtimestamp(profile_path.stat().st_mtime))
+                                    .total_seconds() if had_real_profile else None)
+
                 # Scrape profile - this is cheap and gives us total_posts
                 profile = await self.scrape_user_profile(uid)
                 if not profile:
@@ -1721,7 +1731,9 @@ class ForumClient:
                 # and re-downloads 30 pages per user to rebuild what was just
                 # removed.
                 total_posts = profile.get('total_posts', 0)
-                if _watermark_covers(total_posts, history_path, profile_path):
+                # Only a real profile earns the shortcut: a placeholder user with
+                # nothing new would otherwise stay a placeholder for good.
+                if had_real_profile and _watermark_covers(total_posts, history_path, profile_path):
                     log_info(f"Skipping {username} history — total_posts "
                              f"({total_posts}) unchanged")
                     continue
@@ -1745,11 +1757,7 @@ class ForumClient:
                     
                     # INTEGRATION: Check if we need to deep-crawl and profile
                     # We trigger this if the profile is missing or older than 24h
-                    needs_dossier = not profile_path.exists()
-                    if not needs_dossier:
-                        pmtime = datetime.fromtimestamp(profile_path.stat().st_mtime)
-                        if (datetime.now() - pmtime).total_seconds() > 86400:
-                            needs_dossier = True
+                    needs_dossier = not had_real_profile or real_profile_age > 86400
                     
                     if needs_dossier:
                         log_action(f"User {username} needs personality profile. Triggering Deep Crawl...")
