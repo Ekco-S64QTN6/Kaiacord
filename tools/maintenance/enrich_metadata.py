@@ -161,7 +161,10 @@ async def generate_metadata(session: aiohttp.ClientSession, category: str, body:
         "model": MODEL,
         "prompt": prompt,
         "stream": False,
-        "options": opts
+        "options": opts,
+        # Without it each request reset the model's expiry to five minutes,
+        # and it unloaded soon after the nightly pass (CLAUDE.md §4).
+        "keep_alive": -1,
     }
     
     async def _post():

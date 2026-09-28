@@ -71,16 +71,20 @@ def header(msg):
 # ── Ollama HTTP Client ───────────────────────────────────────────────────────
 
 def ollama_chat(model: str, messages: list, temperature: float = 0.7,
-                num_ctx: int = 8192, keep_alive: str = "5m") -> dict:
-    """Send a chat request to Ollama and return the full response."""
+                num_ctx: int | None = None) -> dict:
+    """Send a chat request to Ollama and return the full response.
+
+    The bot's runner options and keep_alive=-1 (CLAUDE.md §4). This sent
+    num_ctx 2,048, 8,192 or 16,384 and a five-minute keep_alive, so probing
+    gemma3:12b reloaded the live runner at each size and let it unload after.
+    `num_ctx` is accepted for the callers and ignored."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from utils.infrastructure.gpu.gpu_manager import chat_options
     payload = json.dumps({
         "model": model,
         "messages": messages,
-        "options": {
-            "temperature": temperature,
-            "num_ctx": num_ctx,
-        },
-        "keep_alive": keep_alive,
+        "options": chat_options(temperature=temperature),
+        "keep_alive": -1,
         "stream": False,
     }).encode("utf-8")
 

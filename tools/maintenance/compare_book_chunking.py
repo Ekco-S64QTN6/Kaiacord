@@ -61,7 +61,9 @@ def embed(texts: list[str], gpu: bool, instruction: str) -> list[list[float]]:
     out = []
     for i in range(0, len(texts), 32):
         batch = [f"{instruction}{t}" for t in texts[i:i + 32]]
-        r = client.embed(model=config.embedding_model, input=batch,
+        # keep_alive=-1: without it the request resets the loaded embedder to a
+        # five-minute expiry, and the bot's next embedding pays a reload (§4).
+        r = client.embed(model=config.embedding_model, input=batch, keep_alive=-1,
                          options={"num_gpu": 99 if gpu else 0, "num_ctx": config.embedding_context_tokens})
         out += r["embeddings"]
     return out

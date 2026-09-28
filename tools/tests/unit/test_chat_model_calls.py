@@ -57,3 +57,46 @@ def test_no_chat_model_call_builds_its_runner_options_by_hand():
         if isinstance(opts, ast.Dict) and None not in opts.keys:
             bad.append(where)
     assert not bad, f"use chat_options(...) for: {bad}"
+
+
+def _raw_payloads():
+    """Request bodies posted to Ollama's HTTP API directly: a dict literal with
+    a "model" key and "messages" or "prompt". The method-call scan above cannot
+    see these; jspace_probe and the nightly enrich_metadata both sent them, one
+    at three different num_ctx and a five-minute keep_alive, one with none."""
+    for root in SCANNED:
+        for path in (ROOT / root).rglob("*.py"):
+            rel = str(path.relative_to(ROOT))
+            if rel.startswith("tools/tests/") or "/llama.cpp/" in rel:
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Dict):
+                    continue
+                keys = {k.value for k in node.keys if isinstance(k, ast.Constant)}
+                if "model" in keys and keys & {"messages", "prompt"}:
+                    yield f"{rel}:{node.lineno}", keys, node
+
+
+# Deliberately bare: it samples the fine-tuned model under its own Modelfile
+# (SYSTEM prompt and num_ctx), which is the point of the check, and that model
+# is not the bot's runner.
+RAW_EXEMPT = {"finetune/05b_test_ollama.py"}
+
+
+def test_every_raw_ollama_request_sets_keep_alive_and_options():
+    bad = [where for where, keys, _ in _raw_payloads()
+           if not {"keep_alive", "options"} <= keys and where.split(":")[0] not in RAW_EXEMPT]
+    assert not bad, f"raw Ollama request without keep_alive/options: {bad}"
+
+
+def test_no_raw_ollama_request_builds_its_runner_options_by_hand():
+    """jspace_probe sent {"temperature": .., "num_ctx": 2048}: keys present,
+    values its own, and gemma3 reloaded at each size."""
+    bad = []
+    for where, _, node in _raw_payloads():
+        for k, v in zip(node.keys, node.values):
+            if (isinstance(k, ast.Constant) and k.value == "options"
+                    and isinstance(v, ast.Dict) and None not in v.keys):
+                bad.append(where)
+    assert not bad, f"use chat_options(...) for: {bad}"
+
