@@ -320,3 +320,26 @@ def test_enrich_kb_metadata_reads_frontmatter_only_at_the_top(tmp_path, monkeypa
     front.write_text("---\ndocument_type: Transcript\n---\n# Log\n\ntext\n")
     ekm.enrich_file(str(front), "user_logs")
     assert written[str(front)].split("---\n", 2)[2] == "# Log\n\ntext\n"
+
+
+def test_retitle_documents_writes_frontmatter_a_parser_reads():
+    import importlib.util
+    import yaml
+    spec = importlib.util.spec_from_file_location("rt", "tools/maintenance/retitle_documents.py")
+    rt = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rt)
+    front = rt.rewrite_fields('---\ntitle: "old"\nsummary: s\n---', title='The "Real" \\1 Story: Part 2',
+                              category="Sci-Fi")
+    data = yaml.safe_load(front.strip("-\n"))
+    assert data == {"title": 'The "Real" \\1 Story: Part 2', "summary": "s", "category": "Sci-Fi"}
+
+
+def test_tidy_troubleshooting_sets_a_field_holding_json_escapes():
+    import importlib.util
+    import json
+    import yaml
+    spec = importlib.util.spec_from_file_location("tt", "tools/maintenance/tidy_troubleshooting.py")
+    tt = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tt)
+    out = tt.set_field("---\nsummary: old\n---", "summary", json.dumps("the client’s crash"))
+    assert yaml.safe_load(out.strip("-\n"))["summary"] == "the client’s crash"

@@ -53,7 +53,10 @@ def split_frontmatter(text: str) -> tuple[str, str]:
 def set_field(front: str, field: str, value: str) -> str:
     pattern = re.compile(rf"^{field}:.*$", re.M)
     line = f"{field}: {value}"
-    return pattern.sub(line, front, count=1) if pattern.search(front) \
+    # A function, not a template: the value is JSON, and its escapes ("\u2019"
+    # for a curly apostrophe) are bad escapes to re.sub, which crashed the run
+    # after the model call.
+    return pattern.sub(lambda _m: line, front, count=1) if pattern.search(front) \
         else front.replace("---\n", f"---\n{line}\n", 1)
 
 
@@ -111,9 +114,8 @@ def main() -> int:
             front = set_field(front, "keywords", json.dumps(keywords))
             if summary:
                 front = set_field(front, "summary", json.dumps(summary))
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(front + "\n\n" + body, encoding="utf-8")
-            tmp.replace(path)            # atomic, CLAUDE.md §4
+            from utils.core.atomic_write import write_atomic
+            write_atomic(path, front + "\n\n" + body)
 
     print("\nRe-run with --apply to write." if not args.apply else "\nDone.")
     return 0

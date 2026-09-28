@@ -54,13 +54,19 @@ def read_frontmatter(text: str) -> tuple[str, str]:
     return text[: end + 4], text[end + 4:].lstrip("\n")
 
 
-def rewrite_field(front: str, field: str, value: str) -> str:
-    """Replace a scalar frontmatter field, adding it if absent."""
-    pattern = re.compile(rf"^{field}:.*$", re.M)
-    line = f'{field}: "{value}"'
-    if pattern.search(front):
-        return pattern.sub(line, front, count=1)
-    return front.replace("---\n", f"---\n{line}\n", 1)
+def rewrite_fields(front: str, **fields: str) -> str:
+    """The frontmatter block with these fields set, through the YAML writer.
+
+    It wrote `f'{field}: "{value}"'`, so a title holding a double quote left a
+    block no parser reads (CLAUDE.md §10), and it passed that line to re.sub as
+    a replacement template, where a backslash in a title is a group reference."""
+    import yaml
+    from utils.core.frontmatter import dump_frontmatter
+    data = yaml.safe_load(front.strip().strip("-")) or {}
+    if not isinstance(data, dict):
+        data = {}
+    data.update(fields)
+    return dump_frontmatter(data).rstrip("\n")
 
 
 def main() -> int:
@@ -113,14 +119,12 @@ def main() -> int:
 
         if args.apply:
             if front:
-                front = rewrite_field(front, "title", title)
-                front = rewrite_field(front, "category", topic)
+                front = rewrite_fields(front, title=title, category=topic)
                 new_text = front + "\n\n" + body
             else:
                 new_text = text
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(new_text, encoding="utf-8")
-            tmp.replace(path)          # atomic content rewrite
+            from utils.core.atomic_write import write_atomic
+            write_atomic(path, new_text)
             path.rename(dest)
         changed += 1
 
