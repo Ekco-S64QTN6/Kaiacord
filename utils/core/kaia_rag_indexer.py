@@ -347,10 +347,17 @@ class RAGIndexerMixin:
         if itype == 'persona' or "kaia_persona" in file_path:
             doc.metadata["source_type"] = "persona"
             doc.metadata["user_id"] = "KAIA_SYSTEM"
+        elif itype == 'user_profiles' or os.path.basename(file_path) == "user_profile.md":
+            # Before the log test: a profile lives in its user's log folder.
+            doc.metadata["source_type"] = "user_profile"
         elif itype == 'logs' or "user_logs" in file_path:
             doc.metadata["source_type"] = "user_logs"
-        elif itype == 'user_profiles' or "user_profile" in file_path:
-            doc.metadata["source_type"] = "user_profile"
+        elif itype == 'dreams' or "kaia_dreams" in file_path:
+            # Before the news test: a dream about a brief is named after it.
+            if hasattr(doc, 'text') and 'source_type: kaia_reflection' in doc.text[:200]:
+                doc.metadata["source_type"] = "kaia_reflection"
+            else:
+                doc.metadata["source_type"] = "dream"
         elif ("news_brief" in file_path or "news_summary" in file_path
                 or "/news/" in file_path.replace("\\", "/")):
             # Keyed on the directory as well as the filename. Filename alone
@@ -359,12 +366,6 @@ class RAGIndexerMixin:
             # but the node's own metadata then disagrees with where it went, and
             # `!explain` reports it as general_knowledge.
             doc.metadata["source_type"] = "news"
-        elif itype == 'dreams' or "kaia_dreams" in file_path:
-            # Check for kaia_reflection frontmatter or path indicator
-            if hasattr(doc, 'text') and 'source_type: kaia_reflection' in doc.text[:200]:
-                doc.metadata["source_type"] = "kaia_reflection"
-            else:
-                doc.metadata["source_type"] = "dream"
         elif "kaia_notes" in file_path:
             doc.metadata["source_type"] = "kaia_note"
         elif "snapshots" in file_path:

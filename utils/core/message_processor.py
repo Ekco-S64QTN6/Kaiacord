@@ -1572,11 +1572,12 @@ class MessageProcessor:
         # Diversification
         if is_news_query:
             log_info(f"Applying news diversification to {ctx.category} query results")
+            from utils.core.rag_utils import is_news_node
             news_nodes = []
             other_nodes = []
             for node in ctx.raw_nodes:
                 metadata = node.get('metadata', {}) if isinstance(node, dict) else getattr(node, 'metadata', {})
-                if metadata.get('source_type') in ['news', 'news_brief', 'news_summary'] or "news" in (metadata.get('file_path', '') or '').lower():
+                if is_news_node(metadata):
                     news_nodes.append(node)
                 else:
                     other_nodes.append(node)

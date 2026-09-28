@@ -29,6 +29,31 @@ def get_node_metadata(node) -> dict:
     return {}
 
 
+def is_news_node(metadata) -> bool:
+    """A news brief or digest: something filed under knowledge_base/news/.
+
+    Keyed on the folder. `"news" in path` also matched a dream about a brief
+    (`kaia_dreams/…/dream_…_news_brief_….md`) and documents with "news" in
+    their title, and dropped them from every turn that was not about news.
+    """
+    metadata = metadata or {}
+    path = "/" + (metadata.get("file_path") or "").replace("\\", "/").lstrip("/")
+    if "/kaia_dreams/" in path:
+        return False
+    return "/news/" in path or metadata.get("source_type") in ("news", "news_brief", "news_summary")
+
+
+def is_profile_node(metadata) -> bool:
+    """A user's profile document (`user_logs/<user>/user_profile.md`).
+
+    It lives inside the user's log folder, so a node indexed before profiles
+    were typed first carries `source_type: user_logs`.
+    """
+    metadata = metadata or {}
+    path = (metadata.get("file_path") or "").replace("\\", "/")
+    return metadata.get("source_type") == "user_profile" or path.rsplit("/", 1)[-1] == "user_profile.md"
+
+
 def speaker_from_log_path(path: str) -> str:
     """The display name of whoever owns a user_logs path, or ''.
 

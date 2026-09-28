@@ -544,13 +544,31 @@ class RAGQueryMixin:
                 if did: relevant_ids.add(did)
         return relevant_ids
 
+    def _named_user_ids(self, own_lower: str) -> Set[str]:
+        """Every id of each person the user's words name, from the log folders."""
+        ids: Set[str] = set()
+        for folder in getattr(self, "_known_user_folders", ()) or ():
+            name, _, uid = folder.rpartition("_")
+            name = re.sub(r"^forum[_ ]", "", name).replace("_", " ").lower()
+            if len(name) < 3 or not uid.isdigit() or name.startswith("kaia"):
+                continue
+            if re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", own_lower):
+                ids.add(uid)
+                ids |= self._resolve_identity_mappings(uid)
+        return ids
+
     def _score_and_filter_nodes(self, all_node_results: List[Any], query_lower: str, 
                                relevant_ids: Set[str], routing: Dict[str, Any], 
                                top_k: int, include_news: bool, strict_identity: bool) -> List[Dict[str, Any]]:
         """Rank, boost, and filter retrieved nodes based on context and strategy."""
-        from utils.core.rag_utils import get_node_text, get_node_metadata
+        from utils.core.rag_utils import get_node_text, get_node_metadata, is_news_node, is_profile_node
         from utils.infrastructure.system.yaml_config import config
-        
+
+        # Whose logs and profiles belong on this turn: the asker's, and anyone
+        # the question names. "who is starkind" is identity-scoped, and scoped
+        # to the asker alone it could not reach a word Starkind had said.
+        people = set(relevant_ids) | set(routing.get("named_ids") or ())
+
         scored_nodes = []
         seen_content_hashes: set = set()  # Fix #1: deduplicate cross-index duplicate chunks
         query_words = set(re.findall(r'\w+', query_lower))
@@ -629,18 +647,22 @@ class RAGQueryMixin:
             source_type = metadata.get('source_type', 'general')
             file_path = metadata.get('file_path', '')
             node_user_id = str(metadata.get('user_id', ''))
-            
+            if is_profile_node(metadata):
+                source_type = 'user_profile'
+
             # FILTERS
-            if not include_news and (source_type == 'news' or "news" in file_path.lower()): continue
-            if source_type == 'user_profile' and (not (is_social_identity or strict_identity) or (node_user_id and node_user_id not in relevant_ids)): continue
-            
+            if not include_news and is_news_node(metadata): continue
+            # A profile is about one person: the asker or someone they named.
+            if source_type == 'user_profile' and node_user_id not in people: continue
+
             if source_type == 'user_logs' and file_path and strict_identity:
                 try:
                     # Robust path-based isolation for user_logs
                     path_normalized = file_path.replace('\\', '/')
                     if '/user_logs/' in path_normalized:
                         user_dir = path_normalized.split('/user_logs/')[1].split('/')[0]
-                        if not any(str(rid) in user_dir for rid in relevant_ids):
+                        # The folder's id exactly: "197" is inside other ids.
+                        if user_dir.rpartition('_')[2] not in people:
                             log_debug(f"RAG isolation: skipping foreign user logs path (Identity-Scoped): {file_path}")
                             continue
                 except Exception as e:
@@ -658,7 +680,7 @@ class RAGQueryMixin:
             if source_type == 'user_logs' and node_user_id:
                 # For identity/personal queries: strict — only current user's logs
                 if strict_identity or routing.get("is_social_identity"):
-                    if node_user_id not in relevant_ids: continue
+                    if node_user_id not in people: continue
                 # For general/casual queries: allow all users' logs (boosted below)
                 
             # Soft dampening for general knowledge on casual queries (allows highly relevant knowledge to surface instead of blanket suppression)
@@ -703,8 +725,8 @@ class RAGQueryMixin:
 
             # Balanced same-user boost for logs (0.15 instead of 0.30 to avoid drowning out curated documentation)
             if source_type == 'user_logs':
-                if node_user_id in relevant_ids:
-                    final_score += 0.15  # Moderate boost for current user's own logs
+                if node_user_id in people:
+                    final_score += 0.15  # Moderate boost for the asker's or the named person's logs
                 else:
                     final_score += 0.05  # Weaker boost for other users' logs
 
@@ -999,8 +1021,9 @@ class RAGQueryMixin:
             if time.time() - self._last_user_scan > self._user_scan_interval:
                 def _scan():
                     path = os.path.join(self.knowledge_base_dir, "user_logs")
-                    return [d.name.rsplit("_", 1)[0].replace("_", " ") for d in os.scandir(path) if d.is_dir() and "_" in d.name] if os.path.exists(path) else []
-                self._known_users_cache = await asyncio.to_thread(_scan)
+                    return [d.name for d in os.scandir(path) if d.is_dir() and "_" in d.name] if os.path.exists(path) else []
+                self._known_user_folders = await asyncio.to_thread(_scan)
+                self._known_users_cache = [f.rsplit("_", 1)[0].replace("_", " ") for f in self._known_user_folders]
                 self._last_user_scan = time.time()
 
             enriched_query = query
@@ -1011,6 +1034,7 @@ class RAGQueryMixin:
 
             # Map identities
             relevant_ids = self._resolve_identity_mappings(user_id)
+            routing["named_ids"] = self._named_user_ids(own_lower)
 
             # Retrieval
             target_itypes, retrieve_count = self._target_indices(routing, top_k)

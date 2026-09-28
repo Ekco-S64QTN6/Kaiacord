@@ -44,40 +44,32 @@ class TestAuditFlagConstants:
 
 
 class TestAuditFlagPenalty:
-    """Test the audit flag penalty in _score_and_filter_nodes."""
+    """The audit flag penalty in _score_and_filter_nodes."""
 
-    def test_penalty_reduces_score(self):
-        """Nodes with audit flags should have a lower final score."""
-        penalty = 0.15
-        base_score = 1.0
-        
-        # No flags
-        no_flag_score = base_score
-        
-        # One flag
-        one_flag_score = base_score - (1 * penalty)
-        assert one_flag_score < no_flag_score
-        assert one_flag_score == 0.85
-        
-        # Two flags
-        two_flag_score = base_score - (2 * penalty)
-        assert two_flag_score < one_flag_score
-        assert two_flag_score == 0.70
+    @staticmethod
+    def _scores(flag_counts):
+        from llama_index.core.schema import NodeWithScore, TextNode
+        from utils.core.kaia_rag_query import RAGQueryMixin
+        rag = RAGQueryMixin()
+        rag.indices = {}
+        nodes = [NodeWithScore(node=TextNode(
+            text=f"a document chunk number {i}",
+            metadata={"file_path": f"/kb/documents/doc{i}.md", "source_type": "general_knowledge",
+                      "audit_flags": ["hedge_density"] * n}), score=1.0)
+            for i, n in enumerate(flag_counts)]
+        routing = {"strategy": None, "is_casual": False, "is_dream_query": False,
+                   "is_social_identity": False, "is_entity_query": False, "is_news_query": False}
+        out = rag._score_and_filter_nodes(nodes, "a question", set(), routing, 10, False, False)
+        by_path = {r["metadata"]["file_path"]: r["score"] for r in out}
+        return [by_path[f"/kb/documents/doc{i}.md"] for i in range(len(flag_counts))]
 
-    def test_penalty_caps_at_three_flags(self):
-        """Penalty should cap at 3 flags to avoid complete suppression."""
-        penalty = 0.15
-        base_score = 1.0
-
-        # 3 flags = max penalty
-        three_flag_penalty = min(3 * penalty, penalty * 3)
-        three_flag_score = base_score - three_flag_penalty
-        
-        # 5 flags should not exceed 3x penalty
-        five_flag_penalty = min(5 * penalty, penalty * 3)
-        five_flag_score = base_score - five_flag_penalty
-        
-        assert three_flag_score == five_flag_score == 0.55
+    def test_each_flag_costs_the_configured_penalty_up_to_three(self):
+        from utils.infrastructure.system.yaml_config import config
+        penalty = getattr(config, "rag_audit_flag_penalty", 0.15)
+        none, one, three, five = self._scores([0, 1, 3, 5])
+        assert none - one == pytest.approx(penalty)
+        assert none - three == pytest.approx(3 * penalty)
+        assert five == pytest.approx(three)
 
 
 # ============================================================================

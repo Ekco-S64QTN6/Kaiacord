@@ -121,3 +121,83 @@ def test_a_diagnostic_searches_the_guides_as_well_as_the_logs(text):
     routing = rag._route_retrieval_strategy("tech", text.lower(), intent, text.lower())
     targets, _ = rag._target_indices(routing, 5)
     assert "knowledge" in targets and "logs" in targets
+
+
+# ── Whose profile and logs, and what counts as news ───────────────────
+
+_ROUTING = {"strategy": "PRECISE_RECALL", "is_casual": False, "is_dream_query": False,
+            "is_social_identity": False, "is_entity_query": True, "is_news_query": False}
+
+
+def _node(path, text, **meta):
+    from llama_index.core.schema import NodeWithScore, TextNode
+    return NodeWithScore(node=TextNode(text=text, metadata={"file_path": path, **meta}), score=1.0)
+
+
+def _scored(nodes, routing, relevant_ids, **kw):
+    rag = RAGQueryMixin()
+    rag.indices = {}
+    out = rag._score_and_filter_nodes(nodes, "who is starkind", relevant_ids, routing, 20,
+                                      kw.get("include_news", False), kw.get("strict", True))
+    return {r["metadata"]["file_path"]: r["label"] for r in out}
+
+
+def test_who_is_x_reaches_the_named_persons_profile_and_logs():
+    """Identity-scoped to the asker alone, "who is starkind" reached nothing
+    Starkind had said. Profiles indexed before they were typed carry
+    source_type user_logs, so they are recognised by filename."""
+    star = "/kb/user_logs/Starkind_2/"
+    nodes = [
+        _node(star + "user_profile.md", "Starkind profile", source_type="user_logs", user_id="2"),
+        _node(star + "interactions_20260920.md", "Starkind: nala again", source_type="user_logs", user_id="2"),
+        _node("/kb/user_logs/forum_Bones_197/user_profile.md", "a stranger", source_type="user_profile", user_id="197"),
+        _node("/kb/user_logs/Other_3/interactions_20260920.md", "someone else", source_type="user_logs", user_id="3"),
+    ]
+    got = _scored(nodes, dict(_ROUTING, named_ids={"2"}), {"1"})
+    assert got[star + "user_profile.md"].startswith("Profile")
+    assert star + "interactions_20260920.md" in got
+    assert "/kb/user_logs/forum_Bones_197/user_profile.md" not in got
+    assert "/kb/user_logs/Other_3/interactions_20260920.md" not in got
+
+
+def test_a_short_id_does_not_admit_a_folder_that_contains_it():
+    nodes = [_node("/kb/user_logs/Ekco_177011971818782721/interactions_20260920.md", "x",
+                   source_type="user_logs")]
+    assert not _scored(nodes, dict(_ROUTING, named_ids=set()), {"197"})
+
+
+def test_only_the_news_folder_is_news():
+    """A dream about a brief is named after it, and a document may have news
+    in its title; neither is dropped from a turn that is not about news."""
+    nodes = [
+        _node("/kb/kaia_dreams/other/dream_20260928_033930_news_brief_20260924.md", "a dream", source_type="news"),
+        _node("/kb/documents/research - news analysis and extraction plan.md", "a plan", source_type="general_knowledge"),
+        _node("/kb/news/daily/news_brief_20260924.md", "a brief", source_type="news"),
+    ]
+    routing = dict(_ROUTING, strategy=None, is_entity_query=False, named_ids=set())
+    got = _scored(nodes, routing, set(), strict=False)
+    assert set(got) == {nodes[0].node.metadata["file_path"], nodes[1].node.metadata["file_path"]}
+
+
+@pytest.mark.parametrize("itype, path, expected", [
+    ("user_profiles", "/kb/user_logs/Starkind_2/user_profile.md", "user_profile"),
+    ("logs", "/kb/user_logs/Starkind_2/interactions_20260920.md", "user_logs"),
+    ("dreams", "/kb/kaia_dreams/other/dream_20260928_news_brief_20260924.md", "dream"),
+    ("knowledge", "/kb/news/daily/news_brief_20260924.md", "news"),
+])
+def test_the_indexer_types_profiles_and_dreams_by_what_they_are(itype, path, expected):
+    from llama_index.core import Document
+    doc = Document(text="text")
+    RAGIndexerMixin._apply_priority_metadata(None, doc, itype, path)
+    assert doc.metadata["source_type"] == expected
+
+
+def test_a_question_names_people_by_their_log_folder():
+    rag = RAGQueryMixin()
+    rag._known_user_folders = ["Starkind_2", "forum_BiG SiP_221666", "Tenno_Henka_9",
+                               "Kaia-Autonomous_channel_5", "forum_Bones_197"]
+    rag._resolve_identity_mappings = lambda uid: {uid}
+    assert rag._named_user_ids("who is starkind's cat") == {"2"}
+    assert rag._named_user_ids("ask big sip and tenno henka") == {"221666", "9"}
+    assert rag._named_user_ids("starkindness") == set()
+    assert rag._named_user_ids("kaia-autonomous channel") == set()
