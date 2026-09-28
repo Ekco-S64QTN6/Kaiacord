@@ -358,10 +358,9 @@ async def _handle_reply(ctx, msg, thread_id: int):
             else:
                 ai_reply = draft['text']
 
-            # Discord caps a message at 2,000 characters. Trim the preview only;
-            # the button posts the full reply.
-            shown = ai_reply if len(ai_reply) <= 1800 else ai_reply[:1800] + "…"
-            preview = box(f"🧵  Reply preview · {clean(title, 150)}", clean_block(shown, 3900),
+            # An embed takes ~4,000 characters: the reviewer sees the whole reply
+            # unless it is longer than that, and clean_block marks any cut.
+            preview = box(f"🧵  Reply preview · {clean(title, 150)}", clean_block(ai_reply, 3900),
                           footer=f"thread {thread_id} · the full reply is what gets posted")
             view = _ForumReplyConfirmView(client, thread_id, title, ai_reply, msg.author.id)
             await msg.channel.send(embed=preview, view=view)
