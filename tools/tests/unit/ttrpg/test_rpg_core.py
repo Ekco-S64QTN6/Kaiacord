@@ -20,6 +20,15 @@ from utils.ttrpg.character_manager import create, load
 
 
 
+def test_world_state_under_pytest_is_not_the_live_file():
+    """The suite saved its "test_storm" / atk_mod -5 state over the real world
+    state, and every player fought at -5 until the next dawn tick."""
+    import os
+    from utils.ttrpg import world_state
+    assert world_state._path() != world_state.WORLD_STATE_PATH
+    assert os.path.basename(world_state._path()) == "world_state.test.json"
+
+
 def test_world_state_persistence():
     """Verify saving and loading from disk."""
     test_state = {"weather": "test_storm", "atk_mod": -5, "last_tick": 12345}

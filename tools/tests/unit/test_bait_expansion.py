@@ -73,9 +73,6 @@ def test_whitelisted_questions():
         print(f"Testing WHITELISTED: '{content}' -> '{result}'")
         assert '?' in result, f"Accidentally stripped whitelisted question: {content}"
 
-def test_identity_questions():
-    pass
-
 if __name__ == "__main__":
     try:
         test_bait_expansion()

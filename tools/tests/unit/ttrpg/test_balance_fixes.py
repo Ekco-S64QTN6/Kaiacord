@@ -73,9 +73,26 @@ def test_encounter_table_registry():
     from utils.ttrpg.monster_registry import MONSTERS
     assert MONSTERS[monster_high]["tier"] in ["hard", "deadly", "boss"]
 
-def test_cleric_heal_bonus():
-    """Verify Cleric and High Priest receive healing bonuses."""
-    pass
+@pytest.mark.parametrize("cls,adv,healed", [("Warrior", "", 20), ("Cleric", "", 25),
+                                             ("Cleric", "High Priest", 30)])
+def test_cleric_heal_bonus(cls, adv, healed):
+    """A potion heals a Cleric x1.25 and a High Priest x1.5 (it was a `pass`)."""
+    import asyncio
+    import types
+    from unittest.mock import AsyncMock
+    import utils.ttrpg.rpg_core_handler as cor
+    sheet = {"user_id": "42", "class": cls, "advanced_class": adv, "inventory": ["hi_potion"],
+             "hp": {"current": 10, "max": 100}}
+    with patch.object(cor, "load", AsyncMock(return_value=sheet)), \
+            patch.object(cor, "save", AsyncMock()), \
+            patch.object(cor, "_get_active_view", AsyncMock(return_value=None)), \
+            patch.object(cor, "_make_status_view", MagicMock()), \
+            patch("utils.ttrpg.shop.find_item",
+                  return_value={"name": "Potion", "category": "consumable", "hp_restore": 20}):
+        msg = types.SimpleNamespace(channel=types.SimpleNamespace(id=7, send=AsyncMock()))
+        ctx = types.SimpleNamespace(bot=None, config=None)
+        asyncio.run(cor._handle_use(ctx, msg, None, "hi_potion", "42", "p", False))
+    assert sheet["hp"]["current"] == 10 + healed
 
 def test_forest_event_reachability():
     """Verify new events are in the tables."""

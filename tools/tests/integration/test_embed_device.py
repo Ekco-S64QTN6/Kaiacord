@@ -24,12 +24,10 @@ async def test_embedding_device():
     test_text = "The quick brown fox jumps over the lazy dog."
     
     # This will use Settings.embed_model which we just configured
-    try:
-        embedding = await rag.embed_model.aget_text_embedding(test_text)
-        print(f"✅ Embedding successful. Vector length: {len(embedding)}")
-    except Exception as e:
-        print(f"❌ Embedding failed: {e}")
-        return
+    # No try/except: a failed embedding printed a cross and returned, so the
+    # test passed whatever happened.
+    embedding = await rag.embed_model.aget_text_embedding(test_text)
+    assert embedding, "empty embedding"
 
     print("\n--- Live Status Check ---")
     import subprocess
@@ -38,10 +36,7 @@ async def test_embedding_device():
     print(ps_output)
     
     smi_output = subprocess.check_output(["nvidia-smi"]).decode()
-    if "nomic-embed-text" in smi_output or "638MiB" in smi_output:
-        print("❌ FAILURE: nomic-embed-text is still on the GPU!")
-    else:
-        print("✅ SUCCESS: nomic-embed-text is NOT on the GPU.")
+    assert "nomic-embed-text" not in smi_output, "the embedder is on the GPU"
 
 if __name__ == "__main__":
     asyncio.run(test_embedding_device())

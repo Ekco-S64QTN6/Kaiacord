@@ -224,6 +224,7 @@ def test_archives_are_still_found_by_the_runtime_glob():
 
 def test_each_active_user_folder_has_a_readable_index():
     idx = _mod("tools/maintenance/build_user_folder_index.py", "folderidx")
+    checked = 0
     for d in LOGS.iterdir():
         if not d.is_dir() or d.name.startswith("forum_"):
             continue
@@ -240,6 +241,9 @@ def test_each_active_user_folder_has_a_readable_index():
         text = readme.read_text(encoding="utf-8")
         assert idx.display_name(d.name) in text
         assert "Turns on record" in text and "## Files" in text
+        checked += 1
+    if not checked:
+        pytest.skip("no established user folders to check (a fresh checkout)")
 
 
 def test_the_index_reports_topics_not_punctuation():

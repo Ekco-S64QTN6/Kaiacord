@@ -5,6 +5,15 @@ from typing import Dict, Any
 
 WORLD_STATE_PATH = os.path.join("memory", "ttrpg", "world_state.json")
 
+
+def _path() -> str:
+    """The live file, or its .test twin under pytest. The suite wrote the real
+    one: every run left the world on "test_storm" with a -5 attack modifier for
+    every player until the next dawn tick."""
+    from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+    return telemetry_path(WORLD_STATE_PATH)
+
+
 DEFAULT_STATE = {
     "weather": "clear",
     "weather_desc": "The sky is a brilliant, cloudless blue.",
@@ -27,15 +36,16 @@ _lock = threading.Lock()
 
 def load_world_state() -> Dict[str, Any]:
     global _cache, _cache_date
+    path = _path()
     with _lock:
-        if not os.path.exists(WORLD_STATE_PATH):
+        if not os.path.exists(path):
             return DEFAULT_STATE.copy()
         try:
-            mtime = os.path.getmtime(WORLD_STATE_PATH)
+            mtime = os.path.getmtime(path)
             if _cache and mtime <= _cache_date:
                 state = _cache.copy()
             else:
-                with open(WORLD_STATE_PATH, "r", encoding="utf-8") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     state = json.load(f)
                     # Ensure all keys exist
                     for k, v in DEFAULT_STATE.items():
@@ -111,29 +121,30 @@ def load_world_state() -> Dict[str, Any]:
                 modified = True
                 
             if modified:
-                os.makedirs(os.path.dirname(WORLD_STATE_PATH), exist_ok=True)
-                tmp = WORLD_STATE_PATH + ".tmp"
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                tmp = path + ".tmp"
                 with open(tmp, "w", encoding="utf-8") as f:
                     json.dump(state, f, indent=2)
-                os.replace(tmp, WORLD_STATE_PATH)
+                os.replace(tmp, path)
                 _cache = state.copy()
-                _cache_date = os.path.getmtime(WORLD_STATE_PATH)
+                _cache_date = os.path.getmtime(path)
                 
             return state.copy()
         except (OSError, json.JSONDecodeError, ValueError, KeyError) as e:
             # Logged, not printed: stderr is the terminal the dashboard draws on,
             # and a world state silently reset to defaults is worth seeing.
             from utils.infrastructure.logging.kaia_logger import log_warning
-            log_warning(f"[world_state] Failed to load {WORLD_STATE_PATH}, using defaults: {e}")
+            log_warning(f"[world_state] Failed to load {path}, using defaults: {e}")
             return DEFAULT_STATE.copy()
 
 def _write_world_state(state: Dict[str, Any], text: str):
     global _cache, _cache_date
     from utils.core.atomic_write import write_atomic
+    path = _path()
     with _lock:
-        write_atomic(WORLD_STATE_PATH, text)
+        write_atomic(path, text)
         _cache = state
-        _cache_date = os.path.getmtime(WORLD_STATE_PATH)
+        _cache_date = os.path.getmtime(path)
 
 
 def save_world_state(state: Dict[str, Any]):
