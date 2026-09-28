@@ -145,7 +145,8 @@ def test_each_source_keeps_its_own_gap_and_says_how_long_is_left(cfg):
     cfg.update({"unprompted.max_per_day": 0, "unprompted.min_interval_minutes": 60,
                 "unprompted.shared_gap_minutes": 10})
     state = _state()
-    now = time.time()
+    from datetime import datetime
+    now = datetime.now().replace(hour=12, minute=0, second=0, microsecond=0).timestamp()
     up.record(state, now, source="quip")
     ok, why = up.gate(state, "quip", now + 600)
     assert not ok and "50 min left of quip's 60 min gap" in why
@@ -161,7 +162,9 @@ def test_a_source_can_have_its_own_gap_and_daily_limit(cfg):
                 "unprompted.per_source.monologue.min_interval_minutes": 30,
                 "unprompted.per_source.monologue.max_per_day": 2})
     state = _state()
-    now = time.time()
+    # Midday: from late evening, now + 70 minutes is tomorrow and the count resets.
+    from datetime import datetime
+    now = datetime.now().replace(hour=12, minute=0, second=0, microsecond=0).timestamp()
     up.record(state, now, source="monologue")
     assert up.gate(state, "monologue", now + 31 * 60)[0]
     up.record(state, now + 31 * 60, source="monologue")

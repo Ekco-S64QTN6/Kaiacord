@@ -374,3 +374,29 @@ def test_descending_from_an_old_room_message_keeps_the_floor_as_it_is(monkeypatc
     current = asyncio.run(sd.load_spine_dungeon("42"))
     assert current and current["floor_num"] == 1
     assert current["rooms"][elsewhere]["cleared"] is True
+
+
+def test_the_unequip_menu_runs_the_real_handler_without_deadlocking(monkeypatch):
+    """The lock test above stubs the handler; this runs the real one under the
+    menu's lock, which would hang if the handler took the player's lock too."""
+    from unittest.mock import AsyncMock
+    sheet = {"user_id": "42", "character_name": "P", "inventory": [], "hp": {"current": 10, "max": 10},
+             "equipment": {"weapon": "rusty_dagger"}}
+    saved = []
+    monkeypatch.setattr(cor, "load", AsyncMock(side_effect=lambda uid: dict(sheet, equipment=dict(sheet["equipment"]))))
+    monkeypatch.setattr(cor, "save", AsyncMock(side_effect=lambda s: saved.append(s)))
+    views = []
+    async def channel_send(*a, view=None, **k):
+        views.append(view)
+
+    async def go():
+        msg = types.SimpleNamespace(channel=types.SimpleNamespace(id=7, send=channel_send))
+        await cor._handle_unequip(_ctx(), msg, None, "", "42", "p", False)
+        sel = next(i for i in views[0].children if hasattr(i, "options"))
+        interaction = types.SimpleNamespace(user=types.SimpleNamespace(id=42), guild=None,
+                                            data={"values": ["weapon"]}, channel=types.SimpleNamespace(id=7, send=channel_send),
+                                            followup=types.SimpleNamespace(send=channel_send),
+                                            response=types.SimpleNamespace(defer=AsyncMock()))
+        await asyncio.wait_for(sel.callback(interaction), timeout=5)
+    asyncio.run(go())
+    assert saved and not saved[-1]["equipment"].get("weapon")
