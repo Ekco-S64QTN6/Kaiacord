@@ -99,7 +99,23 @@ async def scrape_tech_discussion(max_pages: int = 577):
                 # Also save as markdown for RAG
                 md_filename = f"thread_{thread.thread_id}_{safe_title}.md"
                 md_path = output_dir / md_filename
-                md = [f"# {thread_data['title']}\n\n",
+                # Frontmatter with post_count: is_thread_update_needed reads it to
+                # skip a thread with nothing new, and without it every run
+                # re-downloaded every thread in full. Fields already on the file
+                # (enrichment's summary and keywords) are kept, not replaced.
+                from utils.core.frontmatter import dump_frontmatter, parse_frontmatter
+                prior = {}
+                if md_path.exists():
+                    try:
+                        prior, _ = parse_frontmatter(md_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        prior = {}
+                front = {**prior, "thread_id": thread_data["thread_id"], "title": thread_data["title"],
+                         "post_count": len(json_data["posts"]),
+                         "source": "Project 1999 Technical Discussion",
+                         "document_type": prior.get("document_type") or "Forum Thread"}
+                md = [dump_frontmatter(front), "\n",
+                      f"# {thread_data['title']}\n\n",
                       f"Thread ID: {thread_data['thread_id']}\n",
                       f"URL: {client.base_url}/showthread.php?t={thread_data['thread_id']}\n\n"]
                 for post in json_data['posts']:

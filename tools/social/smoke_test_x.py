@@ -4,16 +4,13 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Add project root to path
-sys.path.append(str(Path(__file__).parent.parent))
-
 # A `tools/` script is run directly, so the project root is not on
 # sys.path until this line. Without it: ModuleNotFoundError: 'utils'.
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.social.kaia_twitter import get_x_client, post_to_x
+from utils.social.kaia_twitter import get_x_client, is_x_configured, post_to_x
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error
 
 async def smoke_test_x():
@@ -26,6 +23,12 @@ async def smoke_test_x():
     
     if not username or not password:
         log_error("X_USERNAME or X_PASSWORD not found in .env")
+        return
+
+    # get_x_client returns None by design when the integration is switched
+    # off, which read as "check logs or cookies" and sent the search there.
+    if not is_x_configured():
+        log_error("x_twitter.enabled is off in config — the client is not created while it is.")
         return
 
     log_info(f"Testing login for @{username}...")
