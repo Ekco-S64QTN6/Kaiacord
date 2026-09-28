@@ -299,3 +299,24 @@ def test_clean_hallucinations_never_moves_a_turn_to_another_speaker():
     out = ch.strip_lines(log, {2})
     assert out[1].startswith("[2026-09-01 10:00:05] Kaia:") and "Eurasian" not in out[1]
     assert out[2] == "and the rest of what i said.\n"
+
+
+def test_enrich_kb_metadata_reads_frontmatter_only_at_the_top(tmp_path, monkeypatch):
+    """Splitting on any "---" line parsed a post between thread separators as
+    YAML; the rewrite also added a blank line before the body each time."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ekm", "tools/maintenance/enrich_kb_metadata.py")
+    ekm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ekm)
+    written = {}
+    monkeypatch.setattr(ekm, "write_atomic", lambda p, c: written.__setitem__(p, c))
+    monkeypatch.setattr(ekm, "DRY_RUN", False)
+    no_front = tmp_path / "thread.md"
+    no_front.write_text("# **A walkthrough**\n\n## Post #1\n\nfirst: post\n\n---\n\nsecond: post\n\n---\n")
+    ekm.enrich_file(str(no_front), "forum_posts")
+    out = written[str(no_front)]
+    assert "title: A walkthrough" in out and out.endswith("---\n\nsecond: post\n\n---\n")
+    front = tmp_path / "log.md"
+    front.write_text("---\ndocument_type: Transcript\n---\n# Log\n\ntext\n")
+    ekm.enrich_file(str(front), "user_logs")
+    assert written[str(front)].split("---\n", 2)[2] == "# Log\n\ntext\n"

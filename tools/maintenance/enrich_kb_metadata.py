@@ -26,24 +26,18 @@ DRY_RUN = True
 def enrich_file(filepath, category):
     with open(filepath, 'r') as f:
         content = f.read()
-    
-    parts = re.split(r'^---$', content, maxsplit=2, flags=re.MULTILINE)
-    
-    header = ""
-    body = content
-    has_frontmatter = False
-    
-    if len(parts) >= 3:
-        header = parts[1]
-        body = parts[2]
-        has_frontmatter = True
-        try:
-            data = yaml.safe_load(header)
-        except Exception as e:
-            print(f"Error parsing {filepath}: {e}")
-            return
-    else:
-        data = {}
+
+    # Frontmatter only at the top of the file. Splitting on any "---" line took
+    # a forum thread's post separators, or a horizontal rule in a log, for the
+    # block and parsed a post as YAML.
+    from utils.core.frontmatter import parse_frontmatter
+    has_frontmatter = content.startswith("---\n")
+    try:
+        data, body = parse_frontmatter(content)
+    except yaml.YAMLError as e:
+        print(f"Error parsing {filepath}: {e}")
+        return
+    data = dict(data or {})
 
     modified = False
     basename = os.path.basename(filepath)
@@ -53,7 +47,8 @@ def enrich_file(filepath, category):
     if not data.get("title"):
         title_match = re.search(r'^#\s+(.*)$', body, re.MULTILINE)
         if title_match:
-            data["title"] = title_match.group(1).strip()
+            # The heading's words, not its markdown: "**Interactions 20260919**".
+            data["title"] = re.sub(r"[*_`]+", "", title_match.group(1)).strip()
             modified = True
         else:
             data["title"] = filename_no_ext.replace("_", " ")
@@ -83,8 +78,10 @@ def enrich_file(filepath, category):
             modified = True
 
     if modified or not has_frontmatter:
-        new_header = yaml.dump(data, sort_keys=False).strip()
-        new_content = "---\n" + new_header + "\n---\n" + body
+        # The shared writer, and the body exactly as it was: the old join put a
+        # blank line in front of it every time.
+        from utils.core.frontmatter import dump_frontmatter
+        new_content = dump_frontmatter(data) + body
         if DRY_RUN:
             print(f"Would update frontmatter: {filepath}")
             return
