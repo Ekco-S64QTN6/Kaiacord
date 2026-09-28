@@ -44,36 +44,42 @@ class HealthCheck:
         self.warnings.append(f"{name}: {message}")
     
     def check_python_version(self):
-        """Check Python version"""
+        """The project's own interpreter, not just a new enough one.
+
+        Passing any 3.9+ is how a system 3.14 with a stray ~/.local package set
+        read as healthy: the bot booted on it and failed hours later in two
+        unrelated subsystems (CLAUDE.md §2). What matters is the venv."""
         version = sys.version_info
-        is_ok = version.major == 3 and version.minor >= 9
         details = f"{version.major}.{version.minor}.{version.micro}"
-        self.check("Python Version", is_ok, details)
-        if not is_ok:
-            self.warn("Python", "Kaia requires Python 3.9+")
+        venv = (Path(__file__).resolve().parents[2] / "venv").resolve()
+        in_venv = Path(sys.prefix).resolve() == venv
+        self.check("Project venv", in_venv, details + ("" if in_venv else f" at {sys.prefix}"))
+        if not in_venv:
+            self.errors.append(f"Run with {venv}/bin/python3, not the system interpreter")
     
     def check_gpu(self):
-        """Check GPU availability"""
+        """The card Ollama runs on, read from nvidia-smi.
+
+        Through torch this failed a fresh install ("PyTorch not installed"),
+        though the bot never uses torch — the GPU is Ollama's (CLAUDE.md §4)."""
         try:
-            import torch
-            cuda_available = torch.cuda.is_available()
-            
-            if cuda_available:
-                device_name = torch.cuda.get_device_name(0)
-                total_vram = torch.cuda.get_device_properties(0).total_memory / 1024**3
-                details = f"{device_name} ({total_vram:.1f} GiB)"
-                self.check("CUDA Available", True, details)
-                
-                if total_vram < 12:
-                    self.warn("VRAM", f"Only {total_vram:.1f} GiB available. 12+ GiB recommended.")
-            else:
-                self.check("CUDA Available", False, "Running on CPU")
-                self.warn("GPU", "No CUDA GPU detected. Performance will be slower.")
-                
-        except ImportError:
-            self.check("PyTorch", False, "Not installed")
-            self.errors.append("PyTorch not installed. Run: pip install torch")
-    
+            out = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=10)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            self.check("GPU", False, "nvidia-smi not available")
+            self.warn("GPU", "No NVIDIA GPU detected. Inference will run on the CPU.")
+            return
+        if out.returncode != 0 or not out.stdout.strip():
+            self.check("GPU", False, "nvidia-smi found no GPU")
+            return
+        name, mib = [x.strip() for x in out.stdout.strip().splitlines()[0].split(",")]
+        gib = float(mib) / 1024
+        self.check("GPU", True, f"{name} ({gib:.1f} GiB)")
+        # A 12 GB card reports ~11.7 GiB; the warning is for smaller ones.
+        if gib < 11.5:
+            self.warn("VRAM", f"Only {gib:.1f} GiB. gemma3:12b wants a 12 GB card.")
+
     def check_ollama(self):
         """Check Ollama installation and models"""
         try:
@@ -174,6 +180,7 @@ class HealthCheck:
             "llama_index",
             "requests",
             "psutil",
+            "davey",            # DAVE voice encryption: without it no voice channel can be joined
         ]
         
         missing = []
