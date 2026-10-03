@@ -288,16 +288,14 @@ _chromium: Optional[str] = None
 
 
 def _browser() -> Optional[str]:
-    """Playwright's Chromium, which the Strudel window already uses."""
+    """Playwright's Chromium, which the Strudel window already uses, found on
+    disk. Starting a Playwright session just to ask for the path left its
+    tasks pending when it closed, reported as errors when collected."""
     global _chromium
     if _chromium is None:
-        try:
-            from playwright.sync_api import sync_playwright
-            with sync_playwright() as p:
-                _chromium = p.chromium.executable_path
-        except Exception as e:
-            log_debug(f"[dj] no Playwright Chromium: {e}")
-            _chromium = shutil.which("chromium") or shutil.which("google-chrome") or ""
+        root = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or Path.home() / ".cache" / "ms-playwright")
+        found = sorted(root.glob("chromium-*/chrome-linux*/chrome"), reverse=True)
+        _chromium = str(found[0]) if found else (shutil.which("chromium") or shutil.which("google-chrome") or "")
     return _chromium or None
 
 
