@@ -284,8 +284,22 @@ def _store_matrix(store):
     if len(matrix):
         norms = np.linalg.norm(matrix, axis=1, keepdims=True)
         matrix = matrix / np.where(norms == 0, 1.0, norms)
+    if key not in _VEC_CACHE:
+        # The entry goes with its store: a reloaded index would otherwise keep
+        # the old store's matrix for the life of the bot, and a recycled id()
+        # could hand a new store the old one's rows.
+        try:
+            import weakref
+            weakref.finalize(store, _forget_store, key)
+        except TypeError:
+            pass
     _VEC_CACHE[key] = (version, len(data), ids, matrix)
     return ids, matrix
+
+
+def _forget_store(key: int) -> None:
+    _VEC_CACHE.pop(key, None)
+    _VEC_VERSION.pop(key, None)
 
 
 def install_fast_vector_query() -> None:

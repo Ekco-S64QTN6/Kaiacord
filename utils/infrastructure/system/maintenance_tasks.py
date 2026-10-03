@@ -74,19 +74,22 @@ async def memory_audit_task():
         return
         
     try:
-        process = psutil.Process()
-        rss_mb = process.memory_info().rss / 1024 / 1024
-        
-        current_rss = rss_mb
-        
+        # RSS, a heap trim (fragmentation measured and given back) and, with
+        # diagnostics.memory_trace, what Python itself holds and where it grew.
+        from utils.infrastructure.monitoring import mem_probe
+        bot = getattr(ctx, "bot", None)
+        busy = lambda: any(vc.is_playing() for vc in getattr(bot, "voice_clients", []) or [])
+        row = await asyncio.to_thread(mem_probe.sample, busy)
+        rss_mb = row["rss_mb"]
+        current_rss = row["rss_after_trim_mb"]
         rss_delta = abs(current_rss - _last_log_rss)
-        
-        if _first_run or rss_delta >= 50.0:
-            log_info(f"Memory Audit: RSS {rss_mb:.1f} MB")
+
+        if _first_run or rss_delta >= 50.0 or row.get("trimmed_mb", 0) >= 50.0:
+            log_info(mem_probe.describe(row))
             _last_log_rss = current_rss
             _first_run = False
         else:
-            log_debug(f"Memory Audit: RSS {rss_mb:.1f} MB")
+            log_debug(mem_probe.describe(row))
         
         NORMAL_THRESHOLD_MB = MEMORY_CRITICAL_MB
         
@@ -116,6 +119,9 @@ def start_maintenance_tasks(app_ctx):
     
     from utils.infrastructure.monitoring.async_task_registry import task_registry
     
+    from utils.infrastructure.monitoring import mem_probe
+    mem_probe.start_trace()
+
     rag_maintenance_task.start()
     if rag_maintenance_task.get_task():
         task_registry.register("rag_maintenance_task", rag_maintenance_task.get_task())

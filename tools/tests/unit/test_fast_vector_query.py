@@ -92,3 +92,19 @@ def test_an_added_node_is_searchable_at_once():
     store.add([node])
     got = store.query(VectorStoreQuery(query_embedding=[1.0] * 16, similarity_top_k=1))
     assert got.ids == ["fresh"]
+
+
+def test_a_freed_store_takes_its_cached_matrix_with_it():
+    import gc
+    from llama_index.core.vector_stores.simple import SimpleVectorStore
+    from llama_index.core.vector_stores.types import VectorStoreQuery
+    from utils.core import kaia_rag_retriever as R
+    R.install_fast_vector_query()
+    store = SimpleVectorStore()
+    store.data.embedding_dict.update({"a": [1.0, 0.0], "b": [0.0, 1.0]})
+    store.query(VectorStoreQuery(query_embedding=[1.0, 0.0], similarity_top_k=1))
+    key = id(store)
+    assert key in R._VEC_CACHE
+    del store
+    gc.collect()
+    assert key not in R._VEC_CACHE

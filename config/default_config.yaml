@@ -866,3 +866,9 @@ radio:
     # and runs outside `hours`:
     #   - {mhz: 146.94, day: thu, time: "19:30", minutes: 60, label: "Club net"}
     nets: []
+
+diagnostics:
+  # tracemalloc from boot, so the 15-minute memory audit can name the lines
+  # Python's growth comes from (tools/maintenance/mem_report.py). It costs
+  # memory and some speed: switch it on for a session that is being measured.
+  memory_trace: false

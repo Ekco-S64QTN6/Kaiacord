@@ -219,6 +219,13 @@ Verified 2026-09-24: **369 monsters**, **395 gear + 58 consumables = 453 items**
   same span again. Arousal fell twice as fast as its 6-hour half-life and energy overshot its
   regeneration ceiling: her mood depended on how often something asked. `bot_state`'s engagement
   decay had the same shape. `kaia_desires._accrue` is the correct one to copy.
+- **RSS is not what Python holds.** glibc keeps freed memory mapped after big transient allocations:
+  Whisper released and collected still left 1,995 MB of RSS, and `malloc_trim(0)` gave 1,879 MB of it
+  back. The 15-minute memory audit (`mem_probe`) trims and logs what came back; with
+  `diagnostics.memory_trace` it also runs `tracemalloc` and names the lines Python's growth came from
+  (`tools/maintenance/mem_report.py`). Tell a leak (traced total grows) from fragmentation (RSS grows,
+  traced doesn't) before fixing either. A cache keyed by `id()` must drop its entry with the object
+  (`weakref.finalize`), or it outlives it — and a recycled id serves the old value.
 - **`secrets` for security-relevant randomness** (combat rolls, loot, tokens). `random` is fine
   for flavour (dream shuffling, world-event variety).
 
