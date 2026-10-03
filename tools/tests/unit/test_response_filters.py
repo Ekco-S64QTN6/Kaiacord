@@ -672,3 +672,15 @@ def test_a_name_the_speaker_used_is_not_corrected():
 def test_a_quoted_self_address_is_left_alone():
     from utils.core.response_filter import BotSpeakFilter as B
     assert '"be well, kaia."' in B.harden('"be well, kaia." the sentiment is appreciated, and returned.')
+
+
+def test_a_closing_line_repeating_her_last_few_is_dropped():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    previous = ["the likeness is good. the system is humming quietly.",
+                "that's the one with the tank. the system is still humming."]
+    reply = "it's a good likeness, the colours especially, and the light on the glass. the system is humming steadily."
+    out = P.strip_repeated_closer(reply, previous)
+    assert out.endswith("the light on the glass.")
+    fresh = "it's a good likeness, the colours especially. the tank needs a water change soon."
+    assert P.strip_repeated_closer(fresh, previous) == fresh
+    assert P.strip_repeated_closer("ok. the system is humming.", previous) == "ok. the system is humming."

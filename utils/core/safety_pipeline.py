@@ -731,6 +731,41 @@ class PostGenerationSafetyPipeline:
         log_warning(f"[ECHO_GUARD] Dropped opening restating the user: {echoed[:70]!r}")
         return remainder
 
+    @staticmethod
+    def _closer_key(text: str):
+        """The first three words of a reply's last sentence, if it is short."""
+        sentences = [x for x in re.split(r"(?<=[.!?\u2026])\s+", (text or "").strip()) if x.strip()]
+        if not sentences or len(sentences[-1].split()) > 12:
+            return None
+        words = re.findall(r"[a-z0-9']+", sentences[-1].lower().replace("\u2019", "'"))
+        return " ".join(words[:3]) if len(words) >= 3 else None
+
+    @classmethod
+    def strip_repeated_closer(cls, text: str, previous: list) -> str:
+        """Drop a closing line built the same way as one of her last few.
+
+        "the system is humming quietly." ended six replies in a row, "the
+        ozone is thinning / almost gone / collapsing" five, "i wonder if
+        starkind is considering …" five. A short last sentence opening with the
+        same three words as the last sentence of any of her previous four
+        replies in the channel goes; the reply is kept whole if that would leave
+        less than a sentence.
+        """
+        key = cls._closer_key(text)
+        if not key:
+            return text
+        seen = {cls._closer_key(p) for p in (previous or [])[-4:]}
+        if key not in seen:
+            return text
+        sentences = [x for x in re.split(r"(?<=[.!?\u2026])\s+", text.strip()) if x.strip()]
+        last = sentences[-1]
+        cut = text.rstrip()
+        rest = cut[: len(cut) - len(last)].rstrip()
+        if len(rest) < 40:
+            return text
+        log_warning(f"[CLOSER_GUARD] Dropped a closing line repeating her recent ones: {last[:60]!r}")
+        return rest
+
     @classmethod
     def apply_style_collapsers(cls, text: str) -> str:
         """Step 10: Ellipsis & Em Dash Collapsers (run on final response before send)."""

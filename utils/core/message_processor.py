@@ -2478,6 +2478,13 @@ class MessageProcessor:
         ctx.response_text = PostGenerationSafetyPipeline.strip_echoed_query(
             ctx.response_text, ctx.own_words, speaker=ctx.author_name or "")
         try:
+            from utils.infrastructure.system.bot_state import bot_state as _bs
+            _mine = [t.get("content", "") for t in list(_bs.channel_memory.get(ctx.channel_id, []))
+                     if t.get("role") == "assistant"]
+            ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_closer(ctx.response_text, _mine)
+        except Exception:
+            pass
+        try:
             from utils.core.response_filter import BotSpeakFilter as _BSF
             ctx.response_text = _BSF.correct_vocative_name(ctx.response_text, ctx.author_name or "", ctx.own_words or "")
         except Exception:
