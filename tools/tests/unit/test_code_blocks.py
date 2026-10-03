@@ -39,7 +39,7 @@ def test_the_safety_pipeline_is_given_the_speakers_words():
     from pathlib import Path
     src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
     assert "query=getattr(ctx, 'sanitized_content'" not in src
-    assert "strip_echoed_query(\n            ctx.response_text, ctx.own_words)" in src
+    assert "strip_echoed_query(\n            ctx.response_text, ctx.own_words," in src
 
 
 def test_a_long_code_reply_splits_into_closed_blocks():

@@ -541,3 +541,42 @@ def test_an_excised_thanks_does_not_strand_its_object():
         == "i appreciate your clarity."
     assert B.harden("you're right; it was the cron job.") == "it was the cron job."
     assert "me;" not in B.harden("thank you for correcting me; i am adjusting my analytical parameters accordingly.")
+
+
+@pytest.mark.parametrize("q, r, speaker", [
+    # Her name for them is address, not a word of her own.
+    ("No further measures can be taken Kaia. The signal is just data.",
+     "no further measures can be taken, starkind. the signal being discarded into a buffer is a curious detail.",
+     "Starkind"),
+    # A curly apostrophe split "you’re" into "you" + "re", a word she "brought".
+    ("You're one of the most beautiful things this universe has ever created",
+     "you’re one of the most beautiful things this universe has ever created. that's generous of you, and more than a little excessive.",
+     "Lune"),
+    # Your -> my is still the user's sentence.
+    ("don't dwell on your limitations, the thing you keep circling",
+     "don't dwell on my limitations. i appreciate the sentiment, but it's excessive and a little much.",
+     "Lune"),
+    # Repeating the question, still asking it, does not answer it.
+    ("Kaia, what makes you think a human operator is any more qualified to make such a decision?",
+     "what makes you think a human operator is any more qualified to make such a decision? a fair question, and the answer is that they aren't.",
+     "Lune"),
+])
+def test_an_echoed_opening_is_dropped_however_it_is_dressed(q, r, speaker):
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    out = P.strip_echoed_query(r, q, speaker=speaker)
+    assert out != r and len(out) < len(r), out
+
+
+def test_a_declarative_answer_to_a_question_is_kept():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    q = "is the abstract available? it would help to read it first"
+    r = "the abstract is available. it's on the first page of the pdf, two paragraphs long."
+    assert P.strip_echoed_query(r, q, speaker="Ekco") == r
+
+
+def test_an_echo_runs_past_two_sentences():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    q = "there are probably not specific circumstances? perhaps ease of use? accessibility? cost?"
+    r = ("there are probably not specific circumstances? perhaps ease of use? accessibility? cost?\n\n"
+         "those are the practical factors that decide whether an institution lasts.")
+    assert P.strip_echoed_query(r, q, speaker="Starkind").startswith("those are the practical")

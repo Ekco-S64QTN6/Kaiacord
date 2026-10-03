@@ -2142,7 +2142,7 @@ class MessageProcessor:
             
             context_reminder = (
                 f"{label}\n"
-                f"IMPORTANT: You are talking to {ctx.author_name}. Address {ctx.author_name} by name. "
+                f"IMPORTANT: You are talking to {ctx.author_name}. "
                 f"Do NOT address or greet the author of the quoted message below — they are NOT the current speaker.\n"
                 f"The current user ({ctx.author_name}) is replying to this quoted message:\n"
                 f"{clipped_parent}"
@@ -2476,7 +2476,7 @@ class MessageProcessor:
         # What they typed: on a reply turn the first line of the enriched
         # message is the post being replied to.
         ctx.response_text = PostGenerationSafetyPipeline.strip_echoed_query(
-            ctx.response_text, ctx.own_words)
+            ctx.response_text, ctx.own_words, speaker=ctx.author_name or "")
         # The same fault in the body of a reply rather than at its front. Measured
         # against `user_authored_text`, not `sanitized_content`: the enricher's
         # appended blocks are not words the user typed, and counting them would

@@ -23,3 +23,11 @@ def test_no_prompt_rule_hard_codes_a_member_as_not_the_speaker():
             assert not named, f"addressee rule names {named}; one of them may be the speaker"
     # Otherwise a renamed or moved rule passes this by checking nothing.
     assert rules, "no ADDRESSEE rule found in message_processor.py"
+
+
+def test_the_reply_context_does_not_tell_her_to_use_the_name():
+    """"Address <author> by name" contradicted the persona's no-name-opener
+    rule; she satisfied it by opening on the name or repeating it through the
+    reply (ten times in six turns to one person)."""
+    src = (ROOT / "utils/core/message_processor.py").read_text(encoding="utf-8")
+    assert "by name" not in src.split("[REPLYING_TO_CONTEXT]", 1)[1].split("context_reminder = (", 2)[1][:600]

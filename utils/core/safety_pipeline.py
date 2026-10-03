@@ -445,7 +445,7 @@ class PostGenerationSafetyPipeline:
     # Words that carry no topic. Used to decide whether an opening sentence
     # adds anything or merely hands the user their own statement back.
     _ECHO_STOP = frozenset("""a an the and or but so it its it's that this these those there
-    here is are was were be been being am i you your yours we us our they them their he she
+    here is are was were be been being am i me my mine myself you your yours yourself we us our they them their he she
     his her of to in on at for with from as by if then than about into over under do does did
     done have has had not no nor yes yeah very quite really just also too more most much many
     some any all both each own same such only even still yet well ok okay
@@ -617,7 +617,7 @@ class PostGenerationSafetyPipeline:
         return rebuilt
 
     @classmethod
-    def strip_echoed_query(cls, text: str, query: str) -> str:
+    def strip_echoed_query(cls, text: str, query: str, speaker: str = "") -> str:
         """Drop an opening that just hands the user their own statement back.
 
         Two shapes of the same fault: the user's message repeated verbatim before the
@@ -634,9 +634,16 @@ class PostGenerationSafetyPipeline:
         if not text or not query:
             return text
 
+        # The speaker's name and hers are address, not content: "no further
+        # measures can be taken, starkind." brings nothing of its own.
+        names = {w for w in re.findall(r"[a-z0-9']+", f"{speaker} kaia".lower()) if len(w) > 1}
+
         def content(s: str) -> list[str]:
-            words = re.findall(r"[a-z0-9']+", (s or "").lower())
-            return [w for w in words if w not in cls._ECHO_STOP and len(w) > 1]
+            # Curly apostrophes as straight: "you’re" against "You're" split
+            # into "you" + "re", and "re" counted as a word she brought.
+            s = (s or "").lower().replace("\u2019", "'").replace("\u2018", "'")
+            words = re.findall(r"[a-z0-9']+", s)
+            return [w for w in words if w not in cls._ECHO_STOP and w not in names and len(w) > 1]
 
         # The user's own first line. `sanitized_content` still carries whatever
         # context_enricher appended (embed blocks, scrape text), and normalising
@@ -660,7 +667,7 @@ class PostGenerationSafetyPipeline:
             return text
 
         drop_upto = 0
-        for i, sent in enumerate(sentences[:2]):
+        for i, sent in enumerate(sentences[:4]):
             cw = content(sent)
             if len(sent.split()) > 16 or len(cw) < 1:
                 break
@@ -694,7 +701,8 @@ class PostGenerationSafetyPipeline:
         # keeps going, and the reply "the abstract is available." is the answer
         # to it. Losing a real answer is a worse failure than leaving a mild
         # single-sentence echo, so the question wins the tie.
-        if "?" in first_q and drop_upto < 2:
+        # Repeating the question back, still asking it, is not an answer.
+        if "?" in first_q and drop_upto < 2 and not sentences[0].rstrip().endswith("?"):
             return text
 
         # A one-sentence opening with a single content word is too thin to call
