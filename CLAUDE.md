@@ -559,10 +559,20 @@ a mix that sounded wrong:
   differ, and the guess put the incoming bar on beat 2, 3 or 4 — kicks on kicks, claps on the wrong
   beats. Bar one is a record's first strong beat; `grid_at` counts beats from it and keeps the bar
   only when the count comes out whole (`bar_known`).
-- **A blend takes its time**: 64 beats by default, in quarters — the incoming eases in, both play
-  through the middle half with the bass swapped exactly halfway on a bar, the outgoing eases out — on
-  an 8-bar phrase at the end of a record (4 for a skip), counted from bar one (`Grid.bar0`). The
-  16-beat crossfade it replaced was "hamfisted". Two full records sum through a soft limiter.
+- **A blend takes its time and is staged per band** (`gains`): 64 beats by default, in quarters. The
+  incoming comes in from the top down — highs over Q1, mids over Q2 while both records' mids are
+  thinned (`MID_SHARE`), bass swapped on the halfway bar — and the outgoing leaves from the bottom up:
+  bass at the swap, mids over Q3, highs over Q4. It starts on an 8-bar phrase at the end of a record (4
+  for a skip), counted from bar one (`Grid.bar0`), and is fitted before the outgoing's last strong
+  beat (`last_strong_beat`), not the end of the file: blending into a fade swaps the bass to nothing.
+  Two full records sum through a soft limiter.
+- **Nothing the booth's skip button asks for is a hard cut unless there is no room at all.** A pair
+  that cannot be beat-matched (a loose beat, an uncounted bar, tempos past 6%) gets a `fade`:
+  equal-power over 8 bars on the outgoing bar, basslines handed over halfway, the incoming started at
+  its first sound (`first_sound`), not in its leading silence. Steadiness is measured from a record's
+  first beat, not across its beatless intro, which had read steady records as loose. Every transition
+  and what it was decided from is appended to `memory/records/transitions.jsonl`; read that, not the
+  log line, when a mix sounded wrong.
 - **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
   mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is a cut on the
   bar. A kick correction over 20 ms is not applied — the counted grids land within a few ms, and

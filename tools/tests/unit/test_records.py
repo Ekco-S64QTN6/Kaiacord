@@ -118,31 +118,39 @@ def test_an_end_blend_finishes_before_the_record_does():
     assert plan.kind == "blend" and plan.done <= 60.0 and plan.drop > 40.0
 
 
-def test_a_loose_beat_is_cut_not_blended():
-    """Beat against beat, a record without a steady kick is a clash: the
-    transitions that sounded wrong were all into or out of one."""
-    assert plan_transition(3.0, 1.0, STEADY, 60.0, nxt(LOOSE), "skip").kind == "cut"
-    assert plan_transition(3.0, 1.0, LOOSE, 60.0, nxt(STEADY), "skip").kind == "cut"
-    assert plan_transition(3.0, 1.0, None, 60.0, nxt(STEADY), "skip").kind == "cut"
+def test_a_loose_beat_is_faded_not_blended():
+    """Beat against beat, a record without a steady kick is a clash — but a
+    hard cut with a gap was worse. It is a fade: equal-power, from the new
+    record's first sound, the basslines handed over halfway."""
+    late = Next(rec("two", 120, "8A"), 20.0, 0.0, LOOSE, lead=1.7)
+    plan = plan_transition(3.0, 1.0, STEADY, 60.0, late, "skip")
+    assert plan.kind == "fade" and plan.fallback == "beat" and plan.offset == pytest.approx(1.7)
+    assert plan.drop % 2.0 == pytest.approx(0.0, abs=1e-9) and plan.length == pytest.approx(16.0)
+    assert plan_transition(3.0, 1.0, LOOSE, 60.0, nxt(STEADY), "skip").kind == "fade"
+    assert plan_transition(3.0, 1.0, None, 60.0, nxt(STEADY), "skip").kind == "fade"
 
-
-def test_tempos_too_far_apart_are_cut():
+def test_tempos_too_far_apart_are_faded_at_their_own_speed():
     fast = Grid(bpm=150.0, downbeat=0.0, contrast=8.0)
     plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(fast), "skip")
-    assert plan.kind == "cut" and plan.drop % 2.0 == pytest.approx(0.0, abs=1e-9)
+    assert plan.kind == "fade" and plan.fallback == "tempo" and plan.ratio == 1.0
+    assert plan.drop % 2.0 == pytest.approx(0.0, abs=1e-9)
 
-
-def test_a_cut_never_lays_two_grooves_over_each_other():
+def test_a_fade_keeps_one_bassline_and_constant_power():
     plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(LOOSE), "skip")
-    t = np.arange(0, 12, 0.001)
-    out_low, out_high, in_low, in_high = gains(plan, t)
-    assert np.all(out_high * in_high == 0) and np.all(out_low * in_low == 0)
+    t = np.arange(plan.drop, plan.done, 0.01)
+    out_low, out_mid, out_high, in_low, in_mid, in_high = gains(plan, t)
+    assert np.allclose(out_low + in_low, 1.0)
+    assert np.allclose(out_high ** 2 + in_high ** 2, 1.0)
 
+
+def test_only_no_room_at_all_makes_a_cut():
+    plan = plan_transition(9.0, 1.0, STEADY, 10.0, nxt(LOOSE), "end")
+    assert plan.kind == "cut" and plan.fallback == "room"
 
 def test_a_blend_swaps_the_bass_halfway_and_keeps_one_bassline():
     plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(), "skip")
     t = np.arange(plan.drop - 1, plan.done + 1, 0.001)
-    out_low, out_high, in_low, in_high = gains(plan, t)
+    out_low, out_mid, out_high, in_low, in_mid, in_high = gains(plan, t)
     assert np.allclose(out_low + in_low, 1.0)                       # never two basslines, never none
     swap = plan.drop + plan.length / 2
     assert np.all(in_low[t < swap] == 0) and np.all(in_low[t > swap + plan.beat] == 1)
@@ -173,8 +181,10 @@ def _plan(src, mode="skip"):
     return src.plan
 
 
-def test_the_incoming_starts_on_the_sample_it_was_planned_for():
-    src, changed = _source(grid=LOOSE)                            # a cut: its first sample is visible
+def test_the_incoming_starts_on_the_sample_it_was_planned_for(monkeypatch):
+    # A step instead of the fade's ramp, so the incoming's first sample shows.
+    monkeypatch.setattr(R, "gains", lambda plan, t: ((t < plan.drop) * 1.0,) * 3 + ((t >= plan.drop) * 1.0,) * 3)
+    src, changed = _source(grid=LOOSE)
     plan = _plan(src)
     out = []
     while len(out) < int((plan.drop + 1.0) * FRAMES_PER_S):
@@ -184,7 +194,6 @@ def test_the_incoming_starts_on_the_sample_it_was_planned_for():
     samples = np.frombuffer(b"".join(out), dtype=np.int16).reshape(-1, 2)[:, 0]
     first_incoming = int(np.argmax(samples < 0))
     assert abs(first_incoming - plan.drop * RATE) <= 1
-    assert [r.title for r in changed] == ["two"]
 
 
 def test_a_blend_hands_over_to_the_next_record():
@@ -261,13 +270,10 @@ def test_the_next_record_is_one_with_a_steady_opening_where_one_fits(monkeypatch
     assert "loose" not in " ".join(session.played)                 # passed over, not marked played
 
 
-def test_a_bar_that_could_not_be_counted_is_cut():
+def test_a_bar_that_could_not_be_counted_is_faded():
     unsure = Grid(bpm=120.0, downbeat=0.0, contrast=8.0, bar_known=False)
-    assert plan_transition(3.0, 1.0, unsure, 60.0, nxt(STEADY), "skip").kind == "cut"
-    assert plan_transition(3.0, 1.0, STEADY, 60.0, nxt(unsure), "skip").kind == "cut"
-
-
-# ── The beat grid, on click tracks where the answer is known ─────────
+    assert plan_transition(3.0, 1.0, unsure, 60.0, nxt(STEADY), "skip").kind == "fade"
+    assert plan_transition(3.0, 1.0, STEADY, 60.0, nxt(unsure), "skip").kind == "fade"
 
 def _clicks(path, bpm, first, seconds, rate=44100):
     import shutil
@@ -331,6 +337,23 @@ def test_a_deck_started_part_way_keeps_its_clock():
 
 
 
+def test_a_blend_comes_in_from_the_top_and_leaves_from_the_bottom():
+    """The staging DJs use for a long EQ blend: incoming highs first, then
+    mids (each record's thinned while both play), bass on the halfway bar;
+    the outgoing loses bass at the swap, mids next, highs last."""
+    plan = plan_transition(3.0, 1.0, STEADY, 120.0, nxt(), "skip", 64, lead=2.0)
+    q = plan.length / 4
+    at = lambda f: gains(plan, np.array([plan.drop + q * f]))
+    ol, om, oh, il, im, ih = (float(x[0]) for x in at(1.0))           # end of Q1
+    assert ih == pytest.approx(1) and im == pytest.approx(0) and il == 0 and om == pytest.approx(1)
+    ol, om, oh, il, im, ih = (float(x[0]) for x in at(1.99))          # just before the swap
+    assert im + om < 1.25 and il == 0 and ol == 1                      # thinned mids, one bassline
+    ol, om, oh, il, im, ih = (float(x[0]) for x in at(2.6))           # after the swap
+    assert ol == 0 and il == 1 and im == pytest.approx(1) and oh == pytest.approx(1) and om < 0.5
+    ol, om, oh, il, im, ih = (float(x[0]) for x in at(3.5))
+    assert om == pytest.approx(0, abs=1e-6) and 0.1 < oh < 0.9
+
+
 def test_a_blend_plays_both_records_together_for_half_its_length():
     """16 beats with the highs crossing at once was "hamfisted": a blend now
     brings the incoming in over a quarter, holds both through the middle half
@@ -339,7 +362,7 @@ def test_a_blend_plays_both_records_together_for_half_its_length():
     assert plan.kind == "blend" and plan.length == pytest.approx(32.0)
     q = plan.length / 4
     t = np.array([plan.drop + q * f for f in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0)])
-    out_low, out_high, in_low, in_high = gains(plan, t)
+    out_low, out_mid, out_high, in_low, in_mid, in_high = gains(plan, t)
     both = (in_high >= 0.999) & (out_high >= 0.999)
     assert both.tolist() == [False, False, True, True, True, True, True, False, False]
     assert in_low[t < plan.drop + 2 * q].max() == 0 and out_low[t > plan.drop + 2 * q + plan.beat].max() == 0
@@ -362,5 +385,33 @@ def test_phrases_are_counted_from_the_records_bar_one():
 def test_two_full_records_are_limited_not_clipped():
     loud = np.full((R.FRAME_SAMPLES, 2), 20000.0, dtype=np.float32)      # two loud records: 40,000 summed
     parts = (loud * 0, loud, loud * 0)
-    y = np.frombuffer(R.mix_frames(parts, parts, (1.0, 1.0, 1.0, 1.0)), np.int16)
+    y = np.frombuffer(R.mix_frames(parts, parts, (1.0, 1.0, 1.0, 1.0, 1.0, 1.0)), np.int16)
     assert y.max() < 32767 and y.max() > 0.8 * 32767
+
+
+def test_the_mix_out_point_is_the_last_beat_not_the_end_of_the_file(tmp_path):
+    """Mixxx-style: a blend is fitted before the outgoing's music ends. Clicks
+    for 70 s then 40 s of silence: the last beat is at ~70 s, not 110."""
+    import shutil, subprocess
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    from utils.audio import beatgrid
+    clicks = _clicks(tmp_path / "c.wav", 124, 0.5, 70)
+    padded = tmp_path / "padded.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", clicks, "-af", "apad=pad_dur=40", str(padded)], check=True)
+    last = beatgrid.last_strong_beat(str(padded), 124, 110.0)
+    assert 68.5 < last < 70.1
+
+
+def test_a_skip_calls_off_a_blend_planned_for_the_end_of_the_record():
+    src, _ = _source()
+    src._begin_planning("end")
+    deadline = time.time() + 5
+    while src.plan is None and time.time() < deadline:
+        time.sleep(0.01)
+    assert src.plan is not None and src.plan.mode == "end"
+    src.skip()
+    deadline = time.time() + 5
+    while (src.plan is None or src.plan.mode != "skip") and time.time() < deadline:
+        time.sleep(0.01)
+    assert src.plan.mode == "skip" and src.plan.drop < 12.0

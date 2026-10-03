@@ -167,12 +167,12 @@ def snapshot(session) -> dict:
                                     "ratio": 1.0, "pitch": 0.0, "gain_db": queued.gain, "pos": 0.0,
                                     "length": round(queued.seconds, 3), "tempo": queued.record.bpm,
                                     "grid": _grid(queued.grid), "buffering": False}
-    a_low, a_high, b_low, b_high = src.applied
+    a_low, a_mid, a_high, b_low, b_mid, b_high = src.applied
     out_slot = str(cur.slot) if cur else "1"
     in_slot = str(3 - cur.slot) if cur else "2"
     channels = {
-        out_slot: {"low": a_low, "high": a_high, "level": src.levels["a"]},
-        in_slot: {"low": b_low, "high": b_high, "level": src.levels["b"]},
+        out_slot: {"low": a_low, "mid": a_mid, "high": a_high, "level": src.levels["a"]},
+        in_slot: {"low": b_low, "mid": b_mid, "high": b_high, "level": src.levels["b"]},
     }
     mix = None
     if plan is not None and cur is not None:

@@ -235,7 +235,65 @@ def grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional
     first = first_strong_beat(onsets, g)
     if first is None:
         return Grid(g.bpm, g.downbeat, g.contrast, bar_known=False)
-    return Grid(g.bpm, first, g.contrast, bar_known=True)
+    contrast = g.contrast
+    if first > 3.0:
+        # A blend starts the record at its first beat, so its steadiness is
+        # measured from there: a beatless intro in the window read as a loose
+        # beat (2.2, 3.0) on records whose beat is steady once it starts.
+        try:
+            g2 = find_grid(_window(path, first, 45.0), g.bpm)
+            if g2 is not None:
+                contrast = max(contrast, g2.contrast)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+    return Grid(g.bpm, first, contrast, bar_known=True)
+
+
+@functools.lru_cache(maxsize=256)
+def first_sound(path: str, threshold_db: float = -45.0) -> float:
+    """Seconds to the first moment the record is audible (Mixxx uses the
+    first point over -60 dBFS; -45 skips encoder noise and room tone). A
+    record started from its first sample brought its silence in with it."""
+    try:
+        args = ["ffmpeg", "-nostdin", "-loglevel", "error", "-t", "30", "-i", path,
+                "-ac", "1", "-ar", "8000", "-f", "s16le", "pipe:1"]
+        a = np.frombuffer(subprocess.run(args, capture_output=True, timeout=30).stdout, dtype=np.int16)
+    except (OSError, subprocess.SubprocessError):
+        return 0.0
+    n = len(a) // 400                                   # 50 ms frames
+    if n == 0:
+        return 0.0
+    rms = np.sqrt(np.mean(a[: n * 400].astype(np.float32).reshape(n, 400) ** 2, axis=1))
+    loud = np.flatnonzero(rms > 32768 * 10 ** (threshold_db / 20))
+    return float(max(0.0, loud[0] * 0.05 - 0.05)) if len(loud) else 0.0
+
+
+@functools.lru_cache(maxsize=128)
+def last_strong_beat(path: str, bpm: Optional[float], duration: float, tail: float = 120.0) -> Optional[float]:
+    """Seconds (own time) of the record's last strong beat: where its music
+    ends, before a beatless outro, a fade or trailing silence. DJ software
+    mixes out at the outro, not at the end of the file; blending over a fade
+    hands the bass swap to nothing. None if no beat is clear in the tail."""
+    if not bpm or not duration:
+        return None
+    start = max(0.0, duration - tail)
+    try:
+        onsets = _window(path, start, tail)
+        g = find_grid(onsets, bpm)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if not g or g.contrast < MIN_CONTRAST:
+        return None
+    P = g.beat * HOPS_PER_S
+    teeth = np.arange(_beat_phase(g) * HOPS_PER_S, len(onsets) - 2, P)
+    if len(teeth) < 8:
+        return None
+    h = np.array([onsets[max(0, int(t) - 2):int(t) + 3].max() for t in teeth])
+    strong = h > 0.35 * np.percentile(h, 75)
+    for k in range(len(teeth) - 1, 2, -1):
+        if strong[k] and strong[k - 3:k].sum() >= 2:
+            return float(start + teeth[k] / HOPS_PER_S)
+    return None
 
 
 def _decode_stretched(path: str, start: float, seconds: float, ratio: float) -> np.ndarray:

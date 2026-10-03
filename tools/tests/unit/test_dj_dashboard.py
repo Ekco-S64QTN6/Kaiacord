@@ -29,7 +29,7 @@ def rec(name):
 def session(monkeypatch):
     monkeypatch.setattr(D, "_want_wave", lambda path: D.track_id(path))
     monkeypatch.setattr(D, "_mood", lambda: {"arousal": 0.5})
-    first = R.Deck(rec("one"), 1.0, 120.0, tone(1000, 20.0))      # long enough not to plan its end yet
+    first = R.Deck(rec("one"), 1.0, 300.0, tone(1000, 20.0))      # long enough not to plan its end yet
     first.grid = Grid(120.0, 0.0, 8.0)
     queue = [R.Next(rec("two"), 20.0, 0.0, Grid(120.0, 0.0, 8.0))]
     vc = types.SimpleNamespace(guild=types.SimpleNamespace(id=7), channel=types.SimpleNamespace(name="General", members=[]))
