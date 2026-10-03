@@ -221,7 +221,7 @@ and tempo (within 6%, counting half and double time), stretched to the playing t
 changing pitch, and levelled to the same loudness. Its first downbeat lands on a bar of the record
 playing, on a phrase, and the two blend over 64 beats by default (`music.records_mix_beats`), staged
 the way DJs ride a long EQ blend: the new record's highs, then its mids, the bass swapped on the
-halfway bar, then the old one's mids and highs out. The booth picks SHORT / LONG / EPIC (32 / 64 / 128
+halfway bar, then the old one's mids and highs out. The booth picks SHORT / LONG / EPIC (32 / 64 / 256
 beats); where the beats can't be laid over each other — rock, breakbeat, tempos too far apart — she
 fades over eight bars instead, from the new record's first sound. `!music skip` brings the next one in
 on the next phrase. While records play, a DJ booth window opens on the bot's screen — both decks and

@@ -549,7 +549,7 @@ into the channel's history and the growth log, so she knows she played and for w
 **`!music records` mixes the local library** (`utils/audio/library.py`, `records.py`,
 `beatgrid.py`). The crate is a `dj_catalog.json` of BPM, Camelot key and genre written *outside* the
 repo. The next record is plain Python (key step, tempo within 6% counting half/double time, genre,
-nothing recent, a steady opening preferred), levelled with `volumedetect` (never past its peak), and
+nothing recent, a steady opening preferred), levelled to a common LUFS (`gain_db`), and
 mixed in NumPy inside the audio source — so §7's "no model, no VRAM" holds. Rules, each learned from
 a mix that sounded wrong:
 

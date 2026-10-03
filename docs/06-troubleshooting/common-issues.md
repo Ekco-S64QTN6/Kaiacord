@@ -273,9 +273,12 @@ logs its lateness; vector search and gen-2 garbage collection were the two found
 
 ## 🟡 The DJ booth doesn't open
 
-The booth is served on `127.0.0.1:47431` (`music.dj_dashboard_port`) and opened in Playwright's
-Chromium when a records set starts. If no window appears, open that address in any browser, or run
-`!music booth`. `music.dj_dashboard: false` turns the window off.
+The booth is served on `127.0.0.1:47431` (`music.dj_dashboard_port`) and opened as an app window in
+`music.dj_browser`, else an installed Chrome, Chromium, Brave or Edge, else Playwright's Chromium,
+when a records set starts. If no window appears, open that address in any browser, or run
+`!music booth`. `music.dj_dashboard: false` turns the window off. PHONES and CUE play through the
+booth window's own audio: if nothing is heard, click anywhere in the window first (the browser
+allows sound only after a click).
 
 ---
 

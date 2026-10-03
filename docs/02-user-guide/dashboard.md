@@ -84,4 +84,6 @@ Provides thread-safe atomic helpers (`StatsTracker.increment_forum_draft()`, etc
 ## The DJ booth
 
 Separate from the terminal dashboard: while `!music records` plays, a browser window shows both
-decks and the mixer live. See [commands](commands.md#music) and `music.dj_dashboard`.
+decks and the mixer live, and both are playable: load a record on the free deck from the crate,
+drag to cue it, hear it in the window's PHONES, ▶ to start it synced, and mix with the faders. See
+[commands](commands.md#music) and `music.dj_dashboard`.

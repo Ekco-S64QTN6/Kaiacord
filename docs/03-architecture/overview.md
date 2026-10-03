@@ -197,14 +197,21 @@ field notes, each used the way its own protocol says (`agent_boards.enabled`).
 
 **Responsibility**: `!music records` — the local library mixed like a DJ set, CPU only.
 
-- Next record by Camelot key, tempo and genre, preferring a steady opening; stretched with
-  rubberband to the playing tempo; its bar one dropped on a counted bar of the record playing;
-  sixteen beats with the bass swapped halfway, or a clean cut on the bar where a blend would clash.
+- Next record by Camelot key, tempo and genre, preferring a steady opening; levelled to a common
+  LUFS; stretched with rubberband to the playing tempo (and shifted a semitone where that brings a
+  clashing key into line); its bar one dropped on a phrase of the record playing.
+- A blend is staged per band over 32–256 beats — highs in, mids in, a long ride with both records up,
+  the bass swapped on the bar where the new bassline comes in, then mids and highs out — with Kaia's
+  phrase-locked EQ and gain moves on top (`kaia_hands`). A pair whose beats can't be laid together
+  is an eight-bar fade; a hard cut only when there is no room. Every transition is journalled
+  (`memory/records/transitions.jsonl`: planned, then called off or done).
 - The incoming decoder is started and buffered off discord.py's voice thread; anything holding the
   GIL for tens of milliseconds is a stutter, which is why vector search runs from a cached matrix
   and long-lived objects are frozen out of garbage collection (`gc_quiet`).
 - The DJ booth is a pop-out window (127.0.0.1) with two CDJs and a mixer showing the mixer's own
-  state at 20 Hz, and a working skip.
+  state at 20 Hz. Its controls are real: the mixer multiplies the automix, and the free deck works
+  like a CDJ — load from the crate, cue by dragging, hear it in the window's headphones (never on
+  air), play it synced on the beat and mix it by hand, or let Kaia mix it in.
 
 ---
 

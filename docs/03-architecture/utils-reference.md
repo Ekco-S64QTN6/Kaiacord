@@ -149,8 +149,8 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `strudel_source.py` | The Discord audio source fed by the capture |
 | `levels.json` | Measured per-part gains, written by `audition_tracks.py --calibrate` |
 | `library.py` | The record crate from `dj_catalog.json` and which record plays next |
-| `records.py` | The records mixer: decks, transition planning (blend or cut), band-split mixing, the set session |
-| `beatgrid.py` | Beat and bar grids: comb-fitted tempo, bar one as the first strong beat, bars counted from it; the rubberband stretch filter |
+| `records.py` | The records mixer: decks, transition planning (blend, fade or cut), band-split mixing, Kaia's hands on the mixer, the free deck worked by hand, LUFS levels, the set session |
+| `beatgrid.py` | Beat and bar grids (bar one as the first strong beat, bars counted from it), the bassline's entry bar, the last strong beat, the rubberband stretch and key-shift filter |
 | `dj_dashboard.py` | The DJ booth: server, state stream, waveforms, the pop-out window (page in `assets/dj/`) |
 
 ## Radio (`utils/radio/`)

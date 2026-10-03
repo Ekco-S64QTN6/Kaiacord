@@ -139,11 +139,12 @@ def test_a_record_asked_for_at_the_booth_comes_next(session, monkeypatch):
     monkeypatch.setattr(R, "gain_db", lambda p: 0.0)
     from utils.audio import beatgrid
     monkeypatch.setattr(beatgrid, "grid_for", lambda p, b: Grid(120.0, 0.0, 8.0))
-    session.request(other)
+    session.load(other)
     deadline = time.time() + 3
     while (session.source._queued is None or session.source._queued.record.title != "asked") and time.time() < deadline:
         time.sleep(0.01)
     assert session.source._queued.record.title == "asked" and not session.requests
+    assert session.last_load["result"] == "loaded"
     listing = D.crate(session)
     assert listing["count"] == 1 and listing["genres"]["House"][0]["title"] == "asked"
 

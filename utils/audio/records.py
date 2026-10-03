@@ -40,7 +40,7 @@ except Exception:                      # pragma: no cover
     _AudioSource = object
 
 from utils.audio import library
-from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error, log_warning
+from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error, log_info, log_warning
 from utils.infrastructure.system.gc_quiet import settle
 
 RATE = 48000
@@ -752,6 +752,8 @@ class CrossfadeSource(_AudioSource):
         if incoming:
             incoming.close()
         self._queued = self._queued or plan.nxt
+        log_info(f"[records] the {plan.kind} into {plan.nxt.record.name} was called off before it began")
+        self._journal_row({"status": "called_off", "kind": plan.kind, "to": plan.nxt.record.name})
         return True
 
     def free_slot(self) -> int:
@@ -985,6 +987,7 @@ class CrossfadeSource(_AudioSource):
                                  "to": hand.record.name, "at": round(old.at(), 2), "ratio": round(hand.ratio, 4),
                                  "why": "mixed by hand"})
             del self.history[:-50]
+            self._journal_row({"status": "done", "kind": "hand", "from": old.record.name, "to": hand.record.name})
         self.controls.xfader = None
         if self._on_change:
             try:
@@ -1131,7 +1134,7 @@ class CrossfadeSource(_AudioSource):
                 del self.history[:-50]
                 shift = (f", key sync {incoming.semitones:+d} ({nxt.record.key} → {incoming.key} against {deck.key})"
                          if incoming.semitones else "")
-                log_action(f"[records] {plan.kind} into {nxt.record.name} at {plan.drop:.2f}s "
+                log_action(f"[records] planned: {plan.kind} into {nxt.record.name} at {plan.drop:.2f}s "
                            f"(stretch {plan.ratio:.4f}, {mode}{why}{shift})")
             except Exception as e:
                 log_warning(f"[records] transition not planned: {e}")
@@ -1140,18 +1143,26 @@ class CrossfadeSource(_AudioSource):
                 self.planning_mode = None
         threading.Thread(target=run, daemon=True, name="kaia-records-plan").start()
 
-    def _journal(self, deck: Deck, nxt: Next, plan: Plan, out_grid, music_end: float, mode: str) -> None:
-        """Every transition, with what it was decided from, in
-        memory/records/transitions.jsonl — the record to read back when a mix
-        sounded wrong."""
+    def _journal_row(self, row: dict) -> None:
         try:
             import json
             from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
             path = Path(telemetry_path("memory/records/transitions.jsonl"))
             path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"ts": time.time(), **row}, ensure_ascii=False) + "\n")
+        except Exception as e:
+            log_debug(f"[records] transition not journalled: {e}")
+
+    def _journal(self, deck: Deck, nxt: Next, plan: Plan, out_grid, music_end: float, mode: str) -> None:
+        """Every transition planned, with what it was decided from, in
+        memory/records/transitions.jsonl — the record to read back when a mix
+        sounded wrong. A plan is `planned`; a later row says it was `called_off`
+        or `done`."""
+        try:
             g = lambda x: {"bpm": round(x.bpm, 3), "contrast": round(x.contrast, 2), "bar_known": x.bar_known,
                            "downbeat": round(x.downbeat, 3), "bar0": x.bar0} if x else None
-            row = {"ts": time.time(), "mode": mode, "kind": plan.kind, "why": plan.why, "fallback": plan.fallback,
+            row = {"status": "planned", "mode": mode, "kind": plan.kind, "why": plan.why, "fallback": plan.fallback,
                    "from": deck.record.name, "to": nxt.record.name, "out_at": round(deck.at(), 2),
                    "out_ratio": round(deck.ratio, 5), "drop": round(plan.drop, 3), "length": round(plan.length, 2),
                    "beats": round(plan.length / plan.beat) if plan.beat else None, "ratio": round(plan.ratio, 5),
@@ -1159,8 +1170,7 @@ class CrossfadeSource(_AudioSource):
                    "out_grid": g(out_grid), "in_grid": g(nxt.grid), "controls_flat": self.controls.flat(),
                    "bass_in": nxt.bass_in, "keys": [deck.key, nxt.record.key], "rides": self.rides,
                    "semitones": self.incoming.semitones if self.incoming else 0}
-            with open(path, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            self._journal_row(row)
         except Exception as e:
             log_debug(f"[records] transition not journalled: {e}")
 
@@ -1286,6 +1296,8 @@ class CrossfadeSource(_AudioSource):
         return frame
 
     def _advance(self) -> None:
+        if self.plan is not None and self.incoming is not None:
+            self._journal_row({"status": "done", "kind": self.plan.kind, "to": self.incoming.record.name})
         old, self.current, self.incoming = self.current, self.incoming, None
         self.plan, self._start_frame = None, None
         self.cue, self.by_hand = None, False
@@ -1388,29 +1400,6 @@ class RecordsSession:
             finally:
                 self.loading = None
         threading.Thread(target=run, daemon=True, name="kaia-records-load").start()
-
-    def request(self, rec: library.Record) -> None:
-        """Play `rec` next. If nothing is mid-transition it replaces the record
-        lined up now; otherwise it comes after the one already coming in."""
-        if rec.path not in self.requests:
-            self.requests.append(rec.path)
-        log_action(f"[records] {rec.name} requested from the booth")
-        src = self.source
-        if src is None or src.plan is not None or src._planning:
-            return
-
-        def run():
-            nxt = self._prepare(rec)
-            if nxt is None:
-                log_warning(f"[records] {rec.name} could not be read; not queued")
-                if rec.path in self.requests:
-                    self.requests.remove(rec.path)
-                return
-            if src.plan is None and not src._planning and rec.path in self.requests:
-                src._queued = nxt
-                src._exhausted = False
-                self.requests.remove(rec.path)
-        threading.Thread(target=run, daemon=True, name="kaia-records-request").start()
 
     def _choose(self, deck: Deck) -> Optional[Next]:
         from utils.audio import beatgrid
@@ -1604,6 +1593,8 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
         from utils.audio import dj_dashboard
         await asyncio.to_thread(dj_dashboard.serve)
         session._booth = asyncio.create_task(asyncio.to_thread(dj_dashboard.open_window))
+        session._booth.add_done_callback(
+            lambda t: t.cancelled() or not t.exception() or log_warning(f"[records] DJ booth window: {t.exception()}"))
     except Exception as e:
         log_debug(f"[records] DJ booth not opened: {e}")
     from utils.infrastructure.monitoring.async_task_registry import task_registry

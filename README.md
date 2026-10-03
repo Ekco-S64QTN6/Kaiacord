@@ -308,12 +308,13 @@ The sound comes from [Strudel](https://codeberg.org/uzu/strudel) running in a lo
 captured into Discord voice. No model is involved and no VRAM is used.
 
 `!music records` plays your own music library instead, mixed like a DJ set: each next record is
-chosen to sit with the last in key and tempo, stretched to match, and its first downbeat dropped on
-a bar of the record playing — blended over sixteen beats with the bass swapped halfway, or, where
-either beat isn't steady enough to lay over the other, cut cleanly on the bar. The catalog of BPM
-and key is `music.library_catalog`; beats and bars are found with ffmpeg and NumPy on the CPU.
-A DJ booth window opens beside it — two CDJs and a mixer showing what she is actually doing
-(`!music booth`).
+chosen to sit with the last in key and tempo, levelled, stretched to match (and shifted a semitone
+when that fixes a key clash), and dropped on a phrase of the record playing. Blends take their time —
+up to two minutes with both records riding together, the bass swapped where the new bassline comes
+in — and she rides the EQs through the set; where two beats can't be laid together she fades
+instead. The catalog of BPM and key is `music.library_catalog`; beats, bars and basslines are found
+with ffmpeg and NumPy on the CPU. A DJ booth window opens beside it — two CDJs and a mixer showing
+what she is actually doing, and you can play the second deck yourself (`!music booth`).
 
 ### Night shift: radio and sky
 
