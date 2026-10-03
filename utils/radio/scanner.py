@@ -353,13 +353,18 @@ def classify(catch) -> None:
     # system's data) would spend the night's transcriptions in an hour.
     quiet_channel = not net and known.get("hits", 0) >= QUIET_CHANNEL_HITS and not known.get("voice") \
         and known.get("hits", 0) % RECHECK_EVERY
-    kind, transcript = ("data" if m.digital else "carrier"), ""
+    # Packet radio (APRS) is in-band audio tones, which the digital-shape
+    # measure cannot see: 166 APRS bursts in one night were filed as carriers,
+    # and each spent a transcription.
+    from utils.radio.waterfall import is_packet
+    packet = not net and is_packet(catch.audio) and not morse_id(catch.audio)
+    kind, transcript = ("data" if m.digital or packet else "carrier"), ""
     today = datetime.now().strftime("%Y-%m-%d")
     if _transcribed["date"] != today:
         _transcribed.update(date=today, count=0)
     from utils.radio.waterfall import voice_like
     speechlike = voice_like(catch.audio)
-    if net or (not m.digital and not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT):
+    if net or (not m.digital and not packet and not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT):
         if not net:
             _transcribed["count"] += 1
         text = _transcribe(catch.audio)

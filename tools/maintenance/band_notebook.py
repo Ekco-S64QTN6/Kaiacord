@@ -74,23 +74,18 @@ def clip_profile(clip: Path) -> dict | None:
     except Exception:
         return None
     import numpy as np
+    from utils.radio.waterfall import afsk_profile
     a = np.frombuffer(raw, dtype=np.int16).astype(float)
     n = 600
     if len(a) < n * 10:
         return None
+    share, sig_frames = afsk_profile(a)
     f = np.fft.rfftfreq(n, 1 / 12000)
-    band = (f > 300) & (f < 3000)
-    tones = ((abs(f - 1200) < 150) | (abs(f - 2200) < 150)) & band
-    high = f > 3000
-    sig_frames, afsk, spectra = 0, 0, []
+    spectra = []
     for k in range(0, len(a) - n, n):
         sp = np.abs(np.fft.rfft(a[k:k + n] * np.hanning(n))) ** 2
-        total = sp[f > 100].sum() or 1e-9
-        if sp[high].sum() / total < 0.15:                  # quieted: a carrier is present
-            sig_frames += 1
+        if sp[f > 3000].sum() / (sp[f > 100].sum() or 1e-9) < 0.15:     # quieted: a carrier is present
             spectra.append(sp)
-            if sp[tones].sum() / max(sp[band].sum(), 1e-9) > 0.6:
-                afsk += 1
     edge = 0
     if spectra:
         mean = np.mean(spectra, axis=0)
@@ -98,7 +93,7 @@ def clip_profile(clip: Path) -> dict | None:
         edge = int(f[f > 100][np.searchsorted(cum, 0.95)])
     from utils.radio.waterfall import voice_like
     return {"signal_s": round(sig_frames * n / 12000, 1),
-            "afsk_share": round(afsk / sig_frames, 2) if sig_frames else 0.0, "edge_hz": edge,
+            "afsk_share": round(share, 2), "edge_hz": edge,
             "voice_like": voice_like(a.astype(np.int16))}
 
 

@@ -232,6 +232,41 @@ def carried_audio(audio: np.ndarray) -> np.ndarray:
     return audio[:k * FRAME].reshape(k, FRAME)[on].ravel() if k else audio[:0]
 
 
+#: A catch is packet data (APRS, AX.25) when the Bell 202 tones hold this share
+#: of at least AFSK_MIN_FRAMES carrier frames. Measured: APRS packets off the
+#: air 52–62%, idle hiss 0%, the most tone-like voice clip 36%; a Morse ID hits
+#: the tones but keys for only a few frames.
+AFSK_SHARE = 0.45
+AFSK_MIN_FRAMES = 10
+
+
+def afsk_profile(audio: np.ndarray, rate: int = 12000) -> tuple[float, int]:
+    """(share of carrier frames whose voice-band energy sits on the 1200/2200 Hz
+    pair, number of carrier frames), in 50 ms frames. A frame has a carrier
+    when the demodulated noise above 3 kHz has gone quiet under it."""
+    a = np.asarray(audio, dtype=float)
+    n = rate // 20
+    if len(a) < n * 2:
+        return 0.0, 0
+    k = len(a) // n
+    frames = a[:k * n].reshape(k, n) * np.hanning(n)
+    sp = np.abs(np.fft.rfft(frames, axis=1)) ** 2
+    f = np.fft.rfftfreq(n, 1 / rate)
+    band = (f > 300) & (f < 3000)
+    tones = ((abs(f - 1200) < 150) | (abs(f - 2200) < 150)) & band
+    total = sp[:, f > 100].sum(axis=1) + 1e-9
+    carrier = sp[:, f > 3000].sum(axis=1) / total < 0.15
+    if not carrier.any():
+        return 0.0, 0
+    on_tones = sp[carrier][:, tones].sum(axis=1) / (sp[carrier][:, band].sum(axis=1) + 1e-9) > 0.6
+    return float(on_tones.mean()), int(carrier.sum())
+
+
+def is_packet(audio: np.ndarray) -> bool:
+    share, frames = afsk_profile(audio)
+    return frames >= AFSK_MIN_FRAMES and share >= AFSK_SHARE
+
+
 def carrier_seconds(audio: np.ndarray) -> float:
     return float(carried(audio)[0].sum()) / 50
 

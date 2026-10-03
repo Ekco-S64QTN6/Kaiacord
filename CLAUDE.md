@@ -644,6 +644,11 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   is still followed if it is speech — a linked repeater keeps its transmitter up through a
   conversation. A catch with under 0.1 s of carrier is ledgered as `noise`: not transcribed, not
   clipped, not a channel; a channel configured `mode: digital` is exempt.
+- **Packet radio is told by its tones, not its shape.** APRS is Bell 202 AFSK — in-band audio,
+  which the digital-shape measure cannot see — so a night's 166 bursts on 144.390 went in as
+  carriers and each spent a transcription. `waterfall.is_packet` (the 1200/2200 Hz pair in ≥ 45% of
+  ≥ 10 carrier frames; off-air packets 52–62%, hiss 0%, voice at most 36%, a Morse ID too short)
+  files them as `data` before Whisper is asked. The band notebook uses the same measure.
 - **Only what is worth hearing keeps a clip:** voice, a net, and a carrier that sounds like speech (a
   spoken or Morse ID, or words Whisper missed). A Morse ID (`scanner.morse_id`) is kept once per
   channel per six hours; 145.690's node sends one every few minutes.

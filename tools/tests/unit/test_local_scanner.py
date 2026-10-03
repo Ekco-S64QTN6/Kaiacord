@@ -509,3 +509,24 @@ def test_a_steady_keyed_tone_is_a_morse_id_and_speech_is_not():
     as_clip = lambda x: np.clip(np.concatenate([x, tail]), -32767, 32767).astype(np.int16)
     assert scanner._steady_keyed_tone(as_clip(morse))
     assert not scanner._steady_keyed_tone(as_clip(speech))
+
+
+def test_packet_radio_is_told_from_carriers_voice_and_hiss():
+    """APRS is in-band audio tones, which the digital-shape measure cannot
+    see: one night filed 166 APRS bursts on 144.390 as carriers. Off the air
+    (3 Oct) its packets hold the Bell 202 pair in 52-62% of carrier frames."""
+    import numpy as np
+    from utils.radio import waterfall
+    rate, rng = 12000, np.random.default_rng(3)
+    bits = rng.integers(0, 2, 1200 * 2)                       # two seconds at 1200 baud
+    freq = np.repeat(np.where(bits, 1200.0, 2200.0), rate // 1200)
+    afsk = (np.sin(2 * np.pi * np.cumsum(freq) / rate) * 9000).astype(np.int16)
+    assert waterfall.is_packet(afsk)
+    hiss = (rng.normal(0, 6000, rate * 2)).astype(np.int16)
+    assert not waterfall.is_packet(hiss)
+    t = np.arange(rate * 2) / rate                             # a voice-band mix, syllable-gated
+    voice = (np.sin(2 * np.pi * 310 * t) + 0.6 * np.sin(2 * np.pi * 870 * t) + 0.3 * np.sin(2 * np.pi * 1650 * t))
+    voice = (voice * (np.sin(2 * np.pi * 4 * t) > 0) * 7000).astype(np.int16)
+    assert not waterfall.is_packet(voice)
+    short = afsk[: rate // 4]                                  # a quarter second: a Morse-ID-length blip
+    assert not waterfall.is_packet(short)
