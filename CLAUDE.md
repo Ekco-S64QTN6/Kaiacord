@@ -23,11 +23,11 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 | **Kaia** | `utils/core/` | AI persona. Behavioural injections in `message_processor.py`, post-generation safety pipeline in `safety_pipeline.py` + `response_filter.py`, hybrid BM25 + vector RAG. |
 | **Aethelgard TTRPG** | `utils/ttrpg/` | Deterministic turn-based RPG, 77-floor mega-dungeon. |
 | **Fractal art** | `utils/core/kaia_art.py` | Electric Sheep flame renderer, CPU-only NumPy/SciPy. |
-| **Music** | `utils/audio/` | Live-coded sets in a voice channel, driving Strudel in a real browser. No LLM, no GPU — see [§7](#7-music-engine). |
+| **Music** | `utils/audio/` | Live-coded sets in a voice channel, driving Strudel in a real browser; `!music records` mixes the local library with a playable DJ booth. No LLM, no GPU — see [§7](#7-music-engine). |
 | **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X, each behind its own enable flag. |
 | **Monitoring** | `utils/infrastructure/monitoring/` | Curses dashboard (`btop_dashboard_v2.py`). |
 | **News** | `utils/news/` | Daily briefs filed into `knowledge_base/news/`. The generator (`tools/maintenance/update_kaia_news.py`) calls the Gemini API with Google Search grounding — the only path that sends anything *of hers* off the machine. `utils/news/` itself only reads what was filed. |
-| **Radio** | `utils/radio/` | `!skyking` (military EAMs from eam.watch), `!numbers` (number-station schedule from Priyom), `!radio` (scheduled KiwiSDR recording, CPU transcription, live listening in voice), `!scanner` (a local RTL-SDR's nightly waterfall watch and frequency ledger). Feeds polled every `radio.poll_hours` (6); history in `memory/radio/`. `!nightshift` is a button panel over all of it. See §7. |
+| **Radio** | `utils/radio/` | `!skyking` (military EAMs from eam.watch), `!numbers` (number-station schedule from Priyom), `!radio` (scheduled KiwiSDR recording, CPU transcription, live listening in voice), `!scanner` (a local RTL-SDR's nightly waterfall watch and frequency ledger; `!scanner dash` is KAIA//RX, its receiver dashboard). Feeds polled every `radio.poll_hours` (6); history in `memory/radio/`. `!nightshift` is a button panel over all of it. See §7. |
 | **Sky** | `utils/sky/` | `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`. Public feeds fetched on request and cached per feed; passes and the night sky computed locally (Skyfield). Every radio/sky box ends with the theme's small print from `utils/commands/nightshift.py`. |
 | **LoRA fine-tune** | `finetune/` | Numbered pipeline (`01_convert_logs.py` → `05c_evaluate_persona.py`), driven by `scripts/run_finetune.sh`. Trains a persona adapter on her own logs and exports GGUF for Ollama. Off the runtime path — see [§16](#16-fine-tuning). |
 
@@ -62,7 +62,7 @@ number has been stale in three files at once — CLAUDE.md, README and CONTRIBUT
 different one. Run it and read the tail; what matters is that nothing *failed*, not that the count
 matches a doc.
 
-The no-external-services invocation is the default because only **2** of ~2,600 tests need Ollama
+The no-external-services invocation is the default because only **2** of ~2,800 tests need Ollama
 or a GPU (checked 27 Sept 2026 — take the figure from `--collect-only -m "ollama or gpu"`, not
 here). The rest of what it deselects is the ~47 marked `slow`. Two such tests were once unmarked
 until September 2026 and ran on every "no external services" invocation, embedding through the
@@ -396,6 +396,11 @@ realm, there's still room for quiet …" went from nothing to 28 of 58 replies i
 opening "a <adjective> <noun>, starkind. a <noun phrase>." `detemplate_history` shows her own turns
 without lines she has used twice in the window (and without that grading opener); the logs are not
 touched. `strip_repeated_lines` drops the same from what she sends, with any fragment left hanging.
+**She addresses whoever is talking to her** (`correct_addressee`): every name she uses to address someone
+in the channel is put right to the message's author unless they brought the other person up, all of the
+author's names counting (GuardNGnowm is GnowmaticFlux's nickname), and her past turns are shown without the
+names she addressed people by (`without_greeting_lines`). Tenno got "acknowledged, starkind." copied from her
+replies to Starkind. Pronouns come from `people.pronouns`; anyone else is they/them (`pronouns.py`).
 What she *did* — `kaia_expression.remember`'s "[i played records…]", "[i made a piece…]" — is written into
 channel memory marked `event`, and the prompt shows it as a note (`events_as_notes`), never as her turn:
 read back as one, it was copied onto the end of an unrelated reply to Starkind (`strip_event_echo`).

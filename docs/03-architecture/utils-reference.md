@@ -32,7 +32,8 @@ Core utility modules used by Kaiacord.
 | `background_tasks.py` | Afterthoughts, dawn tasks, presence loops, and forum scheduling |
 | `kaia_art.py` | Fractal flame renderer (CPU-only, NumPy/SciPy) |
 | `kaia_art_intent.py` | What she decides to make before a fractal is drawn |
-| `kaia_expression.py` | A set she played or a piece she made, remembered as something she did |
+| `kaia_expression.py` | A set she played or a piece she made, remembered as something she did (marked `event`: a note in her prompt, not a turn of hers) |
+| `pronouns.py` | `people.pronouns`, and they/them for anyone not listed — one line in the chat and monologue prompts |
 | `stance_harness.py` | `!stance`: pressure scenarios through the real pipeline |
 | `kaia_reactions.py` | Non-verbal emoji reactions — 85 emoji across 11 mood-biased pools, graded so the heaviest is not as likely as the mildest |
 
@@ -90,7 +91,8 @@ Core utility modules used by Kaiacord.
 | `monitoring/async_task_registry.py`| Background task lifecycle tracking. Register fire-and-forget tasks here: asyncio holds tasks weakly, so a bare `create_task` can be collected mid-run |
 | `monitoring/watchdog.py` | Event loop health monitor |
 | `monitoring/stats_tracker.py` | Thread-safe forum and pipeline statistics counter |
-| `monitoring/stats_poller.py` | Background poller for hardware and cognitive telemetry |
+| `monitoring/stats_poller.py` | Background poller for hardware and cognitive telemetry (helpers in `stats_helpers.py`) |
+| `monitoring/mem_probe.py` | The 15-minute memory audit: RSS, a heap trim and what it returned, optional tracemalloc growth sites |
 
 ## GPU & System (`utils/infrastructure/gpu/`)
 
@@ -173,6 +175,8 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `waterfall.py` | The hopping waterfall watch, NBFM demodulator, carrier measurement and Bell 202 packet detection; follows a conversation, locks out constant carriers; run in a forked child with its output on /dev/null |
 | `ledger.py` | `memory/radio/local_ledger.sqlite3`: channels with an hour-of-day histogram, and every catch |
 | `dongle.py`, `rtl.py` | librtlsdr through ctypes; the device lock, `rtl_fm` streams and audio measurement |
+| `rx_scope.py`, `rx_dashboard.py` | KAIA//RX (`!scanner dash`): band panoramas and waterfalls from the watcher's spectra, and the page's server (state, clips, spectrograms, monitor audio, tune) |
+| `spectrogram.py` | A kept clip as a picture, rendered once beside it and pruned with it |
 
 ## News (`utils/news/`)
 
@@ -220,6 +224,8 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `shop.py` | Merchant inventory and pricing (Hemlock, the caravan); a merchant sells only its stock |
 | `enhancement.py` & `town_projects.py` | Endgame gil sinks: gear rework +1..+5, and pooled gil for the town walls |
 | `housing.py`, `farming.py`, `pets.py`, `alchemy.py` | Estate management, harvesting, companions, brewing |
+| `furniture.py`, `look_targets.py`, `pantheon.py` | The furniture catalog, `!rpg look at` targets per location, and the pantheon |
+| `rpg_core_handler.py`, `rpg_combat_handler.py`, `rpg_housing_handler.py`, `rpg_shop_handler.py`, `rpg_social_handler.py` | `!rpg` subcommands, split by area |
 | `calendar.py` | Seasons, dynamic weather, and 13 special calendar holidays |
 | `quest_registry.py` | 12 progressive quests (L1–L15) |
 | `npc_registry.py` & `loot_tables.py` | NPC dialogue definitions and tiered drop tables |
