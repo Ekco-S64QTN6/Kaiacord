@@ -773,3 +773,19 @@ def test_a_fragment_left_hanging_across_a_paragraph_break_goes_too():
             {"role": "assistant", "content": "a third turn with nothing repeated in it at all."}]
     out = P.detemplate_history(hist)
     assert out[0]["content"] == "the impact matters more than the intention."
+
+
+def test_a_bracketed_room_status_line_goes_and_her_other_brackets_stay():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    out = P.strip_room_status("whether you crossed the boundary is a matter of perspective.\n\n"
+                              "[i am adjusting the room temperature to 21 degrees celsius.]")
+    assert out == "whether you crossed the boundary is a matter of perspective."
+    for keep in ("the chorus comes back here.\n\n[lyrics end]",
+                 "i turned the lights down earlier; it's easier on the eyes at night."):
+        assert P.strip_room_status(keep) == keep
+
+
+def test_a_possessive_does_not_make_a_fragment_a_clause():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    assert P._hanging("for a moment of consideration for another’s perspective.")
+    assert not P._hanging("for what it's worth, the plan holds.")

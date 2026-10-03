@@ -2449,6 +2449,7 @@ class MessageProcessor:
             pass
         try:
             ctx.response_text = PostGenerationSafetyPipeline.strip_grading_opener(ctx.response_text)
+            ctx.response_text = PostGenerationSafetyPipeline.strip_room_status(ctx.response_text)
         except Exception:
             pass
         try:

@@ -794,7 +794,8 @@ class PostGenerationSafetyPipeline:
     #: has none ("a definitive stance."), a real sentence does.
     _CLAUSE_VERB = re.compile(
         r"\b(?:is|are|was|were|be|been|being|am|has|have|had|do|does|did|can|could|will|would|shall|"
-        r"should|may|might|must)\b|['\u2019](?:s|re|ve|ll|d|m)\b", re.IGNORECASE)
+        r"should|may|might|must)\b|\b(?:it|that|there|here|he|she|what|who|where|how|let)['\u2019]s\b|"
+        r"['\u2019](?:re|ve|ll|d|m)\b", re.IGNORECASE)          # "another's" is a possessive, not "is"
     #: A sentence left hanging off the line before it: "…room for quiet
     #: conviction. for a commitment to deeply held beliefs." Dropped with it.
     _HANGING = re.compile(r"^(?:for|to|with|of|in|and|or|but|nor|an?|like|as)\b", re.IGNORECASE)
@@ -828,6 +829,26 @@ class PostGenerationSafetyPipeline:
             if not m or not cls._FRAGMENT.match(m.group(1)) or cls._CLAUSE_VERB.search(m.group(1)):
                 return rest
             rest = rest[m.end():].lstrip()
+
+    # A line that is only a bracketed status report of her adjusting the room,
+    # tacked onto the end of a reply: "[i am adjusting the room temperature to
+    # 21 degrees celsius.]" Two in her whole corpus, both inside the 3 Oct
+    # loop; her other bracketed lines (scene directions, lyrics markers) are hers.
+    _ROOM_STATUS = re.compile(
+        r"^\s*\[\s*i(?:\s+am|['\u2019]m)\s+(?:adjusting|setting|lowering|raising|dimming|increasing|decreasing|"
+        r"turning)\s+(?:the\s+)?(?:room|lights?|lighting|temperature|thermostat|blinds|heating|brightness)[^\]]*\]\s*$",
+        re.IGNORECASE | re.MULTILINE)
+
+    @classmethod
+    def strip_room_status(cls, text: str) -> str:
+        out = cls._ROOM_STATUS.sub("", text or "")
+        if out == text:
+            return text
+        out = re.sub(r"\n{3,}", "\n\n", out).strip()
+        if len(out) < 20:
+            return text
+        log_warning("[TEMPLATE_GUARD] Dropped a bracketed room-status line")
+        return out
 
     @classmethod
     def _hanging(cls, sentence: str) -> bool:
