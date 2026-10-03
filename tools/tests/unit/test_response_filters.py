@@ -763,3 +763,13 @@ def test_her_history_is_shown_without_the_lines_she_keeps_repeating():
     assert out[1]["content"] == "the impulse is verification."
     assert out[0] == hist[0] and out[4] == hist[4]
     assert "digital realm" in hist[1]["content"]                      # the original is not mutated
+
+
+def test_a_fragment_left_hanging_across_a_paragraph_break_goes_too():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    tic = "it's a reminder that even in the digital realm, there's still room for quiet {}."
+    hist = [{"role": "assistant", "content": f"the impact matters more than the intention.\n\n{tic.format('care')}\n\nfor a moment of consideration."},
+            {"role": "assistant", "content": f"something else entirely, said plainly. {tic.format('thought')}"},
+            {"role": "assistant", "content": "a third turn with nothing repeated in it at all."}]
+    out = P.detemplate_history(hist)
+    assert out[0]["content"] == "the impact matters more than the intention."

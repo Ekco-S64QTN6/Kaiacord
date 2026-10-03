@@ -857,11 +857,12 @@ class PostGenerationSafetyPipeline:
             for k in {cls._line_key(x) for x in cls._sentences(p)} - {None}:
                 recent[k] = recent.get(k, 0) + 1
         out_paras, seen, dropped = [], set(), []
+        after_drop = False                        # carried over a paragraph break too
         for para in re.split(r"(\n\s*\n)", text or ""):
             if not para.strip() or re.fullmatch(r"\n\s*\n", para):
                 out_paras.append(para)
                 continue
-            kept, after_drop = [], False
+            kept = []
             for sent in cls._sentences(para):
                 k = cls._line_key(sent)
                 if k and (recent.get(k, 0) >= 2 or k in seen):
@@ -907,9 +908,9 @@ class PostGenerationSafetyPipeline:
                 if len(rest.strip()) >= 20:
                     text = rest
             if repeated:
-                paras = []
+                paras, after_drop = [], False
                 for para in re.split(r"\n\s*\n", text):
-                    kept, after_drop = [], False
+                    kept = []
                     for x in cls._sentences(para):
                         if cls._line_key(x) in repeated or (after_drop and cls._hanging(x)):
                             after_drop = True
