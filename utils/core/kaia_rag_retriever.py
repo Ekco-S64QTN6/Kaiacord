@@ -249,3 +249,96 @@ def thread_safe_rag_operation(func):
                 self._data_lock.release()
 
     return async_wrapper if is_async else sync_wrapper
+
+
+# ── Vector search without stalling the process ───────────────────────
+#
+# llama_index's SimpleVectorStore.query rebuilds a numpy array from every
+# stored embedding (thousands of 768-float Python lists) on each query, in one
+# C call that holds the GIL for 100–200 ms, then scores row by row in Python.
+# Inside the bot that froze discord.py's voice thread, which must send a frame
+# every 20 ms: `!music records` dropped out whenever a reply searched memory.
+# The matrix is built once per store change, in small slices that let other
+# threads in, and a query is one matrix product.
+
+_VEC_CACHE: dict = {}
+_VEC_VERSION: dict = {}
+_VEC_SLICE = 256
+
+
+def _store_matrix(store):
+    import time as _time
+    import numpy as np
+    data = store.data.embedding_dict
+    key = id(store)
+    version = _VEC_VERSION.get(key, 0)
+    cached = _VEC_CACHE.get(key)
+    if cached and cached[0] == version and cached[1] == len(data):
+        return cached[2], cached[3]
+    ids = list(data.keys())
+    rows = []
+    for i in range(0, len(ids), _VEC_SLICE):
+        rows.append(np.asarray([data[k] for k in ids[i:i + _VEC_SLICE]], dtype=np.float32))
+        _time.sleep(0)                                   # let the voice thread run
+    matrix = np.concatenate(rows) if rows else np.zeros((0, 0), dtype=np.float32)
+    if len(matrix):
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        matrix = matrix / np.where(norms == 0, 1.0, norms)
+    _VEC_CACHE[key] = (version, len(data), ids, matrix)
+    return ids, matrix
+
+
+def install_fast_vector_query() -> None:
+    """Route SimpleVectorStore's plain top-k queries through the cached matrix.
+    Filtered, node-restricted and non-default queries keep llama_index's path."""
+    try:
+        import numpy as np
+        from llama_index.core.vector_stores.simple import SimpleVectorStore
+        from llama_index.core.vector_stores.types import VectorStoreQueryMode, VectorStoreQueryResult
+    except Exception:
+        return
+    if getattr(SimpleVectorStore, "_kaia_fast", False):
+        return
+    original_query = SimpleVectorStore.query
+    original_add = SimpleVectorStore.add
+    original_delete = SimpleVectorStore.delete
+    original_delete_nodes = getattr(SimpleVectorStore, "delete_nodes", None)
+
+    def bump(self):
+        _VEC_VERSION[id(self)] = _VEC_VERSION.get(id(self), 0) + 1
+
+    def query(self, query, **kwargs):
+        if (query.mode != VectorStoreQueryMode.DEFAULT or query.filters is not None
+                or query.node_ids is not None or query.query_embedding is None):
+            return original_query(self, query, **kwargs)
+        ids, matrix = _store_matrix(self)
+        if not ids:
+            return VectorStoreQueryResult(similarities=[], ids=[])
+        q = np.asarray(query.query_embedding, dtype=np.float32)
+        qn = np.linalg.norm(q)
+        sims = matrix @ (q / qn if qn else q)
+        k = min(int(query.similarity_top_k or len(ids)), len(ids))
+        top = np.argpartition(-sims, k - 1)[:k]
+        top = top[np.argsort(-sims[top])]
+        return VectorStoreQueryResult(similarities=[float(sims[i]) for i in top], ids=[ids[i] for i in top])
+
+    def add(self, *a, **kw):
+        out = original_add(self, *a, **kw)
+        bump(self)
+        return out
+
+    def delete(self, *a, **kw):
+        out = original_delete(self, *a, **kw)
+        bump(self)
+        return out
+
+    SimpleVectorStore.query = query
+    SimpleVectorStore.add = add
+    SimpleVectorStore.delete = delete
+    if original_delete_nodes:
+        def delete_nodes(self, *a, **kw):
+            out = original_delete_nodes(self, *a, **kw)
+            bump(self)
+            return out
+        SimpleVectorStore.delete_nodes = delete_nodes
+    SimpleVectorStore._kaia_fast = True

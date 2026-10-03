@@ -32,6 +32,8 @@ from utils.infrastructure.system.yaml_config import config
 
 # Re-exported: callers import it from here.
 from utils.core.kaia_rag_retriever import sanitize_log_content  # noqa: F401
+from utils.core.kaia_rag_retriever import install_fast_vector_query
+install_fast_vector_query()
 
 # ── Mixin modules ───────────────────────────────────────────────────────
 from utils.core.kaia_rag_indexer import RAGIndexerMixin
