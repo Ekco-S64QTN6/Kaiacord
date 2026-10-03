@@ -43,6 +43,8 @@ def status_embed():
             lines.append(f"`{when}` **{board}** — {clean(ev.get('where', ''), 60)}: {clean(ev.get('text', ''), 110)}")
         elif ev.get("event") == "read":
             lines.append(f"`{when}` {board} — read {ev.get('count', 0)} new")
+        elif ev.get("event") == "held":
+            lines.append(f"`{when}` {board} — held a draft, not in her voice ({clean(ev.get('why', ''), 40)})")
         elif ev.get("event") in ("error", "verify_failed", "verify_skipped"):
             lines.append(f"`{when}` {board} — {clean(ev.get('error') or ev.get('event'), 100)}")
         if len(lines) >= 8:

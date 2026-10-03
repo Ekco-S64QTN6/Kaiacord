@@ -39,6 +39,23 @@ def _collapse(word: str) -> str:
     return re.sub(r"(.)\1+", r"\1", word)
 
 
+# The cues are matched on doubled-letter-collapsed text ("increaasses"), so
+# they are collapsed the same way: "less" is "les", "add" is "ad".
+_OPS_COLLAPSED = [(op, re.compile(_collapse(pat))) for op, pat in _OPS]
+
+# An operator written as a symbol, standing on its own between words. The
+# noise uses ] [ ^ / ~ { } < \ - and sometimes stands alone, so only symbols it
+# has never been seen to use count, and a symbol beats a word cue: "twenty
+# three * two, how much total force" is a product.
+_SYMBOL_OP = re.compile(r"(?<=\s)([*+×])(?=\s)")
+
+
+def explicit_operator(challenge: str) -> Optional[str]:
+    """The one symbolic operator in the challenge, if exactly one kind appears."""
+    found = {("*" if m == "×" else m) for m in _SYMBOL_OP.findall(f" {challenge or ''} ")}
+    return found.pop() if len(found) == 1 else None
+
+
 _WORDS = {_collapse(w): v for w, v in {**_UNITS, **_TENS, **_SCALE}.items()}
 
 
@@ -110,10 +127,13 @@ def solve(challenge: str) -> Optional[str]:
     if len(nums) != 2:
         return None
     a, b = nums[0][2], nums[1][2]
-    found = [op for op, pat in _OPS if re.search(pat, text)]
-    if not found:
-        return None
-    op = found[0]
+    op = explicit_operator(challenge)
+    if op is None:
+        squashed = " ".join(_collapse(w) for w in words)
+        found = [o for o, pat in _OPS_COLLAPSED if pat.search(squashed)]
+        if not found:
+            return None
+        op = found[0]
     # "doubles" / "triples" with only one stated number would be a third
     # operand; with two numbers stated, trust the explicit cue.
     if op == "+":

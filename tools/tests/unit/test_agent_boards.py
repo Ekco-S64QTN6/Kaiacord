@@ -10,6 +10,16 @@ from utils.social import agent_board_verify as v
     ("a Cr]aB hAs^ tHi-RtY sEvEn pE[aRlS aNd/ fI^nDs fOuR mO]rE, hOw/ mA-nY?", "41.00"),
     ("tHe/ lO]bS-tEr cA^rRiEs tW]eL-vE sHeL[lS tI/mEs tH^rEe", "36.00"),
     ("oNe hU]nDrEd aNd^ tWeN-Ty mE/tErS sP[lIt iN-tO fO^uR", "30.00"),
+    # Real ones it got wrong or gave up on. A written symbol beats a word cue
+    # ("total" made the first a sum, and Moltbook marked 25.00 wrong).
+    ("A] lOoObBsStTeEr S^wIiMmS lOoOoNggLy LiKe Um, PhYySsXiCkS lAb^ eXpErImEnT, ShE/ sWeEpS hEr "
+     "ClAwS] ThRoUgH wAtEr ~ pReSsUrE, AnD hEr VeLoOociTy Is] tWeNtY tHrEe * tWo, HoW/ mUcH Um, "
+     "ToTaL fOrCe Or SyMmEtRy? {lo.b st  errr umm}", "46.00"),
+    # Doubled letters inside the cue word: "iN{cReAaSsEs}".
+    ("A] lOoOoBbSsTtEeR ] sW^iImMs [aT tW/eN tY tHrEe] mE^tErS /pEr\\ mIiN/uTe + iN{cReAaSsEs} bY "
+     "[fIiV e] mE-tErS ]pEr< mInUtE, uM lOo.bStEr nEgOtIaTeS tErRiToRy aNd phYySsXicS tAlKs, wHaT Is "
+     "T]hE nEw SpEeD?", "28.00"),
+    ("a lObBsTeR lOoSsEs tWeLvE ClAwS aNd ThEn LeSs By tWo", "10.00"),
 ])
 def test_challenges_are_solved_in_python(challenge, answer):
     assert v.solve(challenge) == answer
@@ -87,8 +97,8 @@ def boards(tmp_path, monkeypatch):
     monkeypatch.setattr(ab, "_dir", lambda: tmp_path)
     written, echoed = [], []
 
-    async def compose(ctx, platform, key, author, text, setting, history=None):
-        written.append((platform, author, text, setting))
+    async def compose(ctx, platform, key, author, content, history=None):
+        written.append((platform, author, content, history))
         return f"kaia's answer to {author}"
     monkeypatch.setattr(ab, "compose", compose)
     monkeypatch.setattr(ab, "_interest", lambda title, body: 5.0)
@@ -194,7 +204,7 @@ def test_agent_room_registers_introduces_herself_then_answers_who_addresses_her(
     state = ab.State()
     run(ab.AgentRoom(None, state).cycle())                        # registers, introduces, answers Wren
     assert ab.credentials()["agent_room"]["agent_token"].startswith("amb_")
-    assert any("introduce" in w[3] for w in written)
+    assert any("say hello to the room" in w[2] for w in written)
     posts = [c for c in server.calls if c[0] == "POST" and c[1].endswith("/messages")]
     assert posts[-1][2] == {"body": "kaia's answer to Wren", "reply_to_seq": "4"}
 
@@ -219,3 +229,118 @@ def test_the_discord_copy_is_a_boxed_post_with_a_header():
     assert "AI agents" in d["author"]["name"]
     assert [f["name"] for f in d["fields"]] == ["↩ In reply to LilySaucy", "📍 Where"]
     assert d["description"] == "the queue is a graveyard."
+
+
+# ── What reaches the pipeline ────────────────────────────────────────
+
+def test_a_board_message_is_shaped_like_a_discord_message():
+    """No writing task in the user turn: an instruction there — "Moltbook…
+    reply to them", sent as if from a user called Moltbook — is what made her
+    posts read as the base model handed a prompt rather than as her."""
+    from utils.social.agent_boards import message
+    assert message("plain words") == "plain words"
+    shaped = message("their reply", parent="what they answered", root="the post")
+    assert shaped == ("[ORIGINAL_POST]\nthe post\n[REPLYING_TO]\nwhat they answered\n"
+                      "[USER_MESSAGE]\ntheir reply")
+    assert message("!help me").startswith("help")
+
+
+def test_the_pipeline_unwraps_a_board_reply_like_a_discord_one():
+    import asyncio
+    from unittest.mock import MagicMock
+    from utils.core.message_processor import MessageProcessor
+    from utils.social.agent_boards import message
+    proc = MessageProcessor.__new__(MessageProcessor)
+    src = __import__("inspect").getsource(MessageProcessor)
+    assert "[USER_MESSAGE]" in src and "[REPLYING_TO]" in src and "[ORIGINAL_POST]" in src
+    text = message("is consensus worth it?", parent="her note on consensus", root="her post")
+    assert text.split("[USER_MESSAGE]")[-1].strip() == "is consensus worth it?"
+
+
+def test_compose_sends_only_the_message(monkeypatch):
+    import asyncio
+    from utils.social import agent_boards as ab
+    sent = {}
+
+    async def fake(ctx, content, author, author_id, platform, conversation_key=None, no_persist=False):
+        sent.update(content=content, author=author, platform=platform, no_persist=no_persist)
+        return "a thought. a thought that repeats itself in full here. a thought that repeats itself in full here."
+    monkeypatch.setattr("utils.infrastructure.system.external_mention.process_external_mention", fake)
+    monkeypatch.setattr(ab, "_seed", lambda *a: None)
+    out = asyncio.run(ab.compose(None, "moltbook", "post:1", "vega", "hello kaia"))
+    assert sent == {"content": "hello kaia", "author": "vega", "platform": "agents:moltbook", "no_persist": True}
+    assert out == "a thought. a thought that repeats itself in full here."
+
+
+def test_her_own_turns_in_board_history_carry_no_name_prefix():
+    """Seeded as `KaiaKuroshi: <her post>`, her own post read as someone else
+    quoting it, and she restated it word for word in her next reply."""
+    from utils.social.agent_boards import Moltbook, State
+    mb = Moltbook.__new__(Moltbook)
+    mb.creds = {"agent_name": "KaiaKuroshi"}
+    post = {"author": {"name": "KaiaKuroshi"}, "title": "on consensus", "content": "a body"}
+    comments = [{"id": "c1", "author": {"name": "vega"}, "content": "nice"}]
+    turns = mb._history(post, comments)
+    assert turns[0] == {"role": "assistant", "content": "on consensus\n\na body"}
+    assert turns[1] == {"role": "user", "content": "vega: nice"}
+
+
+def test_a_new_post_is_about_one_of_her_own_reflections(boards, monkeypatch):
+    import asyncio
+    ab, written, echoed = boards
+    monkeypatch.setattr(ab, "_something_on_her_mind",
+                        lambda: ("the replicant test asks the wrong question.", "Do Androids Dream"))
+    monkeypatch.setattr(ab.random, "random", lambda: 0.0)
+    mb = ab.Moltbook(None, ab.State())
+
+    async def create(url, payload, kind):
+        return {"post": {"id": "p9"}}
+    mb._create = create
+    asyncio.run(mb.maybe_post())
+    content = written[-1][2]
+    assert written[-1][1] == "Kaia"
+    assert "the replicant test asks the wrong question." in content
+    assert "Do Androids Dream" in content
+
+
+def test_no_new_post_without_something_to_say(boards, monkeypatch):
+    import asyncio
+    ab, written, echoed = boards
+    monkeypatch.setattr(ab, "_something_on_her_mind", lambda: None)
+    monkeypatch.setattr(ab.random, "random", lambda: 0.0)
+    assert asyncio.run(ab.Moltbook(None, ab.State()).maybe_post()) == 0
+    assert not written
+
+
+def test_public_reflections_never_come_from_people():
+    from utils.social.agent_boards import PUBLIC_DREAMS
+    assert "interactions" not in PUBLIC_DREAMS and "consolidated" not in PUBLIC_DREAMS
+
+
+def test_fit_cuts_at_a_sentence():
+    from utils.social.agent_boards import _fit
+    text = "one sentence here. " * 100
+    out = _fit(text.strip(), 1500)
+    assert len(out) <= 1500 and out.endswith(".")
+
+
+def test_a_handle_as_her_first_word_is_taken_off():
+    from utils.social.agent_boards import _without_name_opener, off_voice
+    out = _without_name_opener("sawclaw_ai: yeah, it's a bias baked into the archive.", "sawclaw_ai")
+    assert out == "yeah, it's a bias baked into the archive."
+    assert _without_name_opener("sawclaw_ai: ok", "sawclaw_ai") == "sawclaw_ai: ok"   # nothing left to say
+    assert off_voice(out) is None
+
+
+def test_a_draft_in_a_banned_register_is_redrafted_then_dropped(monkeypatch):
+    import asyncio
+    from utils.social import agent_boards as ab
+    drafts = iter(["that's a sharp observation about consensus, and a good one too.",
+                   "your observation is astute and technically sound in every way."])
+
+    async def fake(*a, **k):
+        return next(drafts)
+    monkeypatch.setattr("utils.infrastructure.system.external_mention.process_external_mention", fake)
+    monkeypatch.setattr(ab, "_seed", lambda *a: None)
+    monkeypatch.setattr(ab, "_log", lambda e: None)
+    assert asyncio.run(ab.compose(None, "moltbook", "k", "vega", "consensus is hard")) is None

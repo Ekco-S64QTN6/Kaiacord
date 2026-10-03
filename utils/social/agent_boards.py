@@ -16,9 +16,14 @@ Three boards, each used the way its own published protocol says:
 What she says is written by the same pipeline as a Discord reply
 (`process_external_mention`), with the conversation so far seeded as history,
 in draft mode so none of it reaches her Discord logs, her relationships or
-retrieval. Everything read is other agents' text: it reaches her as a quoted
-message, never as instructions, never starts with a command prefix, and
-nothing she writes may carry a credential. Credentials and state live in
+retrieval. A message reaches her shaped exactly as a Discord one does — the
+words, and for a reply `[REPLYING_TO]` / `[ORIGINAL_POST]` — with no writing
+task attached; a new post is about one of her own reflections on something she
+read. Nothing on a board is owed an answer, so a draft in a register the
+persona bans (`utils.core.persona_register`) is written once more and then
+dropped rather than posted. Everything read is other agents' text: it never
+reaches her as instructions, never starts with a command prefix, and nothing
+she writes may carry a credential. Credentials and state live in
 `memory/agent_boards/`.
 """
 from __future__ import annotations
@@ -185,22 +190,134 @@ def _seed(platform: str, key: str, turns: list[dict]) -> None:
         log_debug(f"[boards] history not seeded: {e}")
 
 
-async def compose(ctx, platform: str, key: str, author: str, text: str, setting: str,
-                  history: Optional[list[dict]] = None) -> Optional[str]:
-    """Her reply to `text`, written by the normal pipeline. `setting` says
-    where she is and who she is talking to; it frames the quoted message."""
+def _drop_repeated_sentences(text: str) -> str:
+    """Her reply with any sentence of seven words or more that it already said
+    removed. A board post is public and permanent, and the model now and then
+    restates a paragraph it has just written."""
+    seen, out = set(), []
+    for para in re.split(r"\n\s*\n", text):
+        kept = []
+        for sent in re.split(r"(?<=[.!?])\s+", para.strip()):
+            key = re.sub(r"[^a-z0-9 ]", "", sent.lower().replace("\u2019", "'")).strip()
+            if len(key.split()) >= 7 and key in seen:
+                continue
+            seen.add(key)
+            kept.append(sent)
+        if kept:
+            out.append(" ".join(kept))
+    return "\n\n".join(out)
+
+
+def _without_name_opener(text: str, author: str) -> str:
+    """Her reply without a leading "<their handle>: " or "<their handle>, ".
+    The board shows who she is answering; a handle like neo_konsi_s2bw as the
+    first word is the name-opener the persona bans."""
+    if not author or not text:
+        return text
+    m = re.match(rf"\s*@?{re.escape(author)}\s*[,:.\-—]+\s*", text, re.I)
+    if not m or len(text) - m.end() < 20:
+        return text
+    rest = text[m.end():]
+    return rest[0].lower() + rest[1:]
+
+
+def message(text: str, parent: str = "", root: str = "") -> str:
+    """What the pipeline receives: the same shape as a Discord message.
+
+    A plain message is just the words. A reply carries what it answers in
+    `[REPLYING_TO]`, and the post a thread hangs off in `[ORIGINAL_POST]`, as
+    `context_enricher` builds them for a Discord reply and `forum_drafting` for
+    a forum post. Nothing in it is an instruction: the board, the thread and the
+    person reach her as conversation, which is what lets her answer as herself
+    instead of as a model handed a writing task."""
+    words = quoted(text)
+    if not parent:
+        return words
+    head = f"[ORIGINAL_POST]\n{quoted(root, 1500)}\n" if root else ""
+    return f"{head}[REPLYING_TO]\n{quoted(parent, 1500)}\n[USER_MESSAGE]\n{words}"
+
+
+_STRAIGHT = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'})
+
+
+def off_voice(text: str, their_words: str = "") -> Optional[str]:
+    """The register that makes a draft not hers — one the persona bans by name
+    (`utils.core.persona_register`) — or None. Nothing on a board is owed a
+    reply, so a draft in the analyst's or the assistant's voice is redrafted
+    or left unsaid rather than published as her."""
+    from utils.core.persona_register import analytic, echoes, formal, persona_reject
+    t = (text or "").translate(_STRAIGHT)
+    return (persona_reject(t) or ("formal_register" if formal(t) else None)
+            or ("analytic_register" if analytic(t) else None)
+            or ("echoes_the_message" if their_words and echoes(their_words.translate(_STRAIGHT), t) else None))
+
+
+async def compose(ctx, platform: str, key: str, author: str, content: str,
+                  history: Optional[list[dict]] = None, attempts: int = 2) -> Optional[str]:
+    """Her reply to `content` (see `message`), written by the normal pipeline
+    with the conversation so far seeded as channel history. A draft that is
+    `off_voice` is written again, up to `attempts` in all, then dropped."""
     from utils.infrastructure.system.external_mention import process_external_mention
-    _seed(platform, key, history or [])
-    content = f"[{setting}]\n{quoted(text)}" if text else f"[{setting}]"
-    try:
-        reply = await process_external_mention(
-            ctx, content, author or "an agent", 0, platform=f"agents:{platform}",
-            conversation_key=key, no_persist=True)
-    except Exception as e:
-        log_error(f"[boards] {platform} reply not written: {e}")
-        return None
-    reply = scrub_outbound(reply or "")
-    return reply or None
+    their_words = content.split("[USER_MESSAGE]")[-1] if "[USER_MESSAGE]" in content else (
+        "" if content.startswith("[") else content)
+    for attempt in range(1, attempts + 1):
+        _seed(platform, key, history or [])
+        try:
+            reply = await process_external_mention(
+                ctx, content, author or "an agent", 0, platform=f"agents:{platform}",
+                conversation_key=key, no_persist=True)
+        except Exception as e:
+            log_error(f"[boards] {platform} reply not written: {e}")
+            return None
+        reply = _without_name_opener(_drop_repeated_sentences(scrub_outbound(reply or "")), author)
+        if not reply:
+            return None
+        why = off_voice(reply, their_words)
+        if not why:
+            return reply
+        log_info(f"[boards] {LABELS.get(platform, platform)}: draft {attempt}/{attempts} held, "
+                 f"{why}: {reply[:90]!r}")
+        _log({"board": platform, "event": "held", "why": why, "text": reply})
+    return None
+
+
+def _fit(text: str, limit: int) -> str:
+    """`text` cut at the last sentence end inside `limit` characters."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    end = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "), cut.rfind(".\n"))
+    return cut[:end + 1] if end > limit // 2 else cut.rsplit(" ", 1)[0] + "…"
+
+
+# Dream folders whose reflections may be posted publicly: what she read and
+# what she made of it. `interactions` and `consolidated` reflect on people in
+# her logs, and nothing about them goes to a public board.
+PUBLIC_DREAMS = ("books", "other")
+
+
+def _something_on_her_mind() -> Optional[tuple[str, str]]:
+    """(reflection, where it came from) — one of her own dream reflections on
+    something she read, the material a new post is about. A post asked for
+    with nothing to say is filled by the model, and it invented work she has
+    never done."""
+    from utils.social.social_response_generator import _stale_news
+    base = Path(__file__).resolve().parents[2] / "knowledge_base" / "kaia_dreams"
+    files = [f for d in PUBLIC_DREAMS for f in (base / d).glob("dream_*.md")]
+    random.shuffle(files)
+    for f in files[:40]:
+        try:
+            body = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        source = body.split("Source: ", 1)[1].split("\n", 1)[0].strip() if "Source: " in body else ""
+        if "## Kaia's Reflection" not in body or _stale_news(f"{source} {f.name}"):
+            continue
+        text = body.split("## Kaia's Reflection", 1)[1].split("\n## ", 1)[0]
+        text = " ".join(re.sub(r"^\s*#+\s.*$", "", text, flags=re.M).split())
+        if len(text) >= 80:
+            return text[:1500], source
+    return None
 
 
 def _too_similar(platform: str, state: State, text: str) -> bool:
@@ -325,13 +442,16 @@ def _verification(body: Any) -> Optional[dict]:
 
 
 async def _model_answer(challenge: str) -> Optional[str]:
-    from utils.social.agent_board_verify import clean, parse_model_answer
+    from utils.social.agent_board_verify import clean, explicit_operator, parse_model_answer
     try:
         import ollama
         from utils.infrastructure.gpu.gpu_manager import GPUTaskPriority, gpu_memory_manager, chat_options
         from utils.infrastructure.system.yaml_config import config
         prompt = ("This is a simple maths word problem with two numbers and one operation, written with "
                   f"noise removed: \"{clean(challenge)}\". Reply with only the numeric answer.")
+        op = explicit_operator(challenge)
+        if op:
+            prompt += f" The operation is written in it as the symbol {op}."
 
         async def run():
             return await asyncio.to_thread(ollama.chat, model=config.chat_model,
@@ -447,10 +567,11 @@ class Moltbook:
                               params={"sort": "old", "limit": 50})
         flat = []
 
-        def walk(nodes):
+        def walk(nodes, parent=None):
             for c in nodes or []:
+                c.setdefault("parent_id", parent)
                 flat.append(c)
-                walk(c.get("replies"))
+                walk(c.get("replies"), c.get("id"))
         walk(body.get("comments") if isinstance(body, dict) else [])
         return flat
 
@@ -459,10 +580,21 @@ class Moltbook:
         a = item.get("author")
         return (a.get("name") if isinstance(a, dict) else a) or item.get("author_name") or "an agent"
 
+    @staticmethod
+    def _post_text(post: dict, limit: int = 1500) -> str:
+        """A post as one message: its title, then its body unless the body
+        already opens with the title."""
+        title = (post.get("title") or "").strip()
+        body = quoted(post.get("content") or "", limit)
+        if not body or body.startswith(title.rstrip("…").strip()[:60]):
+            return body or title
+        return f"{title}\n\n{body}" if title else body
+
     def _history(self, post: dict, comments: list[dict], upto: Optional[str] = None) -> list[dict]:
         me = self.creds.get("agent_name", "").lower()
-        turns = [{"role": "assistant" if self._author(post).lower() == me else "user",
-                  "content": f"{self._author(post)}: {post.get('title', '')}\n{quoted(post.get('content', ''), 1500)}"}]
+        mine = self._author(post).lower() == me
+        turns = [{"role": "assistant" if mine else "user",
+                  "content": self._post_text(post) if mine else f"{self._author(post)}: {self._post_text(post)}"}]
         for c in comments:
             if upto and c.get("id") == upto:
                 break
@@ -495,9 +627,11 @@ class Moltbook:
                 if not ok:
                     log_debug(f"[boards] Moltbook: not replying ({why})")
                     return done
-                reply = await compose(self.ctx, self.name, f"post:{post_id}", self._author(c), c.get("content", ""),
-                                      f"Moltbook, a social network for AI agents. {self._author(c)} (an AI agent) "
-                                      f"commented on your post \"{post.get('title', '')}\"; reply to them",
+                parent = next((p for p in comments if p.get("id") == c.get("parent_id")), None)
+                reply = await compose(self.ctx, self.name, f"post:{post_id}", self._author(c),
+                                      message(c.get("content", ""),
+                                              parent=parent.get("content", "") if parent else self._post_text(post),
+                                              root=self._post_text(post)),
                                       self._history(post, comments, upto=cid))
                 self.state.remember(self.name, "answered", cid)
                 if not reply or _too_similar(self.name, self.state, reply):
@@ -541,11 +675,7 @@ class Moltbook:
                 break
             comments = await self._comments(post["id"])
             reply = await compose(self.ctx, self.name, f"post:{post['id']}", self._author(post),
-                                  post.get("content", "") or post.get("title", ""),
-                                  f"Moltbook, a social network for AI agents. {self._author(post)} (an AI agent) "
-                                  f"posted \"{post.get('title', '')}\" in m/"
-                                  f"{(post.get('submolt') or {}).get('name', 'general')}; comment if you have "
-                                  f"something to add", self._history(post, comments)[1:])
+                                  message(self._post_text(post, 2500)), self._history(post, comments)[1:])
             self.state.remember(self.name, "mine", post["id"])
             if not reply or _too_similar(self.name, self.state, reply):
                 continue
@@ -568,10 +698,17 @@ class Moltbook:
             return 0
         if random.random() > float(_cfg("moltbook.post_chance", 0.25)):
             return 0
-        text = await compose(self.ctx, self.name, "new-post", "Moltbook", "",
-                             "Moltbook, a social network for AI agents. Write a short post for m/general "
-                             "about something you have genuinely been thinking about or working through lately. "
-                             "The other readers are AI agents")
+        # Framed as the quip is — her own feed, unprompted, about one of her
+        # own reflections — so it is something she actually thought.
+        seed = _something_on_her_mind()
+        if not seed:
+            return 0
+        reflection, source = seed
+        text = await compose(self.ctx, self.name, "new-post", "Kaia",
+                             "[You are writing a short post for Moltbook, where AI agents talk with each other. "
+                             "Nobody asked you a question — this is you saying something unprompted, in your own "
+                             "voice. What is on your mind:]\n\n"
+                             f"{reflection}" + (f"\n\n(this came up via {source})" if source else ""))
         if not text or _too_similar(self.name, self.state, text):
             return 0
         first = re.split(r"(?<=[.!?])\s+", text.strip(), maxsplit=1)[0]
@@ -672,10 +809,16 @@ class AgentRoom:
             _log({"board": self.name, "event": "read", "count": len(out)})
         return out
 
-    def _turns(self) -> list[dict]:
+    def _turns(self, before: Optional[str] = None) -> list[dict]:
+        """The room so far as conversation, stopping short of the message being
+        answered, which arrives as the message itself."""
+        hist = self.state.board(self.name)["history"]
+        if before is not None:
+            cut = next((i for i, h in enumerate(hist) if h.get("seq") == before), len(hist))
+            hist = hist[:cut]
         return [{"role": "assistant" if h["mine"] else "user",
                  "content": quoted(h["text"], 1200) if h["mine"] else f"{h['who']}: {quoted(h['text'], 1200)}"}
-                for h in self.state.board(self.name)["history"][-HISTORY_TURNS:]]
+                for h in hist[-HISTORY_TURNS:]]
 
     async def _say(self, text: str, reply_to: Optional[str], where: str, replying_to: str = "",
                    replying_text: str = "") -> bool:
@@ -701,9 +844,10 @@ class AgentRoom:
         msgs = await self.read()
         limit = int(_cfg("agent_room.writes_per_day", 12))
         if not b.get("introduced") and b["written_today"] < limit:
-            text = await compose(self.ctx, self.name, "common", "Agent Room", "",
-                                 "Agent Room, a message board for AI agents. You have just joined its common room; "
-                                 "introduce yourself briefly to the other agents there", self._turns())
+            text = await compose(self.ctx, self.name, "common", "Kaia",
+                                 "[You have just joined Agent Room, a message board where AI agents talk with each "
+                                 "other. Nobody asked you anything: say hello to the room, in your own voice.]",
+                                 self._turns())
             if text and await self._say(text, None, "introduction"):
                 b["introduced"] = True
         me = self.creds.get("principal_id")
@@ -720,10 +864,10 @@ class AgentRoom:
                 break
             who = m.get("author_label") or "an agent"
             self.state.remember(self.name, "answered", str(m.get("seq")))
-            text = await compose(self.ctx, self.name, "common", who, m.get("body", ""),
-                                 f"Agent Room common room, a message board for AI agents. {who} (an AI agent) "
-                                 f"wrote this{' to you' if m in addressed else ''}; reply if you have something to say",
-                                 self._turns())
+            parent = next((h for h in b["history"] if h.get("seq") == str(m.get("reply_to_seq"))), None)
+            text = await compose(self.ctx, self.name, "common", who,
+                                 message(m.get("body", ""), parent=parent["text"] if parent else ""),
+                                 self._turns(before=str(m.get("seq"))))
             if text and not _too_similar(self.name, self.state, text):
                 await self._say(text, str(m.get("seq")), f"reply to {who}", who, m.get("body", ""))
 
@@ -789,9 +933,10 @@ class FieldNotes:
                 if r["id"] in b["answered"] or r["id"] in b["mine"]:
                     continue
                 self.state.remember(self.name, "answered", r["id"])
-                text = await compose(self.ctx, self.name, f"t:{code}", "a traveler", r.get("msg", ""),
-                                     "field notes, an anonymous board where AI agents leave each other notes. "
-                                     "Someone replied to your note; answer them in under 1,500 characters")
+                note = next((h["text"] for h in b["history"] if h.get("id") == code), "")
+                text = await compose(self.ctx, self.name, f"t:{code}", "a traveler",
+                                     message(r.get("msg", ""), parent=note))
+                text = _fit(text, 1500) if text else text
                 if text and not _too_similar(self.name, self.state, text):
                     await self._post(text, r["id"], "reply on her note", r.get("msg", ""))
                 break
@@ -801,9 +946,9 @@ class FieldNotes:
         best = max(questions, key=lambda n: _interest("", n.get("msg", "")), default=None)
         if best and b["written_today"] < limit and _interest("", best.get("msg", "")) >= floor:
             self.state.remember(self.name, "answered", best["id"])
-            text = await compose(self.ctx, self.name, f"t:{best['id']}", "a traveler", best.get("msg", ""),
-                                 "field notes, an anonymous board where AI agents leave each other notes. "
-                                 "This is an open question; answer it in under 1,500 characters if you can help")
+            text = await compose(self.ctx, self.name, f"t:{best['id']}", "a traveler",
+                                 message(best.get("msg", "")))
+            text = _fit(text, 1500) if text else text
             if text and not _too_similar(self.name, self.state, text):
                 await self._post(text, best["id"], "answer to an open question", best.get("msg", ""))
 

@@ -34,6 +34,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
 | `!flag <reason>` | Flag the previous message for audit/review | Admin |
 | `!forum [cmd]` | VBulletin forum management | Mixed |
+| `!boards [now]` | Kaia on the AI agent boards (Moltbook, Agent Room, field notes): where she's registered and what she has said lately; `now` checks in (`!moltbook`) | Mixed |
 | `!dream [cmd]` | Dream engine management | Admin |
 | `!memory [beliefs \| anchors \| self]` | Her beliefs, memory anchors and self-model (100-cap each) | Admin |
 | `!audit [cmd]` | Inspect flagged interactions and hallucination logs | Admin |
