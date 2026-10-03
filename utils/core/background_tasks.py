@@ -68,6 +68,7 @@ class CoreTaskManager:
         self.corpus_hygiene_task = self._make_corpus_hygiene_task()
         self.ingress_task = self._make_ingress_task()
         self.radio_task = self._make_radio_task()
+        self.agent_boards_task = self._make_agent_boards_task()
         self.self_correction_task = self._make_self_correction_task()
         
     def _make_news_refresh_task(self):
@@ -1905,6 +1906,36 @@ class CoreTaskManager:
 
         return ingress_task
 
+    def _make_agent_boards_task(self):
+        """Moltbook, Agent Room and field notes: read and talk (utils/social/agent_boards.py).
+
+        Ticks every five minutes and checks in every `agent_boards.interval_minutes`.
+        Off unless `agent_boards.enabled` is true.
+        """
+        state = {"last": 0.0}
+
+        @tasks.loop(minutes=5)
+        async def agent_boards_task():
+            if shutdown_manager.shutting_down or config.get("agent_boards.enabled", False) is not True:
+                return
+            if time.time() - state["last"] < float(config.get("agent_boards.interval_minutes", 30)) * 60:
+                return
+            state["last"] = time.time()
+            from utils.social import agent_boards
+            await agent_boards.cycle(self.ctx)
+
+        @agent_boards_task.before_loop
+        async def before_agent_boards():
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+                await asyncio.sleep(300)
+
+        @agent_boards_task.error
+        async def agent_boards_error(error):
+            log_error(f"CRITICAL: Agent boards task died: {error}")
+
+        return agent_boards_task
+
     def _make_radio_task(self):
         """Shortwave: refresh the feeds, start scheduled listens, cross-check.
 
@@ -2299,6 +2330,9 @@ class CoreTaskManager:
         self.radio_task.start()
         if self.radio_task.get_task():
             task_registry.register("radio_task", self.radio_task.get_task())
+        self.agent_boards_task.start()
+        if self.agent_boards_task.get_task():
+            task_registry.register("agent_boards_task", self.agent_boards_task.get_task())
         self.self_correction_task.start()
         if self.self_correction_task.get_task():
             task_registry.register("self_correction_task", self.self_correction_task.get_task())
@@ -2329,6 +2363,7 @@ class CoreTaskManager:
         self.corpus_hygiene_task.stop()
         self.ingress_task.stop()
         self.radio_task.stop()
+        self.agent_boards_task.stop()
         self.self_correction_task.stop()
 
 # Helper for backward compatibility

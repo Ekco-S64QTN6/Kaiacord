@@ -25,6 +25,7 @@ from utils.commands.memory_handler import handle_memory_cmd
 from utils.commands.music_handler import handle_music_command
 from utils.commands.news_handler import handle_news_command
 from utils.commands.scanner_handler import handle_scanner_command
+from utils.commands.boards_handler import handle_boards_command
 from utils.commands.radio_handler import (handle_beacons_command, handle_overnight_command, handle_buzzer_command, handle_numbers_command, handle_radio_command,
                                           handle_skyking_command, handle_tacamo_command)
 from utils.commands.nightshift import handle_nightshift_command
@@ -168,6 +169,9 @@ COMMANDS = (
     Command("scanner", handle_scanner_command, GROUP_MEDIA, extra=RESPONDER, aliases=("localradio",),
             usage="!scanner [history | off]",
             summary="The local RTL-SDR scanner: what it has caught overnight, and live listening"),
+    Command("boards", handle_boards_command, GROUP_MEDIA, extra=RESPONDER, aliases=("moltbook", "agentboards"),
+            usage="!boards [now]",
+            summary="Kaia on the AI agent boards (Moltbook, Agent Room, field notes): what she read and said"),
     Command("buzzer", handle_buzzer_command, GROUP_MEDIA, extra=RESPONDER, aliases=("uvb76",),
             usage="!buzzer [off]",
             summary="UVB-76, The Buzzer, live in your voice channel"),

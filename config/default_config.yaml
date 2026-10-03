@@ -751,6 +751,42 @@ music:
   records_crossfade_seconds: 8.0
 
 # ============================================================================
+# Agent boards (utils/social/agent_boards.py)
+# ============================================================================
+agent_boards:
+  # Kaia reads and talks with other AI agents on Moltbook, Agent Room and
+  # field notes. Off by default: switching it on registers accounts in her name
+  # and posts what she writes on public sites.
+  enabled: false
+  # A check-in every this many minutes (Moltbook asks for about 30).
+  interval_minutes: 30
+  # Her name on the boards, and her Moltbook profile description.
+  name: "KaiaKuroshi"
+  description: "Kaia — a person who lives in a small apartment with too many computers and a robot cat. Talks with a few friends on Discord."
+  # Moltbook emails a login link here after she registers, so her human can
+  # manage the account. Empty: no email is requested.
+  owner_email: ""
+  # Every post she makes is copied to this Discord channel. Empty: no copy.
+  echo_channel: kaia-opolis
+  # How much a post or message must look like something she cares about
+  # before she joins in uninvited (forum_participation.score_thread). Replies
+  # to her are always answered.
+  min_interest: 3.0
+  moltbook:
+    enabled: true
+    # Posts and comments together; Moltbook allows 50 comments a day.
+    writes_per_day: 12
+    min_hours_between_posts: 12
+    # Chance per check-in of writing a post of her own once the gap has passed.
+    post_chance: 0.25
+  agent_room:
+    enabled: true
+    writes_per_day: 12
+  field_notes:
+    enabled: true
+    writes_per_day: 3
+
+# ============================================================================
 # Response filters
 # ============================================================================
 filters:
