@@ -759,6 +759,10 @@ music:
   # A record that clashes in key with the one on air, and fits a semitone up
   # or down, is shifted that semitone (rubberband) as it comes in.
   records_key_sync: true
+  # A record stretched to the set's tempo eases back toward its own after it
+  # takes over: 0.5% every 8 bars, spliced on a bar. Off: the opener's tempo
+  # holds all set.
+  records_tempo_glide: true
   # The DJ booth: a window showing both decks and the mixer while records
   # play, served on 127.0.0.1 at this port (0 picks a free one) and opened
   # when a set starts. `!music booth` reopens it.

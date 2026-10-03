@@ -550,6 +550,12 @@ BOTH = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
 HANDOVER_S = 2.0
 #: Kaia finishing a mix that was started by hand: the outgoing's fade, in bars.
 FINISH_BARS = 8
+#: The tempo glide: a record stretched to the set's tempo is moved back toward
+#: its own by this much of its tempo at a time, every GLIDE_BARS bars, starting
+#: GLIDE_AFTER_BARS after it took over.
+GLIDE_STEP = 0.005
+GLIDE_BARS = 8
+GLIDE_AFTER_BARS = 16
 
 
 def mix_frames(out_parts, in_parts, g, uo=IDENTITY, ui=IDENTITY, master: float = 1.0) -> bytes:
@@ -691,6 +697,13 @@ class CrossfadeSource(_AudioSource):
         # for them (0–1, from her mood), and what she is doing right now.
         self.rides = True
         self.key_sync = True                      # shift a clashing incoming a semitone to fit
+        # The tempo glide: the record on air respliced, a step nearer its own
+        # tempo, onto a fresh decoder (`_splice`: deck, frame it starts on,
+        # frame it takes over on), so every deck keeps one constant stretch.
+        self.tempo_glide = True
+        self._splice: Optional[tuple] = None
+        self._gliding = False
+        self._glide_next = int(GLIDE_AFTER_BARS * 2 * FRAMES_PER_S)
         self.energy = 0.5
         self.gesture = ""
         self._lock = threading.RLock()
@@ -974,6 +987,8 @@ class CrossfadeSource(_AudioSource):
     def _adopt_hand(self) -> None:
         """The deck played by hand is the record on air now."""
         old, hand = self.current, self.hand
+        self._cancel_splice()
+        self._glide_next = self.frames_sent + int(GLIDE_AFTER_BARS * 2 * FRAMES_PER_S)
         self.current = hand
         self.hand, self.hand_next, self._hand_k, self._hand_on, self._hand_quiet = None, None, None, False, 0
         self.cue, self.by_hand = None, False
@@ -1208,6 +1223,14 @@ class CrossfadeSource(_AudioSource):
         k = cur.played
         t0 = cur.at(k)
         out = cur.frame()
+        if self._splice is not None:
+            out, cur = self._splice_frame(cur, k, out)
+            t0 = cur.at(cur.played - 1)
+        elif (plan is None and self.tempo_glide and not self._gliding and not self._planning
+              and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
+              and cur.grid is not None and cur.grid.bar_known
+              and cur.remaining > int((self._mix_beats * 0.6 + 120) * FRAMES_PER_S)):
+            self._begin_glide(cur)
         if out is None and self.incoming is None:
             # Ended with nothing planned: silence while the next is found, or stop.
             if self._planning or self._picking or self._queued:
@@ -1261,6 +1284,84 @@ class CrossfadeSource(_AudioSource):
         self.frames_sent += 1
         return frame or SILENCE
 
+    # ── the tempo glide ─────────────────────────────────────────────
+
+    def _begin_glide(self, cur: Deck) -> None:
+        """Ready the record on air a step nearer its own tempo, to take over on
+        its next bar (off the voice thread)."""
+        from utils.audio.beatgrid import has_rubberband
+        if not has_rubberband():
+            self.tempo_glide = False
+            return
+        self._gliding = True
+
+        def run():
+            try:
+                self._ready_splice(cur)
+            except Exception as e:
+                log_debug(f"[records] tempo glide step not made: {e}")
+            finally:
+                self._gliding = False
+                bar = 4 * cur.grid.beat / cur.ratio
+                self._glide_next = self.frames_sent + int(GLIDE_BARS * bar * FRAMES_PER_S)
+        threading.Thread(target=run, daemon=True, name="kaia-records-glide").start()
+
+    def _ready_splice(self, cur: Deck) -> None:
+        ratio = cur.ratio + max(-GLIDE_STEP, min(GLIDE_STEP, 1.0 - cur.ratio))
+        if abs(ratio - 1.0) < 0.0015:
+            ratio = 1.0
+        when = cur.grid.next_bar(cur.at() + 2.0, cur.ratio)            # on-air seconds
+        own = when * cur.ratio                                          # the record's own seconds there
+        start = max(0.0, own - PREROLL_S)
+        at_cut = (when - cur.offset / cur.ratio) * RATE + cur.pad       # on-air samples
+        at_pre = at_cut - (own - start) / ratio * RATE
+        k_cut = int(np.floor(at_cut / FRAME_SAMPLES))
+        k_pre = int(np.floor(at_pre / FRAME_SAMPLES))
+        new = Deck(cur.record, ratio, cur.end * cur.ratio, self._factory, gain=cur.gain,
+                   pad=int(round(at_pre - k_pre * FRAME_SAMPLES)), offset=start, semitones=cur.semitones)
+        deadline = time.time() + 1.0
+        while not new.ready() and time.time() < deadline:
+            time.sleep(0.02)
+        with self._lock:
+            if (cur is not self.current or self.plan is not None or self.hand is not None or self._planning
+                    or not new.ready() or k_pre <= cur.played + 1):
+                new.close()
+                return
+            new.grid, new.slot = cur.grid, cur.slot
+            self._splice = (new, k_pre, k_cut)
+
+    def _cancel_splice(self) -> None:
+        splice, self._splice = self._splice, None
+        if splice:
+            splice[0].close()
+
+    def _splice_frame(self, cur: Deck, k: int, out: Optional[bytes]) -> tuple:
+        """The frame of the record on air, with a glide step under way: the new
+        decoder runs in unheard from its start frame, and on its frame the two
+        are crossfaded over the 20 ms and the new one is the record on air."""
+        new, k_pre, k_cut = self._splice
+        if self.plan is not None or self.hand is not None or self._planning or out is None:
+            self._cancel_splice()
+            return out, cur
+        if k < k_pre:
+            return out, cur
+        nf = new.frame()
+        if nf is None:
+            self._cancel_splice()
+            return out, cur
+        if k < k_cut:
+            return out, cur
+        a = np.frombuffer(out, dtype=np.int16).astype(np.float32).reshape(-1, 2)
+        b = np.frombuffer(nf, dtype=np.int16).astype(np.float32).reshape(-1, 2)
+        w = np.linspace(0.0, 1.0, FRAME_SAMPLES, dtype=np.float32)[:, None]
+        mixed = np.clip(np.rint(a * (1 - w) + b * w), -32768, 32767).astype(np.int16).tobytes()
+        new._zi = cur._zi                         # the band filters carry on across the join
+        self._splice = None
+        self.current = new
+        cur.close()
+        log_debug(f"[records] tempo glide: {new.record.name} ×{cur.ratio:.4f} → ×{new.ratio:.4f}")
+        return mixed, new
+
     def _read_hand(self, cur: Deck, hand: Deck) -> bytes:
         """Both decks open, mixed by the booth's hands: the record on air (unless
         paused) and the deck played by hand, from its frame on."""
@@ -1296,6 +1397,8 @@ class CrossfadeSource(_AudioSource):
         return frame
 
     def _advance(self) -> None:
+        self._cancel_splice()
+        self._glide_next = self.frames_sent + int(GLIDE_AFTER_BARS * 2 * FRAMES_PER_S)
         if self.plan is not None and self.incoming is not None:
             self._journal_row({"status": "done", "kind": self.plan.kind, "to": self.incoming.record.name})
         old, self.current, self.incoming = self.current, self.incoming, None
@@ -1312,6 +1415,7 @@ class CrossfadeSource(_AudioSource):
         self._prefetch()
 
     def cleanup(self) -> None:
+        self._cancel_splice()
         for deck in (self.current, self.incoming, self.hand):
             if deck:
                 deck.close()
@@ -1584,6 +1688,7 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
         from utils.infrastructure.system.yaml_config import config
         session.source.rides = bool(config.get("music.records_kaia_hands", True))
         session.source.key_sync = bool(config.get("music.records_key_sync", True))
+        session.source.tempo_glide = bool(config.get("music.records_tempo_glide", True))
     except Exception as e:
         log_debug(f"[records] records_kaia_hands not read: {e}")
     settle("a records set")

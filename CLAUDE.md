@@ -583,6 +583,12 @@ a mix that sounded wrong:
 - **Key sync** (`library.key_sync`, `music.records_key_sync`): an incoming that clashes with the key
   on air (`Deck.key`, after any earlier sync) and fits a semitone up or down is shifted by rubberband's
   `pitch`, and stays shifted. Rubberband only — atempo cannot move a key.
+- **The set's tempo moves** (`music.records_tempo_glide`): 16 bars after a record takes over, it eases
+  back toward its own tempo, `GLIDE_STEP` (0.5%) every 8 bars. Not a time-varying stretch: the record
+  on air is respliced on a bar onto a fresh decoder at the next ratio (sample-aligned, run in unheard
+  for a second, crossfaded over one 20 ms frame), so every `Deck` keeps one constant ratio and plans,
+  grids and the booth need no piecewise maths. A glide step never happens while a blend is planned or
+  being planned, or a deck is played by hand.
 - **Levels are LUFS** (`gain_db`: EBU R128 integrated, to `TARGET_LUFS`). A record is raised only as
   far as its true peak allows (+2 dB into the limiter) and lowered as far as needed — many masters peak
   over 0 dBTP, and capping cuts by peak made the spread worse than mean volume did.

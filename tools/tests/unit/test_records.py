@@ -566,3 +566,56 @@ def test_a_clashing_incoming_is_key_synced_in_the_blend(monkeypatch):
     src.skip()
     assert wait_until(lambda: src.plan is not None)
     assert src.incoming.semitones == -1 and src.incoming.key == "8A" and seen["/music/two.mp3"] == -1
+
+
+def _glider(ratio=0.95):
+    from utils.audio import beatgrid
+    first = Deck(rec("one", 120, "8A"), ratio, 600.0, tone(1000, 200.0))
+    first.grid = STEADY
+    src = CrossfadeSource(first, lambda d: None, stream_factory=tone(1000, 200.0),
+                          grid_at=lambda *a: STEADY, mix_beats=16)
+    src._glide_next = 0
+    wait_for(first, 100)
+    return src
+
+
+def test_the_tempo_glides_back_toward_the_records_own_on_a_bar(monkeypatch):
+    from utils.audio import beatgrid
+    monkeypatch.setattr(beatgrid, "has_rubberband", lambda: True)
+    src = _glider(0.95)
+    old = src.current
+    deadline = time.time() + 5
+    while src._splice is None and time.time() < deadline:
+        src.read()
+        time.sleep(0.002)
+    assert src._splice is not None
+    new, k_pre, k_cut = src._splice
+    own_old = old.at(k_cut) * old.ratio                         # the record's own seconds at the join
+    while src.current is old:
+        src.read()
+    assert src.current is new and new.ratio == pytest.approx(0.955)
+    own_new = new.at(k_cut - k_pre) * new.ratio
+    assert own_new == pytest.approx(own_old, abs=1.5 / RATE)    # no jump in the record
+    when = (k_cut * R.FRAME_SAMPLES + 0) / RATE                 # the join's frame starts on/just before a bar
+    bar = 4 * STEADY.beat / old.ratio
+    assert (own_old / old.ratio) % bar == pytest.approx(0.0, abs=0.02) or (own_old / old.ratio) % bar > bar - 0.02
+
+
+def test_the_glide_waits_for_a_blend_and_stops_at_its_own_tempo(monkeypatch):
+    from utils.audio import beatgrid
+    monkeypatch.setattr(beatgrid, "has_rubberband", lambda: True)
+    src = _glider(0.998)
+    src._planning = True                                        # a blend being planned: no glide
+    for _ in range(200):
+        src.read()
+    assert src._splice is None and src.current.ratio == 0.998
+    src._planning = False
+    deadline = time.time() + 5
+    while src.current.ratio != 1.0 and time.time() < deadline:
+        src.read()
+        time.sleep(0.002)
+    assert src.current.ratio == 1.0                             # within a step: straight to its own
+    src._glide_next = 0
+    for _ in range(100):
+        src.read()
+    assert src._splice is None                                  # nothing left to glide
