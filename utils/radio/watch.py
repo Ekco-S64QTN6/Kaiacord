@@ -254,7 +254,9 @@ def numbers_signal(wav: Path) -> tuple[str, dict]:
 async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: datetime) -> Optional[dict]:
     """One recording → a log entry, or None if it was noise."""
     seconds = await asyncio.to_thread(_seconds, wav)
+    why = job.setdefault("dropped", {})
     if job["kind"] == "hfgcs" and seconds < MIN_TRANSMISSION_S:
+        why["under 25 s"] = why.get("under 25 s", 0) + 1
         wav.unlink(missing_ok=True)
         return None
     entry_id = f"{started:%Y%m%dT%H%M%S}-{job['station'].lower()}-{secrets.token_hex(2)}"
@@ -278,6 +280,10 @@ async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: dateti
         # Without a transcript nothing separates an EAM from a burst of noise,
         # and every squelch opening would be posted.
         if not transcript or not looks_like_eam(transcript):
+            key = "no words" if not transcript else "not an EAM"
+            why[key] = why.get(key, 0) + 1
+            if transcript and len(transcript) > len(job.get("sample", "")):
+                job["sample"] = transcript
             wav.unlink(missing_ok=True)          # a squelch opening on voice that is not an EAM
             return None
         if transcript:
@@ -385,6 +391,11 @@ async def run_job(job: dict, poster=None) -> list[dict]:
         transcribe.release_if_idle()
         if entries:
             log_success(f"[radio] kept {len(entries)} of {len(wavs)} from {job['station']}")
+        elif wavs and job.get("dropped"):
+            reasons = ", ".join(f"{n} {k}" for k, n in job["dropped"].items())
+            sample = job.get("sample", "")
+            log_info(f"[radio] {job['station']}: kept none of {len(wavs)} ({reasons})"
+                     + (f"; longest heard: {sample[:120]!r}" if sample else ""))
         return entries
 
 
