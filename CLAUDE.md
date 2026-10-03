@@ -572,7 +572,8 @@ a mix that sounded wrong:
 **The DJ booth** (`dj_dashboard.py`, `assets/dj/index.html`) shows only the mixer's own state —
 the decks `CrossfadeSource` holds, their grids, the plan, the band gains applied this frame and the
 levels produced — streamed at 20 Hz from 127.0.0.1, with waveforms computed by ffmpeg off the voice
-thread. Its one control is the real skip. Check a change by rendering it headless against a real
+thread. Its controls are real: `records.Controls` (trim, three-band EQ, faders, crossfader, master)
+multiplies the automix, `paused` holds a deck in place, and a crate click is `RecordsSession.request`. Check a change by rendering it headless against a real
 session (Playwright screenshot), not by reading the HTML.
 
 Records, a live set and the radio share one voice connection: whichever starts stops the others

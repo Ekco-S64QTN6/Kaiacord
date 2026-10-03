@@ -97,3 +97,52 @@ def test_decks_alternate_like_a_pair_of_cdjs(session):
     while session.source.incoming is None and time.time() < deadline:
         time.sleep(0.01)
     assert session.source.current.slot == 1 and session.source.incoming.slot == 2
+
+
+def test_the_mixer_obeys_the_booth(session):
+    """A channel fader pulled down silences that deck; the crossfader all the
+    way to one side silences the other; the hand-back restores the automix."""
+    src = session.source
+    for _ in range(5):
+        src.read()
+    assert src.levels["master"] > -40
+    src.controls.set(1, "fader", 0.0)
+    frames = [src.read() for _ in range(4)]
+    assert max(abs(int(x)) for x in np.frombuffer(frames[-1], np.int16)) == 0
+    src.controls.reset()
+    src.controls.set(None, "xfader", 1.0)                 # all channel 2: deck 1 is out
+    assert np.frombuffer(src.read(), np.int16).max() == 0
+    src.controls.set(None, "xfader", 0.5)                 # both full in the middle
+    assert np.frombuffer(src.read(), np.int16).max() == pytest.approx(1000, abs=2)
+    src.controls.set(1, "low", 0.0)                       # a constant tone is all low band
+    out = np.frombuffer(src.read(), np.int16)
+    assert np.abs(out).max() < 600
+
+
+def test_a_paused_deck_holds_its_place(session):
+    src = session.source
+    for _ in range(10):
+        src.read()
+    at = src.current.played
+    src.paused.add(1)
+    assert all(f == R.SILENCE for f in (src.read() for _ in range(5)))
+    assert src.current.played == at
+    src.paused.discard(1)
+    src.read()
+    assert src.current.played == at + 1
+
+
+def test_a_record_asked_for_at_the_booth_comes_next(session, monkeypatch):
+    other = rec("asked")
+    session.crate = [other]
+    monkeypatch.setattr(R, "probe_seconds", lambda p: 200.0)
+    monkeypatch.setattr(R, "gain_db", lambda p: 0.0)
+    from utils.audio import beatgrid
+    monkeypatch.setattr(beatgrid, "grid_for", lambda p, b: Grid(120.0, 0.0, 8.0))
+    session.request(other)
+    deadline = time.time() + 3
+    while (session.source._queued is None or session.source._queued.record.title != "asked") and time.time() < deadline:
+        time.sleep(0.01)
+    assert session.source._queued.record.title == "asked" and not session.requests
+    listing = D.crate(session)
+    assert listing["count"] == 1 and listing["genres"]["House"][0]["title"] == "asked"

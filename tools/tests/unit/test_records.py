@@ -248,7 +248,7 @@ def test_the_next_record_is_one_with_a_steady_opening_where_one_fits(monkeypatch
     from utils.audio import beatgrid
     crate = [rec("now", 120, "8A"), rec("loose", 120, "8A"), rec("steady", 120, "8A")]
     session = R.RecordsSession.__new__(R.RecordsSession)
-    session.crate, session.played, session._rng = crate, [crate[0].path], random.Random(1)
+    session.crate, session.played, session._rng, session.requests = crate, [crate[0].path], random.Random(1), []
     monkeypatch.setattr(R, "probe_seconds", lambda path: 200.0)
     monkeypatch.setattr(R, "gain_db", lambda path: 0.0)
     monkeypatch.setattr(beatgrid, "grid_for", lambda path, bpm: STEADY if "steady" in path else LOOSE)

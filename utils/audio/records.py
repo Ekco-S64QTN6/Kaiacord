@@ -121,9 +121,16 @@ PREROLL_S = 1.0
 LATE_S = 0.06
 
 
+#: The mixer's three bands: LOW under this, HIGH over MID_TOP_HZ, MID between.
+#: The automix swaps the bass at LOW_TOP_HZ; the booth's EQ uses all three.
+LOW_TOP_HZ = 180
+MID_TOP_HZ = 2500
+
+
 def _bands():
     from scipy.signal import butter
-    return butter(2, 180, btype="low", fs=RATE, output="sos")
+    return (butter(2, LOW_TOP_HZ, btype="low", fs=RATE, output="sos"),
+            butter(2, MID_TOP_HZ, btype="high", fs=RATE, output="sos"))
 
 
 _SOS = None
@@ -207,17 +214,21 @@ class Deck:
         return self.at(self.total_frames)
 
     def split(self, frame: bytes) -> tuple:
-        """(low, high) of a frame as float stereo, the low band filtered with
-        carried state so consecutive frames join without a seam."""
+        """(low, mid, high) of a frame as float stereo, filtered with carried
+        state so consecutive frames join without a seam. The three sum back to
+        the frame exactly."""
         global _SOS
-        from scipy.signal import sosfilt, sosfilt_zi
+        from scipy.signal import sosfilt
         if _SOS is None:
             _SOS = _bands()
+        lo_sos, hi_sos = _SOS
         x = np.frombuffer(frame, dtype=np.int16).astype(np.float32).reshape(-1, 2)
         if self._zi is None:
-            self._zi = np.zeros((_SOS.shape[0], 2, 2))
-        low, self._zi = sosfilt(_SOS, x, axis=0, zi=self._zi)
-        return low, x - low
+            self._zi = (np.zeros((lo_sos.shape[0], 2, 2)), np.zeros((hi_sos.shape[0], 2, 2)))
+        low, zl = sosfilt(lo_sos, x, axis=0, zi=self._zi[0])
+        high, zh = sosfilt(hi_sos, x, axis=0, zi=self._zi[1])
+        self._zi = (zl, zh)
+        return low, x - low - high, high
 
     def close(self) -> None:
         self._closed = True
@@ -322,14 +333,76 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
     return 1.0 - bass, np.cos(fall * np.pi / 2), bass, np.sin(rise * np.pi / 2)
 
 
-def mix_frames(out_parts, in_parts, g) -> bytes:
-    gol, goh, gil, gih = (x[:, None] for x in g)
+IDENTITY = (1.0, 1.0, 1.0, 1.0)
+
+
+def mix_frames(out_parts, in_parts, g, uo=IDENTITY, ui=IDENTITY, master: float = 1.0) -> bytes:
+    """The two decks summed: each band times the automix gain (`g`: the low
+    and the rest, per sample) times the hands on the mixer (`uo`/`ui`: low,
+    mid, high, channel gain)."""
+    gol, goh, gil, gih = (np.asarray(x, dtype=np.float32).reshape(-1, 1) for x in g)
     y = np.zeros((FRAME_SAMPLES, 2), dtype=np.float32)
     if out_parts is not None:
-        y += out_parts[0] * gol + out_parts[1] * goh
+        lo, mi, hi = out_parts
+        y += (lo * (gol * uo[0]) + mi * (goh * uo[1]) + hi * (goh * uo[2])) * uo[3]
     if in_parts is not None:
-        y += in_parts[0] * gil + in_parts[1] * gih
+        lo, mi, hi = in_parts
+        y += (lo * (gil * ui[0]) + mi * (gih * ui[1]) + hi * (gih * ui[2])) * ui[3]
+    if master != 1.0:
+        y *= master
     return np.clip(np.rint(y), -32768, 32767).astype(np.int16).tobytes()
+
+
+class Controls:
+    """The mixer as someone at the booth has set it, on top of the automix:
+    per channel TRIM (dB), HI / MID / LOW (0 kills, 1 is flat, up to 1.5),
+    the channel fader (0–1); the crossfader (None until touched, then 0 = all
+    channel 1, 1 = all channel 2, both full in the middle); MASTER (0–1.5).
+    Kaia's automix still runs underneath: the two multiply."""
+
+    LIMITS = {"trim": (-12.0, 12.0), "high": (0.0, 1.5), "mid": (0.0, 1.5), "low": (0.0, 1.5),
+              "fader": (0.0, 1.0)}
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self) -> None:
+        self.channels = {1: self._flat(), 2: self._flat()}
+        self.xfader: Optional[float] = None
+        self.master = 1.0
+
+    @staticmethod
+    def _flat() -> dict:
+        return {"trim": 0.0, "high": 1.0, "mid": 1.0, "low": 1.0, "fader": 1.0}
+
+    def set(self, slot: Optional[int], name: str, value: float) -> bool:
+        if name == "xfader":
+            self.xfader = None if value is None else min(1.0, max(0.0, float(value)))
+            return True
+        if name == "master":
+            self.master = min(1.5, max(0.0, float(value)))
+            return True
+        if slot in self.channels and name in self.LIMITS:
+            lo, hi = self.LIMITS[name]
+            self.channels[slot][name] = min(hi, max(lo, float(value)))
+            return True
+        return False
+
+    def channel(self, slot: int) -> tuple:
+        """(low, mid, high, gain) multipliers for one channel."""
+        c = self.channels.get(slot) or self._flat()
+        gain = c["fader"] * 10 ** (c["trim"] / 20)
+        if self.xfader is not None:
+            gain *= min(1.0, 2 * (1 - self.xfader)) if slot == 1 else min(1.0, 2 * self.xfader)
+        return (c["low"], c["mid"], c["high"], gain)
+
+    def flat(self) -> bool:
+        return (self.xfader is None and self.master == 1.0
+                and all(c == self._flat() for c in self.channels.values()))
+
+    def state(self) -> dict:
+        return {"channels": {str(k): dict(v) for k, v in self.channels.items()},
+                "xfader": self.xfader, "master": self.master}
 
 
 class CrossfadeSource(_AudioSource):
@@ -366,6 +439,8 @@ class CrossfadeSource(_AudioSource):
         self.applied = (1.0, 1.0, 0.0, 0.0)
         self.history: list[dict] = []
         self.planning_mode: Optional[str] = None
+        self.controls = Controls()
+        self.paused: set = set()                  # deck slots someone paused at the booth
         self._prefetch()
 
     def is_opus(self) -> bool:
@@ -511,6 +586,10 @@ class CrossfadeSource(_AudioSource):
         plan = self.plan
         if plan is None and not self._planning and cur.remaining <= int((self._mix_beats * 0.6 + 25) * FRAMES_PER_S):
             self._begin_planning("end")
+        if cur.slot in self.paused:
+            self.frames_sent += 1
+            self.levels["a"] = self.levels["master"] = -90.0
+            return SILENCE
         k = cur.played
         t0 = cur.at(k)
         out = cur.frame()
@@ -525,10 +604,17 @@ class CrossfadeSource(_AudioSource):
             self.current = None
             return b""
         inc = None
-        if self.incoming is not None and self._start_frame is not None and k >= self._start_frame:
+        if (self.incoming is not None and self._start_frame is not None and k >= self._start_frame
+                and self.incoming.slot not in self.paused):
             inc = self.incoming.frame() or SILENCE
-        if plan is None:
+        hands = self.controls
+        if plan is None and hands.flat():
             frame = out
+            self.applied = (1.0, 1.0, 0.0, 0.0)
+            self.levels["b"] = -90.0
+        elif plan is None:
+            frame = mix_frames(cur.split(out) if out is not None else None, None, (1.0, 1.0, 0.0, 0.0),
+                               hands.channel(cur.slot), IDENTITY, hands.master)
             self.applied = (1.0, 1.0, 0.0, 0.0)
             self.levels["b"] = -90.0
         else:
@@ -536,7 +622,8 @@ class CrossfadeSource(_AudioSource):
             g = gains(plan, times)
             out_parts = cur.split(out) if out is not None else None
             in_parts = self.incoming.split(inc) if inc is not None else None
-            frame = mix_frames(out_parts, in_parts, g)
+            frame = mix_frames(out_parts, in_parts, g, hands.channel(cur.slot),
+                               hands.channel(self.incoming.slot), hands.master)
             self.applied = tuple(round(float(x[-1]), 3) for x in g)
             self.levels["b"] = self._db(inc)
             if out is None or t0 + FRAME_MS / 1000 >= plan.done:
@@ -598,6 +685,7 @@ class RecordsSession:
         self._closing = False
         self._task: Optional[asyncio.Task] = None
         self._rng = random.Random()
+        self.requests: list[str] = []             # paths asked for at the booth, in order
 
     @property
     def guild_id(self) -> int:
@@ -615,8 +703,46 @@ class RecordsSession:
     #: beat steady enough to blend into, before settling for a cut.
     STEADY_TRIES = 3
 
+    def _prepare(self, rec: library.Record) -> Optional[Next]:
+        """A record made ready to come next, whatever its beat: the person
+        asked for it."""
+        from utils.audio import beatgrid
+        seconds = probe_seconds(rec.path)
+        if not seconds or seconds < MIN_RECORD_S:
+            return None
+        return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm))
+
+    def request(self, rec: library.Record) -> None:
+        """Play `rec` next. If nothing is mid-transition it replaces the record
+        lined up now; otherwise it comes after the one already coming in."""
+        if rec.path not in self.requests:
+            self.requests.append(rec.path)
+        log_action(f"[records] {rec.name} requested from the booth")
+        src = self.source
+        if src is None or src.plan is not None or src._planning:
+            return
+
+        def run():
+            nxt = self._prepare(rec)
+            if nxt is None:
+                log_warning(f"[records] {rec.name} could not be read; not queued")
+                if rec.path in self.requests:
+                    self.requests.remove(rec.path)
+                return
+            if src.plan is None and not src._planning and rec.path in self.requests:
+                src._queued = nxt
+                src._exhausted = False
+                self.requests.remove(rec.path)
+        threading.Thread(target=run, daemon=True, name="kaia-records-request").start()
+
     def _choose(self, deck: Deck) -> Optional[Next]:
         from utils.audio import beatgrid
+        while self.requests:
+            path = self.requests.pop(0)
+            rec = next((r for r in self.crate if r.path == path), None)
+            nxt = self._prepare(rec) if rec else None
+            if nxt:
+                return nxt
         passed_over: list[str] = []
         fallback: Optional[Next] = None
         rec = library.next_record(deck.record, self.crate, self.played, self._rng)

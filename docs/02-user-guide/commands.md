@@ -223,8 +223,10 @@ playing and the two blend over sixteen beats (`music.records_mix_beats`) with th
 halfway; where either record's beat isn't steady enough to lay over the other — rock, breakbeat, a
 beatless intro — she cuts to it cleanly on the bar instead. `!music skip` brings the next one in at
 the next bar it can land on. While records play, a DJ booth window opens on the bot's screen —
-both decks and the mixer, live, with a skip button (`!music booth` reopens it; it is served on
-`127.0.0.1:47431`, `music.dj_dashboard_port`). With no query she picks the first record from her mood.
+both decks and the mixer, live, and it works: TRIM, HI/MID/LOW, the channel faders, the crossfader
+and master are yours to turn (on top of her automix; KAIA MIX hands it back), PLAY pauses a deck,
+and the crate panel lists the library by genre — click a record and she plays it next (`!music booth`
+reopens it; it is served on `127.0.0.1:47431`, `music.dj_dashboard_port`). With no query she picks the first record from her mood.
 
 Genres: psytrance, techno, house, deephouse, trance, drumnbass, acid, breakbeat, dub, lofi,
 triphop, synthwave, berlinschool, ambient. Requests: darker, brighter, faster, slower, drop,

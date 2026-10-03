@@ -188,8 +188,28 @@ def snapshot(session) -> dict:
         "decks": decks, "channels": channels, "master": src.levels["master"], "mix": mix,
         "planning": src.planning_mode, "late": {"count": len(late), "worst_ms": round(max(late) * 1000) if late else 0},
         "history": src.history[-12:], "names": session.names[-30:], "mood": _mood(),
-        "mix_beats": src._mix_beats,
+        "mix_beats": src._mix_beats, "controls": src.controls.state(), "paused": sorted(src.paused),
+        "requests": [_name_of(session, p) for p in session.requests],
     }
+
+
+def _name_of(session, path: str) -> str:
+    rec = next((r for r in session.crate if r.path == path), None)
+    return rec.name if rec else os.path.basename(path)
+
+
+def crate(session) -> dict:
+    """The library by genre, for the booth's crate browser."""
+    if session is None:
+        return {"live": False, "genres": {}}
+    played = set(session.played)
+    asked = set(session.requests)
+    genres: dict[str, list] = {}
+    for r in sorted(session.crate, key=lambda r: ((r.genre or "~").lower(), (r.artist or "").lower(), r.title.lower())):
+        genres.setdefault(r.genre or "Unsorted", []).append({
+            "id": track_id(r.path), "title": r.title, "artist": r.artist, "bpm": r.bpm, "key": r.key,
+            "played": r.path in played, "requested": r.path in asked})
+    return {"live": True, "count": len(session.crate), "genres": genres}
 
 
 def _session():
@@ -222,6 +242,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
             elif path == "/state":
                 self._send(200, json.dumps(snapshot(_session())).encode(), "application/json")
+            elif path == "/crate":
+                self._send(200, json.dumps(crate(_session())).encode(), "application/json")
             elif path.startswith("/wave/"):
                 tid = path.rsplit("/", 1)[-1]
                 with _lock:
@@ -248,15 +270,48 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception as e:
             log_debug(f"[dj] {path}: {e}")
 
+    def _body(self) -> dict:
+        n = int(self.headers.get("Content-Length") or 0)
+        if not n or n > 4096:
+            return {}
+        try:
+            return json.loads(self.rfile.read(n) or b"{}")
+        except ValueError:
+            return {}
+
     def do_POST(self):
+        s = _session()
+        if s is None or s.source is None:
+            return self._send(409, b"", "text/plain")
+        body, src = self._body(), s.source
         if self.path == "/skip":
-            s = _session()
-            if s:
-                log_info("[records] skip from the DJ booth")
-                s.skip()
-            self._send(204 if s else 409, b"", "text/plain")
+            log_info("[records] skip from the DJ booth")
+            s.skip()
+            ok = True
+        elif self.path == "/control":
+            slot = body.get("slot")
+            ok = src.controls.set(int(slot) if slot not in (None, "") else None, str(body.get("name", "")),
+                                  body.get("value"))
+        elif self.path == "/reset":
+            src.controls.reset()
+            src.paused.clear()
+            log_info("[records] the booth handed the mix back to Kaia")
+            ok = True
+        elif self.path == "/pause":
+            slot = int(body.get("slot") or 0)
+            if slot in src.paused:
+                src.paused.discard(slot)
+            elif slot in (1, 2):
+                src.paused.add(slot)
+            ok = slot in (1, 2)
+        elif self.path == "/queue":
+            rec = next((r for r in s.crate if track_id(r.path) == body.get("id")), None)
+            if rec:
+                s.request(rec)
+            ok = rec is not None
         else:
-            self._send(404, b"", "text/plain")
+            return self._send(404, b"", "text/plain")
+        self._send(204 if ok else 400, b"", "text/plain")
 
 
 def url() -> str:
