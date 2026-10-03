@@ -71,3 +71,30 @@ def test_mood_shapes_generation_within_its_bounds():
     assert mood_temperature_delta(1.0) == 0.05 and mood_temperature_delta(0.0) == -0.05
     assert mood_temperature_delta(7) == 0.05
     assert mood_length_note(0.8) == "" and "say less" in mood_length_note(0.1)
+
+
+def test_a_busy_day_tires_her_without_emptying_her(monkeypatch, tmp_path):
+    """She sat at zero social energy for 52 of a busy day's 118 turns and took
+    16 hours of quiet to refill. Sixty turns across a day — bursts of six, a
+    minute apart — should tire her, not empty her; and from empty, a quiet
+    evening should bring her most of the way back."""
+    import datetime
+    clock = [datetime.datetime(2026, 10, 1, 9, 0).timestamp()]
+    arc = _arc(monkeypatch, tmp_path, clock)
+    arc._mood.social_energy = 0.8
+    arc._mood.arousal = 0.4
+    low = []
+    for _ in range(10):
+        for _ in range(6):
+            arc.update(0.5, 80)
+            low.append(arc._mood.social_energy)
+            clock[0] += 60
+        clock[0] += 75 * 60
+    assert min(low) > 0.3
+    assert arc._mood.arousal < 0.99               # toward 1.0, not onto it
+
+    arc._mood.social_energy = 0.0
+    arc._mood.last_updated = clock[0]
+    clock[0] += 5 * 3600
+    arc.get_prompt_injection()
+    assert arc._mood.social_energy > 0.5

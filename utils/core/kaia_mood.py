@@ -38,11 +38,13 @@ BASELINE_ENERGY = 0.8     # High social capacity
 # Decay half-life in seconds (6 hours)
 DECAY_HALF_LIFE = 6 * 3600
 
-# Social energy drain per interaction
-ENERGY_DRAIN_PER_INTERACTION = 0.03
-
-# Social energy regeneration rate (per hour of inactivity)
-ENERGY_REGEN_PER_HOUR = 0.08
+# Social energy drain per interaction, and regeneration per idle hour (both
+# scaled by the time of day). Set against her real turn timestamps: a day of
+# 120 turns, 76 of them with one person, takes her down to about 0.2 and back;
+# an ordinary day stays above 0.45. At 0.03 / 0.08 she sat empty for 52 of a
+# busy day's 118 turns and took 16 hours of quiet to refill at night.
+ENERGY_DRAIN_PER_INTERACTION = 0.02
+ENERGY_REGEN_PER_HOUR = 0.15
 
 # Maximum history entries to keep (prune oldest)
 MAX_HISTORY_ENTRIES = 500
@@ -209,7 +211,9 @@ class EmotionalArc:
             arousal_delta += 0.03  # Positive energy
         elif sentiment_score < 0.35:
             arousal_delta += 0.08  # Friction is energizing (stressful)
-        self._mood.arousal = max(0.0, min(1.0, self._mood.arousal + arousal_delta))
+        # Toward 1.0, not onto it: added flat, a busy channel pinned arousal at
+        # 1.0 for nine updates in ten and it stopped meaning anything.
+        self._mood.arousal = max(0.0, min(1.0, self._mood.arousal + arousal_delta * (1.0 - self._mood.arousal)))
 
         # Social energy drain — modulated by circadian energy
         # Sleepy/fatigued (low circadian energy) causes faster social drainage
