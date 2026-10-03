@@ -259,6 +259,26 @@ see a lock held outside its own process, so its watch fails and backs off for 15
 
 ---
 
+## 🟡 Music stutters or goes choppy
+
+**Cause**: discord.py's voice thread has to send a frame every 20 ms, and anything in the bot that
+holds Python's GIL for tens of milliseconds delays it. A records set logs each late frame
+(`[records] voice thread N ms between frames`) and sums them when it ends.
+
+**Checks**: read the set-end line. If it reports late frames, look at what the log shows at those
+times. To find the holder, sample with `py-spy record --gil --native` while a 20 ms ticker thread
+logs its lateness; vector search and gen-2 garbage collection were the two found so far.
+
+---
+
+## 🟡 The DJ booth doesn't open
+
+The booth is served on `127.0.0.1:47431` (`music.dj_dashboard_port`) and opened in Playwright's
+Chromium when a records set starts. If no window appears, open that address in any browser, or run
+`!music booth`. `music.dj_dashboard: false` turns the window off.
+
+---
+
 ## Getting Help
 
 1. **Check logs**: `tail -f logs/kaiacord.log`

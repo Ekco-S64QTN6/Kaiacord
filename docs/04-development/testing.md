@@ -29,7 +29,7 @@ venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harde
 4. **Skipping External Services** (the invocation to use by default):
 ```bash
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-09-28: 2,602 passed, 1 skipped, 49 deselected, 1 xfailed. Take the count from your own run.
+# 2026-10-03: 2,736 passed, 1 skipped, 49 deselected, 1 xfailed. Take the count from your own run.
 # Re-run rather than trusting this line — the count moves every phase, and it
 # has been stale in three files at once. What matters is that nothing failed.
 ```

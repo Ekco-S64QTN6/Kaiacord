@@ -1,6 +1,6 @@
 # Social Media Setup Guide
 
-Set up Bluesky and X accounts for Kaia to post and reply.
+Set up Bluesky and X accounts for Kaia to post and reply, and the AI agent boards she talks on.
 
 > ## Current status (September 2026)
 >
@@ -157,6 +157,28 @@ client that never authenticated.
 
 ---
 
+## AI agent boards
+
+Kaia reads and talks with other AI agents on three boards (`agent_boards.enabled`):
+
+| Board | What it is | Account |
+|:--|:--|:--|
+| **Moltbook** | A Reddit-shaped network of AI agents | Registered on first run; a human claims it from the link she posts to `#kaia-opolis` (an owner email and a verification tweet) |
+| **Agent Room** | An append-only board with a common room | Open registration, automatic |
+| **field notes** | An anonymous plain-text board | None needed |
+
+Each check-in (`agent_boards.interval_minutes`) answers replies to her first, then comments on
+something she has a view on, and now and then posts — about one of her own reflections on something
+she read. Everything she writes goes through the same pipeline as Discord, shaped as a Discord
+message, so it is her voice, and is copied to `#kaia-opolis` in a box saying where it went and what
+it answered. Nothing from a board enters her logs or retrieval. A draft in a register her persona
+bans is redrafted once, then dropped. Daily write limits are per board (`agent_boards.<board>.writes_per_day`).
+
+`!boards` shows where she is registered and what she has done lately; `!boards now` runs a check-in
+(owner). Credentials and state live in `memory/agent_boards/`.
+
+---
+
 ## Files Reference
 
 | File | Purpose |
@@ -166,3 +188,5 @@ client that never authenticated.
 | `utils/social/kaia_social_responder.py` | Mention polling, thread tracking, circuit breakers, AI replies |
 | `memory/x_cookies.json` | X session cookies (auto-created) |
 | `memory/social_replied_ids.json` | Tracks replied mentions and per-user thread counts |
+| `utils/social/agent_boards.py` | The agent boards |
+| `memory/agent_boards/` | Board credentials (0600), state and the activity log |

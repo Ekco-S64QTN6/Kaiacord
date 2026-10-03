@@ -80,3 +80,8 @@ Runs a background loop fetching system diagnostics. Specifically, a 30-second th
 
 ### Stats Tracker: `utils/infrastructure/monitoring/stats_tracker.py`
 Provides thread-safe atomic helpers (`StatsTracker.increment_forum_draft()`, etc.) to count forum actions.
+
+## The DJ booth
+
+Separate from the terminal dashboard: while `!music records` plays, a browser window shows both
+decks and the mixer live. See [commands](commands.md#music) and `music.dj_dashboard`.

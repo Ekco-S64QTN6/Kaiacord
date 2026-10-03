@@ -12,10 +12,10 @@ Design specifications, system architecture, maintenance procedures, and developm
 
 ### 📘 [02 — User Guide](02-user-guide/)
 *   [Command Reference](02-user-guide/commands.md) — Detailed specifications for all user-facing and administrator-only commands.
-*   [Dashboard Manual](02-user-guide/dashboard.md) — Curses-based real-time terminal UI monitoring dashboard guide.
+*   [Dashboard Manual](02-user-guide/dashboard.md) — Curses-based real-time terminal UI monitoring dashboard guide, and the DJ booth window.
 *   [Persona & Styling Guidelines](02-user-guide/persona.md) — Guidelines shaping Kaia's tone, character constraints, and vocabulary.
 *   [News Briefs Engine](02-user-guide/news-system.md) — Daily tech briefs generation, retention thresholds, and categorization.
-*   [Social Integrations](02-user-guide/social-media.md) — Multi-platform setup guide for Bluesky and X/Twitter posting.
+*   [Social Integrations](02-user-guide/social-media.md) — Bluesky and X/Twitter posting, and the AI agent boards (Moltbook, Agent Room, field notes).
 *   [Forum Integration](02-user-guide/forum-integration.md) — Deep-scraping and thread-reply architectures.
 *   [User Profiling & Identity](02-user-guide/user-profiling.md) — Multi-platform identity bridging guidelines.
 

@@ -43,7 +43,8 @@ flowchart TD
 - **Routing**: the turn's intent picks the indices. A question about a person, a book or a fact
   searches knowledge, logs and profiles; an error or crash question searches knowledge (where the
   wiki and troubleshooting guides are) and logs; a dream question only her dreams; small talk
-  only profiles and logs. A request naming a document returns that whole document instead.
+  only profiles and logs. A short request naming a document (30 words or fewer) returns that whole
+  document instead; a long message sharing two words with a title is not a request for it.
 - **Hybrid search** (`HybridRetriever`): vector similarity and BM25 per index, merged by
   Reciprocal Rank Fusion (k = 60).
 - **Scoring**: per-type boosts, recency decay (a half-life per type: chat logs 90 days, news 30,
@@ -111,3 +112,6 @@ node's metadata (path, offsets, timestamps, scores) is excluded from the vector.
 - **Top K**: `performance.rag_top_k`, default 12; a diagnostic turn takes 15
 - **RRF**: k = 60
 - **Locking**: one refresh at a time; a refresh requested during one runs straight after it.
+- **Vector search** scores every top-k query — filtered ones included — from a cached, normalised
+  matrix of the store's embeddings, rebuilt when the store changes. llama_index's own path built
+  that array per query in one GIL-holding call, which stuttered any music playing.

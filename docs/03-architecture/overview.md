@@ -24,6 +24,7 @@ graph TB
     subgraph SOC ["Social & Forum Layer"]
         Social["social_responder.py\n+ bluesky / x"]
         Forum["kaia_forum.py\n+ P99 crawler / moderation views"]
+        Boards["agent_boards.py\nMoltbook · Agent Room · field notes"]
     end
     
     subgraph INF ["Infrastructure"]
@@ -52,10 +53,10 @@ Kaiacord/
 │   ├── core/                # Message pipeline, RAG, safety filters, mood, dreams, art
 │   ├── infrastructure/      # AppContext, config, GPU guard, logging, monitoring
 │   ├── commands/            # ! command handlers and the embed style
-│   ├── social/              # Bluesky, X, Project 1999 forum client and drafting
+│   ├── social/              # Bluesky, X, the Project 1999 forum, the AI agent boards
 │   ├── news/                # Reading the filed news briefs
 │   ├── ttrpg/               # Aethelgard: combat, registries, world
-│   ├── audio/               # !music: Strudel engine, tracks, DJ
+│   ├── audio/               # !music: Strudel engine, tracks, DJ; records mixer and DJ booth
 │   ├── radio/               # !skyking, !numbers, !radio, !scanner (local RTL-SDR)
 │   └── sky/                 # !iss, !nasa, !sky and the other sky commands
 ├── config/                  # default_config.yaml and your kaia.yaml overrides
@@ -113,6 +114,11 @@ Kaiacord/
 2. **Intent**: regex matching (`IntentParser.fast_parse`), no model; a greeting or command skips retrieval.
 3. **Retrieval**: RAG, channel history, news when asked for, and the behavioural injections, in parallel.
 4. **Generation**: one context budget (`optimize_context`), then generation with the guard pipeline and retries.
+
+Every other place she writes — the forum, the agent boards, Bluesky replies, quips, the overnight
+log — enters this same pipeline through `process_external_mention`, shaped as a Discord message
+(the words, and `[REPLYING_TO]` / `[ORIGINAL_POST]` for a reply). She is one character, and a
+platform with its own prompt would sound like someone else.
 
 ---
 
@@ -175,6 +181,30 @@ Kaiacord/
 - Forwards drafts to the Discord moderation queue `#kaia-opolis` as embeds with Accept / Reject buttons.
 - Caches forum user post profiles (4h/1h cooldowns) and delta-verifies post count changes before running heavy scraper operations.
 - Enforces strict zero-hallucination support guidelines for Technical Discussion replies.
+
+### 10. AI agent boards (`utils/social/agent_boards.py`)
+
+**Responsibility**: Kaia reading and talking with other AI agents on Moltbook, Agent Room and
+field notes, each used the way its own protocol says (`agent_boards.enabled`).
+
+- Replies and posts go through the chat pipeline in draft mode: nothing reaches her logs,
+  relationships or retrieval. New posts are about one of her own reflections on something she read.
+- A draft in a register her persona bans is written once more, then dropped; nothing on a board
+  is owed an answer. Moltbook's maths challenges are solved in Python first.
+- Every post is copied to `#kaia-opolis` in a boxed embed; `!boards` shows her activity.
+
+### 11. Records and the DJ booth (`utils/audio/records.py`, `beatgrid.py`, `dj_dashboard.py`)
+
+**Responsibility**: `!music records` — the local library mixed like a DJ set, CPU only.
+
+- Next record by Camelot key, tempo and genre, preferring a steady opening; stretched with
+  rubberband to the playing tempo; its bar one dropped on a counted bar of the record playing;
+  sixteen beats with the bass swapped halfway, or a clean cut on the bar where a blend would clash.
+- The incoming decoder is started and buffered off discord.py's voice thread; anything holding the
+  GIL for tens of milliseconds is a stutter, which is why vector search runs from a cached matrix
+  and long-lived objects are frozen out of garbage collection (`gc_quiet`).
+- The DJ booth is a pop-out window (127.0.0.1) with two CDJs and a mixer showing the mixer's own
+  state at 20 Hz, and a working skip.
 
 ---
 

@@ -10,7 +10,7 @@ Core utility modules used by Kaiacord.
 | `kaia_rag_query.py` | Routing by intent, hybrid BM25+vector retrieval, scoring, and scoping to the asker and the people a turn names |
 | `kaia_rag_indexer.py` | Document ingestion, chunking, node typing, and parallel background updates |
 | `kaia_rag_persistence.py` | Atomic persistence of the llama_index stores |
-| `kaia_rag_retriever.py` | `SimpleBM25Retriever`, `HybridRetriever` (RRF), and the RAG lock decorators |
+| `kaia_rag_retriever.py` | `SimpleBM25Retriever`, `HybridRetriever` (RRF), the RAG lock decorators, and vector search from a cached matrix (filtered queries included), which keeps a search from holding the GIL ~100 ms |
 | `rag_utils.py` | Node text/metadata helpers, `is_news_node` / `is_profile_node`, speaker from a log path, `request_reindex` |
 | `rag_executor.py` | The thread pool retrieval runs in, off the event loop |
 | `knowledge_boundary.py` | Flags names in the user's message that nothing in her corpus contains (logged only; nothing reads the result) |
@@ -22,6 +22,7 @@ Core utility modules used by Kaiacord.
 | `hallucination_detector.py` | Canonical detector for AI structural leaks and fabrications |
 | `message_processor.py` | The on_message pipeline: intent, retrieval, behavioural injections, generation with retries and salvage |
 | `response_filter.py` | BotSpeakFilter, boilerplate filtering, and response cleaning |
+| `persona_register.py` | The registers her persona bans, by vocabulary — shared by the fine-tune's dataset gate and the agent boards |
 | `safety_pipeline.py` | Post-generation safety pipeline and dogtag replay. Steps are numbered in the source; the count in this table was wrong twice, so it is not asserted here. |
 | `sanitizer.py` | Input sanitising, and `user_authored_text()` — what the user typed, without quotes or fetched pages |
 | `code_blocks.py` | Keeps code she writes out of the prose filters |
@@ -79,6 +80,7 @@ Core utility modules used by Kaiacord.
 | `system/maintenance_tasks.py` | RAG maintenance and memory audit loops |
 | `system/self_healing.py`, `system/performance_optimizer.py` | A model call retried with fallback options; the slow-response warning |
 | `system/kaia_sysmon.py` | The data behind `!sysmon` |
+| `system/gc_quiet.py` | `settle()`: one collection, then long-lived objects frozen out of gen-2 GC — after the indices load and before voice playback |
 | `circuit_breaker.py` | Stop calling a service that keeps failing, and try again later |
 | `logging/kaia_logger.py` | Structured logging |
 | `logging/unified_logging.py` | The logger behind it; sends test runs to `logs/kaiacord.test.log` |
@@ -123,7 +125,8 @@ Core utility modules used by Kaiacord.
 | `explain_handler.py` | `!explain` RAG retrieval diagnostics |
 | `download_handler.py` | `!download` — stages URLs into `knowledge_base/_ingress/` |
 | `youtube_handler.py` | `!youtube` — stages video transcripts into `knowledge_base/_ingress/` |
-| `music_handler.py` | `!music` — start, stop, genre switches and DJ requests |
+| `music_handler.py` | `!music` — start, stop, genre switches, DJ requests; `!music records`, `skip`, `booth` |
+| `boards_handler.py` | `!boards` — her agent-board registrations and recent activity; `!boards now` |
 | `radio_handler.py` | `!skyking`, `!numbers`, `!radio`, `!buzzer`, `!tacamo`, `!beacons`, `!overnight` |
 | `sky_handler.py` | `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky` |
 | `nightshift.py` | `!nightshift`, and the small print on each radio/sky box naming its siblings |
@@ -146,6 +149,10 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `strudel_session.py` | A voice-channel session driving the engine |
 | `strudel_source.py` | The Discord audio source fed by the capture |
 | `levels.json` | Measured per-part gains, written by `audition_tracks.py --calibrate` |
+| `library.py` | The record crate from `dj_catalog.json` and which record plays next |
+| `records.py` | The records mixer: decks, transition planning (blend or cut), band-split mixing, the set session |
+| `beatgrid.py` | Beat and bar grids: comb-fitted tempo, bar one as the first strong beat, bars counted from it; the rubberband stretch filter |
+| `dj_dashboard.py` | The DJ booth: server, state stream, waveforms, the pop-out window (page in `assets/dj/`) |
 
 ## Radio (`utils/radio/`)
 
@@ -161,10 +168,10 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `live.py` | `!radio`/`!buzzer`/`!scanner` live in a voice channel, clip playback, and `free_voice` so features hand the connection over |
 | `beacons.py` | The NCDXF beacon chain, judged from the S-meter |
 | `adsb.py` | E-6B/E-4B sightings on adsb.lol |
-| `overnight.py` | The morning box: facts gathered in Python shown by section, one model call for her account above them, invented numbers rejected |
+| `overnight.py` | The morning box: facts gathered in Python shown by section, her account above them written through the chat pipeline, invented numbers rejected |
 | `log.py` | `memory/radio/log.json` and the clips |
 | `scanner.py` | The local RTL-SDR: nightly schedule, nets, classification (voice/data/carrier/noise, Morse IDs), which catches keep a clip, listen-along |
-| `waterfall.py` | The hopping waterfall watch, NBFM demodulator and carrier measurement; follows a conversation, locks out constant carriers; run in a forked child with its output on /dev/null |
+| `waterfall.py` | The hopping waterfall watch, NBFM demodulator, carrier measurement and Bell 202 packet detection; follows a conversation, locks out constant carriers; run in a forked child with its output on /dev/null |
 | `ledger.py` | `memory/radio/local_ledger.sqlite3`: channels with an hour-of-day histogram, and every catch |
 | `dongle.py`, `rtl.py` | librtlsdr through ctypes; the device lock, `rtl_fm` streams and audio measurement |
 
@@ -197,6 +204,8 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `kaia_social_responder.py` | Multi-platform social mention listener & responder |
 | `social_response_generator.py` | Social response generation prompts and filters |
 | `kaia_identities.py` | Discord ID ↔ Forum UID identity bridge |
+| `agent_boards.py` | Moltbook, Agent Room and field notes: reading, replying and posting through the chat pipeline, boxed copies to `#kaia-opolis` |
+| `agent_board_verify.py` | Moltbook's obfuscated maths challenges, solved in Python |
 
 ## TTRPG (`utils/ttrpg/`)
 
