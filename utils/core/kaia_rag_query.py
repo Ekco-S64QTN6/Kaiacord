@@ -131,12 +131,36 @@ class RAGQueryMixin:
     # idle quips ("ai" and "international" shared with a report title) and on
     # ordinary conversation. A turn has to name a document, or carry an
     # explicit filename, before either shortcut or summarisation routing runs.
+    #: Longest message the manifest title fast path will treat as a request
+    #: for a document by name.
+    FAST_PATH_MAX_WORDS = 30
+
     _DOC_CUE = re.compile(
         r"\b(?:documents?|docs?|reports?|articles?|papers?|whitepapers?|files?|"
         r"transcripts?|essays?|books?|pdfs?|summar(?:y|ies|i[sz]e))\b"
         r"|\b[\w\-]{4,}\.(?:md|txt|pdf|docx|json|ya?ml)\b"
         r"|\b\d{4}-\d{2}-\d{2}[-_][\w\-]{4,}\b",
         re.IGNORECASE)
+
+    def _title_match(self, query_words: set, fname_stops: set):
+        """(path, overlapping words) of the indexed file whose title the query
+        names best, or (None, set()). At least two shared words, one of them
+        distinctive (six letters or more), covering 30% of the title."""
+        best_path, best_score, best_overlap = None, 0.0, set()
+        for mpath in list(self.indexed_files):   # concurrent-mutation safe copy
+            fname = os.path.splitext(os.path.basename(mpath))[0].lower()
+            # Date prefixes dilute the score; strip them before tokenising.
+            fname_clean = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', fname)
+            words = {w for w in re.findall(r'\w+', fname_clean) if not w.isdigit() and len(w) > 1} - fname_stops
+            if not words:
+                words = {w for w in re.findall(r'\w+', fname) if not w.isdigit() and len(w) > 1} - fname_stops
+            if not words:
+                continue
+            overlap = query_words & words
+            score = len(overlap) / len(words)
+            if len(overlap) >= 2 and any(len(w) >= 6 for w in overlap) and score >= 0.3 and score > best_score:
+                best_path, best_score, best_overlap = mpath, score, overlap
+        return best_path, best_overlap
 
     @classmethod
     def _is_document_request(cls, query_lower: str) -> bool:
@@ -957,31 +981,17 @@ class RAGQueryMixin:
                 "action:" in query_lower or
                 "log_info" in query_lower
             )
-            _skip_fast_path = _skip_fast_path or not self._is_document_request(own_lower)
-            _query_words = set(re.findall(r'\w+', own_lower)) - _FAST_PATH_QUERY_STOPS
+            # A request for a document is a short sentence. A long message —
+            # a pasted post, an agent board thread, a quip seeded with one of
+            # her reflections — shares two title words with some file by
+            # chance, and the whole file then became the context for a reply
+            # about something else.
+            _skip_fast_path = (_skip_fast_path or not self._is_document_request(own_lower)
+                               or len(own_lower.split()) > self.FAST_PATH_MAX_WORDS)
+            # One-letter tokens are the tail of a possessive ("kaia's" -> "s").
+            _query_words = {w for w in re.findall(r'\w+', own_lower) if len(w) > 1} - _FAST_PATH_QUERY_STOPS
             if len(_query_words) >= 2 and not _skip_fast_path:
-                _best_path = None
-                _best_score = 0
-                _best_overlap = set()
-                for _mpath in list(self.indexed_files):   # same concurrent-mutation risk
-                    _fname = os.path.splitext(os.path.basename(_mpath))[0].lower()
-                    # Strip date prefix from filename before tokenizing so dates don't dilute score
-                    _fname_clean = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', _fname)
-                    _fname_words = {w for w in re.findall(r'\w+', _fname_clean) if not w.isdigit()} - _FAST_PATH_FNAME_STOPS
-                    if not _fname_words:
-                        _fname_words = {w for w in re.findall(r'\w+', _fname) if not w.isdigit()} - _FAST_PATH_FNAME_STOPS
-                    if not _fname_words:
-                        continue
-                    _overlap = _query_words & _fname_words
-                    # Require at least one distinctive word (>= 6 chars) to avoid
-                    # spurious matches on short common words like "work", "does".
-                    _has_distinctive = any(len(w) >= 6 for w in _overlap)
-                    _score = len(_overlap) / len(_fname_words)
-                    if (len(_overlap) >= 2 and _has_distinctive
-                            and _score >= 0.3 and _score > _best_score):
-                        _best_score = _score
-                        _best_path = _mpath
-                        _best_overlap = _overlap
+                _best_path, _best_overlap = self._title_match(_query_words, _FAST_PATH_FNAME_STOPS)
                 if _best_path:
                     log_info(f"[manifest fast path] matched '{_best_path}' with words {_best_overlap}")
                     log_debug(f"Manifest title fast path: '{_best_path}'")

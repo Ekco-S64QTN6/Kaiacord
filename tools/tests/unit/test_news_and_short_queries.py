@@ -201,3 +201,26 @@ def test_a_question_names_people_by_their_log_folder():
     assert rag._named_user_ids("ask big sip and tenno henka") == {"221666", "9"}
     assert rag._named_user_ids("starkindness") == set()
     assert rag._named_user_ids("kaia-autonomous channel") == set()
+
+
+def test_a_possessive_is_not_a_title_word():
+    """"Kaia's" tokenises to "kaia" and "s"; the "s" matched every title with a
+    possessive, so a reflection mentioning "internal" pulled in "Kaia's Internal
+    Monologue and Data Manipulation" whole."""
+    rag = RAGQueryMixin.__new__(RAGQueryMixin)
+    rag.indexed_files = {"/kb/documents/Kaia - Kaia's Internal Monologue and Data Manipulation.md": {},
+                         "/kb/documents/AI - Machine Consciousness Research Program Whitepaper.md": {}}
+    path, _ = rag._title_match({"internal", "s", "thoughts"}, set())
+    assert path is None
+    path, overlap = rag._title_match({"machine", "consciousness", "whitepaper"}, set())
+    assert path.endswith("Whitepaper.md") and "s" not in overlap
+
+
+def test_only_a_short_message_can_name_a_document_by_title():
+    """Of 43 production matches nearly all came from quips seeded with a long
+    reflection and from agent-board posts, which share two title words with
+    some file by chance; the whole file then became the reply's context."""
+    import inspect
+    src = inspect.getsource(RAGQueryMixin)
+    assert "len(own_lower.split()) > self.FAST_PATH_MAX_WORDS" in src
+    assert RAGQueryMixin.FAST_PATH_MAX_WORDS <= 40

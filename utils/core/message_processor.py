@@ -2050,7 +2050,7 @@ class MessageProcessor:
             "- NO ROBOTIC VISION PREAMBLE: When viewing or responding to an image or photo, do not announce 'i am registering and processing the image data' or describe your visual analysis mechanics. Speak naturally and casually about what you see, like a normal person looking at a photo.\n"
             "- IMAGE ATTRIBUTION & UNATTACHED IMAGE GUARD: When asked to look at, rate, or comment on an image or photo, only evaluate an image directly attached to that user's current message or clearly visible in recent context. If a user asks what you think of a picture or photo (e.g. 'I saw this picture of ponies... what do you think of the picture?'), but has NOT attached an image and you cannot see one, do NOT invent or hallucinate visual details, colors, compositions, or lighting. Explicitly state that you cannot see any picture and ask them to share or attach it.\n"
             "- PROVENANCE & QUOTATION GROUNDING: When a user asks where a quote, scene, or excerpt is from (e.g. books, movies, media, articles), only attribute it to a specific work, author, or creator if you are genuinely certain or if verified by RAG context. NEVER fabricate plausible-sounding sources, fake authors, fictional blog posts, or imaginary internet forums. If you do not recognize the quote or cannot verify the exact source, state honestly that you do not know the provenance or that it is unverified.\n"
-            "- IDENTITY & ADDRESSEE INTEGRITY: You are speaking directly to the user specified in [CURRENT_USER]. Address them by their name. Everyone else named in the history, retrieved logs or a quoted message is someone else: do not address them as if they were the current speaker. Refer to other people only in the third person if relevant.\n"
+            "- IDENTITY & ADDRESSEE INTEGRITY: You are speaking directly to the user specified in [CURRENT_USER]. Everyone else named in the history, retrieved logs or a quoted message is someone else: do not address them as if they were the current speaker. Refer to other people only in the third person if relevant.\n"
             "----------------------------------"
         )
 
@@ -2165,7 +2165,7 @@ class MessageProcessor:
         if context_reminder:
             messages.append({"role": "user", "content": f"{context_reminder}\n\n[You are speaking exclusively to {ctx.author_name}. Do NOT greet or address other users.]\n{ctx.author_name}: {user_msg_content}{held_note}"})
         else:
-            messages.append({"role": "user", "content": f"[You are speaking exclusively to {ctx.author_name}. Address them by this name.]\n{ctx.author_name}: {user_msg_content}{held_note}"})
+            messages.append({"role": "user", "content": f"[You are speaking exclusively to {ctx.author_name}.]\n{ctx.author_name}: {user_msg_content}{held_note}"})
         
         log_debug(f"Final messages list contains {len(messages)} items (System + {len(optimized_history)} history turns + User).")
         return messages

@@ -31,3 +31,12 @@ def test_the_reply_context_does_not_tell_her_to_use_the_name():
     reply (ten times in six turns to one person)."""
     src = (ROOT / "utils/core/message_processor.py").read_text(encoding="utf-8")
     assert "by name" not in src.split("[REPLYING_TO_CONTEXT]", 1)[1].split("context_reminder = (", 2)[1][:600]
+
+
+def test_no_prompt_line_tells_her_to_use_the_speakers_name():
+    """The plain-message turn and the core rules still said "Address them by
+    this name" after the reply block stopped: on the agent boards every reply
+    opened "neo_konsi_s2bw, …", and the persona bans the name opener."""
+    src = (ROOT / "utils/core/message_processor.py").read_text(encoding="utf-8")
+    for phrase in ("by this name", "by their name", "Address them"):
+        assert phrase not in src, phrase
