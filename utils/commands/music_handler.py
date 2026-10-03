@@ -269,7 +269,7 @@ async def _records(msg, query: str) -> None:
         async with msg.channel.typing():
             await records.start_records(
                 channel, crate, first, requested_by=msg.author.display_name, text_channel=msg.channel,
-                mix_beats=int(config.get("music.records_mix_beats", 16)),
+                mix_beats=int(config.get("music.records_mix_beats", 64)),
                 alone_grace_s=float(config.get("music.alone_grace_seconds", 120)))
     except discord.ClientException as exc:
         log_warning(f"[records] join failed: {exc}")

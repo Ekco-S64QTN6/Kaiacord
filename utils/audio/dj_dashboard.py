@@ -188,7 +188,7 @@ def snapshot(session) -> dict:
         "decks": decks, "channels": channels, "master": src.levels["master"], "mix": mix,
         "planning": src.planning_mode, "late": {"count": len(late), "worst_ms": round(max(late) * 1000) if late else 0},
         "history": src.history[-12:], "names": session.names[-30:], "mood": _mood(),
-        "mix_beats": src._mix_beats, "controls": src.controls.state(), "paused": sorted(src.paused),
+        "mix_beats": src._mix_beats, "blend_choices": list(src.BLEND_CHOICES), "controls": src.controls.state(), "paused": sorted(src.paused),
         "requests": [_name_of(session, p) for p in session.requests],
     }
 
@@ -292,6 +292,10 @@ class _Handler(BaseHTTPRequestHandler):
             slot = body.get("slot")
             ok = src.controls.set(int(slot) if slot not in (None, "") else None, str(body.get("name", "")),
                                   body.get("value"))
+        elif self.path == "/blend":
+            ok = src.set_mix_beats(int(body.get("beats") or 0))
+            if ok:
+                log_info(f"[records] blends from the booth: {src._mix_beats} beats")
         elif self.path == "/reset":
             src.controls.reset()
             src.paused.clear()
@@ -343,14 +347,25 @@ _chromium: Optional[str] = None
 
 
 def _browser() -> Optional[str]:
-    """Playwright's Chromium, which the Strudel window already uses, found on
-    disk. Starting a Playwright session just to ask for the path left its
-    tasks pending when it closed, reported as errors when collected."""
+    """The browser the booth opens in: `music.dj_browser` if set, else an
+    installed Chrome, Chromium, Brave or Edge, else Playwright's Chromium.
+    Playwright's build is Chrome for Testing, which pins a "for testing"
+    banner across the top of the window; a normal browser in app mode shows
+    none."""
     global _chromium
     if _chromium is None:
-        root = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or Path.home() / ".cache" / "ms-playwright")
-        found = sorted(root.glob("chromium-*/chrome-linux*/chrome"), reverse=True)
-        _chromium = str(found[0]) if found else (shutil.which("chromium") or shutil.which("google-chrome") or "")
+        chosen = str(_cfg("dj_browser", "") or "").strip()
+        if not chosen:
+            for name in ("google-chrome-stable", "google-chrome", "chromium", "chromium-browser",
+                         "brave-browser", "brave", "microsoft-edge-stable"):
+                chosen = shutil.which(name) or ""
+                if chosen:
+                    break
+        if not chosen:
+            root = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or Path.home() / ".cache" / "ms-playwright")
+            found = sorted(root.glob("chromium-*/chrome-linux*/chrome"), reverse=True)
+            chosen = str(found[0]) if found else ""
+        _chromium = chosen
     return _chromium or None
 
 
@@ -369,9 +384,9 @@ def open_window() -> None:
     try:
         from utils.radio.kiwi import _die_with_parent
         _window = subprocess.Popen(
-            [exe, f"--app={url()}", f"--user-data-dir={_profile_dir}", "--window-size=1600,960",
+            [exe, f"--app={url()}", f"--user-data-dir={_profile_dir}", "--window-size=1600,1000",
              "--no-first-run", "--no-default-browser-check", "--disable-features=Translate",
-             "--class=KaiaBooth"],
+             "--class=KaiaBooth"] + (["--test-type"] if "ms-playwright" in exe else []),
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             preexec_fn=_die_with_parent, env={**os.environ})
     except OSError as e:

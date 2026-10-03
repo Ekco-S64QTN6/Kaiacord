@@ -27,7 +27,7 @@ body::after { /* scanlines */
   background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); mix-blend-mode: multiply;
 }
 #app { position: relative; z-index: 1; display: grid; height: 100%; padding: 10px 12px 12px; gap: 10px;
-  grid-template-rows: 44px minmax(150px, 22vh) 1fr minmax(150px, 21vh); }
+  grid-template-rows: 44px minmax(130px, 19vh) 1fr minmax(210px, 28vh); }
 
 /* ── header ── */
 header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
@@ -55,7 +55,7 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 #lanes { width: 100%; height: 100%; display: block; }
 
 #mid { display: grid; grid-template-columns: 1fr minmax(340px, 26%) 1fr; gap: 10px; min-height: 0; }
-.deck { --accent: var(--dc); display: grid; grid-template-rows: auto auto 1fr auto auto; gap: 8px; padding: 12px 14px 12px; min-height: 0; }
+.deck { --accent: var(--dc); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; gap: clamp(4px, 0.7vh, 8px); padding: 10px 14px 10px; min-height: 0; overflow: hidden; }
 .deck[data-slot="1"] { --dc: var(--d1); --dcg: rgba(0,240,255,.55); }
 .deck[data-slot="2"] { --dc: var(--d2); --dcg: rgba(255,47,209,.55); }
 .dtop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -71,18 +71,18 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .dbody { display: grid; grid-template-columns: auto 1fr; gap: 14px; min-height: 0; align-items: center; }
 .jogwrap { position: relative; height: 100%; aspect-ratio: 1; max-height: 250px; min-height: 140px; }
 .jog { width: 100%; height: 100%; display: block; }
-.readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: center; }
-.ro { background: rgba(0,0,0,.35); border: 1px solid var(--line); border-radius: 3px; padding: 6px 9px; }
+.readouts { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(4px, 0.6vh, 8px); align-content: center; min-height: 0; }
+.ro { background: rgba(0,0,0,.35); border: 1px solid var(--line); border-radius: 3px; padding: clamp(3px, 0.5vh, 6px) 9px; }
 .ro .k { font-size: 9px; letter-spacing: 2px; color: var(--dim); }
-.ro .v { font-family: var(--disp); font-size: 26px; font-weight: 700; color: var(--text); line-height: 1.15; }
+.ro .v { font-family: var(--disp); font-size: clamp(16px, 2.5vh, 26px); font-weight: 700; color: var(--text); line-height: 1.15; }
 .ro .v small { font-size: 12px; color: var(--dim); font-family: var(--mono); font-weight: 400; margin-left: 4px; }
-.ro.big .v { font-size: 34px; color: var(--dc); text-shadow: 0 0 12px var(--dcg); }
+.ro.big .v { font-size: clamp(22px, 3.3vh, 34px); color: var(--dc); text-shadow: 0 0 12px var(--dcg); }
 .ro.warn .v { color: var(--red); animation: blink .6s infinite; }
 .beats { display: flex; gap: 5px; margin-top: 5px; }
 .beats i { flex: 1; height: 7px; border-radius: 1px; background: var(--faint); }
 .beats i.on { background: var(--dc); box-shadow: 0 0 8px var(--dc); }
 .beats i.on.one { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
-.ov { width: 100%; height: 54px; display: block; border: 1px solid var(--line); border-radius: 3px; background: rgba(0,0,0,.4); }
+.ov { width: 100%; height: clamp(34px, 5vh, 54px); display: block; border: 1px solid var(--line); border-radius: 3px; background: rgba(0,0,0,.4); }
 .phase { width: 0; min-width: 0; height: 14px; display: block; }
 .transport { display: flex; gap: 8px; align-items: center; }
 .btn { font-family: var(--disp); font-size: 12px; letter-spacing: 2px; color: var(--dim); background: rgba(0,0,0,.4);
@@ -94,31 +94,31 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .meta b { color: var(--text); font-weight: 600; }
 
 /* ── mixer ── */
-.mixer { --accent: var(--green); padding: 26px 12px 12px; display: grid; grid-template-rows: 1fr auto auto auto; gap: 10px; min-height: 0; }
-.strips { display: grid; grid-template-columns: 1fr 64px 1fr; gap: 8px; min-height: 0; }
+.mixer { --accent: var(--green); padding: 24px 12px 10px; display: grid; grid-template-rows: minmax(0, 1fr) auto auto auto; gap: 8px; min-height: 0; overflow: hidden; }
+.strips { display: grid; grid-template-columns: 1fr 64px 1fr; gap: 8px; min-height: 0; overflow: hidden; }
 .strip { display: grid; grid-template-columns: 54px 1fr; grid-template-rows: auto 1fr; gap: 6px 10px; min-height: 0; }
 .strip .ch { grid-column: 1 / span 2; text-align: center; font-family: var(--disp); font-weight: 900; font-size: 15px; }
 .knobs { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; min-height: 0; }
-.knob { text-align: center; font-size: 9px; letter-spacing: 1.5px; color: var(--dim); }
-.knob canvas { width: 36px; height: 36px; display: block; margin: 0 auto 1px; }
+.knob { text-align: center; font-size: 8px; letter-spacing: 1.5px; color: var(--dim); line-height: 1.1; }
+.knob canvas { width: clamp(26px, 3.2vh, 36px); height: clamp(26px, 3.2vh, 36px); display: block; margin: 0 auto 1px; }
 .fadebox { display: flex; gap: 8px; align-items: stretch; justify-content: center; height: 100%; min-height: 0; }
 .vu, .fader { width: 14px; height: 100%; display: block; }
 .fader { width: 26px; }
 .mastercol { display: grid; grid-template-rows: auto 1fr auto; justify-items: center; gap: 6px; }
 .mastercol .lbl { font-size: 9px; letter-spacing: 2px; color: var(--dim); }
 .mvu { display: flex; gap: 4px; height: 100%; min-height: 0; }
-#xf { width: 100%; height: 34px; display: block; }
+#xf { width: 100%; height: 28px; display: block; }
 .xlabels { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 2px; color: var(--dim); margin-top: -4px; }
-.fx { border: 1px solid var(--line); border-radius: 3px; padding: 8px 10px; background: rgba(0,0,0,.35); }
+.fx { border: 1px solid var(--line); border-radius: 3px; padding: 5px 10px; background: rgba(0,0,0,.35); }
 .fx .row { display: flex; align-items: baseline; gap: 10px; }
-.fx .kind { font-family: var(--disp); font-weight: 900; font-size: 22px; letter-spacing: 3px; color: var(--dim); }
+.fx .kind { font-family: var(--disp); font-weight: 900; font-size: 18px; letter-spacing: 3px; color: var(--dim); }
 .fx .kind.blend { color: var(--green); text-shadow: 0 0 12px rgba(61,255,138,.7); }
 .fx .kind.cut { color: var(--yellow); text-shadow: 0 0 12px rgba(255,228,92,.7); }
 .fx .kind.plan { color: var(--cyan); animation: blink .8s infinite; }
 .fx .count { margin-left: auto; font-size: 12px; color: var(--text); letter-spacing: 1px; }
 .fx .why { font-size: 11px; color: var(--dim); margin-top: 3px; min-height: 14px; }
-#prog { width: 100%; height: 18px; display: block; margin-top: 6px; }
-#skip { width: 100%; font-family: var(--disp); font-weight: 700; font-size: 14px; letter-spacing: 4px; padding: 11px; cursor: pointer;
+#prog { width: 100%; height: 14px; display: block; margin-top: 4px; }
+#skip { width: 100%; font-family: var(--disp); font-weight: 700; font-size: 13px; letter-spacing: 4px; padding: 8px; cursor: pointer;
   color: var(--pink); background: rgba(255,47,209,.07); border: 1px solid var(--pink); border-radius: 3px;
   box-shadow: 0 0 14px rgba(255,47,209,.35), inset 0 0 14px rgba(255,47,209,.15); transition: all .15s; }
 #skip:hover:not(:disabled) { background: rgba(255,47,209,.2); box-shadow: 0 0 22px rgba(255,47,209,.7), inset 0 0 18px rgba(255,47,209,.3); color: #fff; }
@@ -152,8 +152,14 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .ears { font-size: 11px; color: var(--dim); }
 
 /* ── hands on ── */
-.knob canvas, .fader, #xf, #mknob { cursor: ns-resize; touch-action: none; }
-#xf { cursor: ew-resize; }
+.knob canvas, #mknob { cursor: grab; touch-action: none; }
+.knob canvas:active, #mknob:active { cursor: grabbing; }
+.fader, #xf { cursor: pointer; touch-action: none; }
+.blendsel { display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: 2px; color: var(--dim); margin-bottom: 4px; }
+.blendsel span { cursor: pointer; padding: 2px 8px; border: 1px solid var(--faint); border-radius: 2px; user-select: none; }
+.blendsel span:hover { border-color: var(--cyan); color: var(--text); }
+.blendsel span.on { color: #031; background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,240,255,.5); }
+.blendsel em { font-style: normal; margin-left: auto; color: var(--dim); }
 .knob.touched { color: var(--yellow); }
 .btn.play { cursor: pointer; }
 .btn.paused { color: #221; background: var(--red); border-color: var(--red); box-shadow: 0 0 14px rgba(255,56,96,.7); animation: blink 1s infinite; }
@@ -233,6 +239,8 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
       </div>
       <div><canvas id="xf"></canvas><div class="xlabels"><span>CH 1</span><span>CROSSFADER</span><span>CH 2</span></div></div>
       <div class="fx">
+        <div class="blendsel" id="blendsel" title="how long kaia blends one record into the next">BLEND
+          <span data-beats="32">SHORT</span><span data-beats="64">LONG</span><span data-beats="128">EPIC</span><em id="blendsec"></em></div>
         <div class="row"><div class="kind" id="fxkind">—</div><div class="count" id="fxcount"></div></div>
         <div class="why" id="fxwhy">no transition planned</div>
         <canvas id="prog"></canvas>
@@ -244,7 +252,7 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 
   <div id="bottom">
     <div class="panel crate">
-      <div class="tabs"><span class="tab on" data-tab="crate">CRATE</span><span class="tab" data-tab="set">SET LIST</span><span class="count" id="cratecount"></span></div>
+      <div class="tabs"><span class="tab on" data-tab="crate">BY GENRE</span><span class="tab" data-tab="match" title="what sits with the record playing, by Camelot key and tempo">MATCHES</span><span class="tab" data-tab="set">SET LIST</span><span class="count" id="cratecount"></span></div>
       <input id="search" placeholder="search the crate — click a record to have kaia play it next" autocomplete="off">
       <div class="scroll" id="cratepane"></div>
       <div class="scroll list" id="setpane" style="padding:0"><ol id="setlist"></ol></div>
@@ -645,31 +653,63 @@ function setCtl(slot, name, v) {
   clearTimeout(sendTimer[`${slot}:${name}`]);
   sendTimer[`${slot}:${name}`] = setTimeout(() => post("/control", { slot: slot || null, name, value: v }), 40);
 }
-function drag(el, slot, name, axis, pxFull, reset) {
-  let start = null, v0 = 0;
+// Knobs turn the way plug-ins and DJ software do: grab one and the pointer
+// locks and hides, so the hand can move freely — up or right turns it up,
+// down or left turns it down, Shift for fine — and the wheel works too.
+// Faders and the crossfader follow the pointer directly.
+let turning = null;               // {slot, name, reset}
+function knob(el, slot, name, reset) {
   el.addEventListener("pointerdown", (e) => {
-    start = axis === "x" ? e.clientX : e.clientY; v0 = ctl(slot, name); if (v0 === null) v0 = 0.5;
-    el.setPointerCapture(e.pointerId); e.preventDefault();
+    turning = { slot, name };
+    try { el.requestPointerLock(); } catch (_) {}
+    e.preventDefault();
   });
-  el.addEventListener("pointermove", (e) => {
-    if (start === null) return;
+  el.addEventListener("dblclick", () => setCtl(slot, name, reset));
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
     const [lo, hi] = RANGE[name];
-    const d = axis === "x" ? e.clientX - start : start - e.clientY;
-    setCtl(slot, name, v0 + d / pxFull * (hi - lo));
-  });
-  el.addEventListener("pointerup", () => { start = null; });
+    setCtl(slot, name, (ctl(slot, name) ?? reset) + (e.deltaY < 0 ? 1 : -1) * (hi - lo) * (e.shiftKey ? 0.01 : 0.04));
+  }, { passive: false });
+}
+document.addEventListener("mousemove", (e) => {
+  if (!turning) return;
+  const [lo, hi] = RANGE[turning.name];
+  const d = (e.movementX - e.movementY) / (e.shiftKey ? 900 : 220);
+  setCtl(turning.slot, turning.name, (ctl(turning.slot, turning.name) ?? lo) + d * (hi - lo));
+});
+document.addEventListener("mouseup", () => {
+  if (!turning) return;
+  turning = null;
+  if (document.pointerLockElement) document.exitPointerLock();
+});
+function slider(el, slot, name, axis, reset) {
+  const place = (e) => {
+    const r = el.getBoundingClientRect(), [lo, hi] = RANGE[name];
+    const f = axis === "x" ? (e.clientX - r.left - 10) / Math.max(1, r.width - 20)
+                           : 1 - (e.clientY - r.top - 6) / Math.max(1, r.height - 12);
+    setCtl(slot, name, lo + Math.max(0, Math.min(1, f)) * (hi - lo));
+  };
+  let held = false;
+  el.addEventListener("pointerdown", (e) => { held = true; el.setPointerCapture(e.pointerId); place(e); e.preventDefault(); });
+  el.addEventListener("pointermove", (e) => { if (held) place(e); });
+  el.addEventListener("pointerup", () => { held = false; });
   el.addEventListener("dblclick", () => setCtl(slot, name, reset));
 }
 [1, 2].forEach((slot) => {
-  for (const n of ["trim", "high", "mid", "low"]) drag(qs(slot, `[data-k="${n}"]`), slot, n, "y", 140, FLAT[n]);
-  const fader = qs(slot, '[data-k="fader"]');
-  drag(fader, slot, "fader", "y", 120, 1);
+  for (const n of ["trim", "high", "mid", "low"]) knob(qs(slot, `[data-k="${n}"]`), slot, n, FLAT[n]);
+  slider(qs(slot, '[data-k="fader"]'), slot, "fader", "y", 1);
   q(slot, '[data-f="play"]').addEventListener("click", () => {
     post("/pause", { slot }); toast(`deck ${slot}: ${S && (S.paused || []).includes(slot) ? "playing" : "paused"}`);
   });
 });
-drag($("xf"), 0, "xfader", "x", 260, null);
-drag($("mknob"), 0, "master", "y", 140, 1);
+slider($("xf"), 0, "xfader", "x", null);
+knob($("mknob"), 0, "master", 1);
+$("blendsel").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-beats]"); if (!b) return;
+  post("/blend", { beats: +b.dataset.beats });
+  local["0:blend"] = { v: +b.dataset.beats, until: performance.now() + 1500 };
+  toast(`next blend: ${b.textContent.toLowerCase()} — ${b.dataset.beats} beats`);
+});
 $("auto").onclick = () => { for (const k in local) delete local[k]; post("/reset"); toast("the mixer is kaia's again"); };
 let toastT = 0;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2200); }
@@ -733,18 +773,20 @@ function updateMixer() {
   if (mix) {
     const t = mixNow(), bar = 4 * mix.beat;
     kind.textContent = mix.kind === "blend" ? "BLEND" : "CUT"; kind.className = "kind " + mix.kind;
-    const swap = mix.drop + mix.length / 2;
-    if (t < mix.drop) count.textContent = `${mix.kind === "blend" ? "DROP" : "CUT"} IN ${((mix.drop - t) / bar).toFixed(1)} BARS`;
-    else if (mix.kind === "blend" && t < swap) count.textContent = `BASS SWAP IN ${((swap - t) / bar).toFixed(1)} BARS`;
-    else if (mix.kind === "blend" && t < mix.done) count.textContent = `OUT IN ${((mix.done - t) / bar).toFixed(1)} BARS`;
+    const q = mix.length / 4, swap = mix.drop + 2 * q, outAt = mix.drop + 3 * q;
+    const bars = (x) => `${((x - t) / bar).toFixed(1)} BARS`;
+    if (t < mix.drop) count.textContent = `${mix.kind === "blend" ? "DROP" : "CUT"} IN ${bars(mix.drop)}`;
+    else if (mix.kind === "blend" && t < swap) count.textContent = `BASS SWAP IN ${bars(swap)}`;
+    else if (mix.kind === "blend" && t < outAt) count.textContent = `BOTH PLAYING · OUT IN ${bars(outAt)}`;
+    else if (mix.kind === "blend" && t < mix.done) count.textContent = `FADING OUT · ${bars(mix.done)}`;
     else count.textContent = "HANDING OVER";
     why.textContent = mix.kind === "blend"
-      ? `${mix.mode === "skip" ? "skip" : "end of record"} · ${S.mix_beats} beats · stretch ×${mix.ratio.toFixed(4)} · ch ${mix.out_slot} → ch ${mix.in_slot}`
+      ? `${mix.mode === "skip" ? "skip" : "end of record"} · ${Math.round(mix.length / mix.beat)} beats · stretch ×${mix.ratio.toFixed(4)} · ch ${mix.out_slot} → ch ${mix.in_slot}`
       : `${mix.mode === "skip" ? "skip" : "end of record"} · ${mix.why || "clean cut on the bar"}`;
-    // segments: run-up | rise | swap | fall
     const t0 = mix.start, t3 = mix.done, span = Math.max(0.01, t3 - t0), X = (v) => (v - t0) / span * PW;
     const segs = mix.kind === "blend"
-      ? [[t0, mix.drop, COL.faint, "RUN-UP"], [mix.drop, swap, COL.cyan, "HIGHS IN"], [swap, mix.done, COL.pink, "BASS · OUT"]]
+      ? [[t0, mix.drop, COL.faint, ""], [mix.drop, mix.drop + q, COL.cyan, "IN"], [mix.drop + q, swap, COL.green, "TOGETHER"],
+         [swap, outAt, COL.yellow, "BASS SWAPPED"], [outAt, mix.done, COL.pink, "OUT"]]
       : [[t0, mix.drop, COL.yellow, "FADE"]];
     pg.font = "600 8px JetBrains Mono";
     for (const [a, b, col, lbl] of segs) {
@@ -758,6 +800,9 @@ function updateMixer() {
   } else {
     kind.textContent = "—"; kind.className = "kind"; count.textContent = ""; why.textContent = "no transition planned";
   }
+  const lb = local["0:blend"], beats = lb && performance.now() < lb.until ? lb.v : S.mix_beats;
+  document.querySelectorAll("#blendsel [data-beats]").forEach((x) => x.classList.toggle("on", +x.dataset.beats === beats));
+  const md = masterDeck(); $("blendsec").textContent = md && md.tempo ? `≈ ${Math.round(beats * 60 / md.tempo)} s` : "";
   const busy = !!(mix || S.planning);
   if (!busy) { $("skip").disabled = false; $("skip").textContent = "NEXT ▸▸ ON THE BAR"; }
   else if (!$("skip").disabled) { $("skip").disabled = true; $("skip").textContent = "MIXING…"; }
@@ -800,16 +845,45 @@ function updateBottom() {
   $("earlist").textContent = (S.listeners || []).length ? "in the room: " + S.listeners.join(", ") : "nobody in the room";
 }
 // ── the crate ────────────────────────────────────────────────────
-let crateData = null, crateShut = new Set(), crateSig = "";
+let crateData = null, crateShut = new Set(), crateSig = "", crateMode = "crate";
+const MATCH_GROUPS = ["SAME KEY", "ONE STEP ROUND THE WHEEL", "RELATIVE MAJOR / MINOR", "TWO STEPS · AN ENERGY SHIFT", "OTHER KEYS"];
+function relation(a, b) {
+  const x = camelot(a), y = camelot(b); if (!x || !y) return 4;
+  if (x[0] === y[0] && x[1] === y[1]) return 0;
+  const d = ((y[0] - x[0]) % 12 + 12) % 12;
+  if (x[1] === y[1] && (d === 1 || d === 11)) return 1;
+  if (x[0] === y[0]) return 2;
+  if (x[1] === y[1] && (d === 2 || d === 10)) return 3;
+  return 4;
+}
+function tempoGap(playing, bpm) {      // the stretch it would take, half and double time counted
+  if (!playing || !bpm) return null;
+  return Math.min(...[bpm, bpm * 2, bpm / 2].map((b) => Math.abs(playing / b - 1)));
+}
+function masterDeck() {
+  if (!S || !S.decks) return null;
+  const mix = S.mix;
+  return Object.values(S.decks).find((d) => mix ? String(d.slot) === mix.out_slot : d.state === "playing") || null;
+}
 function loadCrate() { fetch("/crate").then((r) => r.json()).then((c) => { crateData = c; renderCrate(); }).catch(() => {}); }
 function renderCrate() {
   if (!crateData || !crateData.genres) return;
   const qv = $("search").value.trim().toLowerCase();
   const now = S && S.decks ? Object.values(S.decks).filter((d) => d.state === "playing").map((d) => d.id) : [];
-  const sig = qv + "|" + now.join() + "|" + JSON.stringify(S && S.requests) + "|" + [...crateShut].join() + crateData.count;
+  const md = masterDeck();
+  const sig = crateMode + "|" + qv + "|" + now.join() + "|" + JSON.stringify(S && S.requests) + "|" + [...crateShut].join() + crateData.count
+    + "|" + (md ? md.id + md.key + Math.round(md.tempo || 0) : "");
   if (sig === crateSig) return; crateSig = sig;
   let html = "", shown = 0;
-  for (const [genre, rows] of Object.entries(crateData.genres)) {
+  let groups = Object.entries(crateData.genres);
+  if (crateMode === "match") {
+    const all = groups.flatMap(([g, rows]) => rows.map((r) => ({ ...r, genre: g })));
+    const buckets = MATCH_GROUPS.map(() => []);
+    for (const r of all) if (!md || r.id !== md.id) buckets[md ? relation(md.key, r.key) : 4].push(r);
+    for (const b of buckets) b.sort((a, c) => (tempoGap(md && md.tempo, a.bpm) ?? 9) - (tempoGap(md && md.tempo, c.bpm) ?? 9));
+    groups = MATCH_GROUPS.map((name, i) => [md ? `${name}${i < 4 ? " · " + (md.key || "?") : ""}` : name, buckets[i]]);
+  }
+  for (const [genre, rows] of groups) {
     const hit = rows.filter((r) => !qv || `${r.title} ${r.artist} ${genre} ${r.key} ${r.bpm}`.toLowerCase().includes(qv));
     if (!hit.length) continue; shown += hit.length;
     const shut = crateShut.has(genre) && !qv;
@@ -818,7 +892,9 @@ function renderCrate() {
         const isNow = now.includes(r.id), st = isNow ? "ON AIR" : r.requested ? "NEXT" : r.played ? "PLAYED" : "";
         return `<div class="trk${r.played ? " played" : ""}${r.requested ? " req" : ""}${isNow ? " now" : ""}" data-id="${r.id}" title="play next">` +
           `<span class="nm">${esc(r.title)}${r.artist ? ` <i>— ${esc(r.artist)}</i>` : ""}</span>` +
-          `<span class="bpm">${r.bpm ? r.bpm.toFixed(0) : "—"}</span>` +
+          (crateMode === "match" && md && md.tempo && r.bpm
+            ? `<span class="bpm" style="color:${tempoGap(md.tempo, r.bpm) <= 0.03 ? "var(--green)" : tempoGap(md.tempo, r.bpm) <= 0.06 ? "var(--yellow)" : "var(--red)"}" title="stretch to ${md.tempo.toFixed(1)}">${(tempoGap(md.tempo, r.bpm) * 100).toFixed(1)}%</span>`
+            : `<span class="bpm">${r.bpm ? r.bpm.toFixed(0) : "—"}</span>`) +
           `<span class="key" style="background:${keyColor(r.key)}">${esc(r.key || "?")}</span><span class="st">${st}</span></div>`;
       }).join("") + "</div></div>";
   }
@@ -835,7 +911,8 @@ $("cratepane").addEventListener("click", (e) => {
 $("search").addEventListener("input", () => renderCrate());
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x === t));
-  const crate = t.dataset.tab === "crate";
+  const crate = t.dataset.tab !== "set";
+  if (crate) { crateMode = t.dataset.tab; crateSig = ""; renderCrate(); }
   $("cratepane").style.display = crate ? "" : "none"; $("search").style.display = crate ? "" : "none";
   $("setpane").style.display = crate ? "none" : "block";
 }));

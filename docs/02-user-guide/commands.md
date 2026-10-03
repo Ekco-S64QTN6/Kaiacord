@@ -219,8 +219,9 @@ analysis outside this repo; `music.library_catalog` in `kaia.yaml` points at it.
 is chosen to sit with the last in key (the same Camelot code, a neighbour, or the relative key)
 and tempo (within 6%, counting half and double time), stretched to the playing tempo without
 changing pitch, and levelled to the same loudness. Its first downbeat lands on a bar of the record
-playing and the two blend over sixteen beats (`music.records_mix_beats`) with the bass swapped
-halfway; where either record's beat isn't steady enough to lay over the other — rock, breakbeat, a
+playing, on a phrase, and the two blend over 64 beats by default (`music.records_mix_beats`): the new
+record eases in, both play together through the middle with the bass swapped halfway, then the old
+one eases out. The booth picks SHORT / LONG / EPIC (32 / 64 / 128 beats); where either record's beat isn't steady enough to lay over the other — rock, breakbeat, a
 beatless intro — she cuts to it cleanly on the bar instead. `!music skip` brings the next one in at
 the next bar it can land on. While records play, a DJ booth window opens on the bot's screen —
 both decks and the mixer, live, and it works: TRIM, HI/MID/LOW, the channel faders, the crossfader

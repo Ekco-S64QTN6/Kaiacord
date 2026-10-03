@@ -100,7 +100,7 @@ def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0
 FRAME_SAMPLES = RATE * FRAME_MS // 1000
 #: The blend: this many beats from the incoming record's first downbeat to the
 #: outgoing record gone. The bass swaps halfway, on a bar.
-MIX_BEATS = 16
+MIX_BEATS = 64
 #: Cut transitions (no common tempo, or no clear beat): the outgoing record
 #: fades over this many seconds, ending on its bar, and the next starts clean.
 CUT_FADE_S = 1.5
@@ -270,6 +270,8 @@ class Plan:
     offset: float = 0.0
     mode: str = "skip"
     why: str = ""
+    #: A cut made because the beats cannot be laid together (not for want of room).
+    why_cut_is_beat: bool = False
 
     @property
     def done(self) -> float:
@@ -298,16 +300,31 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
         offset = max(0.0, in_grid.downbeat - PREROLL_S)
         lead_in = (in_grid.downbeat - offset) / ratio       # incoming: start to its first downbeat
         earliest = now + lead_in + lead
+        bar = 4 * beat
+        drop = None
         if mode == "end":
+            # The last phrase of eight bars (else four, else any bar) that
+            # leaves room for the whole blend before the record ends.
             latest = out_end - length - 0.5
-            drop = out_grid.next_bar(latest - 4 * beat, out_ratio)
-            if drop < earliest:
-                drop = out_grid.next_bar(earliest, out_ratio)
+            for every in (8, 4, 1):
+                d = out_grid.next_bar(latest - every * bar, out_ratio, every)
+                if earliest <= d <= latest + 0.01:
+                    drop = d
+                    break
         else:
+            # A skip comes in on the next four-bar phrase, or the next bar if
+            # that would not leave room.
+            for every in (4, 1):
+                d = out_grid.next_bar(earliest, out_ratio, every)
+                if d + length <= out_end + 0.01:
+                    drop = d
+                    break
+        if drop is None:
             drop = out_grid.next_bar(earliest, out_ratio)
         if drop + length <= out_end + 0.01:
             return Plan("blend", drop - lead_in, drop, length, beat, ratio, nxt, offset)
     # A cut, on the outgoing bar where there is one.
+    beat_cut = ratio is None
     fade = CUT_FADE_S
     if mode == "end":
         drop = max(now + fade + lead, out_end - 0.05)
@@ -316,21 +333,33 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
     else:
         drop = now + fade + lead
     drop = min(drop, max(now + lead, out_end))
-    return Plan("cut", drop, drop, fade, 60.0 / playing_bpm if playing_bpm else 0.5, 1.0, nxt)
+    return Plan("cut", drop, drop, fade, 60.0 / playing_bpm if playing_bpm else 0.5, 1.0, nxt,
+                why_cut_is_beat=beat_cut)
+
+
+def _ease(x):
+    """0→1 along a cosine S: slow off the mark, slow into place."""
+    return 0.5 - 0.5 * np.cos(np.pi * np.clip(x, 0.0, 1.0))
 
 
 def gains(plan: Plan, t: np.ndarray) -> tuple:
-    """(outgoing low, outgoing high, incoming low, incoming high) gains at times t."""
+    """(outgoing low, outgoing high, incoming low, incoming high) gains at times t.
+
+    A blend the way a DJ rides one, in quarters of its length: the incoming
+    record's mids and highs ease in over the first quarter, bass cut; both
+    records play together through the middle half, the basslines swapping on
+    the bar at the halfway point (over one beat — never two basslines, never
+    none); the outgoing record eases out over the last quarter."""
     if plan.kind == "cut":
         out = np.clip((plan.drop - t) / plan.length, 0.0, 1.0)
         inc = (t >= plan.drop).astype(np.float32)
         return out, out, inc, inc
-    half = plan.length / 2
-    swap = plan.drop + half
-    rise = np.clip((t - plan.drop) / half, 0.0, 1.0)
-    fall = np.clip((t - swap) / half, 0.0, 1.0)
+    q = plan.length / 4
+    swap = plan.drop + 2 * q
+    rise = _ease((t - plan.drop) / q)
+    fall = _ease((t - (plan.drop + 3 * q)) / q)
     bass = np.clip((t - swap) / plan.beat, 0.0, 1.0)
-    return 1.0 - bass, np.cos(fall * np.pi / 2), bass, np.sin(rise * np.pi / 2)
+    return 1.0 - bass, 1.0 - fall, bass, rise
 
 
 IDENTITY = (1.0, 1.0, 1.0, 1.0)
@@ -350,7 +379,23 @@ def mix_frames(out_parts, in_parts, g, uo=IDENTITY, ui=IDENTITY, master: float =
         y += (lo * (gil * ui[0]) + mi * (gih * ui[1]) + hi * (gih * ui[2])) * ui[3]
     if master != 1.0:
         y *= master
-    return np.clip(np.rint(y), -32768, 32767).astype(np.int16).tobytes()
+    return np.clip(np.rint(_soft_limit(y)), -32768, 32767).astype(np.int16).tobytes()
+
+
+#: Above this level the sum is bent smoothly toward full scale rather than
+#: clipped: two full records playing together run hot.
+LIMIT_FROM = 0.80 * 32767
+
+
+def _soft_limit(y: np.ndarray) -> np.ndarray:
+    a = np.abs(y)
+    if a.max() <= LIMIT_FROM:
+        return y
+    head = 32767 - LIMIT_FROM
+    over = a > LIMIT_FROM
+    out = y.copy()
+    out[over] = np.sign(y[over]) * (LIMIT_FROM + head * np.tanh((a[over] - LIMIT_FROM) / head))
+    return out
 
 
 class Controls:
@@ -467,6 +512,16 @@ class CrossfadeSource(_AudioSource):
         """Bring the next record in at the next bar it can land on."""
         self._begin_planning("skip")
 
+    #: The booth's blend lengths, in beats: about 15 s, 30 s and a minute at 125 bpm.
+    BLEND_CHOICES = (32, 64, 128)
+
+    def set_mix_beats(self, beats: int) -> bool:
+        """The length of the next blend (one already planned keeps its own)."""
+        if int(beats) not in self.BLEND_CHOICES:
+            return False
+        self._mix_beats = int(beats)
+        return True
+
     @staticmethod
     def _db(frame: Optional[bytes]) -> float:
         if not frame:
@@ -507,8 +562,13 @@ class CrossfadeSource(_AudioSource):
                     deck.grid = out_grid                     # measured here, where it is mixed out
                 for attempt in range(4):
                     lead = 2.0 + attempt                     # room to check the kicks, start ffmpeg, fill
-                    plan = plan_transition(deck.at(), deck.ratio, out_grid, deck.end, nxt, mode,
-                                           self._mix_beats, lead=lead)
+                    # The chosen length, halved (not below 16 beats) where the
+                    # record has no room left for it, before giving up to a cut.
+                    beats = self._mix_beats
+                    plan = plan_transition(deck.at(), deck.ratio, out_grid, deck.end, nxt, mode, beats, lead=lead)
+                    while plan.kind == "cut" and beats > 16 and not plan.why_cut_is_beat:
+                        beats //= 2
+                        plan = plan_transition(deck.at(), deck.ratio, out_grid, deck.end, nxt, mode, beats, lead=lead)
                     if plan.kind == "blend":
                         # The grids put the downbeats together; the kicks
                         # themselves have the last word, as a DJ's ear would.

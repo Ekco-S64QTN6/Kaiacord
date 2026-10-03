@@ -146,3 +146,16 @@ def test_a_record_asked_for_at_the_booth_comes_next(session, monkeypatch):
     assert session.source._queued.record.title == "asked" and not session.requests
     listing = D.crate(session)
     assert listing["count"] == 1 and listing["genres"]["House"][0]["title"] == "asked"
+
+
+def test_the_blend_length_is_chosen_at_the_booth_and_shortened_when_there_is_no_room(session):
+    src = session.source
+    assert src.set_mix_beats(128) and src._mix_beats == 128
+    assert not src.set_mix_beats(48)                         # only the booth's three lengths
+    # 50 s of record has no room for 128 beats (64 s): the planner halves it rather than cutting.
+    src.current.total_frames = 50 * R.FRAMES_PER_S
+    src.skip()
+    deadline = time.time() + 5
+    while src.plan is None and time.time() < deadline:
+        time.sleep(0.01)
+    assert src.plan.kind == "blend" and src.plan.length == pytest.approx(32.0)     # 64 beats at 120 bpm

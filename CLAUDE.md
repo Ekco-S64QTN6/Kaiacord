@@ -559,6 +559,10 @@ a mix that sounded wrong:
   differ, and the guess put the incoming bar on beat 2, 3 or 4 — kicks on kicks, claps on the wrong
   beats. Bar one is a record's first strong beat; `grid_at` counts beats from it and keeps the bar
   only when the count comes out whole (`bar_known`).
+- **A blend takes its time**: 64 beats by default, in quarters — the incoming eases in, both play
+  through the middle half with the bass swapped exactly halfway on a bar, the outgoing eases out — on
+  an 8-bar phrase at the end of a record (4 for a skip), counted from bar one (`Grid.bar0`). The
+  16-beat crossfade it replaced was "hamfisted". Two full records sum through a soft limiter.
 - **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
   mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is a cut on the
   bar. A kick correction over 20 ms is not applied — the counted grids land within a few ms, and

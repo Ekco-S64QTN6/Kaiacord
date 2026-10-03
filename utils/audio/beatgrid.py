@@ -40,20 +40,24 @@ class Grid:
     #: False when the bar could not be counted from the record's first beat,
     #: and `downbeat` is the accent guess — right about one time in four.
     bar_known: bool = True
+    #: Which bar of the record `downbeat` starts, counted from bar one (0):
+    #: phrases of 4 and 8 bars are counted from it.
+    bar0: int = 0
 
     @property
     def beat(self) -> float:
         return 60.0 / self.bpm
 
-    def next_bar(self, t: float, stretch: float = 1.0) -> float:
+    def next_bar(self, t: float, stretch: float = 1.0, every: int = 1) -> float:
         """The first bar start at or after `t`, in seconds of the record as
-        played (stretched by `stretch`, so its tempo is bpm * stretch)."""
+        played (stretched by `stretch`, so its tempo is bpm * stretch). With
+        `every`, only bars that open a phrase of that many bars, counted from
+        the record's bar one."""
         bar = 4 * self.beat / stretch
-        first = self.downbeat / stretch
-        if t <= first:
-            return first
-        k = int(np.ceil((t - first) / bar - 1e-9))
-        return first + k * bar
+        period = bar * max(1, every)
+        first = (self.downbeat / stretch) - (self.bar0 % max(1, every)) * bar
+        k = int(np.ceil((t - first) / period - 1e-9))
+        return first + k * period
 
 
 _RUBBERBAND: Optional[bool] = None
@@ -210,7 +214,8 @@ def grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float 
     if abs(n - round(n)) > COUNT_SLACK:
         return Grid(g.bpm, start + g.downbeat, g.contrast, bar_known=False)
     to_bar = (-int(round(n))) % 4
-    return Grid(g.bpm, here + to_bar * g.beat, g.contrast, bar_known=True)
+    return Grid(g.bpm, here + to_bar * g.beat, g.contrast, bar_known=True,
+                bar0=(int(round(n)) + to_bar) // 4)
 
 
 @functools.lru_cache(maxsize=128)

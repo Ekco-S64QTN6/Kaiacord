@@ -155,7 +155,7 @@ def _source(first_value=1000, second_value=-1000, grid=STEADY, out_grid=STEADY, 
     queue = [nxt(grid)]
     src = CrossfadeSource(first, lambda deck: queue.pop() if queue else None,
                           stream_factory=tone(second_value, 20.0), on_change=changed.append,
-                          grid_at=lambda record, start, seconds: out_grid)
+                          grid_at=lambda record, start, seconds: out_grid, mix_beats=16)
     src._fine = lambda deck, plan: fine
     wait_for(first, 100)
     deadline = time.time() + 2
@@ -320,10 +320,47 @@ def test_a_late_first_beat_is_seeked_to_not_waited_for():
     plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(late), "skip", 16, lead=2.0)
     assert plan.kind == "blend" and plan.offset == pytest.approx(12.7 - R.PREROLL_S)
     assert plan.drop - plan.start == pytest.approx(R.PREROLL_S)
-    assert plan.drop < 3.0 + R.PREROLL_S + 2.0 + 2.0              # the next bar, not 13 s away
+    assert plan.drop % 8.0 == pytest.approx(0.0, abs=1e-9)          # a skip lands on a four-bar phrase
+    assert plan.drop <= 3.0 + R.PREROLL_S + 2.0 + 8.0               # the next one, not 13 s away
 
 
 def test_a_deck_started_part_way_keeps_its_clock():
     d = Deck(rec("x", 120, "8A"), 1.25, 100.0, tone(0, 1.0), offset=10.0)
     assert d.at(0) == pytest.approx(8.0)                           # 10 s of record at 1.25x
     assert d.end == pytest.approx(80.0, abs=0.02)
+
+
+
+def test_a_blend_plays_both_records_together_for_half_its_length():
+    """16 beats with the highs crossing at once was "hamfisted": a blend now
+    brings the incoming in over a quarter, holds both through the middle half
+    (the bass swapping exactly halfway), and lets the outgoing go over the last."""
+    plan = plan_transition(3.0, 1.0, STEADY, 120.0, nxt(), "skip", 64, lead=2.0)
+    assert plan.kind == "blend" and plan.length == pytest.approx(32.0)
+    q = plan.length / 4
+    t = np.array([plan.drop + q * f for f in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0)])
+    out_low, out_high, in_low, in_high = gains(plan, t)
+    both = (in_high >= 0.999) & (out_high >= 0.999)
+    assert both.tolist() == [False, False, True, True, True, True, True, False, False]
+    assert in_low[t < plan.drop + 2 * q].max() == 0 and out_low[t > plan.drop + 2 * q + plan.beat].max() == 0
+    assert 0.1 < in_high[1] < 0.9 and 0.1 < out_high[7] < 0.9          # eased in and out, not stepped
+
+
+def test_an_end_blend_starts_on_an_eight_bar_phrase():
+    plan = plan_transition(10.0, 1.0, STEADY, 200.0, nxt(), "end", 64, lead=2.0)
+    assert plan.kind == "blend" and plan.done <= 200.0
+    assert plan.drop % 16.0 == pytest.approx(0.0, abs=1e-9)          # eight bars of 2 s from bar one
+
+
+def test_phrases_are_counted_from_the_records_bar_one():
+    g = Grid(bpm=120.0, downbeat=10.0, contrast=8.0, bar0=5)        # bar 5 starts at 10 s
+    assert g.next_bar(10.1, every=8) == pytest.approx(16.0)          # bar 8
+    assert g.next_bar(10.1, every=4) == pytest.approx(16.0)
+    assert g.next_bar(10.1) == pytest.approx(12.0)
+
+
+def test_two_full_records_are_limited_not_clipped():
+    loud = np.full((R.FRAME_SAMPLES, 2), 20000.0, dtype=np.float32)      # two loud records: 40,000 summed
+    parts = (loud * 0, loud, loud * 0)
+    y = np.frombuffer(R.mix_frames(parts, parts, (1.0, 1.0, 1.0, 1.0)), np.int16)
+    assert y.max() < 32767 and y.max() > 0.8 * 32767
