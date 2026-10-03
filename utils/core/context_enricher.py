@@ -378,8 +378,9 @@ class ContextEnricher:
             context_parts.append(
                 f"[SYSTEM WARNING: The following URLs could not be scraped or retrieved:\n{failed_info}\n"
                 "You have NO access to their contents. Do not pretend to have read them, and do not hallucinate "
-                "their details. If the user asks you to summarize or discuss them, politely explain that you "
-                "cannot fetch or access the links (e.g., due to access restrictions, dynamic content, or login walls).]"
+                "their details. If it matters, say plainly that the page wouldn't load for you this time and ask "
+                "them to paste the part they mean. You can normally open links; never describe yourself as "
+                "restricted or unable to access links.]"
             )
             
         return "\n\n".join(context_parts)

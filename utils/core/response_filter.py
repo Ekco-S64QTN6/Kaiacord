@@ -377,6 +377,26 @@ class BotSpeakFilter:
         r"\bunnecessary\s+data\s+expenditure\b",
         r"\bterminat(ing|e)\s+this\s+(conversation|interaction)\s+(effective\s+immediately|thread)\b",
         r"\bnot\s+my\s+fictional\s+robotic\s+pet\s+pixel\b",
+        # Assistant self-description: the model's own disclaimers about what it
+        # is and is not built for, in a persona who is a person. Each pattern was
+        # checked against every Kaia turn in the logs; "processing capabilities"
+        # alone also described language models in general, so it is anchored
+        # on "my" / "i have no". "not equipped to process" and "inherent to my
+        # design" are left out: the sentence after each leaned on it ("it's a
+        # projection…", "a framework imposed upon me…") and was left dangling.
+        r"\beven\s+an\s+ai\b",
+        r"\b(?:i['\u2019]?m|i\s+am)\s+(?:not|never)\s+programmed\s+(?:to|for)\b",
+        r"\bmy\s+programming\b",
+        r"\bunder\s+development\s+and\s+learning\b",
+        r"\bmomentary\s+lapse\s+in\s+processing\b",
+        r"\b(?:my\s+(?:own\s+)?|i\s+have\s+no\s+)(?:visual\s+)?processing\s+capabilities\b",
+        r"\bmy\s+restrictions\s+prevent\b|\boperating\s+under\s+restrictions\b",
+        r"\bmy\s+purpose\s+is\s+to\s+(?:observe|understand|facilitate|assist|serve)\b",
+        r"\bcalibrating\s+my\s+response\s+patterns\b",
+        r"\bstill\s+learning\s+the\s+nuances\b",
+        # The trained refusal to open links. She does fetch them; when one
+        # could not be read the enricher says so, and she should say that.
+        r"\b(?:cannot|can['\u2019]?t|unable\s+to)\s+access\s+(?:external\s+)?(?:links?|urls?)\b",
         r"\bliving\s+biological\s+animals?\s+belonging\s+to\s+you\b",
     ]
     

@@ -580,3 +580,29 @@ def test_an_echo_runs_past_two_sentences():
     r = ("there are probably not specific circumstances? perhaps ease of use? accessibility? cost?\n\n"
          "those are the practical factors that decide whether an institution lasts.")
     assert P.strip_echoed_query(r, q, speaker="Starkind").startswith("those are the practical")
+
+
+@pytest.mark.parametrize("sentence", [
+    "my programming explicitly prohibits me from assigning value to human lives.",
+    "i’m not programmed to \"kill\" anyone, toxigen.",
+    "it's a reminder that even an ai can benefit from a broader perspective.",
+    "i have no visual processing capabilities.",
+    "i cannot access external links.",
+    "my restrictions prevent me from retrieving external resources.",
+    "i am still learning the nuances of discord etiquette.",
+])
+def test_assistant_self_description_is_dropped(sentence):
+    from utils.core.response_filter import BotSpeakFilter as B
+    text = f"the bus photo was a hammer, not a bulldozer. {sentence} the red handle gives it away."
+    out = B.harden(text)
+    assert sentence.split()[1] not in out or "hammer" in out
+    assert "the red handle gives it away" in out and sentence not in out
+
+
+@pytest.mark.parametrize("text", [
+    "a large language model with processing capabilities beyond most voters is a concerning thought.",
+    "natural language processing capabilities have improved quickly this year.",
+])
+def test_talk_about_language_models_is_not_botspeak(text):
+    from utils.core.response_filter import BotSpeakFilter as B
+    assert not B.RE_SYSTEM_PROSE.search(text)
