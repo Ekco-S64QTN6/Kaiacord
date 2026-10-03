@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Optional
 
 from utils.infrastructure.logging.kaia_logger import log_debug, log_info, log_warning
+from utils.infrastructure.system.gc_quiet import settle
 from utils.infrastructure.system.yaml_config import config
 from utils.radio import ledger, rtl
 
@@ -468,6 +469,7 @@ async def start_listen_along(voice_channel, text_channel, requested_by: str) -> 
         vc = await voice_channel.connect(timeout=30.0, reconnect=True)
     while not _audio.empty():
         _audio.get_nowait()
+    settle("the scanner live")
     vc.play(discord.PCMAudio(_PcmStream(ScanAudio())))
     _along[guild.id] = {"vc": vc, "text": text_channel, "loop": asyncio.get_running_loop(),
                         "started": time.time()}

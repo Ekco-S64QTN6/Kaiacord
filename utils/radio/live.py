@@ -16,6 +16,7 @@ from typing import Optional
 import discord
 
 from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error
+from utils.infrastructure.system.gc_quiet import settle
 from utils.infrastructure.system.yaml_config import config
 from utils.radio import kiwi
 
@@ -121,6 +122,7 @@ async def start(channel, khz: float, mode: str, region: str, label: str, request
             await vc.move_to(channel)
         else:
             vc = await channel.connect(timeout=30.0, reconnect=True)
+        settle("live radio")
         vc.play(source, after=lambda e: log_error(f"[radio] playback error: {e}") if e else None)
     except Exception:
         # A voice join that fails must not leave the stream holding a slot on
@@ -161,6 +163,7 @@ async def start_local(channel, freq_hz: int, label: str, requested_by: str, gain
             await vc.move_to(channel)
         else:
             vc = await channel.connect(timeout=30.0, reconnect=True)
+        settle("live radio")
         vc.play(source, after=lambda e: log_error(f"[radio] playback error: {e}") if e else None)
     except Exception:
         if proc is not None:
@@ -201,6 +204,7 @@ async def play_clip(channel, path, label: str, requested_by: str) -> None:
                 await vc.disconnect(force=True)
         asyncio.run_coroutine_threadsafe(_leave(), loop)
 
+    settle("a radio clip")
     vc.play(discord.FFmpegPCMAudio(str(path), stderr=_DEVNULL), after=_done)
     log_action(f"[radio] playing clip {path.name} ({label}) in {channel.name} for {requested_by}")
 

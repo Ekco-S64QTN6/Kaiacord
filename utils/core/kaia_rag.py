@@ -28,6 +28,7 @@ from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter
 from utils.infrastructure.logging.kaia_logger import log_success, log_info, log_action
+from utils.infrastructure.system.gc_quiet import settle
 from utils.infrastructure.system.yaml_config import config
 
 # Re-exported: callers import it from here.
@@ -164,6 +165,7 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         await asyncio.to_thread(self._initialize_indices)
         
         self._initialized = True
+        settle("the loaded indices")
         log_success("RAG indices initialized.")
 
 

@@ -289,11 +289,12 @@ def _store_matrix(store):
 
 
 def install_fast_vector_query() -> None:
-    """Route SimpleVectorStore's plain top-k queries through the cached matrix.
-    Filtered, node-restricted and non-default queries keep llama_index's path."""
+    """Route SimpleVectorStore's top-k queries — filtered and node-restricted
+    ones included — through the cached matrix. Non-default modes keep
+    llama_index's path."""
     try:
         import numpy as np
-        from llama_index.core.vector_stores.simple import SimpleVectorStore
+        from llama_index.core.vector_stores.simple import SimpleVectorStore, build_metadata_filter_fn
         from llama_index.core.vector_stores.types import VectorStoreQueryMode, VectorStoreQueryResult
     except Exception:
         return
@@ -308,19 +309,35 @@ def install_fast_vector_query() -> None:
         _VEC_VERSION[id(self)] = _VEC_VERSION.get(id(self), 0) + 1
 
     def query(self, query, **kwargs):
-        if (query.mode != VectorStoreQueryMode.DEFAULT or query.filters is not None
-                or query.node_ids is not None or query.query_embedding is None):
+        if query.mode != VectorStoreQueryMode.DEFAULT or query.query_embedding is None:
             return original_query(self, query, **kwargs)
+        if query.filters is not None and self.data.embedding_dict and not self.data.metadata_dict:
+            return original_query(self, query, **kwargs)     # raises, as llama_index does
         ids, matrix = _store_matrix(self)
         if not ids:
             return VectorStoreQueryResult(similarities=[], ids=[])
+        # Filtered and node-restricted queries are most of them (identity
+        # scoping, type filters), and llama_index answers those by building a
+        # fresh array of every candidate embedding in one GIL-holding call. The
+        # candidates are picked here in Python, which yields, and scored as rows
+        # of the cached matrix.
+        rows = None
+        if query.filters is not None or query.node_ids is not None:
+            keep_meta = build_metadata_filter_fn(lambda nid: self.data.metadata_dict[nid], query.filters)
+            allowed = set(query.node_ids) if query.node_ids is not None else None
+            rows = np.fromiter((i for i, nid in enumerate(ids)
+                                if (allowed is None or nid in allowed) and keep_meta(nid)), dtype=np.intp)
+            if not len(rows):
+                return VectorStoreQueryResult(similarities=[], ids=[])
         q = np.asarray(query.query_embedding, dtype=np.float32)
         qn = np.linalg.norm(q)
-        sims = matrix @ (q / qn if qn else q)
-        k = min(int(query.similarity_top_k or len(ids)), len(ids))
+        q = q / qn if qn else q
+        sims = (matrix if rows is None else matrix[rows]) @ q
+        k = min(int(query.similarity_top_k or len(sims)), len(sims))
         top = np.argpartition(-sims, k - 1)[:k]
         top = top[np.argsort(-sims[top])]
-        return VectorStoreQueryResult(similarities=[float(sims[i]) for i in top], ids=[ids[i] for i in top])
+        pick = top if rows is None else rows[top]
+        return VectorStoreQueryResult(similarities=[float(sims[i]) for i in top], ids=[ids[i] for i in pick])
 
     def add(self, *a, **kw):
         out = original_add(self, *a, **kw)

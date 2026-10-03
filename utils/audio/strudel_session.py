@@ -22,6 +22,7 @@ from utils.audio.strudel_source import StrudelAudioSource
 from utils.infrastructure.logging.kaia_logger import (log_action, log_debug,
                                                       log_error, log_info,
                                                       log_warning)
+from utils.infrastructure.system.gc_quiet import settle
 
 _sessions: dict[int, "MusicSession"] = {}
 WATCHDOG_PERIOD_S = 10.0
@@ -344,6 +345,7 @@ async def start_session(channel, *, genre: str, requested_by: str,
         vc = await channel.connect(timeout=30.0, reconnect=True)
 
     source = StrudelAudioSource(engine)
+    settle("a live set")
     vc.play(source, after=lambda e: log_error(f"[music] playback error: {e}") if e else None)
 
     session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel)
