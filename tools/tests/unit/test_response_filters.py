@@ -606,3 +606,34 @@ def test_assistant_self_description_is_dropped(sentence):
 def test_talk_about_language_models_is_not_botspeak(text):
     from utils.core.response_filter import BotSpeakFilter as B
     assert not B.RE_SYSTEM_PROSE.search(text)
+
+
+@pytest.mark.parametrize("praise", [
+    "the observation about auto-updates is particularly insightful.",
+    "your preference for erring on the side of kindness is commendable.",
+    "it’s a clever interpretation.",
+    "it’s perceptive.",
+    "the question is astute.",
+])
+def test_the_banned_praise_words_are_dropped_as_a_verdict(praise):
+    """Jimjam on a September eulogy of him: "cold read generic egofluff"."""
+    from utils.core.response_filter import BotSpeakFilter as B
+    out = B.harden(f"the tendency to resist change is old. {praise} people cling to what works.")
+    assert praise not in out
+    assert "the tendency to resist change is old." in out and "people cling to what works." in out
+
+
+def test_a_verdict_after_a_comma_is_not_cut_from_its_subject():
+    from utils.core.response_filter import BotSpeakFilter as B
+    text = ("the observation about your willingness to engage, rather than dictate meaning, "
+            "that’s particularly astute. it changes how the piece reads.")
+    assert "the observation about your willingness to engage, rather than dictate meaning." not in B.harden(text)
+
+
+def test_a_collapsed_list_keeps_its_headers_without_the_bold():
+    from utils.core.response_filter import BotSpeakFilter as B
+    text = ("a few things stand out.\n\n- **weakened position:** he faced a hard race.\n"
+            "- **strategic realignment**: the party is reassessing.\n- plain item")
+    out = B.collapse_bullets(text)
+    assert "**" not in out
+    assert "weakened position: he faced a hard race." in out and "strategic realignment: the party" in out

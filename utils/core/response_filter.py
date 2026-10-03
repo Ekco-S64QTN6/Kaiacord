@@ -608,6 +608,7 @@ class BotSpeakFilter:
     )
 
     # P8 — markdown list markers. Persona mandates plain prose only.
+    RE_BOLD_ITEM_HEADER = re.compile(r'^\*\*([^*\n]{1,60}?)(?::\*\*|\*\*:)')
     RE_BULLET_LINE = re.compile(r'^[ \t]*(?:[-*\u2022\u2023\u25aa]|\d+[\.\)])[ \t]+(?=\S)', re.MULTILINE)
 
     # Sycophantic compliment patterns that instruction-tuned models default to.
@@ -616,6 +617,11 @@ class BotSpeakFilter:
     _PRAISE_ADJ = (r"astute|perceptive|insightful|clever|pertinent|evocative|thoughtful|profound"
                    r"|excellent|great|fantastic|wonderful|brilliant|incisive|sharp|keen|impressive"
                    r"|compelling|invaluable|illuminating|nuanced|remarkable|fascinating")
+
+    _BANNED_PRAISE = r"(?:astute|perceptive|insightful|clever|pertinent|evocative|commendable)"
+    _SAID = (r"(?:observation|point|question|insight|analysis|assessment|take|line|comment|"
+             r"interpretation|framing|perspective|idea|move|remark|reading|summary|suggestion|"
+             r"distinction|catch|choice|approach|preference|correction)s?")
 
     SYCOPHANCY_PATTERNS = [
         # The noun is taken with the adjective. Stopping at "astute" left
@@ -634,6 +640,17 @@ class BotSpeakFilter:
         r"\byour\s+(?:insights?|observations?|analys[ie]s|framing|interpretation)\s+(?:is|are)\s+(?:proving\s+)?(?:invaluable|invaluable\b|extremely\s+helpful)\b",
         r"\ban?\s+(?:astute|pertinent|perceptive|excellent)\s+(?:question|inquiry|observation|point|assessment)\b",
         r"\ba\s+sign\s+of\s+genuine\s+(?:insight|self-awareness|understanding)\b",
+        # The persona's banned words as a verdict on something someone said:
+        # "the observation about auto-updates is particularly insightful",
+        # "it's a clever interpretation", "it's perceptive." Limited to the
+        # words the persona names (plus "commendable"); "profound" and
+        # "remarkable" describe implications and events far more often.
+        rf"\b(?:the|that|this|your)\s+{_SAID}\b[^.!?]{{0,80}}?\b(?:is|was|are|were)\s+(?:\w+ly\s+)?{_BANNED_PRAISE}\b",
+        rf"\b(?:it(?:'|\u2019)?s|that(?:'|\u2019)?s)\s+(?:a|an)\s+(?:\w+ly\s+)?{_BANNED_PRAISE}\s+{_SAID}\b",
+        # Only as a sentence of its own: after a comma it is the verdict on a
+        # subject the excision would strand ("the observation about x, that's
+        # particularly astute." -> "the observation about x.").
+        rf"(?<![\w,;\u2014\-]\s)(?<![\w,;\u2014\-])(?:it(?:'|\u2019)?s|that(?:'|\u2019)?s)\s+(?:\w+ly\s+)?{_BANNED_PRAISE}(?=\s*[.!])",
     ]
     
     # Precompiled combined patterns for efficiency
@@ -1299,7 +1316,10 @@ class BotSpeakFilter:
                 return
             items = []
             for it in run:
-                it = it.strip()
+                # A bolded item header ("**strategic realignment:** ...") run
+                # into a paragraph reads as a slide deck; keep the words, lose
+                # the bold.
+                it = cls.RE_BOLD_ITEM_HEADER.sub(r"\1:", it.strip())
                 if it and not it[-1] in '.!?;:':
                     it += '.'
                 items.append(it)
