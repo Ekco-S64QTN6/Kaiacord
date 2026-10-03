@@ -8,10 +8,12 @@ the mix moved it.
 
 A small HTTP server on 127.0.0.1 serves `assets/dj/index.html`, a state
 stream (`/events`, server-sent events, 20 a second), each record's three-band
-waveform (`/wave/<id>`, computed by ffmpeg off the voice thread and cached),
-and one control, `POST /skip`, the same skip `!music skip` makes. When a set
-starts the page is opened as an app window in Playwright's Chromium, the way
-the Strudel window is, and closed when the set ends.
+waveform (`/wave/<id>`), the record files themselves for the page's
+headphones (`/audio/<id>`, with byte ranges; heard in the window, never on
+air), and the controls: the mixer (`/control`, `/reset`, `/blend`), the decks
+(`/play`, `/cue`, `/load`) and `/skip`, the same skip `!music skip` makes.
+When a set starts the page is opened as an app window in an installed
+browser, and closed when the set ends.
 """
 from __future__ import annotations
 
@@ -37,6 +39,7 @@ WAVE_RATE = 8000
 #: Waveform columns per second of the record, each a low / mid / high level.
 WAVE_COLS_PER_S = 100
 STREAM_HZ = 20
+FRAMES_PER_S = 50
 
 _server: Optional[ThreadingHTTPServer] = None
 _port = 0
@@ -154,19 +157,30 @@ def snapshot(session) -> dict:
     if session is None or session.source is None:
         return {"live": False, "t": time.time()}
     src = session.source
-    cur, inc, plan, queued = src.current, src.incoming, src.plan, src._queued
+    cur, inc, plan, queued, hand = src.current, src.incoming, src.plan, src._queued, src.hand
     decks = {}
+    free = src.free_slot()
     if cur is not None:
-        decks[str(cur.slot)] = _deck(cur, "playing")
+        decks[str(cur.slot)] = {**_deck(cur, "playing"), "on_air": True}
     if inc is not None:
         started = src._start_frame is not None and cur is not None and cur.played >= src._start_frame
-        decks[str(inc.slot)] = _deck(inc, "playing" if started else "cued")
+        decks[str(inc.slot)] = {**_deck(inc, "playing" if started else "cued"), "hand": src.by_hand}
+    elif hand is not None:
+        decks[str(hand.slot)] = {**_deck(hand, "playing" if src._hand_on else "cued"), "hand": True,
+                                 "synced": src.hand_synced, "cue": src.cue}
     elif queued is not None and cur is not None:
-        decks[str(3 - cur.slot)] = {**_record(queued.record), "slot": 3 - cur.slot,
-                                    "state": "planning" if src._planning else "loaded",
-                                    "ratio": 1.0, "pitch": 0.0, "gain_db": queued.gain, "pos": 0.0,
-                                    "length": round(queued.seconds, 3), "tempo": queued.record.bpm,
-                                    "grid": _grid(queued.grid), "buffering": False}
+        from utils.audio import library
+        master = cur.grid.bpm * cur.ratio if cur.grid else (cur.record.bpm or 0) * cur.ratio
+        bpm = queued.grid.bpm if queued.grid else queued.record.bpm
+        ratio = library.tempo_ratio(master, bpm) or 1.0
+        cue = src.cue if src.cue is not None else src.default_cue(queued)
+        decks[str(free)] = {**_record(queued.record), "slot": free,
+                            "state": "planning" if src._planning else "loaded",
+                            "ratio": round(ratio, 5), "pitch": round((ratio - 1) * 100, 2), "gain_db": queued.gain,
+                            "pos": round(cue, 4), "cue": round(cue, 4), "length": round(queued.seconds, 3),
+                            "tempo": round(bpm * ratio, 2) if bpm else None, "grid": _grid(queued.grid),
+                            "buffering": False, "hand": src.by_hand, "synced": ratio != 1.0 or bool(bpm and master
+                                                                                       and abs(bpm - master) < 0.05)}
     a_low, a_mid, a_high, b_low, b_mid, b_high = src.applied
     out_slot = str(cur.slot) if cur else "1"
     in_slot = str(3 - cur.slot) if cur else "2"
@@ -178,6 +192,7 @@ def snapshot(session) -> dict:
     if plan is not None and cur is not None:
         now = cur.at()
         mix = {"kind": plan.kind, "mode": plan.mode, "why": plan.why, "out_slot": out_slot, "in_slot": in_slot,
+               "started": src.blend_started(),
                "start": round(plan.start, 3), "drop": round(plan.drop, 3), "length": round(plan.length, 3),
                "beat": round(plan.beat, 4), "done": round(plan.done, 3), "now": round(now, 3),
                "ratio": round(plan.ratio, 5), "out_ratio": round(cur.ratio, 5)}
@@ -190,6 +205,9 @@ def snapshot(session) -> dict:
         "history": src.history[-12:], "names": session.names[-30:], "mood": _mood(),
         "mix_beats": src._mix_beats, "blend_choices": list(src.BLEND_CHOICES), "controls": src.controls.state(), "paused": sorted(src.paused),
         "requests": [_name_of(session, p) for p in session.requests],
+        "on_air": cur.slot if cur else None, "free": free, "loading": getattr(session, "loading", None),
+        "last_load": getattr(session, "last_load", None),
+        "handover": round(src._hand_quiet / FRAMES_PER_S, 2) if hand is not None else None,
     }
 
 
@@ -244,6 +262,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(snapshot(_session())).encode(), "application/json")
             elif path == "/crate":
                 self._send(200, json.dumps(crate(_session())).encode(), "application/json")
+            elif path.startswith("/audio/"):
+                self._audio(path.rsplit("/", 1)[-1])
             elif path.startswith("/wave/"):
                 tid = path.rsplit("/", 1)[-1]
                 with _lock:
@@ -269,6 +289,51 @@ class _Handler(BaseHTTPRequestHandler):
             pass
         except Exception as e:
             log_debug(f"[dj] {path}: {e}")
+
+    def _audio(self, tid: str) -> None:
+        """A record's file, for the booth's headphones (CUE), with byte ranges
+        so the page can seek in it."""
+        s = _session()
+        rec = next((r for r in (s.crate if s else []) if track_id(r.path) == tid), None)
+        path = rec.path if rec else _paths.get(tid)
+        if not path or not os.path.isfile(path):
+            return self._send(404, b"", "text/plain")
+        size = os.path.getsize(path)
+        ctype = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".flac": "audio/flac", ".ogg": "audio/ogg",
+                 ".opus": "audio/ogg", ".wav": "audio/wav", ".aac": "audio/aac"}.get(Path(path).suffix.lower(),
+                                                                                   "application/octet-stream")
+        start, end = 0, size - 1
+        rng = self.headers.get("Range", "")
+        if rng.startswith("bytes="):
+            a, _, b = rng[6:].split(",")[0].partition("-")
+            if a.strip():
+                start = int(a)
+                end = int(b) if b.strip() else end
+            elif b.strip():
+                start = max(0, size - int(b))
+            end = min(end, size - 1)
+            if start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.end_headers()
+                return
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        else:
+            self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1))
+        self.end_headers()
+        with open(path, "rb") as fh:
+            fh.seek(start)
+            left = end - start + 1
+            while left > 0:
+                chunk = fh.read(min(65536, left))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                left -= len(chunk)
 
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
@@ -297,21 +362,30 @@ class _Handler(BaseHTTPRequestHandler):
             if ok:
                 log_info(f"[records] blends from the booth: {src._mix_beats} beats")
         elif self.path == "/reset":
+            if src.hand is not None:
+                src.finish()                     # she takes the mix from where the hands left it
             src.controls.reset()
             src.paused.clear()
             log_info("[records] the booth handed the mix back to Kaia")
             ok = True
-        elif self.path == "/pause":
+        elif self.path in ("/pause", "/play"):
+            # On air: pause / resume in place. The free deck: play it by hand
+            # (synced, on the beat) or pause it.
             slot = int(body.get("slot") or 0)
-            if slot in src.paused:
-                src.paused.discard(slot)
-            elif slot in (1, 2):
-                src.paused.add(slot)
             ok = slot in (1, 2)
-        elif self.path == "/queue":
+            if ok and src.current is not None and slot == src.current.slot:
+                src.paused.symmetric_difference_update({slot})
+            elif ok:
+                ok = src.stop_hand() if src.hand is not None else src.play_hand() == "starting"
+        elif self.path == "/cue":
+            # CUE on the free deck: with "pos", move the cue point there; with
+            # none, a deck playing by hand stops back at its cue point.
+            pos = body.get("pos")
+            ok = src.set_cue(float(pos)) if pos is not None else src.stop_hand(back_to_cue=True)
+        elif self.path in ("/load", "/queue"):
             rec = next((r for r in s.crate if track_id(r.path) == body.get("id")), None)
             if rec:
-                s.request(rec)
+                s.load(rec)
             ok = rec is not None
         else:
             return self._send(404, b"", "text/plain")

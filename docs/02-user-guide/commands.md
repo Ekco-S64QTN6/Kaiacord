@@ -219,14 +219,20 @@ analysis outside this repo; `music.library_catalog` in `kaia.yaml` points at it.
 is chosen to sit with the last in key (the same Camelot code, a neighbour, or the relative key)
 and tempo (within 6%, counting half and double time), stretched to the playing tempo without
 changing pitch, and levelled to the same loudness. Its first downbeat lands on a bar of the record
-playing, on a phrase, and the two blend over 64 beats by default (`music.records_mix_beats`): the new
-record eases in, both play together through the middle with the bass swapped halfway, then the old
-one eases out. The booth picks SHORT / LONG / EPIC (32 / 64 / 128 beats); where either record's beat isn't steady enough to lay over the other — rock, breakbeat, a
-beatless intro — she cuts to it cleanly on the bar instead. `!music skip` brings the next one in at
-the next bar it can land on. While records play, a DJ booth window opens on the bot's screen —
-both decks and the mixer, live, and it works: TRIM, HI/MID/LOW, the channel faders, the crossfader
-and master are yours to turn (on top of her automix; KAIA MIX hands it back), PLAY pauses a deck,
-and the crate panel lists the library by genre — click a record and she plays it next (`!music booth`
+playing, on a phrase, and the two blend over 64 beats by default (`music.records_mix_beats`), staged
+the way DJs ride a long EQ blend: the new record's highs, then its mids, the bass swapped on the
+halfway bar, then the old one's mids and highs out. The booth picks SHORT / LONG / EPIC (32 / 64 / 128
+beats); where the beats can't be laid over each other — rock, breakbeat, tempos too far apart — she
+fades over eight bars instead, from the new record's first sound. `!music skip` brings the next one in
+on the next phrase. While records play, a DJ booth window opens on the bot's screen — both decks and
+the mixer, live, and it works like a pair of CDJs and a mixer: TRIM, HI/MID/LOW, the channel faders,
+the crossfader and master are yours (on top of her automix; KAIA MIX hands it back). Click a record in
+the crate (BY GENRE, or MATCHES — scored against the record on air by key and tempo; FADE means too far
+in tempo to beat-match) and it loads on the free deck with its fader down. Drag its waveform, jog or
+lane to move its cue (it snaps to a bar), hold CUE or switch on PHONES to hear it in the booth window
+only, and press ▶ to play it yourself — it starts synced, on the same beat of the bar as the record on
+air. Bring its fader up and the other down; two seconds after the old one goes quiet the new one is on
+air. NEXT mixes the loaded deck in for you, or, with one playing by hand, has her finish the mix (`!music booth`
 reopens it; it is served on `127.0.0.1:47431`, `music.dj_dashboard_port`). With no query she picks the first record from her mood.
 
 Genres: psytrance, techno, house, deephouse, trance, drumnbass, acid, breakbeat, dub, lofi,

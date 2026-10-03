@@ -159,3 +159,113 @@ def test_the_blend_length_is_chosen_at_the_booth_and_shortened_when_there_is_no_
     while src.plan is None and time.time() < deadline:
         time.sleep(0.01)
     assert src.plan.kind == "blend" and src.plan.length == pytest.approx(32.0)     # 64 beats at 120 bpm
+
+
+def _wait(cond, seconds=5.0):
+    deadline = time.time() + seconds
+    while not cond() and time.time() < deadline:
+        time.sleep(0.01)
+    return cond()
+
+
+def test_loading_a_record_puts_it_on_the_free_deck_now_and_calls_off_her_plan(session):
+    src = session.source
+    src.skip()
+    assert _wait(lambda: src.plan is not None)          # Kaia's blend, planned but not started
+    mine = R.Next(rec("mine"), 20.0, 0.0, Grid(120.0, 0.0, 8.0))
+    assert src.load(mine) == "loaded"
+    assert src.plan is None and src.incoming is None and src._queued is mine
+    assert src.controls.channels[2]["fader"] == 0.0     # down, as a DJ loads a deck
+    snap = D.snapshot(session)
+    assert snap["decks"]["2"]["title"] == "mine" and snap["decks"]["2"]["hand"]
+
+
+def test_a_deck_played_by_hand_starts_synced_on_the_bar_from_its_cue(session):
+    src = session.source
+    for _ in range(20):
+        src.read()
+    src.load(R.Next(rec("mine"), 20.0, 0.0, Grid(120.0, 0.0, 8.0)))
+    assert src.set_cue(5.1) and src.cue == pytest.approx(6.0)      # snapped to its bar
+    assert src.play_hand() == "starting"
+    assert _wait(lambda: src.hand is not None)
+    k = src._hand_k
+    landing = (k * R.FRAME_SAMPLES + src.hand.pad) / R.RATE        # on-air seconds its cue plays at
+    assert landing % 2.0 == pytest.approx(0.0, abs=1e-3) or landing % 2.0 == pytest.approx(2.0, abs=1e-3)
+    assert src.hand.offset == pytest.approx(6.0) and src.hand_synced
+    while src.current.played < k + 5:
+        src.read()
+    assert src._hand_on and src.levels["b"] > -60          # playing, heard pre-fader (its fader is down)
+
+
+def test_a_hand_deck_takes_over_once_the_record_on_air_is_faded_down(session):
+    src = session.source
+    src.load(R.Next(rec("mine"), 20.0, 0.0, Grid(120.0, 0.0, 8.0)))
+    src.play_hand()
+    assert _wait(lambda: src.hand is not None)
+    while not src._hand_on:
+        src.read()
+    src.controls.set(2, "fader", 1.0)
+    for _ in range(10):
+        src.read()
+    assert src.current.record.title == "one"            # both up: nothing hands over
+    src.controls.set(1, "fader", 0.0)
+    for _ in range(int(R.HANDOVER_S * R.FRAMES_PER_S) + 2):
+        src.read()
+    assert src.current.record.title == "mine" and src.hand is None
+    assert src.controls.channels[1]["fader"] == 1.0      # the empty channel is ready for her next one
+    assert src.history[-1]["kind"] == "hand"
+
+
+def test_next_with_a_hand_deck_playing_has_kaia_finish_the_mix(session):
+    src = session.source
+    src.load(R.Next(rec("mine"), 20.0, 0.0, Grid(120.0, 0.0, 8.0)))
+    src.play_hand()
+    assert _wait(lambda: src.hand is not None)
+    while not src._hand_on:
+        src.read()
+    session.skip()
+    assert src.plan.kind == "out" and src.incoming.record.title == "mine"
+    assert src.controls.channels[2]["fader"] == 1.0      # never leaves the record she keeps silent
+    for _ in range(int((src.plan.done - src.current.at()) * R.FRAMES_PER_S) + 3):
+        src.read()
+    assert src.current.record.title == "mine"
+
+
+def test_cue_while_playing_stops_the_hand_deck_back_at_its_cue(session):
+    src = session.source
+    src.load(R.Next(rec("mine"), 20.0, 0.0, Grid(120.0, 0.0, 8.0)))
+    src.set_cue(4.0)
+    src.play_hand()
+    assert _wait(lambda: src.hand is not None)
+    for _ in range(80):
+        src.read()
+    assert src.stop_hand(back_to_cue=True)
+    assert src.hand is None and src._queued.record.title == "mine" and src.cue == pytest.approx(4.0)
+
+
+def test_the_booth_serves_a_record_for_the_headphones_with_ranges(session, monkeypatch, tmp_path):
+    f = tmp_path / "x.mp3"
+    f.write_bytes(bytes(range(256)) * 10)
+    other = library.Record(path=str(f), artist="A", title="x", bpm=120, key="8A", genre="House")
+    session.crate = [other]
+    monkeypatch.setattr(D, "_cfg", lambda k, d: 0 if k == "dj_dashboard_port" else d)
+    base = D.serve()
+    try:
+        req = urllib.request.Request(base + "audio/" + D.track_id(str(f)), headers={"Range": "bytes=10-19"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            assert r.status == 206 and r.read() == bytes(range(10, 20))
+            assert r.headers["Content-Range"] == "bytes 10-19/2560"
+    finally:
+        srv, D._server = D._server, None
+        srv.shutdown()
+
+
+def test_kaia_raises_a_hand_loaded_fader_only_when_her_blend_starts(session):
+    src = session.source
+    src.load(R.Next(rec("mine"), 20.0, 0.0, Grid(120.0, 0.0, 8.0)))
+    src.skip()
+    assert _wait(lambda: src.plan is not None)
+    assert src.controls.channels[2]["fader"] == 0.0          # planned, not started: still down
+    while src.current.played <= src._start_frame:
+        src.read()
+    assert src.controls.channels[2]["fader"] == 1.0

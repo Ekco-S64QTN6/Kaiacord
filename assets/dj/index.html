@@ -100,11 +100,12 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .strip .ch { grid-column: 1 / span 2; text-align: center; font-family: var(--disp); font-weight: 900; font-size: 15px; }
 .knobs { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; min-height: 0; }
 .knob { text-align: center; font-size: 8px; letter-spacing: 1.5px; color: var(--dim); line-height: 1.1; }
-.knob canvas { width: clamp(26px, 3.2vh, 36px); height: clamp(26px, 3.2vh, 36px); display: block; margin: 0 auto 1px; }
+.knob canvas { width: clamp(20px, 2.5vh, 36px); height: clamp(20px, 2.5vh, 36px); display: block; margin: 0 auto 1px; }
 .fadebox { display: flex; gap: 8px; align-items: stretch; justify-content: center; height: 100%; min-height: 0; }
 .vu, .fader { width: 14px; height: 100%; display: block; }
 .fader { width: 26px; }
-.mastercol { display: grid; grid-template-rows: auto 1fr auto; justify-items: center; gap: 6px; }
+.mastercol { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; justify-items: center; gap: 4px; min-height: 0; }
+.mk { display: flex; gap: 4px; }
 .mastercol .lbl { font-size: 9px; letter-spacing: 2px; color: var(--dim); }
 .mvu { display: flex; gap: 4px; height: 100%; min-height: 0; }
 #xf { width: 100%; height: 28px; display: block; }
@@ -117,7 +118,7 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .fx .kind.fade { color: var(--purple); text-shadow: 0 0 12px rgba(162,89,255,.7); }
 .fx .kind.plan { color: var(--cyan); animation: blink .8s infinite; }
 .fx .count { margin-left: auto; font-size: 12px; color: var(--text); letter-spacing: 1px; }
-.fx .why { font-size: 11px; color: var(--dim); margin-top: 3px; min-height: 14px; }
+.fx .why { font-size: 11px; color: var(--dim); margin-top: 3px; min-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #prog { width: 100%; height: 14px; display: block; margin-top: 4px; }
 #skip { width: 100%; font-family: var(--disp); font-weight: 700; font-size: 13px; letter-spacing: 4px; padding: 8px; cursor: pointer;
   color: var(--pink); background: rgba(255,47,209,.07); border: 1px solid var(--pink); border-radius: 3px;
@@ -137,6 +138,8 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .tk { font-size: 9px; letter-spacing: 1.5px; padding: 1px 6px; border-radius: 2px; border: 1px solid; }
 .tk.blend { color: var(--green); border-color: var(--green); }
 .tk.cut { color: var(--yellow); border-color: var(--yellow); }
+.tk.fade { color: var(--purple); border-color: var(--purple); }
+.tk.hand, .tk.out { color: var(--pink); border-color: var(--pink); }
 .next { --accent: var(--purple); padding: 26px 14px 12px; display: grid; grid-template-rows: auto auto 1fr; gap: 6px; }
 .next .t { font-size: 17px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .next .a { font-size: 13px; color: var(--purple); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -168,7 +171,7 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 #auto { font-family: var(--disp); font-weight: 700; font-size: 11px; letter-spacing: 2px; padding: 0 14px; cursor: pointer;
   color: var(--green); background: rgba(61,255,138,.06); border: 1px solid var(--green); border-radius: 3px; }
 #auto.hot { background: var(--green); color: #031; box-shadow: 0 0 14px rgba(61,255,138,.6); }
-#mknob { width: 34px; height: 34px; display: block; margin-top: 4px; }
+#mknob, #phknob { width: clamp(20px, 2.6vh, 30px); height: clamp(20px, 2.6vh, 30px); display: block; margin: 0 auto 1px; }
 #toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 60; background: rgba(10,14,25,.95);
   border: 1px solid var(--cyan); color: var(--text); padding: 9px 18px; border-radius: 3px; font-size: 12px; letter-spacing: 1px;
   box-shadow: 0 0 18px rgba(0,240,255,.35); opacity: 0; transition: opacity .25s; pointer-events: none; }
@@ -202,6 +205,17 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .trk.req .st { color: var(--yellow); }
 .trk.now { background: rgba(61,255,138,.1); } .trk.now .st { color: var(--green); }
 #setpane { display: none; }
+.trk .bpm.fit { font-weight: 700; font-size: 10px; letter-spacing: .5px; }
+.trk.loaded { background: rgba(255,47,209,.10); } .trk.loaded .st { color: var(--pink); }
+#collapse { font-size: 9px; letter-spacing: 1.5px; color: var(--dim); border: 1px solid var(--faint); border-radius: 2px; padding: 2px 7px; cursor: pointer; user-select: none; margin-left: 8px; }
+#collapse:hover { color: var(--text); border-color: var(--cyan); }
+.btn.cue, .btn.ph { cursor: pointer; }
+.btn.ph { min-width: 54px; padding: 8px 10px; }
+.btn.ph.lit { color: #031; background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 14px rgba(0,240,255,.7); }
+.btn.off { opacity: .35; cursor: default; }
+.ov.scrub, .jog.scrub { cursor: ew-resize; }
+.jog.scrub { cursor: grab; }
+#phknob { cursor: grab; touch-action: none; }
 
 /* ── idle ── */
 #idle { position: fixed; inset: 0; z-index: 20; display: none; place-items: center; background: radial-gradient(circle at 50% 40%, rgba(0,240,255,.06), transparent 60%), var(--bg); }
@@ -235,7 +249,7 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
       <div class="ptitle">MIXER · DJM</div>
       <div class="strips">
         <div class="strip" id="strip1"></div>
-        <div class="mastercol"><div class="lbl">MASTER</div><div class="mvu"><canvas class="vu" id="mvuL"></canvas><canvas class="vu" id="mvuR"></canvas></div><canvas id="mknob" title="master volume — drag, double-click to reset"></canvas></div>
+        <div class="mastercol"><div class="lbl">MASTER</div><div class="mvu"><canvas class="vu" id="mvuL"></canvas><canvas class="vu" id="mvuR"></canvas></div><div class="mk"><div class="knob"><canvas id="mknob" title="master volume — drag, double-click to reset"></canvas>MST</div><div class="knob"><canvas id="phknob" title="headphones (CUE) volume — this window only"></canvas>PH</div></div></div>
         <div class="strip" id="strip2"></div>
       </div>
       <div><canvas id="xf"></canvas><div class="xlabels"><span>CH 1</span><span>CROSSFADER</span><span>CH 2</span></div></div>
@@ -253,8 +267,8 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 
   <div id="bottom">
     <div class="panel crate">
-      <div class="tabs"><span class="tab on" data-tab="crate">BY GENRE</span><span class="tab" data-tab="match" title="what sits with the record playing, by Camelot key and tempo">MATCHES</span><span class="tab" data-tab="set">SET LIST</span><span class="count" id="cratecount"></span></div>
-      <input id="search" placeholder="search the crate — click a record to have kaia play it next" autocomplete="off">
+      <div class="tabs"><span class="tab on" data-tab="crate">BY GENRE</span><span class="tab" data-tab="match" title="what sits with the record playing, by Camelot key and tempo">MATCHES</span><span class="tab" data-tab="set">SET LIST</span><span class="count" id="cratecount"></span><span id="collapse" title="fold or unfold every group">FOLD ALL</span></div>
+      <input id="search" placeholder="search the crate — click a record to load it on the free deck" autocomplete="off">
       <div class="scroll" id="cratepane"></div>
       <div class="scroll list" id="setpane" style="padding:0"><ol id="setlist"></ol></div>
     </div>
@@ -309,7 +323,18 @@ function wantWaves() {
 // ── time & music helpers ─────────────────────────────────────────
 const now = () => performance.now() / 1000;
 const since = () => Math.min(0.5, now() - recvAt);          // never run on more than half a second blind
-function posOf(d) { return d.state === "playing" && !(S.paused || []).includes(d.slot) ? Math.min(d.length, d.pos + since() * d.ratio) : d.pos; }
+// A cue being dragged (or just let go, until the stream catches up) is shown
+// where the hand has it.
+const dragCue = {}, dragUntil = {};
+function dragged(slot) { return dragCue[slot] != null && performance.now() < (dragUntil[slot] || 0) ? dragCue[slot] : null; }
+function posOf(d) {
+  const dc = dragged(d.slot); if (dc !== null) return dc;
+  return d.state === "playing" && !(S.paused || []).includes(d.slot) ? Math.min(d.length, d.pos + since() * d.ratio) : d.pos;
+}
+const isFree = (slot) => !!(S && S.free === slot && S.decks && S.decks[slot]);
+const blendOn = () => !!(S && S.mix && S.mix.started);
+const canScrub = (slot) => isFree(slot) && !blendOn();
+const handDeck = () => { const d = S && S.decks && S.decks[S.free]; return d && d.hand && !S.mix && (d.state === "playing" || d.state === "cued") ? d : null; };
 function mixNow() { return S.mix ? S.mix.now + since() : 0; }
 function beatLen(d) { return d.grid ? 60 / d.grid.bpm : null; }
 function beatAt(d, pos) { const b = beatLen(d); return b ? (pos - d.grid.downbeat) / b : null; }
@@ -359,7 +384,7 @@ function buildDeck(slot) {
       </div>
     </div>
     <canvas class="ov" data-c="ov"></canvas>
-    <div class="transport"><div class="btn cue" data-f="cue">CUE</div><div class="btn play" data-f="play" title="play / pause this deck">▶ ❙❙</div>
+    <div class="transport"><div class="btn cue" data-f="cue" title="free deck: hold to hear from the cue point in the headphones; while playing, back to the cue">CUE</div><div class="btn play" data-f="play" title="play / pause — the free deck starts on the beat, synced">▶ ❙❙</div><div class="btn ph" data-f="ph" title="headphones: hear this deck in this window, not on air">PHONES</div>
       <canvas class="phase" data-c="phase" style="flex:1"></canvas>
       <div class="meta" data-f="meta"></div></div>`;
 }
@@ -379,10 +404,8 @@ function buildStrip(slot) {
 const q = (slot, sel) => $("deck" + slot).querySelector(sel);
 const qs = (slot, sel) => $("strip" + slot).querySelector(sel);
 
-$("skip").onclick = () => {
-  $("skip").disabled = true; $("skip").textContent = "QUEUED · NEXT BAR";
-  fetch("/skip", { method: "POST" }).catch(() => {});
-};
+let skipLock = 0;
+$("skip").onclick = () => { skipLock = performance.now() + 900; fetch("/skip", { method: "POST" }).catch(() => {}); };
 
 // ── the parallel waveform ────────────────────────────────────────
 const WINDOW_S = 7;   // played seconds either side of the playhead
@@ -529,8 +552,16 @@ function drawOverview(slot, d) {
     const xd = mix.drop * mix.out_ratio / len * W, xe = mix.done * mix.out_ratio / len * W;
     g.fillStyle = mix.kind === "blend" ? "rgba(61,255,138,.25)" : mix.kind === "fade" ? "rgba(162,89,255,.3)" : "rgba(255,228,92,.35)"; g.fillRect(xd, 0, Math.max(2, xe - xd), H);
   }
+  if (isFree(slot) && d.cue != null) {
+    const c = dragged(slot) ?? d.cue, xc = c / len * W;
+    g.fillStyle = COL.yellow; glow(g, COL.yellow, 8);
+    g.beginPath(); g.moveTo(xc - 5, 0); g.lineTo(xc + 5, 0); g.lineTo(xc, 7); g.fill(); g.fillRect(xc - 0.5, 0, 1, H); noGlow(g);
+  }
   const xp = pos / len * W;
   g.fillStyle = "#fff"; glow(g, "#fff", 8); g.fillRect(xp - 1, 0, 2, H); noGlow(g);
+  if (canScrub(slot) && d.state !== "playing") {
+    g.fillStyle = "rgba(255,228,92,.8)"; g.font = "600 9px JetBrains Mono"; g.fillText("DRAG TO CUE", W - 78, H - 5);
+  }
 }
 function drawPhase(slot, d) {
   const [g, W, H] = fit(q(slot, '[data-c="phase"]')); g.clearRect(0, 0, W, H);
@@ -560,14 +591,18 @@ function updateDeck(slot) {
   const mix = S.mix;
   const st = q(slot, '[data-f="state"]');
   const states = { playing: ["PLAYING", COL.green], cued: ["CUED", COL.yellow], loaded: ["LOADED", COL.cyan], planning: ["SYNCING", COL.cyan] };
-  const [label, color] = d ? (states[d.state] || [d.state.toUpperCase(), COL.dim]) : ["EMPTY", COL.faint];
+  let [label, color] = d ? (states[d.state] || [d.state.toUpperCase(), COL.dim]) : ["EMPTY", COL.faint];
+  const byHand = d && d.hand && !mix && (d.state === "playing" || d.state === "cued");
+  if (byHand) [label, color] = d.state === "playing" ? ["HAND ▶", COL.pink] : ["ON THE BEAT…", COL.yellow];
+  else if (d && slot === S.on_air) label = (S.paused || []).includes(slot) ? "PAUSED" : "ON AIR";
+  if (S.loading && slot === S.free) [label, color] = ["LOADING…", COL.yellow];
   st.textContent = d && d.buffering ? "LOADING" : label; st.style.color = color; st.style.textShadow = `0 0 10px ${color}`;
   q(slot, '[data-f="title"]').textContent = d ? (d.title || d.name) : "—";
   q(slot, '[data-f="artist"]').textContent = d && d.artist ? d.artist : "\u00a0";
   q(slot, '[data-f="genre"]').textContent = d ? [d.genre, d.bpm ? `${d.bpm} BPM ORIG` : ""].filter(Boolean).join(" · ").toUpperCase() || "\u00a0" : "\u00a0";
-  const master = d && mix ? String(slot) === mix.out_slot : d && d.state === "playing";
+  const master = d && slot === S.on_air;
   setBadge(slot, "master", master);
-  setBadge(slot, "sync", d && mix && mix.kind === "blend" && String(slot) === mix.in_slot, "SYNC", COL.green);
+  setBadge(slot, "sync", d && ((mix && mix.kind === "blend" && String(slot) === mix.in_slot) || (isFree(slot) && !mix && d.synced)), "SYNC", COL.green);
   setBadge(slot, "key", d && d.key, d && d.key ? `KEY ${d.key}` : "KEY", d ? keyColor(d.key) : "");
   setBadge(slot, "grid", d && d.grid, d && d.grid ? (d.grid.bar_known ? `BAR LOCK ${d.grid.contrast.toFixed(1)}` : `BEAT ${d.grid.contrast.toFixed(1)}`) : "GRID", d && d.grid ? (d.grid.bar_known && d.grid.contrast >= 4 ? COL.green : COL.yellow) : "");
   setBadge(slot, "gain", d && d.gain_db, d && d.gain_db ? `GAIN ${d.gain_db > 0 ? "+" : ""}${d.gain_db.toFixed(1)}dB` : "GAIN", COL.purple);
@@ -591,7 +626,14 @@ function updateDeck(slot) {
   const paused = (S.paused || []).includes(slot);
   q(slot, '[data-f="play"]').classList.toggle("lit", !!(d && d.state === "playing") && !paused);
   q(slot, '[data-f="play"]').classList.toggle("paused", paused);
-  const cue = q(slot, '[data-f="cue"]'); cue.classList.toggle("lit", !!(d && d.state !== "playing")); cue.classList.toggle("blink", !!(d && d.state === "cued"));
+  const free = isFree(slot);
+  const cue = q(slot, '[data-f="cue"]');
+  cue.classList.toggle("lit", !!(free && (d.state !== "playing" || byHand)));
+  cue.classList.toggle("blink", !!(d && d.state === "cued")); cue.classList.toggle("off", !free);
+  q(slot, '[data-f="ph"]').classList.toggle("lit", !!phonesOn[slot]);
+  q(slot, '[data-f="play"]').classList.toggle("off", !d || (free && blendOn()));
+  q(slot, '[data-c="ov"]').classList.toggle("scrub", canScrub(slot));
+  q(slot, '[data-c="jog"]').classList.toggle("scrub", canScrub(slot));
   q(slot, '[data-f="meta"]').innerHTML = d ? `STRETCH <b>×${ratio.toFixed(4)}</b><br>LEN <b>${fmt(d.length / ratio)}</b>` : "";
   drawJog(slot, d); drawOverview(slot, d); drawPhase(slot, d);
 }
@@ -632,13 +674,14 @@ function drawFader(cv, v, color) {
 function smooth(a, b, k) { return a + (b - a) * k; }
 // ── hands on the mixer ───────────────────────────────────────────
 const FLAT = { trim: 0, high: 1, mid: 1, low: 1, fader: 1 };
-const RANGE = { trim: [-12, 12], high: [0, 1.5], mid: [0, 1.5], low: [0, 1.5], fader: [0, 1], master: [0, 1.5], xfader: [0, 1] };
+const RANGE = { phones: [0, 1], trim: [-12, 12], high: [0, 1.5], mid: [0, 1.5], low: [0, 1.5], fader: [0, 1], master: [0, 1.5], xfader: [0, 1] };
 const local = {};            // "slot:name" -> {v, until}: what a hand just set, until the stream echoes it
 function post(path, body) {
   return fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).catch(() => {});
 }
 function ctl(slot, name) {
   const key = `${slot}:${name}`, l = local[key];
+  if (name === "phones") return phonesVol;
   if (l && performance.now() < l.until) return l.v;
   const c = S && S.controls;
   if (!c) return name === "xfader" ? null : (name === "master" ? 1 : FLAT[name]);
@@ -650,6 +693,7 @@ let sendTimer = {};
 function setCtl(slot, name, v) {
   const [lo, hi] = RANGE[name];
   if (v !== null) v = Math.max(lo, Math.min(hi, v));
+  if (name === "phones") { phonesVol = v; return; }
   local[`${slot}:${name}`] = { v, until: performance.now() + 1500 };
   clearTimeout(sendTimer[`${slot}:${name}`]);
   sendTimer[`${slot}:${name}`] = setTimeout(() => post("/control", { slot: slot || null, name, value: v }), 40);
@@ -700,11 +744,33 @@ function slider(el, slot, name, axis, reset) {
   for (const n of ["trim", "high", "mid", "low"]) knob(qs(slot, `[data-k="${n}"]`), slot, n, FLAT[n]);
   slider(qs(slot, '[data-k="fader"]'), slot, "fader", "y", 1);
   q(slot, '[data-f="play"]').addEventListener("click", () => {
-    post("/pause", { slot }); toast(`deck ${slot}: ${S && (S.paused || []).includes(slot) ? "playing" : "paused"}`);
+    if (!S || !S.decks || !S.decks[slot]) return;
+    const d = S.decks[slot];
+    post("/play", { slot });
+    if (slot === S.on_air) toast(`deck ${slot}: ${(S.paused || []).includes(slot) ? "playing" : "paused"}`);
+    else if (blendOn()) toast(`deck ${slot} is mid-blend — kaia has it`);
+    else if (d.hand && (d.state === "playing" || d.state === "cued")) toast(`deck ${slot} paused — ▶ starts it again on the beat`);
+    else toast(`deck ${slot} starts on the next ${d.synced ? "matching beat, synced" : "beat (tempo too far to sync)"} — bring its fader up to hear it`);
   });
+  const cue = q(slot, '[data-f="cue"]');
+  cue.addEventListener("pointerdown", (e) => {
+    if (!isFree(slot)) { toast("CUE works on the free deck — the one not on air"); return; }
+    const d = S.decks[slot];
+    if (d.hand && (d.state === "playing" || d.state === "cued") && !S.mix) { post("/cue", { slot }); toast(`deck ${slot} back to its cue`); return; }
+    cueHeld[slot] = true; cue.setPointerCapture(e.pointerId);
+  });
+  const letGo = () => { cueHeld[slot] = false; };
+  cue.addEventListener("pointerup", letGo); cue.addEventListener("pointercancel", letGo);
+  q(slot, '[data-f="ph"]').addEventListener("click", () => {
+    phonesOn[slot] = !phonesOn[slot];
+    if (phonesOn[slot]) phonesOn[3 - slot] = false;           // one deck in the headphones at a time
+    toast(phonesOn[slot] ? `headphones: deck ${slot} (this window only, not on air)` : "headphones off");
+  });
+  scrubbing(slot);
 });
 slider($("xf"), 0, "xfader", "x", null);
 knob($("mknob"), 0, "master", 1);
+knob($("phknob"), 0, "phones", 0.8);
 $("blendsel").addEventListener("click", (e) => {
   const b = e.target.closest("[data-beats]"); if (!b) return;
   post("/blend", { beats: +b.dataset.beats });
@@ -713,8 +779,83 @@ $("blendsel").addEventListener("click", (e) => {
 });
 $("auto").onclick = () => { for (const k in local) delete local[k]; post("/reset"); toast("the mixer is kaia's again"); };
 let toastT = 0;
-function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2200); }
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), Math.max(2200, msg.length * 45)); }
 
+// ── headphones: a deck heard in this window, never on air ─────────
+// The booth plays the record's own file here, at the deck's tempo and from
+// where the deck is (or its cue, for a deck not playing), so a record can be
+// found and cued while the room hears only what is on air.
+const phones = {}, phonesOn = { 1: false, 2: false }, cueHeld = { 1: false, 2: false };
+let phonesVol = 0.8;
+function phonesTick(slot) {
+  const d = S && S.decks && S.decks[slot], a = phones[slot];
+  const live = d && d.state === "playing" && !(S.paused || []).includes(slot);
+  const want = d && (phonesOn[slot] || cueHeld[slot]);
+  if (!want) { if (a && !a.paused) a.pause(); if (a) a._from = null; return; }
+  let el = a;
+  if (!el || el._id !== d.id) {
+    if (el) el.pause();
+    el = new Audio("/audio/" + d.id); el._id = d.id; el.preservesPitch = true; el._from = null; el._seekAt = 0; phones[slot] = el;
+  }
+  el.volume = phonesVol; el.playbackRate = d.ratio || 1;
+  const t = posOf(d), at = performance.now();
+  if (live && dragged(slot) === null && !cueHeld[slot]) {
+    if (Math.abs(el.currentTime - t) > 0.25 && at - el._seekAt > 400) { el.currentTime = t; el._seekAt = at; }
+  } else if (el._from === null || (Math.abs(el._from - t) > 0.04 && at - el._seekAt > 90)) {
+    el.currentTime = t; el._from = t; el._seekAt = at;     // a deck not playing: heard from its cue
+  }
+  if (el.paused) el.play().catch(() => {});
+}
+// ── cueing the free deck: drag its overview, its jog, or its lane ──
+function moveCue(slot, pos) {
+  const d = S.decks[slot]; dragCue[slot] = Math.max(0, Math.min(d.length - 8, pos)); dragUntil[slot] = Infinity;
+}
+function commitCue(slot) {
+  if (dragCue[slot] == null) return;
+  dragUntil[slot] = performance.now() + 1500;
+  post("/cue", { slot, pos: dragCue[slot] });
+}
+function scrubbing(slot) {
+  const ov = q(slot, '[data-c="ov"]'), jog = q(slot, '[data-c="jog"]');
+  let held = null;
+  const frac = (e) => { const r = ov.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); };
+  ov.addEventListener("pointerdown", (e) => {
+    if (!canScrub(slot)) { toast(isFree(slot) ? "kaia is mid-blend on this deck" : "this deck is on air — cue the free deck"); return; }
+    held = "ov"; ov.setPointerCapture(e.pointerId); moveCue(slot, frac(e) * S.decks[slot].length);
+  });
+  ov.addEventListener("pointermove", (e) => { if (held === "ov") moveCue(slot, frac(e) * S.decks[slot].length); });
+  ov.addEventListener("pointerup", () => { if (held === "ov") { held = null; commitCue(slot); } });
+  // the jog: a full turn is sixteen beats
+  let ang = 0;
+  const angle = (e) => { const r = jog.getBoundingClientRect(); return Math.atan2(e.clientY - r.top - r.height / 2, e.clientX - r.left - r.width / 2); };
+  jog.addEventListener("pointerdown", (e) => {
+    if (!canScrub(slot)) { if (!isFree(slot)) toast("this deck is on air — cue the free deck"); return; }
+    held = "jog"; ang = angle(e); jog.setPointerCapture(e.pointerId); moveCue(slot, posOf(S.decks[slot]));
+  });
+  jog.addEventListener("pointermove", (e) => {
+    if (held !== "jog") return;
+    const a = angle(e); let da = a - ang; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI; ang = a;
+    const d = S.decks[slot], beat = d.grid ? 60 / d.grid.bpm : 0.5;
+    moveCue(slot, dragCue[slot] + da / (2 * Math.PI) * 16 * beat);
+  });
+  jog.addEventListener("pointerup", () => { if (held === "jog") { held = null; commitCue(slot); } });
+}
+// the parallel waveform: drag the free deck's lane sideways
+(() => {
+  const cv = $("lanes"); let lane = null, lastX = 0;
+  cv.addEventListener("pointerdown", (e) => {
+    const r = cv.getBoundingClientRect(), top = 20, laneH = (r.height - top - 6) / 2;
+    const slot = (e.clientY - r.top) < top + laneH ? 1 : 2;
+    if (!canScrub(slot)) return;
+    lane = slot; lastX = e.clientX; cv.setPointerCapture(e.pointerId); moveCue(slot, posOf(S.decks[slot]));
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (!lane) return;
+    const r = cv.getBoundingClientRect(), pps = r.width / (2 * WINDOW_S), d = S.decks[lane];
+    moveCue(lane, dragCue[lane] - (e.clientX - lastX) / pps * (d.ratio || 1)); lastX = e.clientX;
+  });
+  cv.addEventListener("pointerup", () => { if (lane) { commitCue(lane); lane = null; } });
+})();
 function drawKnobV(cv, frac, color, flatFrac, autoFrac) {
   // frac: where the hand has it (0–1 of the travel); flatFrac: where "no change" sits; autoFrac: what the automix applies
   const [g, W, H] = fit(cv); g.clearRect(0, 0, W, H);
@@ -752,6 +893,7 @@ function updateMixer() {
   drawVU($("mvuL"), shown.master, "mL"); drawVU($("mvuR"), shown.master - 0.4, "mR");
   const mv = ctl(0, "master");
   drawKnobV($("mknob"), mv / 1.5, mv !== 1 ? COL.yellow : COL.green, 2 / 3, null);
+  drawKnobV($("phknob"), phonesVol, COL.cyan, 0, null);
   // crossfader: the hand's position if it has one, else where the automix sits
   const hand = ctl(0, "xfader");
   const g1 = Math.max(shown[1].low, shown[1].high), g2 = Math.max(shown[2].low, shown[2].high);
@@ -777,7 +919,8 @@ function updateMixer() {
     kind.textContent = mix.kind.toUpperCase(); kind.className = "kind " + mix.kind;
     const q = mix.length / 4, swap = mix.drop + 2 * q, outAt = mix.drop + 3 * q;
     const bars = (x) => `${((x - t) / bar).toFixed(1)} BARS`;
-    if (t < mix.drop) count.textContent = `${mix.kind === "blend" ? "DROP" : mix.kind === "fade" ? "FADE" : "CUT"} IN ${bars(mix.drop)}`;
+    if (mix.kind === "out") count.textContent = t < mix.drop ? `FADE-OUT IN ${bars(mix.drop)}` : `FINISHING · ${bars(mix.done)}`;
+    else if (t < mix.drop) count.textContent = `${mix.kind === "blend" ? "DROP" : mix.kind === "fade" ? "FADE" : "CUT"} IN ${bars(mix.drop)}`;
     else if (mix.kind === "fade" && t < mix.done) count.textContent = `CROSSFADING · ${bars(mix.done)}`;
     else if (mix.kind === "blend" && t < swap) count.textContent = `BASS SWAP IN ${bars(swap)}`;
     else if (mix.kind === "blend" && t < outAt) count.textContent = `BOTH PLAYING · OUT IN ${bars(outAt)}`;
@@ -792,6 +935,8 @@ function updateMixer() {
          [swap, outAt, COL.yellow, "BASS SWAPPED"], [outAt, mix.done, COL.pink, "OUT"]]
       : mix.kind === "fade"
       ? [[t0, mix.drop, COL.faint, ""], [mix.drop, mix.drop + mix.length / 2, COL.purple, "CROSSFADE"], [mix.drop + mix.length / 2, mix.done, COL.pink, "BASS · OUT"]]
+      : mix.kind === "out"
+      ? [[t0, mix.drop + 0.001, COL.faint, ""], [mix.drop, mix.done, COL.pink, `KAIA FADES CH ${mix.out_slot} OUT`]]
       : [[t0, mix.drop, COL.yellow, "CUT"]];
     pg.font = "600 8px JetBrains Mono";
     for (const [a, b, col, lbl] of segs) {
@@ -800,6 +945,12 @@ function updateMixer() {
       pg.fillStyle = col; glow(pg, col, 6); pg.fillRect(X(a) + 1, 4, (X(b) - X(a) - 2) * fill, PH - 8); noGlow(pg);
       pg.fillStyle = "#e8f3ff"; pg.fillText(lbl, X(a) + 5, PH / 2 + 3);
     }
+  } else if (handDeck()) {
+    const h = handDeck(), air = S.on_air;
+    kind.textContent = "HANDS"; kind.className = "kind cut";
+    count.textContent = h.state === "cued" ? "STARTING ON THE BEAT" : S.handover > 0 ? `HANDOVER IN ${Math.max(0, 2 - S.handover).toFixed(1)} s` : "BOTH DECKS OPEN";
+    why.textContent = `deck ${h.slot} ${h.synced ? "synced" : "unsynced"} · ch ${air} down to hand over`;
+    why.title = `pull channel ${air}'s fader down, or the crossfader across, and deck ${h.slot} takes over after 2 s — or press the button and kaia finishes the mix`;
   } else if (S.planning) {
     kind.textContent = "SYNCING"; kind.className = "kind plan"; count.textContent = ""; why.textContent = `finding the bar · ${S.planning}`;
   } else {
@@ -808,9 +959,16 @@ function updateMixer() {
   const lb = local["0:blend"], beats = lb && performance.now() < lb.until ? lb.v : S.mix_beats;
   document.querySelectorAll("#blendsel [data-beats]").forEach((x) => x.classList.toggle("on", +x.dataset.beats === beats));
   const md = masterDeck(); $("blendsec").textContent = md && md.tempo ? `≈ ${Math.round(beats * 60 / md.tempo)} s` : "";
-  const busy = !!(mix || S.planning);
-  if (!busy) { $("skip").disabled = false; $("skip").textContent = "NEXT ▸▸ ON THE BAR"; }
-  else if (!$("skip").disabled) { $("skip").disabled = true; $("skip").textContent = "MIXING…"; }
+  // What NEXT does now, said on the button.
+  const fd = S.decks && S.decks[S.free];
+  const [label, live] = performance.now() < skipLock ? ["ON IT…", false]
+    : mix && mix.started ? [mix.kind === "out" ? "KAIA'S FINISHING…" : "MIXING…", false]
+    : mix ? ["BRING IT IN NOW ▸▸", true]
+    : handDeck() ? ["KAIA FINISHES THE MIX ▸▸", true]
+    : S.planning ? ["SYNCING…", false]
+    : fd && fd.hand ? [`MIX DECK ${S.free} IN ▸▸ ON THE BAR`, true]
+    : ["NEXT ▸▸ ON THE BAR", true];
+  $("skip").disabled = !live; if ($("skip").textContent !== label) $("skip").textContent = label;
 }
 
 // ── the rest of the booth ────────────────────────────────────────
@@ -827,9 +985,10 @@ function updateBottom() {
     }).join("");
   }
   // next: the deck not playing out
-  const mix = S.mix, cur = S.decks && Object.values(S.decks).find((d) => mix ? String(d.slot) === mix.out_slot : d.state === "playing");
-  const nxt = S.decks && Object.values(S.decks).find((d) => d !== cur);
-  $("nxt-title").textContent = !nxt ? "CHOOSING THE NEXT RECORD" : mix ? "MIXING IN" : nxt.state === "planning" ? "LINING UP" : "NEXT IN THE CRATE";
+  const mix = S.mix, cur = S.decks && S.decks[S.on_air];
+  const nxt = S.decks && S.decks[S.free];
+  $("nxt-title").textContent = S.loading ? "LOADING " + S.loading.toUpperCase() : !nxt ? "CHOOSING THE NEXT RECORD" : mix ? "MIXING IN"
+    : handDeck() ? `DECK ${S.free} · PLAYING BY HAND` : nxt.hand ? `DECK ${S.free} · LOADED BY HAND` : nxt.state === "planning" ? "LINING UP" : "NEXT IN THE CRATE";
   if (nxt) {
     $("nxt-t").textContent = nxt.title || nxt.name; $("nxt-a").textContent = nxt.artist || "";
     const chips = [];
@@ -851,7 +1010,8 @@ function updateBottom() {
 }
 // ── the crate ────────────────────────────────────────────────────
 let crateData = null, crateShut = new Set(), crateSig = "", crateStatusSig = "", crateMode = "crate";
-const MATCH_GROUPS = ["SAME KEY", "ONE STEP ROUND THE WHEEL", "RELATIVE MAJOR / MINOR", "TWO STEPS · AN ENERGY SHIFT", "OTHER KEYS"];
+const MATCH_GROUPS = ["BLENDS · IN KEY", "BLENDS · KEY CHANGE", "FADES ONLY · TEMPO TOO FAR", "NO TEMPO KNOWN"];
+const KEY_WEIGHT = [1, 0.9, 0.9, 0.6, 0.3];        // same, ±1, relative, ±2 (energy), anything else
 function relation(a, b) {
   const x = camelot(a), y = camelot(b); if (!x || !y) return 4;
   if (x[0] === y[0] && x[1] === y[1]) return 0;
@@ -865,28 +1025,45 @@ function tempoGap(playing, bpm) {      // the stretch it would take, half and do
   if (!playing || !bpm) return null;
   return Math.min(...[bpm, bpm * 2, bpm / 2].map((b) => Math.abs(playing / b - 1)));
 }
+// How well a record would mix into the one on air, 0–100: key (by the Camelot
+// wheel) times tempo (full at the same tempo, half at the 6% stretch limit).
+// Past 6% it cannot be beat-matched at all and is only ever faded: null.
+function mixScore(md, r) {
+  const gap = tempoGap(md && md.tempo, r.bpm);
+  if (gap === null || gap > 0.06) return null;
+  return Math.round(100 * KEY_WEIGHT[relation(md.key, r.key)] * (1 - 0.5 * gap / 0.06));
+}
 function masterDeck() {
   if (!S || !S.decks) return null;
-  const mix = S.mix;
-  return Object.values(S.decks).find((d) => mix ? String(d.slot) === mix.out_slot : d.state === "playing") || null;
+  return S.decks[S.on_air] || null;
 }
 function loadCrate() {
   fetch("/crate").then((r) => r.json()).then((c) => { c.stamp = Date.now(); crateData = c; renderCrate(); }).catch(() => {});
 }
+function crateIds() {
+  const air = masterDeck(), fd = S && S.decks && S.decks[S.free];
+  return { air: air ? air.id : null, free: fd ? fd.id : null };
+}
+function statusOf(r, ids) {
+  if (r.id === ids.air) return ["ON AIR", "now"];
+  if (r.id === ids.free) return [`DECK ${S.free}`, "loaded"];
+  if (r.requested) return ["NEXT", "req"];
+  if (r.played) return ["PLAYED", "played"];
+  return ["", ""];
+}
 function renderCrate() {
   if (!crateData || !crateData.genres) return;
   const qv = $("search").value.trim().toLowerCase();
-  const now = S && S.decks ? Object.values(S.decks).filter((d) => d.state === "playing").map((d) => d.id) : [];
+  const ids = crateIds();
   const md = masterDeck();
-  // The list is rebuilt only when what it holds or its order changes; a
-  // record starting, being asked for or finishing only changes its row. A
-  // rebuild keeps the scroll position: it threw the list back to the top on
-  // every transition.
+  // The list is rebuilt only when what it holds or its order changes (and a
+  // rebuild keeps its scroll); a record starting, loading or finishing only
+  // changes its row.
   const sig = crateMode + "|" + qv + "|" + [...crateShut].join() + crateData.count
-    + "|" + (crateMode === "match" && md ? md.id + md.key + Math.round(md.tempo || 0) : "");
-  const statusSig = now.join() + "|" + JSON.stringify(S && S.requests) + "|" + crateData.stamp;
+    + "|" + (crateMode === "match" && md ? md.id + md.key + (md.tempo || 0).toFixed(1) : "");
+  const statusSig = ids.air + "|" + ids.free + "|" + crateData.stamp;
   if (sig === crateSig) {
-    if (statusSig !== crateStatusSig) { crateStatusSig = statusSig; markCrate(now); }
+    if (statusSig !== crateStatusSig) { crateStatusSig = statusSig; markCrate(ids); }
     return;
   }
   const keepScroll = crateSig.split("|")[0] === crateMode ? $("cratepane").scrollTop : 0;
@@ -894,11 +1071,16 @@ function renderCrate() {
   let html = "", shown = 0;
   let groups = Object.entries(crateData.genres);
   if (crateMode === "match") {
-    const all = groups.flatMap(([g, rows]) => rows.map((r) => ({ ...r, genre: g })));
+    const all = groups.flatMap(([g, rows]) => rows.map((r) => ({ ...r, genre: g, score: md ? mixScore(md, r) : null })));
     const buckets = MATCH_GROUPS.map(() => []);
-    for (const r of all) if (!md || r.id !== md.id) buckets[md ? relation(md.key, r.key) : 4].push(r);
-    for (const b of buckets) b.sort((a, c) => (tempoGap(md && md.tempo, a.bpm) ?? 9) - (tempoGap(md && md.tempo, c.bpm) ?? 9));
-    groups = MATCH_GROUPS.map((name, i) => [md ? `${name}${i < 4 ? " · " + (md.key || "?") : ""}` : name, buckets[i]]);
+    for (const r of all) {
+      if (md && r.id === md.id) continue;
+      const gap = tempoGap(md && md.tempo, r.bpm);
+      buckets[gap === null ? 3 : r.score === null ? 2 : relation(md.key, r.key) <= 2 ? 0 : 1].push(r);
+    }
+    buckets[0].sort((a, c) => c.score - a.score); buckets[1].sort((a, c) => c.score - a.score);
+    buckets[2].sort((a, c) => relation(md.key, a.key) - relation(md.key, c.key) || tempoGap(md.tempo, a.bpm) - tempoGap(md.tempo, c.bpm));
+    groups = MATCH_GROUPS.map((name, i) => [md && i < 2 ? `${name} · ${md.key || "?"} @ ${md.tempo ? md.tempo.toFixed(1) : "?"}` : name, buckets[i]]);
   }
   for (const [genre, rows] of groups) {
     const hit = rows.filter((r) => !qv || `${r.title} ${r.artist} ${genre} ${r.key} ${r.bpm}`.toLowerCase().includes(qv));
@@ -906,27 +1088,31 @@ function renderCrate() {
     const shut = crateShut.has(genre) && !qv;
     html += `<div class="genre${shut ? " shut" : ""}"><div class="gh" data-g="${esc(genre)}">${shut ? "▸" : "▾"} ${esc(genre.toUpperCase())}<span class="n">${hit.length}</span></div><div class="rows">` +
       hit.map((r) => {
-        const isNow = now.includes(r.id), st = isNow ? "ON AIR" : r.requested ? "NEXT" : r.played ? "PLAYED" : "";
-        return `<div class="trk${r.played ? " played" : ""}${r.requested ? " req" : ""}${isNow ? " now" : ""}" data-id="${r.id}" title="play next">` +
-          `<span class="nm">${esc(r.title)}${r.artist ? ` <i>— ${esc(r.artist)}</i>` : ""}</span>` +
-          (crateMode === "match" && md && md.tempo && r.bpm
-            ? (() => { const gap = tempoGap(md.tempo, r.bpm), fit = Math.max(0, Math.round(100 - gap * 100 / 0.06));
-                return `<span class="bpm" style="color:${fit >= 50 ? "var(--green)" : fit > 0 ? "var(--yellow)" : "var(--red)"}" title="tempo fit: ${(gap * 100).toFixed(1)}% stretch to ${md.tempo.toFixed(1)} bpm; past 6% she won't beat-match">fit ${fit}</span>`; })()
-            : `<span class="bpm">${r.bpm ? r.bpm.toFixed(0) : "—"}</span>`) +
+        const [st, cls] = statusOf(r, ids);
+        let col = `<span class="bpm">${r.bpm ? r.bpm.toFixed(0) : "—"}</span>`;
+        if (crateMode === "match" && md && md.tempo && r.bpm) {
+          const gap = tempoGap(md.tempo, r.bpm), sc = r.score;
+          col = sc === null
+            ? `<span class="bpm fit" style="color:var(--dim)" title="${(gap * 100).toFixed(1)}% off ${md.tempo.toFixed(1)} bpm — past 6% it can only be faded in">FADE</span>`
+            : `<span class="bpm fit" style="color:${sc >= 70 ? "var(--green)" : sc >= 40 ? "var(--yellow)" : "var(--red)"}" title="mix score ${sc}/100: key ${md.key || "?"} → ${r.key || "?"}, stretch ${(gap * 100).toFixed(1)}% to ${md.tempo.toFixed(1)} bpm">MIX ${sc}</span>`;
+        }
+        return `<div class="trk ${cls}" data-id="${r.id}" title="load on the free deck">` +
+          `<span class="nm">${esc(r.title)}${r.artist ? ` <i>— ${esc(r.artist)}</i>` : ""}</span>` + col +
           `<span class="key" style="background:${keyColor(r.key)}">${esc(r.key || "?")}</span><span class="st">${st}</span></div>`;
       }).join("") + "</div></div>";
   }
   $("cratepane").innerHTML = html || `<div style="color:var(--dim);font-size:12px;padding:8px">nothing matches</div>`;
   $("cratepane").scrollTop = keepScroll;
   $("cratecount").textContent = `${shown} / ${crateData.count}`;
+  $("collapse").textContent = document.querySelector("#cratepane .genre:not(.shut)") ? "FOLD ALL" : "OPEN ALL";
 }
-function markCrate(now) {
+function markCrate(ids) {
   const byId = {};
   for (const rows of Object.values(crateData.genres)) for (const r of rows) byId[r.id] = r;
   for (const row of $("cratepane").querySelectorAll(".trk")) {
     const r = byId[row.dataset.id]; if (!r) continue;
-    const isNow = now.includes(r.id), st = isNow ? "ON AIR" : r.requested ? "NEXT" : r.played ? "PLAYED" : "";
-    row.classList.toggle("now", isNow); row.classList.toggle("req", !!r.requested); row.classList.toggle("played", !!r.played);
+    const [st, cls] = statusOf(r, ids);
+    for (const c of ["now", "loaded", "req", "played"]) row.classList.toggle(c, c === cls);
     const cell = row.querySelector(".st"); if (cell.textContent !== st) cell.textContent = st;
   }
 }
@@ -935,7 +1121,15 @@ $("cratepane").addEventListener("click", (e) => {
   if (gh) { const g = gh.dataset.g; crateShut.has(g) ? crateShut.delete(g) : crateShut.add(g); crateSig = ""; renderCrate(); return; }
   const row = e.target.closest(".trk");
   if (!row) return;
-  post("/queue", { id: row.dataset.id }).then(() => { toast(`kaia will play ${row.querySelector(".nm").textContent} next`); setTimeout(loadCrate, 600); });
+  const name = row.querySelector(".nm").textContent;
+  if (row.dataset.id === crateIds().air) { toast("that one's on air"); return; }
+  post("/load", { id: row.dataset.id }).then(() => { toast(`loading ${name} on deck ${S ? S.free : ""}…`); setTimeout(loadCrate, 2500); });
+});
+$("collapse").addEventListener("click", () => {
+  const heads = [...document.querySelectorAll("#cratepane .gh")].map((h) => h.dataset.g);
+  const anyOpen = document.querySelector("#cratepane .genre:not(.shut)");
+  if (anyOpen) heads.forEach((g) => crateShut.add(g)); else crateShut.clear();
+  crateSig = ""; renderCrate();
 });
 $("search").addEventListener("input", () => renderCrate());
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
@@ -945,6 +1139,17 @@ document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () 
   $("cratepane").style.display = crate ? "" : "none"; $("search").style.display = crate ? "" : "none";
   $("setpane").style.display = crate ? "none" : "block";
 }));
+// What a load came to, said once.
+let loadSeen = 0;
+function loadNews() {
+  const l = S && S.last_load; if (!l || l.ts <= loadSeen) return;
+  const first = !loadSeen; loadSeen = l.ts; if (first && Date.now() / 1000 - l.ts > 5) return;
+  const msg = { loaded: `${l.name} on deck ${S.free} — drag to cue, ▶ to play it yourself, or NEXT and kaia mixes it in`,
+    after: `${l.name} comes after this blend (kaia's mid-mix on that deck)`,
+    busy: `deck ${S.free} is playing and up on its fader — pause it or pull it down first`,
+    unreadable: `${l.name} couldn't be read` }[l.result] || `${l.name}: ${l.result}`;
+  toast(msg);
+}
 setInterval(loadCrate, 10000);
 
 function esc(s) { return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
@@ -963,7 +1168,8 @@ function updateHeader() {
 function frame() {
   try {
     updateHeader();
-    if (S && S.live) { drawLanes(); updateDeck(1); updateDeck(2); updateMixer(); updateBottom(); renderCrate(); }
+    if (S && S.live) { drawLanes(); updateDeck(1); updateDeck(2); updateMixer(); updateBottom(); renderCrate(); loadNews(); phonesTick(1); phonesTick(2); }
+    else { phonesTick(1); phonesTick(2); }
   } catch (e) { console.error(e); }
   requestAnimationFrame(frame);
 }

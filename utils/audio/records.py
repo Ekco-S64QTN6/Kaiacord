@@ -3,16 +3,19 @@
 `!music records` plays the crate in `library.py` the way a DJ would: each next
 record chosen to sit with the last in key and tempo, stretched to its tempo
 (ffmpeg's rubberband, which keeps the pitch and the kicks where they were), its
-first downbeat dropped on a bar of the record playing, and blended over sixteen
-beats with the bass swapped halfway — or, where either beat is not steady
-enough to lay over the other, cut cleanly on the bar. All of it is ffmpeg and NumPy on the
-CPU: no model, no VRAM, nothing analysed live — the catalog already holds BPM
-and key.
+bar one dropped on a phrase of the record playing, and blended per band over
+32–128 beats — or, where the beats cannot be laid over each other, faded over
+eight bars. All of it is ffmpeg and NumPy on the CPU: no model, no VRAM.
+
+The free deck can also be worked by hand from the DJ booth: a record loaded
+onto it (`load`), its cue point moved (`set_cue`), played synced and on the
+beat (`play_hand`) while the faders do the mix, taking over once the record on
+air has gone quiet — or finished by Kaia (`finish`).
 
 Same contract as the Strudel source: `read()` hands discord.py one 20 ms frame
 every 20 ms and never blocks; ffmpeg output is pumped into a buffer on a
-thread, and the next record is picked and probed on another, long before its
-fade begins.
+thread, and anything slow (choosing, measuring, starting ffmpeg) happens on
+another before its frames are needed.
 """
 from __future__ import annotations
 
@@ -284,7 +287,7 @@ class Plan:
 
     @property
     def done(self) -> float:
-        return self.drop + (self.length if self.kind in ("blend", "fade") else 0.0)
+        return self.drop + (self.length if self.kind in ("blend", "fade", "out") else 0.0)
 
 
 def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt: Next,
@@ -386,6 +389,13 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
         out = np.clip((plan.drop - t) / plan.length, 0.0, 1.0)
         inc = (t >= plan.drop).astype(np.float32)
         return out, out, out, inc, inc, inc
+    if plan.kind == "out":
+        # The incoming is already playing (started by hand): only the outgoing
+        # moves — its bass gone on the bar, the rest fading out equal-power.
+        x = np.clip((t - plan.drop) / plan.length, 0.0, 1.0)
+        out = np.cos(x * np.pi / 2)
+        one = np.ones_like(out)
+        return 1.0 - np.clip((t - plan.drop) / plan.beat, 0.0, 1.0), out, out, one, one, one
     if plan.kind == "fade":
         x = np.clip((t - plan.drop) / plan.length, 0.0, 1.0)
         out, inc = np.cos(x * np.pi / 2), np.sin(x * np.pi / 2)        # equal power
@@ -407,6 +417,13 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
 IDENTITY = (1.0, 1.0, 1.0, 1.0)
 #: The automix with one record playing and nothing coming in.
 SOLO = (1.0, 1.0, 1.0, 0.0, 0.0, 0.0)
+#: Both decks open: the booth's hands are the whole mix.
+BOTH = (1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+#: A deck played by hand takes over once the record on air has been silent
+#: (paused, faded down, crossfaded away) this long, or has ended.
+HANDOVER_S = 2.0
+#: Kaia finishing a mix that was started by hand: the outgoing's fade, in bars.
+FINISH_BARS = 8
 
 
 def mix_frames(out_parts, in_parts, g, uo=IDENTITY, ui=IDENTITY, master: float = 1.0) -> bytes:
@@ -530,6 +547,21 @@ class CrossfadeSource(_AudioSource):
         self.planning_mode: Optional[str] = None
         self.controls = Controls()
         self.paused: set = set()                  # deck slots someone paused at the booth
+        # The free deck at the booth: a record loaded by hand (`by_hand`), its
+        # cue point (seconds of its own time; None: Kaia's choice), and a deck
+        # played by hand (`hand`), started synced on the beat, mixed by the
+        # faders until it takes over.
+        self.cue: Optional[float] = None
+        self.by_hand = False
+        self.hand: Optional[Deck] = None
+        self.hand_next: Optional[Next] = None
+        self.hand_synced = False
+        self._hand_k: Optional[int] = None        # the on-air deck's frame it starts on
+        self._hand_on = False
+        self._hand_quiet = 0
+        self._hand_starting = False
+        self._gen = 0                             # bumped by every hand on the free deck
+        self._lock = threading.RLock()
         self._prefetch()
 
     def is_opus(self) -> bool:
@@ -539,32 +571,281 @@ class CrossfadeSource(_AudioSource):
         if self._picking or self._queued or self.current is None:
             return
         self._picking = True
-        deck = self.current
+        deck, gen = self.current, self._gen
 
         def run():
+            picked = None
             try:
-                self._queued = self._pick(deck)
+                picked = self._pick(deck)
             except Exception as e:
                 log_warning(f"[records] could not choose the next record: {e}")
-                self._queued = None
             finally:
-                self._exhausted = self._queued is None
-                self._picking = False
+                with self._lock:
+                    if gen == self._gen and self._queued is None:
+                        self._queued = picked
+                        self._exhausted = picked is None
+                    self._picking = False
         threading.Thread(target=run, daemon=True, name="kaia-records-pick").start()
 
     def skip(self) -> None:
         """Bring the next record in at the next phrase it can land on. A blend
         planned for later (the end of the record) that has not started is
-        called off and planned again from here."""
-        cur, plan = self.current, self.plan
-        if plan is not None and cur is not None and self.incoming is not None \
-                and self._start_frame is not None and cur.played < self._start_frame - 10:
-            incoming, self.incoming = self.incoming, None
-            self.plan, self._start_frame = None, None
-            incoming.close()
-            self._queued = self._queued or plan.nxt
-            log_debug("[records] the planned blend was called off for a skip")
+        called off and planned again from here. With a deck playing by hand,
+        Kaia finishes that mix instead."""
+        if self.hand is not None:
+            self.finish()
+            return
+        with self._lock:
+            if self._call_off_plan():
+                log_debug("[records] the planned blend was called off for a skip")
         self._begin_planning("skip")
+
+    # ── the free deck, by hand ──────────────────────────────────────
+
+    def blend_started(self) -> bool:
+        cur, plan = self.current, self.plan
+        if plan is None or cur is None:
+            return False
+        return plan.kind == "out" or (self._start_frame is not None and cur.played >= self._start_frame - 10)
+
+    def _call_off_plan(self) -> bool:
+        """Call off a planned transition that has not started (and any being
+        planned). True if one was."""
+        self._gen += 1
+        plan = self.plan
+        if plan is None or self.blend_started():
+            return False
+        incoming, self.incoming = self.incoming, None
+        self.plan, self._start_frame = None, None
+        if incoming:
+            incoming.close()
+        self._queued = self._queued or plan.nxt
+        return True
+
+    def free_slot(self) -> int:
+        return 3 - self.current.slot if self.current else 2
+
+    def hand_audible(self) -> bool:
+        return self.hand is not None and self._hand_on and self.controls.channel(self.hand.slot)[3] > 1e-3
+
+    def load(self, nxt: Next) -> str:
+        """Put `nxt` on the free deck now, replacing whatever Kaia had lined up
+        there (a blend not yet started is called off). Its channel fader goes
+        down, as a DJ's would; Kaia brings it back up if she mixes it in.
+        "loaded", "after" (a blend into that deck is under way: it can only
+        come after), or "busy" (a deck playing by hand is up on its fader)."""
+        with self._lock:
+            if self.blend_started():
+                return "after"
+            if self.hand_audible():
+                return "busy"
+            self._drop_hand()
+            self._call_off_plan()
+            self._queued, self._exhausted = nxt, False
+            self.cue, self.by_hand = None, True
+            self.controls.set(self.free_slot(), "fader", 0.0)
+        log_action(f"[records] {nxt.record.name} loaded on deck {self.free_slot()} from the booth")
+        return "loaded"
+
+    def default_cue(self, nxt: Optional[Next]) -> float:
+        """Where Kaia would start a record: its bar one, else its first sound."""
+        if nxt is None:
+            return 0.0
+        return nxt.grid.downbeat if nxt.grid and nxt.grid.bar_known else nxt.lead
+
+    @staticmethod
+    def snap(grid, pos: float) -> float:
+        """`pos` on the nearest bar of `grid` (the nearest beat if the bar is not known)."""
+        if grid is None:
+            return max(0.0, pos)
+        step = grid.beat * (4 if grid.bar_known else 1)
+        k = round((pos - grid.downbeat) / step)
+        out = grid.downbeat + k * step
+        return out if out >= 0 else out + step
+
+    def set_cue(self, pos: float) -> bool:
+        """Move the free deck's cue point (snapped to a bar). A deck playing by
+        hand jumps there, back on the beat."""
+        with self._lock:
+            nxt = self.hand_next if self.hand is not None else self._queued
+            if nxt is None:
+                return False
+            pos = min(max(0.0, float(pos)), max(0.0, nxt.seconds - 8.0))
+            self.cue = self.snap(nxt.grid, pos)
+            playing = self.hand is not None
+            if playing:
+                self._drop_hand(keep_cue=True)
+            elif self.plan is not None and not self.blend_started():
+                self._call_off_plan()            # the plan was made from the old cue
+        if playing:
+            self.play_hand()
+        return True
+
+    def _cued(self, nxt: Next) -> Next:
+        """`nxt` as it comes in from the cue point: bar one at the cue."""
+        if self.cue is None or not self.by_hand:
+            return nxt
+        from utils.audio import beatgrid
+        g = self._grid_at(nxt.record, max(0.0, self.cue - 4.0), 30.0) or nxt.grid
+        if g is None:
+            return Next(nxt.record, nxt.seconds, nxt.gain, None, self.cue)
+        c = self.snap(g, self.cue)
+        return Next(nxt.record, nxt.seconds, nxt.gain,
+                    beatgrid.Grid(g.bpm, c, g.contrast, bar_known=g.bar_known), c)
+
+    def play_hand(self) -> str:
+        """Start the free deck by hand: at the record on air's tempo where it
+        can be stretched to it, its cue landing on the beat — on the same beat
+        of the bar — of the record on air. Faders do the mixing; it takes over
+        when the record on air has gone quiet. "starting", or "nothing"."""
+        with self._lock:
+            if self.hand is not None or self._hand_starting:
+                return "starting"
+            if self.blend_started():
+                return "nothing"
+            self._call_off_plan()
+            nxt, cur = self._queued, self.current
+            if nxt is None or cur is None:
+                return "nothing"
+            self._hand_starting = True
+            gen = self._gen
+            cue = self.cue if self.cue is not None else self.default_cue(nxt)
+
+        def run():
+            try:
+                self._start_hand(nxt, cur, cue, gen)
+            except Exception as e:
+                log_warning(f"[records] the deck would not start: {e}")
+            finally:
+                self._hand_starting = False
+        threading.Thread(target=run, daemon=True, name="kaia-records-hand").start()
+        return "starting"
+
+    def _start_hand(self, nxt: Next, cur: Deck, cue: float, gen: int) -> None:
+        global _SOS
+        if _SOS is None:
+            _SOS = _bands()
+        in_g = self._grid_at(nxt.record, max(0.0, cue - 4.0), 30.0) or nxt.grid
+        out_g = self._grid_at(cur.record, max(0.0, cur.at() * cur.ratio - 8.0), 30.0) or cur.grid
+        master_bpm = out_g.bpm * cur.ratio if out_g else None
+        ratio = library.tempo_ratio(master_bpm, in_g.bpm if in_g else nxt.record.bpm)
+        synced = ratio is not None and in_g is not None and out_g is not None
+        ratio = ratio or 1.0
+        c = self.snap(in_g, cue) if in_g else cue
+        phase = None
+        if synced and in_g.bar_known and out_g.bar_known:
+            phase = int(round((c - in_g.downbeat) / in_g.beat)) % 4
+        deck = None
+        for attempt in range(4):
+            lead = 0.8 + 0.5 * attempt
+            if synced and cur.slot not in self.paused:
+                bm, first = out_g.beat / cur.ratio, out_g.downbeat / cur.ratio
+                j = int(np.ceil((cur.at() + lead - first) / bm))
+                while phase is not None and j % 4 != phase:
+                    j += 1
+                when = first + j * bm
+            else:
+                when = cur.at() + lead
+            at = (when - cur.offset / cur.ratio) * RATE + cur.pad
+            k = int(np.floor(at / FRAME_SAMPLES))
+            pad = int(round(at - k * FRAME_SAMPLES))
+            deck = Deck(nxt.record, ratio, nxt.seconds, self._factory, gain=nxt.gain, pad=max(0, pad), offset=c)
+            deadline = time.time() + 1.0
+            while not deck.ready() and time.time() < deadline:
+                time.sleep(0.02)
+            if (k > cur.played + 1 or cur.slot in self.paused) and deck.ready():
+                break
+            deck.close()
+            deck = None
+        if deck is None:
+            return
+        with self._lock:
+            if gen != self._gen or cur is not self.current or self.hand is not None or self.plan is not None:
+                deck.close()
+                return
+            deck.grid = in_g
+            deck.slot = 3 - cur.slot
+            self.hand, self.hand_next, self.hand_synced = deck, nxt, synced
+            self._hand_k, self._hand_on, self._hand_quiet = k, False, 0
+            self._queued = None
+            self.cue = c
+        log_action(f"[records] {nxt.record.name} played by hand on deck {deck.slot} from {c:.1f}s"
+                   + (f", synced ×{ratio:.4f}" if synced else ", not synced (tempo or beat)"))
+
+    def _drop_hand(self, keep_cue: bool = False) -> None:
+        """Take the deck playing by hand off: back to loaded, cued where it
+        was (or at its cue point)."""
+        hand, nxt, was_on = self.hand, self.hand_next, self._hand_on
+        if hand is None:
+            return
+        pos = hand.at() * hand.ratio
+        self.hand, self.hand_next, self._hand_k, self._hand_on = None, None, None, False
+        self._gen += 1
+        hand.close()
+        if nxt is not None:
+            self._queued, self.by_hand = nxt, True
+            if not keep_cue and was_on:
+                self.cue = min(max(0.0, pos), max(0.0, nxt.seconds - 8.0))
+
+    def stop_hand(self, back_to_cue: bool = False) -> bool:
+        """Pause the deck playing by hand (it holds its place) or, like a
+        CDJ's CUE pressed while playing, stop it back at its cue point."""
+        with self._lock:
+            if self.hand is None:
+                return False
+            self._drop_hand(keep_cue=back_to_cue)
+        return True
+
+    def finish(self) -> bool:
+        """Kaia finishes a mix started by hand: from the next bar the record on
+        air loses its bass and fades out over FINISH_BARS; the faders go back
+        up so nothing she leaves playing is silent."""
+        with self._lock:
+            cur, hand = self.current, self.hand
+            if cur is None or hand is None or self.plan is not None:
+                return False
+            g = cur.grid
+            beat = g.beat / cur.ratio if g else 0.5
+            drop = g.next_bar(cur.at() + 0.3, cur.ratio) if g else cur.at() + 0.3
+            length = max(beat, min(FINISH_BARS * 4 * beat, cur.end - drop - 0.05))
+            nxt = self.hand_next or Next(hand.record, hand.total_frames / FRAMES_PER_S)
+            plan = Plan("out", drop, drop, length, beat, hand.ratio, nxt, mode="skip", why="finishing the mix by hand")
+            self.incoming, self.plan = hand, plan
+            self._start_frame = 0 if self._hand_on else self._hand_k
+            self.hand, self.hand_next, self._hand_k, self._hand_on = None, None, None, False
+            for slot in (1, 2):
+                self.controls.set(slot, "fader", 1.0)
+            self.controls.xfader = None
+            self.paused.discard(cur.slot)
+            self.history.append({"ts": time.time(), "kind": "out", "mode": "skip", "from": cur.record.name,
+                                 "to": hand.record.name, "at": round(drop, 2), "ratio": round(hand.ratio, 4),
+                                 "why": plan.why})
+        log_action(f"[records] finishing the hand mix into {hand.record.name} over {length:.1f}s")
+        return True
+
+    def _adopt_hand(self) -> None:
+        """The deck played by hand is the record on air now."""
+        old, hand = self.current, self.hand
+        self.current = hand
+        self.hand, self.hand_next, self._hand_k, self._hand_on, self._hand_quiet = None, None, None, False, 0
+        self.cue, self.by_hand = None, False
+        if old is not None:
+            self.paused.discard(old.slot)
+            # The channel the next record comes in on starts flat; centring the
+            # crossfader is silent now that one side is empty.
+            self.controls.channels[old.slot] = Controls._flat()
+            old.close()
+            self.history.append({"ts": time.time(), "kind": "hand", "mode": "hand", "from": old.record.name,
+                                 "to": hand.record.name, "at": round(old.at(), 2), "ratio": round(hand.ratio, 4),
+                                 "why": "mixed by hand"})
+            del self.history[:-50]
+        self.controls.xfader = None
+        if self._on_change:
+            try:
+                self._on_change(hand.record)
+            except Exception as e:
+                log_debug(f"[records] on_change: {e}")
+        self._prefetch()
 
     #: The booth's blend lengths, in beats: about 15 s, 30 s and a minute at 125 bpm.
     BLEND_CHOICES = (32, 64, 128)
@@ -585,11 +866,11 @@ class CrossfadeSource(_AudioSource):
         return round(20 * np.log10(rms / 32768.0), 1) if rms > 1 else -90.0
 
     def _begin_planning(self, mode: str) -> None:
-        if self._planning or self.plan or self.current is None:
+        if self._planning or self.plan or self.current is None or self.hand is not None or self._hand_starting:
             return
         self._planning = True
         self.planning_mode = mode
-        deck = self.current
+        deck, gen = self.current, self._gen
 
         def run():
             try:
@@ -603,6 +884,8 @@ class CrossfadeSource(_AudioSource):
                 nxt = self._queued
                 if nxt is None or deck is not self.current:
                     return
+                queued = nxt
+                nxt = self._cued(nxt)
                 # Nothing slow may happen on discord.py's audio thread, which
                 # must hand over a frame every 20 ms: the filter (and scipy's
                 # import) is readied here, and the incoming ffmpeg is started
@@ -657,15 +940,21 @@ class CrossfadeSource(_AudioSource):
                         break
                     incoming.close()
                     incoming = None
-                if incoming is None or deck is not self.current:
+                if incoming is None:
                     return
-                incoming.grid = nxt.grid
-                incoming.slot = 3 - deck.slot
-                plan.mode = mode
-                self._queued = None
-                self._start_frame = k
-                self.incoming = incoming
-                self.plan = plan
+                with self._lock:
+                    if (deck is not self.current or gen != self._gen or self._queued is not queued
+                            or self.hand is not None or self.plan is not None):
+                        incoming.close()
+                        return
+                    incoming.grid = nxt.grid
+                    incoming.slot = 3 - deck.slot
+                    plan.mode = mode
+                    self._queued = None
+                    self._start_frame = k
+                    self.incoming = incoming
+                    self.plan = plan
+
                 why = ""
                 if plan.kind != "blend":
                     why = ("; no clear beat" if not (out_grid and nxt.grid) else
@@ -734,8 +1023,11 @@ class CrossfadeSource(_AudioSource):
         plan = self.plan
         # Early enough to fit a blend before a long outro: the plan places
         # itself on the last phrase that leaves room, however soon it is made.
-        if plan is None and not self._planning and cur.remaining <= int((self._mix_beats * 0.6 + 90) * FRAMES_PER_S):
+        if (plan is None and self.hand is None and not self._planning
+                and cur.remaining <= int((self._mix_beats * 0.6 + 90) * FRAMES_PER_S)):
             self._begin_planning("end")
+        if self.hand is not None and plan is None:
+            return self._read_hand(cur, self.hand)
         if cur.slot in self.paused:
             self.frames_sent += 1
             self.levels["a"] = self.levels["master"] = -90.0
@@ -756,6 +1048,8 @@ class CrossfadeSource(_AudioSource):
         inc = None
         if (self.incoming is not None and self._start_frame is not None and k >= self._start_frame
                 and self.incoming.slot not in self.paused):
+            if k == self._start_frame and self.by_hand and self.controls.channels[self.incoming.slot]["fader"] <= 0.0:
+                self.controls.set(self.incoming.slot, "fader", 1.0)    # loaded with its fader down: she brings it in
             inc = self.incoming.frame() or SILENCE
         hands = self.controls
         if plan is None and hands.flat():
@@ -784,9 +1078,44 @@ class CrossfadeSource(_AudioSource):
         self.frames_sent += 1
         return frame or SILENCE
 
+    def _read_hand(self, cur: Deck, hand: Deck) -> bytes:
+        """Both decks open, mixed by the booth's hands: the record on air (unless
+        paused) and the deck played by hand, from its frame on."""
+        cur_paused = cur.slot in self.paused
+        out = None if cur_paused else cur.frame()
+        ended = not cur_paused and out is None
+        if not self._hand_on and (cur_paused or ended or cur.played >= (self._hand_k or 0)):
+            self._hand_on = True
+        hf = hand.frame() if self._hand_on else None
+        if self._hand_on and hf is None:
+            # The hand deck ran out before taking over: it comes off.
+            with self._lock:
+                self._drop_hand()
+            self.frames_sent += 1
+            return out or SILENCE
+        hands = self.controls
+        co, ch = hands.channel(cur.slot), hands.channel(hand.slot)
+        frame = mix_frames(cur.split(out) if out is not None else None,
+                           hand.split(hf) if hf is not None else None, BOTH, co, ch, hands.master)
+        self.applied = BOTH if hf is not None else SOLO
+        if self.frames_sent % 2 == 0:
+            self.levels["a"] = self._db(out)
+            self.levels["b"] = self._db(hf)
+            self.levels["master"] = self._db(frame)
+        if self._hand_on:
+            quiet = ended or cur_paused or co[3] <= 1e-3
+            self._hand_quiet = self._hand_quiet + 1 if quiet else 0
+            if ended or self._hand_quiet >= int(HANDOVER_S * FRAMES_PER_S):
+                with self._lock:
+                    if self.hand is hand:
+                        self._adopt_hand()
+        self.frames_sent += 1
+        return frame
+
     def _advance(self) -> None:
         old, self.current, self.incoming = self.current, self.incoming, None
         self.plan, self._start_frame = None, None
+        self.cue, self.by_hand = None, False
         if old:
             old.close()
         if self.current and self._on_change:
@@ -797,10 +1126,10 @@ class CrossfadeSource(_AudioSource):
         self._prefetch()
 
     def cleanup(self) -> None:
-        for deck in (self.current, self.incoming):
+        for deck in (self.current, self.incoming, self.hand):
             if deck:
                 deck.close()
-        self.current = self.incoming = None
+        self.current = self.incoming = self.hand = None
 
 
 def _default_grid_at(record: library.Record, start: float, seconds: float):
@@ -836,6 +1165,8 @@ class RecordsSession:
         self._task: Optional[asyncio.Task] = None
         self._rng = random.Random()
         self.requests: list[str] = []             # paths asked for at the booth, in order
+        self.loading: Optional[str] = None        # a record being readied for the free deck
+        self.last_load: Optional[dict] = None
 
     @property
     def guild_id(self) -> int:
@@ -862,6 +1193,27 @@ class RecordsSession:
             return None
         return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
                     beatgrid.first_sound(rec.path))
+
+    def load(self, rec: library.Record) -> None:
+        """Put `rec` on the free deck, now if it can be (`CrossfadeSource.load`),
+        else next after the blend under way."""
+        self.loading = rec.name
+
+        def run():
+            try:
+                nxt = self._prepare(rec)
+                src = self.source
+                if nxt is None or src is None:
+                    log_warning(f"[records] {rec.name} could not be read; not loaded")
+                    self.last_load = {"name": rec.name, "result": "unreadable", "ts": time.time()}
+                    return
+                result = src.load(nxt)
+                if result == "after" and rec.path not in self.requests:
+                    self.requests.append(rec.path)
+                self.last_load = {"name": rec.name, "result": result, "ts": time.time()}
+            finally:
+                self.loading = None
+        threading.Thread(target=run, daemon=True, name="kaia-records-load").start()
 
     def request(self, rec: library.Record) -> None:
         """Play `rec` next. If nothing is mid-transition it replaces the record

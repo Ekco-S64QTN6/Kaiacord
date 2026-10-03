@@ -587,8 +587,16 @@ a mix that sounded wrong:
 the decks `CrossfadeSource` holds, their grids, the plan, the band gains applied this frame and the
 levels produced — streamed at 20 Hz from 127.0.0.1, with waveforms computed by ffmpeg off the voice
 thread. Its controls are real: `records.Controls` (trim, three-band EQ, faders, crossfader, master)
-multiplies the automix, `paused` holds a deck in place, and a crate click is `RecordsSession.request`. Check a change by rendering it headless against a real
-session (Playwright screenshot), not by reading the HTML.
+multiplies the automix, and `paused` holds the record on air in place. The free deck works like a
+CDJ: a crate click loads it now (`RecordsSession.load` → `CrossfadeSource.load`, which calls off a
+blend not yet started and pulls that channel's fader down); dragging its overview, jog or lane moves
+its cue (snapped to a bar); ▶ starts it at the on-air tempo with its cue on the same beat of the bar
+(`play_hand`); the faders mix, and it takes over after `HANDOVER_S` of the on-air record silent.
+NEXT with a deck playing by hand is Kaia finishing the mix (`finish`, a plan of kind `out`). PHONES
+plays a deck's file in the booth window only (`/audio/<id>`), never on air. Kaia raises a hand-loaded
+fader when *her* blend into it starts, not when she plans it — a planned blend is called off by ▶.
+Check a change by driving it headless against a real session (Playwright: click, drag, screenshot),
+not by reading the HTML.
 
 Records, a live set and the radio share one voice connection: whichever starts stops the others
 without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the channel it was
