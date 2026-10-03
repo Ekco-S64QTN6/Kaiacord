@@ -302,6 +302,12 @@ class ContextOptimizer:
                         title = slug.title()
                         source_label = f"Thread: '{title}' (ID: {thread_id})"
                 
+                # Aethelgard is the game played on this server. Its lore and item
+                # tables read like any other fiction, and an item from them
+                # ("Elara's Token") was given to Motoko Kusanagi as hers.
+                if "aethelgard" in path:
+                    source_label += " (Aethelgard: the RPG game played on this Discord server, not a book or show)"
+
                 # Structural isolation wrapping with semantic tagging
                 wrapped_content = f"<recorded_knowledge source=\"{source_label}\">\n{content_raw}\n</recorded_knowledge>"
                 reference_nodes.append(wrapped_content)

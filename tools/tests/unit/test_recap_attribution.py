@@ -178,3 +178,14 @@ def test_a_partial_dream_chunk_is_labelled_by_which_half_it_holds(content, refle
     assert ("[INTERNAL REFLECTION (DREAM)]" in out) is reflection
     assert ("<recorded_knowledge" in out) is (not reflection)
     assert "title:" not in out and "## " not in out
+
+
+def test_aethelgard_lore_is_labelled_as_the_servers_game():
+    """An item from the game's loot tables was answered as a Ghost in the
+    Shell prop: nothing in the label said the source was the server's RPG."""
+    node = {"content": "| **Elara's Token** | A tier-4 accessory with value: 0 gil. |",
+            "metadata": {"source_type": "general_knowledge",
+                         "file_path": "/kb/books/Book - Aethelgard Lore Bible.md"}}
+    out = ContextOptimizer().optimize_context(
+        "general", "persona", [node], [], None, "that token motoko carries, what is it?")["rag"]
+    assert "RPG game played on this Discord server" in out
