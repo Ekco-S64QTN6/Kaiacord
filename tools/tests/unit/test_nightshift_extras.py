@@ -78,3 +78,27 @@ def test_the_overnight_log_is_a_box_with_a_field_per_section():
 
 def test_kp_wears_the_colour_of_its_storm_level():
     assert [overnight.kp_icon(k) for k in (1.7, 4.3, 5.7, 8.0)] == ["🟢", "🟡", "🟠", "🔴"]
+
+
+def test_the_overnight_note_is_written_by_her_pipeline(monkeypatch):
+    """A bare "You are Kaia" prompt at temperature 0.4 wrote it — no persona,
+    memory or mood — and four mornings in six opened "it was a slow one,
+    mostly. the scanner was chattering away". It goes through the chat
+    pipeline as the quip does, and an invented number still rejects a draft."""
+    import asyncio
+    from utils.radio import overnight
+    drafts = iter(["the k index sat at 9.", "it was a slow one, mostly. the scanner chattered.",
+                   "quiet. the k index stayed at 0.7 and the busiest channel was 462.2750 mhz."])
+    seen = []
+
+    async def fake(ctx, content, author, author_id, platform, conversation_key=None, no_persist=False):
+        seen.append((author, platform, no_persist, content))
+        return next(drafts)
+    monkeypatch.setattr("utils.infrastructure.system.external_mention.process_external_mention", fake)
+    facts = [overnight.Fact("sun", "", "the planetary K index is 0.7 (quiet)"),
+             overnight.Fact("scanner", "", "the busiest channel was 462.2750 MHz")]
+    recent = ["it was a slow one, mostly.", "it was a slow night again."]
+    note = asyncio.run(overnight.write(None, facts, recent))
+    assert note.startswith("quiet.")
+    assert seen[0][:3] == ("Kaia", overnight.PLATFORM, True)
+    assert "the planetary K index is 0.7" in seen[0][3]

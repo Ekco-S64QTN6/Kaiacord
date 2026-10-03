@@ -3,8 +3,9 @@
 Python gathers the facts — what she recorded and copied, what eam.watch
 logged, whether a TACAMO plane showed itself, the sun, the closest rock, the
 biggest quake, what the beacons said, what the local scanner caught. They are
-shown as a box, one field per section; one model call writes her account of
-the night on top, told to use those facts and nothing else. It goes out through
+shown as a box, one field per section; her account of the night goes on top,
+written by the chat pipeline (persona, memory, mood, filters) from those facts,
+and rejected if it carries a number none of them holds. It goes out through
 `unprompted.speak` as source `overnight`, so the shared daily limit, the gap
 and the posting hours apply, and it is cross-posted only if
 `unprompted.bluesky.overnight` is literally true.
@@ -177,21 +178,19 @@ def embed(facts: list[Fact], note: str = "", when: Optional[datetime] = None):
     return e
 
 
-PROMPT = (
-    "You are Kaia, writing up your night shift for the server. The raw readings are shown "
-    "underneath in a table, so this is the story of the night, not the list: lowercase, dry, "
-    "observant, in your own voice, one or two short paragraphs, 60 to 130 words.\n"
-    "Rules:\n"
-    "- Tell it the way you'd tell a friend over coffee: what the night felt like, what stood "
-    "out, what was dull, what you're curious about. Don't march through the facts one by one, "
-    "and don't open every sentence with 'i recorded' or 'i heard'.\n"
-    "- Everything that happened comes from the facts below. Nothing else happened; you may "
-    "leave facts out.\n"
-    "- Do not mention weather, clouds, or anything not listed.\n"
-    "- Keep each fact's tense: 'will pass' stays in the future.\n"
-    "- EAMs and number-station groups are encrypted: never say what one means.\n"
-    "- No headers, no lists, no sign-off.\n\nTHE NIGHT'S FACTS:\n"
+# What the post is, said once — the same shape as the quip's framing. The voice
+# comes from her pipeline (persona, memory, mood, filters), as on Discord.
+FRAME = (
+    "[You are writing up your night shift for the server, posted in the morning above a box of "
+    "the raw readings. Nobody asked; this is a short note, a paragraph or two, the story of your "
+    "night in your own voice, not the list: what it felt like, what stood out. Everything that happened is in the "
+    "readings below and nothing else happened; you may leave some out. Keep each reading's tense "
+    "('will pass' is still to come). Encrypted messages are never decoded.]\n\n"
 )
+PLATFORM = "overnight"
+#: Earlier notes kept, so the next one is not told the way they were. They are
+#: compared against, not shown to her: given as history she copied whole lines.
+KEEP_NOTES = 6
 
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 
@@ -205,33 +204,37 @@ def invented_numbers(text: str, facts: list[str]) -> set[str]:
     return {n for n in _NUMBER.findall(text) if norm(n) not in have}
 
 
-async def write(ctx, facts: list[Fact]) -> str:
-    """Her note for the top of the box, or '' if every draft invented a number."""
-    import asyncio
-    import uuid
-    from utils.core.response_filter import BotSpeakFilter
-    from utils.infrastructure.gpu.gpu_manager import GPUTaskPriority, chat_options, gpu_memory_manager
-    from utils.infrastructure.system.yaml_config import config
-    from utils.ttrpg.narration import finish_cleanly
+async def write(ctx, facts: list[Fact], recent: Optional[list[str]] = None) -> str:
+    """Her note for the top of the box, written by the chat pipeline as a quip
+    is, or '' if every draft invented a number. A draft that retells the night
+    the way her last ones did is redrafted, and kept if nothing better comes."""
+    from utils.infrastructure.system.external_mention import process_external_mention
+    from utils.social.forum_drafting import is_generation_failure
+    from utils.social.forum_participation import looks_repetitive
+    from utils.social.social_response_generator import repeats_opening
 
     texts = [f.text for f in facts]
-    prompt = PROMPT + "\n".join(f"- {t}" for t in texts)
-
-    async def _chat():
-        return await ctx.ollama_client.chat(model=config.chat_model,
-                                            messages=[{"role": "user", "content": prompt}],
-                                            options=chat_options(num_predict=280, temperature=0.4),
-                                            keep_alive=-1)
-    for attempt in range(2):
-        resp = await gpu_memory_manager.run_with_gpu_guard(
-            model_name=config.chat_model, priority=GPUTaskPriority.BACKGROUND,
-            coro=asyncio.wait_for(_chat(), timeout=90.0), task_id=f"overnight_{uuid.uuid4().hex[:8]}")
-        text = BotSpeakFilter.harden(finish_cleanly(resp["message"]["content"].strip().replace("`", "")))
+    recent = [n for n in (recent or []) if isinstance(n, str)]
+    content = FRAME + "\n".join(f"- {t}" for t in texts)
+    clean = ""                  # the last draft that invented nothing, if all retell the night alike
+    for attempt in range(3):
+        text = (await process_external_mention(ctx, content, "Kaia", 0, platform=PLATFORM,
+                                               no_persist=True) or "").strip()
+        if not text or is_generation_failure(text):
+            log_warning(f"[overnight] draft {attempt + 1} came back empty")
+            continue
         extra = invented_numbers(text, texts)
-        if not extra:
-            return text
-        log_warning(f"[overnight] draft {attempt + 1} had numbers no fact contains ({sorted(extra)[:4]}); retrying")
-    return ""
+        if extra:
+            log_warning(f"[overnight] draft {attempt + 1} had numbers no fact contains ({sorted(extra)[:4]}); retrying")
+            continue
+        held, why = looks_repetitive(text, recent[-KEEP_NOTES:])
+        worn = repeats_opening(text, recent) or (why if held else "")
+        if worn:
+            clean = text
+            log_warning(f"[overnight] draft {attempt + 1} {worn}; retrying")
+            continue
+        return text
+    return clean
 
 
 async def post(ctx, channel, manual: bool = False) -> Optional[str]:
@@ -246,13 +249,16 @@ async def post(ctx, channel, manual: bool = False) -> Optional[str]:
         if not ok:
             log_debug(f"[overnight] held: {why}")
             return None
-    note = await write(ctx, facts)
+    state = read_cache(STATE) or {}
+    notes = list(state.get("notes") or [])
+    note = await write(ctx, facts, notes)
     if not note:
         log_warning("[overnight] no usable note; posting the readings alone")
     text = "\n".join([note] * bool(note) + [f.text for f in facts])
     spoken = await unprompted.speak(ctx, channel, "overnight", text, manual=manual, embed=embed(facts, note))
     if spoken.posted or spoken.queued:           # queued: it goes out in turn
-        write_cache(STATE, {"last_posted": time.time(), "facts": [f.text for f in facts]})
+        write_cache(STATE, {"last_posted": time.time(), "facts": [f.text for f in facts],
+                            "notes": (notes + [note] * bool(note))[-KEEP_NOTES:]})
         return text
     return None
 

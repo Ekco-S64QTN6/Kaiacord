@@ -482,7 +482,7 @@ and fix this table when it disagrees with the code.
 | **Observation digest** | `background_tasks.py` → `_make_observation_digest_task()` | Direct call to summarise; the digest text is then spoken verbatim, not re-generated |
 | **Dream engine** | `kaia_dream.py` | Direct call, dream summary + belief extraction |
 | **Inner monologue** | `kaia_monologue.py` | Direct call, background thought generation |
-| **Overnight log** | `utils/radio/overnight.py` via the radio task | Direct call over facts gathered in Python; a draft with a number no fact contains is rejected; posted through `unprompted.speak` |
+| **Overnight log** | `utils/radio/overnight.py` via the radio task | **Through the pipeline** via `process_external_mention(platform="overnight")`, framed as the quip is, over facts gathered in Python; a draft with a number no fact contains is rejected, one retelling her last notes is redrafted; posted through `unprompted.speak` |
 
 `utils/audio/` is deliberately **not** in this table: the music engine makes no LLM call at all.
 
