@@ -720,6 +720,13 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   Fork, not spawn: spawn re-imports `Kaiacord.py`, which imports the whole bot.
 - **librtlsdr through ctypes, not pyrtlsdr.** pyrtlsdr 0.4/0.5 need `rtlsdr_set_dithering`, which the
   distribution's librtlsdr 2.0.3 does not export.
+- **KAIA//RX** (`rx_dashboard.py`, `rx_scope.py`, `assets/rx/`) draws what the watcher measures and
+  nothing else: the child sends each slice's smoothed spectrum (every 4th bin) and each pass's lockouts
+  on a third queue, `put_nowait` so a missing reader drops frames instead of blocking the sweep, and
+  `rx_scope` lays slices into per-band panoramas relative to each slice's median. A click tunes by
+  running the watch as a net (`scanner.tune` → `_watch(net)`), so a tuned channel is held, recorded and
+  classified exactly as the scan would. `!scanner dash` opens it; nothing opens it at night unasked.
+  Spectrograms (`spectrogram.py`) are rendered once beside a clip and pruned with it.
 - **One dongle.** `rtl.DEVICE` is held by the watch; a live listen sets `rtl.YIELD` and the watch
   gives it up within a hop. A process outside the bot (a hand-run survey) holds the device where
   `rtl.DEVICE` cannot see it, and the bot's watch then fails "busy" and backs off 15 minutes — stop

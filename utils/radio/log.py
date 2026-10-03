@@ -62,3 +62,4 @@ def prune_clips() -> None:
     clips = sorted(clips_dir().glob("*.ogg"), key=lambda p: p.stat().st_mtime, reverse=True)
     for old in clips[MAX_CLIPS:]:
         old.unlink(missing_ok=True)
+        old.with_suffix(".png").unlink(missing_ok=True)          # its spectrogram

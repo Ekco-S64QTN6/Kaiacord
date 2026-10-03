@@ -308,9 +308,13 @@ class Watcher:
     def __init__(self, on_catch: Callable[[Catch], None], gain_db: float = 40.0,
                  stop: Optional[threading.Event] = None,
                  sink: Optional[Callable[[np.ndarray], None]] = None, ppm: int = 0,
-                 hops: Optional[tuple[list[int], list[int]]] = None):
+                 hops: Optional[tuple[list[int], list[int]]] = None,
+                 scope: Optional[Callable[[dict], None]] = None):
         self.on_catch = on_catch
         self.ppm = ppm
+        # The receiver dashboard (rx_dashboard): every spectrum measured, and
+        # each pass's lockouts. Called from the watcher's thread; must not block.
+        self.scope = scope
         # Listen-along: 12 kHz int16 audio — a soft tick per hop, and the
         # channel itself while holding. Called from the watcher's thread.
         self.sink = sink
@@ -333,6 +337,7 @@ class Watcher:
         if dongle.tune(center) is False:
             return None                      # a failed retune would read the last slice
         spec = _smooth_spectrum(dongle.read(NFFT * 32))
+        self._show(center, spec, "hop")
         s.history.append(spec)
         s.history = s.history[-FLOOR_VISITS:]
         s.visits += 1
@@ -379,7 +384,8 @@ class Watcher:
         while not self.stop.is_set():
             iq = dongle.read(chunk_n)
             audio = demod(iq)
-            over = _smooth_spectrum(iq) - floor
+            spec = _smooth_spectrum(iq)
+            over = spec - floor
             # Over the slice's own rise, as the trigger is: against the floor
             # alone, a hold begun during a rise in the noise never went quiet.
             level = over[idx] - np.median(over[valid])
@@ -395,6 +401,7 @@ class Watcher:
                 chunks.append(audio)
             if self.sink:
                 self.sink(audio if quiet < SQUELCH_S else np.zeros_like(audio))
+            self._show(center, spec, "follow" if follow else "hold", freq, float(level), quiet < SQUELCH_S)
             held = time.time() - started
             if not follow:
                 if held >= MAX_HOLD_S:
@@ -434,6 +441,30 @@ class Watcher:
         audio = np.concatenate(chunks) if chunks else np.zeros(0, np.int16)
         return Catch(freq, started, time.time() - started, peak_db, audio)
 
+    #: Bins sent to the dashboard per slice: the smoothed spectrum, every 4th bin.
+    SCOPE_STEP = 4
+
+    def _show(self, center: int, spec: np.ndarray, state: str, freq: int = 0,
+              level: float = 0.0, open_: bool = False) -> None:
+        if self.scope is None:
+            return
+        try:
+            self.scope({"kind": "spec", "t": time.time(), "center": int(center), "state": state,
+                        "freq": int(freq), "level": round(level, 1), "open": bool(open_), "pass": self.passes,
+                        "spec": spec[::self.SCOPE_STEP].astype(np.float16)})
+        except Exception:
+            pass
+
+    def _show_pass(self) -> None:
+        if self.scope is None:
+            return
+        now = time.time()
+        try:
+            self.scope({"kind": "pass", "t": now, "pass": self.passes,
+                        "lockouts": [(int(f), round(u - now)) for f, u in self.cooldown.items() if u - now > COOLDOWN_S]})
+        except Exception:
+            pass
+
     def _worker(self):
         while True:
             c = self.catches.get()
@@ -462,6 +493,7 @@ class Watcher:
                 s = self.slices[center]
                 while not self.stop.is_set() and time.time() < until:
                     spec = _smooth_spectrum(d.read(NFFT * 32))
+                    self._show(center, spec, "pinned", freq_hz)
                     s.history = (s.history + [spec])[-FLOOR_VISITS * 4:]
                     self.passes += 1
                     if len(s.history) < WARM_VISITS:
@@ -491,6 +523,7 @@ class Watcher:
                         if hit:
                             self.catches.put(self._hold(d, center, *hit))
                     self.passes += 1
+                    self._show_pass()
         finally:
             self.catches.put(None)
 
@@ -504,7 +537,7 @@ class Watcher:
 # queues.
 
 def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
-               stop, catches, audio, passes, hops=None) -> None:
+               stop, catches, audio, passes, hops=None, spectra=None) -> None:
     import os
     # The bot leaves by os._exit, which skips multiprocessing's cleanup of
     # daemon children: an orphaned watcher kept the dongle, and the next boot's
@@ -527,11 +560,18 @@ def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
         except Exception:
             pass
 
+    def _scope(msg) -> None:
+        try:
+            spectra.put_nowait(msg)
+        except Exception:
+            pass                             # nobody is draining it: the dashboard simply misses a frame
+
     class _Stop:
         def is_set(self):
             return stop.is_set()
 
-    w = Watcher(_send, gain_db=gain_db, stop=_Stop(), sink=_sink, ppm=ppm, hops=hops)
+    w = Watcher(_send, gain_db=gain_db, stop=_Stop(), sink=_sink, ppm=ppm, hops=hops,
+                scope=_scope if spectra is not None else None)
     try:
         if mode == "pinned":
             w.run_pinned(freq_hz, until)

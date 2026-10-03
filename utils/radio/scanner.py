@@ -200,6 +200,7 @@ def _save_clip(audio, freq_hz: int, when: float) -> Optional[str]:
     rotated = sorted(d.glob("*.ogg"))[:-300]
     for old in rotated:
         old.unlink(missing_ok=True)
+        old.with_suffix(".png").unlink(missing_ok=True)          # its spectrogram
     ledger.forget_clips([p.name for p in rotated])
     return name
 
@@ -418,6 +419,11 @@ _audio: "_queue.Queue" = _queue.Queue(maxsize=600)
 
 
 def _sink(chunk) -> None:
+    try:
+        from utils.radio import rx_dashboard
+        rx_dashboard.audio(chunk)         # the receiver dashboard's monitor, if anyone is listening
+    except Exception:
+        pass
     if not _along:
         return
     try:
@@ -559,6 +565,7 @@ async def _watch(net: Optional[dict] = None) -> None:
     stop = ctx.Event()
     _stop_event = stop
     catches, audio, passes = ctx.Queue(), ctx.Queue(maxsize=600), ctx.Value("i", 0)
+    spectra = ctx.Queue(maxsize=400)              # what the receiver dashboard draws (rx_scope)
 
     def _consume():
         while True:
@@ -582,6 +589,14 @@ async def _watch(net: Optional[dict] = None) -> None:
             except Exception:
                 continue
 
+    def _scope():
+        from utils.radio.rx_scope import scope
+        while proc.is_alive():
+            try:
+                scope.feed(spectra.get(timeout=1))
+            except Exception:
+                continue
+
     try:
         async with rtl.DEVICE:
             rtl.YIELD.clear()
@@ -591,12 +606,14 @@ async def _watch(net: Optional[dict] = None) -> None:
             hops = waterfall.hop_plan([c["freq_hz"] for c in seed_channels()])
             proc = ctx.Process(target=waterfall.child_main, name="kaia-scanner", daemon=True,
                                args=(mode, freq, until, float(_cfg("gain", rtl.DEFAULT_GAIN)), rtl.ppm(),
-                                     stop, catches, audio, passes, hops))
+                                     stop, catches, audio, passes, hops, spectra))
             proc.start()
             consumer = threading.Thread(target=_consume, name="scanner-classify", daemon=True)
             forwarder = threading.Thread(target=_forward, name="scanner-audio", daemon=True)
+            scoper = threading.Thread(target=_scope, name="scanner-scope", daemon=True)
             consumer.start()
             forwarder.start()
+            scoper.start()
             if net:
                 log_info(f"[scanner] net watch on {net['freq_hz'] / MHZ:.4f} MHz ({net['label']}) until "
                          f"{datetime.fromtimestamp(net['until']):%H:%M}")
@@ -606,8 +623,8 @@ async def _watch(net: Optional[dict] = None) -> None:
             while proc.is_alive():
                 if rtl.YIELD.is_set() or not _cfg("enabled", True):
                     stop.set()
-                elif not net and (due_net() or not (within_hours() or listening_along())):
-                    stop.set()                     # a net is starting, or the night is over
+                elif not net and (due_net() or tuned() or not (within_hours() or listening_along())):
+                    stop.set()                     # a net is starting, a tune asked for, or the night is over
                 await asyncio.sleep(1)
             await asyncio.to_thread(proc.join, 5)
             if proc.exitcode not in (0, None) and time.time() - started < 30:
@@ -618,6 +635,8 @@ async def _watch(net: Optional[dict] = None) -> None:
         # listen waiting for it gives up after 90 s.
         await asyncio.to_thread(consumer.join, 120)
         log_info(f"[scanner] {'net' if net else 'waterfall'} watch stopped after {passes.value} passes")
+        if not net:
+            await asyncio.to_thread(_save_night)
         await asyncio.to_thread(refresh_notebook)
     except Exception as e:
         _failed_at = time.time()
@@ -628,6 +647,71 @@ async def _watch(net: Optional[dict] = None) -> None:
         _running = False
         _stop_event = None
         _pinned = None
+
+
+def nights_dir() -> Path:
+    """Saved night waterfalls, one picture per band (rx_scope.save_night)."""
+    clips = _clips_dir()
+    return clips.parent / ("waterfalls.test" if clips.name.endswith(".test") else "waterfalls")
+
+
+def _save_night() -> None:
+    try:
+        from utils.radio.rx_scope import scope
+        saved = scope.save_night(nights_dir())
+        if saved:
+            log_info(f"[scanner] the night's waterfall saved: {len(saved)} bands")
+    except Exception as e:
+        log_warning(f"[scanner] the night's waterfall not saved: {e}")
+
+
+# ── Tuned from the receiver dashboard ───────────────────────────────────────
+# A click on the dashboard's waterfall sits the dongle on one channel for a
+# while, exactly as a configured net does (`_watch(net)`): each transmission
+# held, recorded and classified. Outside the scanning hours too — the dongle
+# is idle then. A live listen in voice still has the dongle first.
+_tuned: Optional[dict] = None
+
+
+def tuned() -> Optional[dict]:
+    return _tuned if _tuned and _tuned["until"] > time.time() else None
+
+
+async def tune(freq_hz: int, minutes: float = 15.0) -> str:
+    """Sit on `freq_hz` for `minutes`. Returns what happened, for the page."""
+    global _tuned
+    from utils.radio import live
+    if any(getattr(s, "local", False) for s in live.active()):
+        return "the dongle is playing live in voice — stop that first"
+    if not rtl.available():
+        return "the RTL-SDR isn't connected"
+    freq_hz = snap_channel(int(freq_hz))
+    _tuned = {"freq_hz": freq_hz, "until": time.time() + minutes * 60,
+              "label": f"tuned from the dashboard · {freq_hz / MHZ:.4f} MHz"}
+    log_info(f"[scanner] tuned to {freq_hz / MHZ:.4f} MHz from the receiver dashboard for {minutes:g} min")
+    await _restart()
+    return f"on {freq_hz / MHZ:.4f} MHz for {minutes:g} minutes"
+
+
+async def untune() -> str:
+    global _tuned
+    _tuned = None
+    await _restart()
+    return "back to the scan" if within_hours() else "off — the scan runs " + _hours_text()
+
+
+def _hours_text() -> str:
+    return str(_cfg("hours", "00:00-06:00"))
+
+
+async def _restart() -> None:
+    if _stop_event is not None:
+        _stop_event.set()
+    for _ in range(120):
+        if not _running and not rtl.DEVICE.locked():
+            break
+        await asyncio.sleep(0.5)
+    tick()
 
 
 def refresh_notebook() -> None:
@@ -670,7 +754,7 @@ def tick(now: Optional[datetime] = None) -> bool:
         return False
     if time.time() - _failed_at < FAIL_BACKOFF_S:
         return False
-    net = due_net(now)
+    net = due_net(now) or tuned()
     if not net and not within_hours(now):
         return False
     ledger.seed(seed_channels())

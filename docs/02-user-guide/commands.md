@@ -125,8 +125,14 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   every six hours, and a carrier that stays up a full minute without speech is locked out for half
   an hour, longer each time it returns. The panel has a presets dropdown, ▶ Listen (live in voice),
   🎧 Listen along (hear her scan; `!scanner scan` typed), and History with recordings to replay
-  (`!scanner history`); `!scanner off` stops either. Nets listed in `radio.local.nets` are watched
-  for their whole window.
+  (`!scanner history`, each with a 🌈 spectrogram); `!scanner off` stops either. Nets listed in
+  `radio.local.nets` are watched for their whole window. `!scanner dash` (or 🖥 Dashboard) opens
+  **KAIA//RX** on the bot's screen: each band's panorama spectrum and waterfall while the scan runs,
+  the frequency she is on with signal and squelch meters, the ledger as bookmarks, every kept catch
+  with its spectrogram and a player, the carriers locked out, last nights' waterfalls, and MONITOR to
+  hear the scanner in the window. Click the waterfall (or double-click a bookmark) to tune the dongle
+  to that channel for 5–60 minutes — outside the scanning hours too; ◀ BACK TO SCAN returns.
+  Kept shortwave recordings posted to `#kaia-opolis` carry their spectrogram too.
 
 Recording and transcription need a one-time `python tools/maintenance/fetch_radio_assets.py`.
 

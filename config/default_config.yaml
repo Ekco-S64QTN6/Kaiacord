@@ -851,6 +851,9 @@ radio:
     enabled: true
     hours: "00:00-06:00"
     gain: 40
+    # KAIA//RX, the receiver dashboard (`!scanner dash`), on 127.0.0.1 at this
+    # port (0 picks a free one).
+    dashboard_port: 47432
     # The dongle's crystal error in parts per million. A generic RTL2832U can
     # sit tens of ppm off (50 ppm is 22 kHz at 444 MHz); measure it against a
     # known carrier such as NOAA and set it here.

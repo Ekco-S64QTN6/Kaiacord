@@ -322,7 +322,17 @@ async def post_entry(bot, e: dict) -> bool:
         log_warning(f"[radio] #{name} not found; not posting {e['id']}")
         return False
     f = clip_file(e)
-    await channel.send(embed=entry_embed(e), **({"file": f} if f else {}))
+    embed = entry_embed(e)
+    files = [f] if f else []
+    if f:
+        import asyncio
+        from utils.radio import log as radio_log, spectrogram
+        pic = await asyncio.to_thread(spectrogram.render, radio_log.clips_dir() / e["clip"],
+                                      f"{e.get('station') or e.get('kind') or 'radio'} · {e.get('clip')}", 4000.0)
+        if pic:
+            files.append(discord.File(str(pic), filename=pic.name))
+            embed.set_image(url=f"attachment://{pic.name}")
+    await channel.send(embed=embed, **({"files": files} if files else {}))
     return True
 
 

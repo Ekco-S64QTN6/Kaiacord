@@ -5,6 +5,7 @@
 !scanner scan       join your voice channel and scan out loud (the 🎧 button)
 !scanner history    the latest catches
 !scanner off        stop listening
+!scanner dash       KAIA//RX, the receiver dashboard, as a window on the bot's screen
 """
 from __future__ import annotations
 
@@ -106,10 +107,39 @@ class HistoryView(discord.ui.View):
             await live.play_clip(member.voice.channel, scanner._clips_dir() / c["clip"], label, member.display_name)
         except Exception as e:
             return await interaction.followup.send(embed=box("📼  Scanner", clean(str(e), 200), COLOR_ERROR))
-        await interaction.followup.send(embed=box(
+        embed = box(
             "📼  Playing", f"{label}, {datetime.fromtimestamp(c['ts']).strftime('%a %H:%M')}, "
             f"in **{member.voice.channel.name}**." + (f"\n\n\"{clean(c['transcript'], 300)}\"" if c.get("transcript") else ""),
-            COLOR_SCANNER))
+            COLOR_SCANNER)
+        pic = await _spectrogram(c)
+        if pic:
+            embed.set_image(url=f"attachment://{pic.filename}")
+        await interaction.followup.send(embed=embed, **({"file": pic} if pic else {}))
+
+    @discord.ui.button(label="🌈 Spectrogram", style=discord.ButtonStyle.secondary, row=1)
+    async def picture(self, interaction: discord.Interaction, _button):
+        c = self.catches.get(self.choice or "")
+        if not c:
+            return await interaction.response.send_message("Pick a recording first.", ephemeral=True)
+        await interaction.response.defer()
+        pic = await _spectrogram(c)
+        if not pic:
+            return await interaction.followup.send(embed=box("🌈  Spectrogram", "that clip couldn't be read.", COLOR_ERROR))
+        embed = box(f"🌈  {c['freq_hz'] / MHZ:.4f} MHz · {c['kind']}",
+                    f"{datetime.fromtimestamp(c['ts']).strftime('%a %H:%M')} · {c.get('seconds') or 0:.0f}s"
+                    + (f"\n\"{clean(c['transcript'], 300)}\"" if c.get("transcript") else ""), COLOR_SCANNER,
+                    footer="time across, pitch up, loudness as colour")
+        embed.set_image(url=f"attachment://{pic.filename}")
+        await interaction.followup.send(embed=embed, file=pic)
+
+
+async def _spectrogram(c: dict):
+    """The catch's spectrogram as an attachment, rendered off the loop; None if unreadable."""
+    import asyncio
+    from utils.radio import scanner, spectrogram
+    title = f"{c['freq_hz'] / MHZ:.4f} MHz · {c['kind']} · {datetime.fromtimestamp(c['ts']).strftime('%a %d %b %H:%M')}"
+    path = await asyncio.to_thread(spectrogram.render, scanner._clips_dir() / c["clip"], title)
+    return discord.File(str(path), filename=path.name) if path else None
 
 
 def _recorded(limit: int = 25) -> list[dict]:
@@ -185,10 +215,28 @@ class ScannerView(discord.ui.View):
         await interaction.response.send_message(embed=history_embed(),
                                                 **({"view": HistoryView(catches)} if catches else {}))
 
+    @discord.ui.button(label="🖥 Dashboard", style=discord.ButtonStyle.secondary, row=2)
+    async def dash(self, interaction: discord.Interaction, _button):
+        await interaction.response.send_message(embed=await open_dashboard())
+
     @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary, row=2)
     async def refresh(self, interaction: discord.Interaction, _button):
         from utils.radio import ledger
         await interaction.response.edit_message(embed=panel_embed(), view=ScannerView(ledger.presets()))
+
+
+async def open_dashboard() -> discord.Embed:
+    """Serve KAIA//RX and pop it out on the bot's screen."""
+    import asyncio
+    from utils.radio import rx_dashboard
+    url = rx_dashboard.serve()
+    if not url:
+        return box("🖥  Receiver dashboard", "couldn't start its server.", COLOR_ERROR)
+    await asyncio.to_thread(rx_dashboard.open_window)
+    log_action(f"[scanner] receiver dashboard opened at {url}")
+    return box("🖥  KAIA//RX", f"the receiver dashboard is open on the bot's screen — {url}\n"
+               "band panoramas and waterfalls while the scan runs, the ledger, every kept catch with its "
+               "spectrogram. click the waterfall to tune.", COLOR_SCANNER)
 
 
 async def _listen_along(member, text_channel) -> discord.Embed:
@@ -217,6 +265,8 @@ async def handle_scanner_command(ctx, msg, send_kaia_response=None):
             catches = _recorded()
             return await msg.channel.send(embed=history_embed(20),
                                           **({"view": HistoryView(catches)} if catches else {}))
+        if verb in ("dash", "dashboard", "rx"):
+            return await msg.channel.send(embed=await open_dashboard())
         if verb in ("scan", "along", "listen"):
             from utils.radio import rtl
             member = msg.author
