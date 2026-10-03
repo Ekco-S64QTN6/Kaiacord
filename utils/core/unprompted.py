@@ -549,8 +549,10 @@ async def speak(ctx, channel, source: str, text: str = "", *,
                 from collections import deque
                 from utils.infrastructure.system.yaml_config import config
                 memory[channel.id] = deque(maxlen=config.max_memory_messages)
+            # `unprompted`: it answered nobody, so a reply to it is addressed
+            # to her, not to whoever spoke before it.
             memory[channel.id].append({"role": "assistant", "content": body,
-                                       "timestamp": time.time()})
+                                       "timestamp": time.time(), "unprompted": True})
         except Exception as e:
             log_debug(f"[unprompted] channel memory not updated: {e}")
 

@@ -148,6 +148,49 @@ class ContextEnricher:
                     
         return resolved_content
 
+    @staticmethod
+    def _bot_message_recipient(channel, content: str, guild=None):
+        """Whom one of her own messages was answering, or None.
+
+        Only from evidence: the user turn her reply followed in channel
+        memory, or a name she opened with that belongs to someone here. An
+        unprompted post (a quip, an opener, a thought) answered nobody; the
+        last person to have spoken before it is not its addressee, and naming
+        them in the quoted context made her answer the replier by their name.
+        """
+        content = (content or "").strip()
+        if not content:
+            return None
+        try:
+            from utils.infrastructure.system.bot_state import bot_state
+            turns = list(bot_state.channel_memory.get(getattr(channel, "id", None), []))
+        except Exception:
+            turns = []
+        low = content.lower()
+        for idx, turn in enumerate(turns):
+            said = (turn.get("content") or "").strip().lower()
+            # A posted message may carry a label in front of what memory kept.
+            if turn.get("role") != "assistant" or not said or not (said == low or (len(said) > 20 and said in low)):
+                continue
+            if turn.get("unprompted"):
+                return None
+            prev = turns[idx - 1] if idx > 0 else None
+            if prev and prev.get("role") == "user" and ":" in (prev.get("content") or ""):
+                return prev["content"].split(":", 1)[0].strip() or None
+            return None
+
+        # "<name>, ..." where the name is someone in this server.
+        first = content.split(",", 1)[0].strip() if "," in content else ""
+        if first and len(first.split()) <= 3:
+            name = re.sub(r"[^\w\s\-]", "", first).strip().lower()
+            known = {(getattr(m, "display_name", "") or "").lower() for m in (getattr(guild, "members", None) or [])}
+            known |= {(t.get("content") or "").split(":", 1)[0].strip().lower()
+                      for t in turns if t.get("role") == "user" and ":" in (t.get("content") or "")}
+            known.discard("")
+            if name in known:
+                return first
+        return None
+
     async def resolve_replies(self, msg: discord.Message) -> str:
         """Fetch the content of the message being replied to."""
         if not msg.reference or not msg.reference.message_id:
@@ -169,43 +212,7 @@ class ContextEnricher:
                 
                 # If target message was sent by the bot, determine whom the bot was addressing
                 if target_msg.author.id == self.bot.user.id:
-                    recipient_name = None
-                    
-                    # 1. Try to find the message in channel_memory to identify who the bot was responding to
-                    try:
-                        from utils.infrastructure.system.bot_state import bot_state
-                        channel_mem = list(bot_state.channel_memory.get(msg.channel.id, []))
-                        for idx, turn in enumerate(channel_mem):
-                            if (turn.get('role') == 'assistant' and 
-                                turn.get('content', '').strip().lower() == target_msg.content.strip().lower()):
-                                if idx > 0 and channel_mem[idx-1].get('role') == 'user':
-                                    prev_content = channel_mem[idx-1].get('content', '')
-                                    if ':' in prev_content:
-                                        recipient_name = prev_content.split(':', 1)[0].strip()
-                                        break
-                    except Exception as e:
-                        log_warning(f"Error lookup in channel_memory for reply recipient: {e}")
-                        
-                    # 2. Fallback: Parse recipient from start of the bot message content (e.g., "username, ")
-                    if not recipient_name:
-                        content_str = target_msg.content.strip()
-                        if ',' in content_str:
-                            first_part = content_str.split(',', 1)[0].strip()
-                            words = first_part.split()
-                            if 0 < len(words) <= 3:
-                                clean_part = re.sub(r'[^\w\s\-\[\]]', '', first_part).strip()
-                                if clean_part and not any(w in clean_part.lower() for w in ['actually', 'i', 'we', 'the', 'she', 'he', 'they', 'you', 'it']):
-                                    recipient_name = clean_part
-
-                    # 3. Fallback 2: Query channel history for the preceding non-bot message
-                    if not recipient_name:
-                        try:
-                            async for prev_msg in msg.channel.history(limit=5, before=target_msg):
-                                if prev_msg.author.id != self.bot.user.id and not prev_msg.author.bot:
-                                    recipient_name = prev_msg.author.display_name
-                                    break
-                        except Exception as e:
-                            log_debug(f"Failed to query channel history for preceding message: {e}")
+                    recipient_name = self._bot_message_recipient(msg.channel, target_msg.content, msg.guild)
 
                     if recipient_name:
                         author = f"{author} (replying to {recipient_name})"
