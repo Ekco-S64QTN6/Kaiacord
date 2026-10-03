@@ -89,6 +89,13 @@ def level(frame: bytes) -> float:
     return float(np.frombuffer(frame, dtype=np.int16).astype(np.float32).mean())
 
 
+def wait_until(cond, seconds=5.0):
+    deadline = time.time() + seconds
+    while not cond() and time.time() < deadline:
+        time.sleep(0.01)
+    return cond()
+
+
 def wait_for(deck, frames):
     deadline = time.time() + 2
     while time.time() < deadline and len(deck._frames) < frames and not deck._eof:
@@ -99,7 +106,7 @@ STEADY = Grid(bpm=120.0, downbeat=0.0, contrast=8.0)          # a bar every 2 s
 LOOSE = Grid(bpm=120.0, downbeat=0.0, contrast=2.7)            # rock, breaks: Big Country measured 2.7
 
 
-def nxt(grid=STEADY, seconds=20.0, name="two"):
+def nxt(grid=STEADY, seconds=300.0, name="two"):
     return Next(rec(name, 120, "8A"), seconds, 0.0, grid)
 
 
@@ -415,3 +422,65 @@ def test_a_skip_calls_off_a_blend_planned_for_the_end_of_the_record():
     while (src.plan is None or src.plan.mode != "skip") and time.time() < deadline:
         time.sleep(0.01)
     assert src.plan.mode == "skip" and src.plan.drop < 12.0
+
+
+def test_an_epic_blend_rides_both_records_up_together_for_a_minute():
+    """EPIC is the DJ's long blend: a short way in, a minute and more with
+    both records up and locked (bass swapped halfway through it), a short way out."""
+    g125 = Grid(bpm=125.0, downbeat=0.0, contrast=8.0)
+    plan = plan_transition(3.0, 1.0, g125, 600.0, nxt(g125, seconds=600.0), "skip", 256, lead=2.0)
+    assert plan.kind == "blend" and plan.length == pytest.approx(256 * 0.48)
+    t = np.arange(plan.drop, plan.done, 0.01)
+    ol, om, oh, il, im, ih = gains(plan, t)
+    both = (om >= R.MID_SHARE - 1e-3) & (im >= R.MID_SHARE - 1e-3) & (oh > 0.99) & (ih > 0.99)
+    assert both.sum() * 0.01 >= 60.0
+    assert np.allclose(ol + il, 1.0)                     # one bassline throughout
+
+
+def test_a_cue_moved_on_her_own_pick_is_where_it_comes_in():
+    src, _ = _source()
+    assert wait_until(lambda: src._queued is not None)
+    assert not src.by_hand and src.set_cue(6.1) and src.cue == pytest.approx(6.0)
+    src.skip()
+    assert wait_until(lambda: src.plan is not None)
+    assert src.plan.offset == pytest.approx(6.0 - R.PREROLL_S)          # from the cue, not the top
+
+
+def test_kaia_trades_the_mids_in_a_long_ride_and_kills_the_bass_into_the_swap():
+    g125 = Grid(bpm=125.0, downbeat=0.0, contrast=8.0)
+    plan = plan_transition(3.0, 1.0, g125, 600.0, nxt(g125, seconds=600.0), "skip", 256, lead=2.0)
+    r, b, swap = R.ramp(plan), plan.beat, plan.drop + plan.length / 2
+    at = lambda x: [float(f[0]) for f in R.kaia_hands(plan, np.array([x]), energy=0.8)[0]]
+    first, second = at(plan.drop + 2 * r + 4 * b), at(plan.drop + 2 * r + 36 * b)   # two trade phrases
+    assert first[1] > first[4] and second[4] > second[1]                    # the lead changes hands
+    assert first[0] < 1 and first[0] == pytest.approx(R.STAGE)              # both a touch down
+    kill = at(swap - b / 2)
+    assert kill[0] == 0 and kill[3] == 0                                    # no bass for the beat before
+    assert at(swap + 2 * b)[3] == pytest.approx(R.STAGE)                    # the new bassline lands
+    calm = [float(f[0]) for f in R.kaia_hands(plan, np.array([swap - b / 2]), energy=0.2)[0]]
+    assert calm[0] > 0                                                      # low energy: no kill
+
+
+def test_alone_she_gestures_into_a_phrase_and_lets_go_on_the_one():
+    g = Grid(bpm=120.0, downbeat=0.0, contrast=8.0)          # bar 2 s, phrase 32 s
+    seen = set()
+    for seed in range(12):
+        f_in, label = R.kaia_hands(None, np.array([31.9]), 0.9, g, 1.0, seed)    # last of a phrase
+        f_on, _ = R.kaia_hands(None, np.array([32.05]), 0.9, g, 1.0, seed)       # the one
+        moved = [abs(float(x[0]) - 1) > 0.01 for x in f_in[:3]]
+        assert sum(moved) == 1 and label
+        seen.add(moved.index(True))
+        assert abs(float(f_on[0][0]) - 1) < 1e-6 and abs(float(f_on[1][0]) - 1) < 1e-6   # bass, mids back
+    assert seen == {0, 1, 2}                                 # all three gestures turn up
+    quiet = R.kaia_hands(None, np.array([31.9]), 0.1, g, 1.0, 3)[0]
+    assert all(abs(float(x[0]) - 1) < 1e-9 for x in quiet)   # no energy, no hands
+    mid_phrase = R.kaia_hands(None, np.array([10.0]), 0.9, g, 1.0, 3)
+    assert all(abs(float(x[0]) - 1) < 1e-9 for x in mid_phrase[0]) and mid_phrase[1] == ""
+
+
+def test_a_blend_leaves_the_incoming_room_to_play_on_its_own():
+    g125 = Grid(bpm=125.0, downbeat=0.0, contrast=8.0)
+    fits = plan_transition(3.0, 1.0, g125, 600.0, nxt(g125, seconds=160.0), "skip", 256, lead=2.0)
+    assert fits.kind == "blend"                          # 123 s of blend, 37 s left over
+    short = plan_transition(3.0, 1.0, g125, 600.0, nxt(g125, seconds=140.0), "skip", 256, lead=2.0)
+    assert short.kind != "blend" and short.fallback == "room"   # the planner halves it

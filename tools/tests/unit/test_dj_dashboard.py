@@ -31,7 +31,7 @@ def session(monkeypatch):
     monkeypatch.setattr(D, "_mood", lambda: {"arousal": 0.5})
     first = R.Deck(rec("one"), 1.0, 300.0, tone(1000, 20.0))      # long enough not to plan its end yet
     first.grid = Grid(120.0, 0.0, 8.0)
-    queue = [R.Next(rec("two"), 20.0, 0.0, Grid(120.0, 0.0, 8.0))]
+    queue = [R.Next(rec("two"), 300.0, 0.0, Grid(120.0, 0.0, 8.0))]
     vc = types.SimpleNamespace(guild=types.SimpleNamespace(id=7), channel=types.SimpleNamespace(name="General", members=[]))
     s = R.RecordsSession(vc, [], "Ekco")
     s.source = R.CrossfadeSource(first, lambda d: queue.pop() if queue else None, stream_factory=tone(-1000, 20.0),
@@ -150,9 +150,9 @@ def test_a_record_asked_for_at_the_booth_comes_next(session, monkeypatch):
 
 def test_the_blend_length_is_chosen_at_the_booth_and_shortened_when_there_is_no_room(session):
     src = session.source
-    assert src.set_mix_beats(128) and src._mix_beats == 128
+    assert src.set_mix_beats(256) and src._mix_beats == 256
     assert not src.set_mix_beats(48)                         # only the booth's three lengths
-    # 50 s of record has no room for 128 beats (64 s): the planner halves it rather than cutting.
+    # 50 s of record has no room for 256 beats (128 s) or 128: the planner halves it rather than cutting.
     src.current.total_frames = 50 * R.FRAMES_PER_S
     src.skip()
     deadline = time.time() + 5

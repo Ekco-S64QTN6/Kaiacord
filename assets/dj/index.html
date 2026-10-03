@@ -58,12 +58,12 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .deck { --accent: var(--dc); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; gap: clamp(4px, 0.7vh, 8px); padding: 10px 14px 10px; min-height: 0; overflow: hidden; }
 .deck[data-slot="1"] { --dc: var(--d1); --dcg: rgba(0,240,255,.55); }
 .deck[data-slot="2"] { --dc: var(--d2); --dcg: rgba(255,47,209,.55); }
-.dtop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dtop { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
 .dnum { font-family: var(--disp); font-weight: 900; font-size: 26px; color: var(--dc); text-shadow: 0 0 12px var(--dcg); width: 34px; }
 .badge { font-size: 10px; letter-spacing: 1.5px; padding: 3px 7px; border-radius: 2px; border: 1px solid var(--faint); color: var(--dim); font-weight: 600; }
 .badge.on { color: #021014; background: var(--bc, var(--dc)); border-color: var(--bc, var(--dc)); box-shadow: 0 0 10px var(--bc, var(--dc)); }
 .badge.blink { animation: blink .8s infinite; }
-.state { margin-left: auto; font-family: var(--disp); font-size: 12px; letter-spacing: 3px; }
+.state { margin-left: auto; font-family: var(--disp); font-size: 12px; letter-spacing: 3px; white-space: nowrap; flex-shrink: 0; }
 .dtitle { min-width: 0; }
 .dtitle .t { font-size: 19px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 0 10px rgba(255,255,255,.15); }
 .dtitle .a { font-size: 13px; color: var(--dc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
@@ -164,6 +164,7 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .blendsel span:hover { border-color: var(--cyan); color: var(--text); }
 .blendsel span.on { color: #031; background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,240,255,.5); }
 .blendsel em { font-style: normal; margin-left: auto; color: var(--dim); }
+#rides.on { color: #031; background: var(--pink); border-color: var(--pink); box-shadow: 0 0 8px rgba(255,47,209,.5); }
 .knob.touched { color: var(--yellow); }
 .btn.play { cursor: pointer; }
 .btn.paused { color: #221; background: var(--red); border-color: var(--red); box-shadow: 0 0 14px rgba(255,56,96,.7); animation: blink 1s infinite; }
@@ -255,7 +256,7 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
       <div><canvas id="xf"></canvas><div class="xlabels"><span>CH 1</span><span>CROSSFADER</span><span>CH 2</span></div></div>
       <div class="fx">
         <div class="blendsel" id="blendsel" title="how long kaia blends one record into the next">BLEND
-          <span data-beats="32">SHORT</span><span data-beats="64">LONG</span><span data-beats="128">EPIC</span><em id="blendsec"></em></div>
+          <span data-beats="32">SHORT</span><span data-beats="64">LONG</span><span data-beats="256" title="two minutes at 125 bpm, a full minute of it both records up">EPIC</span><em id="blendsec"></em><span id="rides" title="kaia riding the EQs and gains through the set — phrase by phrase">HANDS</span></div>
         <div class="row"><div class="kind" id="fxkind">—</div><div class="count" id="fxcount"></div></div>
         <div class="why" id="fxwhy">no transition planned</div>
         <canvas id="prog"></canvas>
@@ -777,6 +778,8 @@ $("blendsel").addEventListener("click", (e) => {
   local["0:blend"] = { v: +b.dataset.beats, until: performance.now() + 1500 };
   toast(`next blend: ${b.textContent.toLowerCase()} — ${b.dataset.beats} beats`);
 });
+$("rides").onclick = () => { post("/rides"); local["0:rides"] = { v: !(S && S.rides), until: performance.now() + 1500 };
+  toast(S && S.rides ? "kaia's hands off the mixer — just the blends" : "kaia's riding the mixer again"); };
 $("auto").onclick = () => { for (const k in local) delete local[k]; post("/reset"); toast("the mixer is kaia's again"); };
 let toastT = 0;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), Math.max(2200, msg.length * 45)); }
@@ -917,21 +920,23 @@ function updateMixer() {
   if (mix) {
     const t = mixNow(), bar = 4 * mix.beat;
     kind.textContent = mix.kind.toUpperCase(); kind.className = "kind " + mix.kind;
-    const q = mix.length / 4, swap = mix.drop + 2 * q, outAt = mix.drop + 3 * q;
+    const r = mix.ramp || mix.length / 4, swap = mix.drop + mix.length / 2;
+    const rideAt = mix.drop + 2 * r, outAt = mix.done - 2 * r, highsOut = mix.done - r;
     const bars = (x) => `${((x - t) / bar).toFixed(1)} BARS`;
     if (mix.kind === "out") count.textContent = t < mix.drop ? `FADE-OUT IN ${bars(mix.drop)}` : `FINISHING · ${bars(mix.done)}`;
     else if (t < mix.drop) count.textContent = `${mix.kind === "blend" ? "DROP" : mix.kind === "fade" ? "FADE" : "CUT"} IN ${bars(mix.drop)}`;
     else if (mix.kind === "fade" && t < mix.done) count.textContent = `CROSSFADING · ${bars(mix.done)}`;
-    else if (mix.kind === "blend" && t < swap) count.textContent = `BASS SWAP IN ${bars(swap)}`;
-    else if (mix.kind === "blend" && t < outAt) count.textContent = `BOTH PLAYING · OUT IN ${bars(outAt)}`;
-    else if (mix.kind === "blend" && t < mix.done) count.textContent = `FADING OUT · ${bars(mix.done)}`;
+    else if (mix.kind === "blend" && t < rideAt) count.textContent = `COMING IN · RIDE IN ${bars(rideAt)}`;
+    else if (mix.kind === "blend" && t < swap) count.textContent = `RIDING · BASS SWAP IN ${bars(swap)}`;
+    else if (mix.kind === "blend" && t < outAt) count.textContent = `RIDING · OUT IN ${bars(outAt)}`;
+    else if (mix.kind === "blend" && t < mix.done) count.textContent = `GOING OUT · ${bars(mix.done)}`;
     else count.textContent = "HANDING OVER";
     why.textContent = mix.kind === "blend"
       ? `${mix.mode === "skip" ? "skip" : "end of record"} · ${Math.round(mix.length / mix.beat)} beats · stretch ×${mix.ratio.toFixed(4)} · ch ${mix.out_slot} → ch ${mix.in_slot}`
       : `${mix.mode === "skip" ? "skip" : "end of record"} · ${Math.round(mix.length / mix.beat)} beats · ${mix.why || "clean cut on the bar"}`;
     const t0 = mix.start, t3 = mix.done, span = Math.max(0.01, t3 - t0), X = (v) => (v - t0) / span * PW;
     const segs = mix.kind === "blend"
-      ? [[t0, mix.drop, COL.faint, ""], [mix.drop, mix.drop + q, COL.cyan, "IN"], [mix.drop + q, swap, COL.green, "TOGETHER"],
+      ? [[t0, mix.drop, COL.faint, ""], [mix.drop, rideAt, COL.cyan, "IN"], [rideAt, swap, COL.green, "RIDE"],
          [swap, outAt, COL.yellow, "BASS SWAPPED"], [outAt, mix.done, COL.pink, "OUT"]]
       : mix.kind === "fade"
       ? [[t0, mix.drop, COL.faint, ""], [mix.drop, mix.drop + mix.length / 2, COL.purple, "CROSSFADE"], [mix.drop + mix.length / 2, mix.done, COL.pink, "BASS · OUT"]]
@@ -958,6 +963,7 @@ function updateMixer() {
   }
   const lb = local["0:blend"], beats = lb && performance.now() < lb.until ? lb.v : S.mix_beats;
   document.querySelectorAll("#blendsel [data-beats]").forEach((x) => x.classList.toggle("on", +x.dataset.beats === beats));
+  const lr = local["0:rides"]; $("rides").classList.toggle("on", lr && performance.now() < lr.until ? lr.v : !!S.rides);
   const md = masterDeck(); $("blendsec").textContent = md && md.tempo ? `≈ ${Math.round(beats * 60 / md.tempo)} s` : "";
   // What NEXT does now, said on the button.
   const fd = S.decks && S.decks[S.free];
@@ -1006,6 +1012,7 @@ function updateBottom() {
   const last = hist[hist.length - 1];
   $("say").textContent = mix ? (mix.kind === "blend" ? `bringing ${S.decks[mix.in_slot] ? (S.decks[mix.in_slot].title || "the next one") : "the next one"} in on the bar, bass swap halfway.` : mix.kind === "fade" ? `fading the next one in over ${Math.round(mix.length / mix.beat / 4)} bars — ${mix.why || "the beats won't lock"}.` : `cutting to the next one on the bar — ${mix.why || "the beats won't sit together"}.`)
     : last ? `last move: ${last.kind} into ${last.to}${last.why ? " (" + last.why + ")" : ""}.` : `opened the set for ${S.by || "the room"}.`;
+  if (S.gesture) $("say").textContent = S.gesture + (mix ? " · " + $("say").textContent : "");
   $("earlist").textContent = (S.listeners || []).length ? "in the room: " + S.listeners.join(", ") : "nobody in the room";
 }
 // ── the crate ────────────────────────────────────────────────────

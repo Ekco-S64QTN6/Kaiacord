@@ -559,10 +559,13 @@ a mix that sounded wrong:
   differ, and the guess put the incoming bar on beat 2, 3 or 4 — kicks on kicks, claps on the wrong
   beats. Bar one is a record's first strong beat; `grid_at` counts beats from it and keeps the bar
   only when the count comes out whole (`bar_known`).
-- **A blend takes its time and is staged per band** (`gains`): 64 beats by default, in quarters. The
-  incoming comes in from the top down — highs over Q1, mids over Q2 while both records' mids are
-  thinned (`MID_SHARE`), bass swapped on the halfway bar — and the outgoing leaves from the bottom up:
-  bass at the swap, mids over Q3, highs over Q4. It starts on an 8-bar phrase at the end of a record (4
+- **A blend takes its time and is staged per band** (`gains`): 64 beats by default; the booth offers
+  32 / 64 / 256. The incoming comes in from the top down — highs over one `ramp`, mids over the next
+  while both records' mids are thinned (`MID_SHARE`) — then the *ride*, both up and locked, the bass
+  swapped on the halfway bar; the outgoing leaves bottom-up, mids then highs. A ramp is a quarter of a
+  short blend and an eighth of a long one, so EPIC (256) rides for a minute; the ride is the point of
+  a long blend, not the bridge to the next record. A blend must leave the incoming `IN_LEFT_S` to play
+  alone, and a cue set at the booth is honoured whoever lined the record up. It starts on an 8-bar phrase at the end of a record (4
   for a skip), counted from bar one (`Grid.bar0`), and is fitted before the outgoing's last strong
   beat (`last_strong_beat`), not the end of the file: blending into a fade swaps the bass to nothing.
   Two full records sum through a soft limiter.
@@ -573,6 +576,10 @@ a mix that sounded wrong:
   first beat, not across its beatless intro, which had read steady records as loose. Every transition
   and what it was decided from is appended to `memory/records/transitions.jsonl`; read that, not the
   log line, when a mix sounded wrong.
+- **Kaia rides the mixer** (`kaia_hands`, `music.records_kaia_hands`, the booth's HANDS): multipliers on
+  the automix, locked to bars and scaled by her energy — both records -1.5 dB in a ride (gain staging),
+  the mids traded every 8 bars, no bass for the beat before the swap; alone, one EQ gesture into the end
+  of a 16-bar phrase, released on the one. Which gesture is a hash of record and phrase, never random.
 - **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
   mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is a cut on the
   bar. A kick correction over 20 ms is not applied — the counted grids land within a few ms, and

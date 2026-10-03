@@ -124,6 +124,8 @@ FADE_BARS = 8
 #: a real mix point agreed to 1 ms); larger corrections came from sparse
 #: intros and basslines the correlation latched onto.
 MAX_FINE_S = 0.020
+#: A blend leaves the incoming record at least this long to play on its own.
+IN_LEFT_S = 30.0
 #: How much of the incoming record before its first beat is decoded in a blend.
 PREROLL_S = 1.0
 #: A gap between frame requests longer than this is counted as late.
@@ -333,7 +335,9 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
                     break
         if drop is None:
             drop = out_grid.next_bar(earliest, out_ratio)
-        if drop + length <= out_end + 0.01:
+        # Room on both sides: the outgoing before its music ends, and the
+        # incoming with IN_LEFT_S still to play once it is the record on air.
+        if drop + length <= out_end + 0.01 and length <= (nxt.seconds - offset) / ratio - IN_LEFT_S:
             return Plan("blend", drop - lead_in, drop, length, beat, ratio, nxt, offset)
     # Not beat-matched: a fade on the outgoing bar, the incoming from its
     # first sound, stretched to the tempo where the tempos are close enough.
@@ -378,13 +382,14 @@ MID_SHARE = 0.55
 def gains(plan: Plan, t: np.ndarray) -> tuple:
     """(outgoing low, mid, high, incoming low, mid, high) gains at times t.
 
-    A blend staged the way DJs ride a long EQ mix, in quarters of its length:
-    the incoming record comes in from the top down — its highs (hats, air)
-    over the first quarter, its mids over the second while the outgoing's
-    mids are thinned to make room — and the basslines swap on the bar at the
-    halfway point, over one beat (never two basslines, never none). The
-    outgoing leaves from the bottom up: bass at the swap, its remaining mids
-    over the third quarter, its highs over the last."""
+    A blend staged the way DJs ride a long EQ mix: the incoming record comes
+    in from the top down — its highs (hats, air) over the first ramp, its mids
+    over the second while the outgoing's are thinned to make room — then the
+    ride, both records up and locked, with the basslines swapped on the bar
+    halfway, over one beat (never two basslines, never none). The outgoing
+    leaves from the bottom up: bass at the swap, its mids over the second-last
+    ramp, its highs over the last. `ramp` is a quarter of a short blend, so a
+    32- or 64-beat blend is in quarters; a long one rides for half its length."""
     if plan.kind == "cut":
         out = np.clip((plan.drop - t) / plan.length, 0.0, 1.0)
         inc = (t >= plan.drop).astype(np.float32)
@@ -401,17 +406,114 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
         out, inc = np.cos(x * np.pi / 2), np.sin(x * np.pi / 2)        # equal power
         bass = np.clip((t - (plan.drop + plan.length / 2)) / plan.beat, 0.0, 1.0)
         return 1.0 - bass, out, out, bass, inc, inc
-    q = plan.length / 4
-    d = plan.drop
-    swap = d + 2 * q
+    L, d = plan.length, plan.drop
+    r = ramp(plan)
+    swap = d + L / 2
     bass = np.clip((t - swap) / plan.beat, 0.0, 1.0)
-    in_high = _ease((t - d) / q)
-    # Incoming mids: up to MID_SHARE over Q2, the rest of the way at the swap.
-    in_mid = MID_SHARE * _ease((t - (d + q)) / q) + (1 - MID_SHARE) * bass
-    # Outgoing mids: thinned to MID_SHARE over Q2, out over Q3.
-    out_mid = (1 - (1 - MID_SHARE) * _ease((t - (d + q)) / q)) * (1 - _ease((t - swap) / q))
-    out_high = 1.0 - _ease((t - (d + 3 * q)) / q)
+    in_high = _ease((t - d) / r)
+    # Incoming mids: up to MID_SHARE over the second ramp, the rest at the swap.
+    in_mid = MID_SHARE * _ease((t - (d + r)) / r) + (1 - MID_SHARE) * bass
+    # Outgoing mids: thinned to MID_SHARE alongside, out over the second-last ramp.
+    out_mid = (1 - (1 - MID_SHARE) * _ease((t - (d + r)) / r)) * (1 - _ease((t - (d + L - 2 * r)) / r))
+    out_high = 1.0 - _ease((t - (d + L - r)) / r)
     return 1.0 - bass, out_mid, out_high, bass, in_mid, in_high
+
+
+def ramp(plan: Plan) -> float:
+    """How long each stage of a blend's way in and way out takes: a quarter
+    of a short blend, an eighth of a long one (never under four bars), so a
+    long blend is mostly the ride — both records up, locked, the bass swapped
+    halfway through it."""
+    return min(plan.length / 4, max(plan.length / 8, 16 * plan.beat))
+
+
+# ── Kaia's hands ─────────────────────────────────────────────────────
+#
+# On top of the automix she rides the mixer the way a DJ does, every move
+# locked to the bars: while two records ride together she pulls both down a
+# touch so they sit under the limiter, trades the mids between them phrase by
+# phrase, and kills both basslines for the beat before the swap so the new
+# one lands; with one record playing she reaches for the EQ into the end of a
+# phrase — bass held back, air lifted, mids scooped — and lets go on the one.
+# How deep and how often follows her energy. No model, no randomness: which
+# gesture comes is a hash of the record and the phrase.
+
+#: Both records while they ride together: about -1.5 dB each.
+STAGE = 0.84
+#: Bars in the phrases she gestures into, and trades mids over in a ride.
+PHRASE_BARS = 16
+TRADE_BARS = 8
+
+
+def kaia_hands(plan: Optional[Plan], t: np.ndarray, energy: float = 0.5, grid=None,
+               ratio: float = 1.0, seed: int = 0) -> tuple:
+    """Multipliers on the automix — (outgoing low, mid, high, incoming low,
+    mid, high), per sample — and a few words for what she is doing."""
+    one = np.ones_like(t, dtype=np.float32)
+    f = [one.copy() for _ in range(6)]
+    e = min(1.0, max(0.0, float(energy)))
+    label = ""
+    if plan is not None and plan.kind == "blend":
+        L, d, b = plan.length, plan.drop, plan.beat
+        r = ramp(plan)
+        swap = d + L / 2
+        lo_w, hi_w = d + 2 * r, d + L - 2 * r
+        now = float(t[-1])
+        if hi_w - lo_w >= 16 * b:
+            inside = _ease((t - lo_w) / b) * (1 - _ease((t - (hi_w - b)) / b))
+            stage = 1 - (1 - STAGE) * inside
+            for i in range(6):
+                f[i] = f[i] * stage
+            # Trading mids: one record leads each TRADE_BARS, the other steps back.
+            depth = 0.12 + 0.18 * e
+            phrase = TRADE_BARS * 4 * b
+            k = np.floor((t - lo_w) / phrase)
+            lead = (k % 2 == 1).astype(np.float32)                   # 1: the incoming leads
+            prev = np.where(k >= 1, 1 - lead, lead)
+            lead = prev + (lead - prev) * _ease((t - (lo_w + k * phrase)) / b)
+            swing = depth * (2 * lead - 1) * inside
+            f[1] = f[1] * (1 - swing)
+            f[4] = f[4] * (1 + swing)
+            if lo_w <= now < hi_w:
+                label = f"riding both, trading the mids — the {'new' if lead[-1] > 0.5 else 'old'} one leads"
+        if e >= 0.45:
+            # The beat before the swap with no bass at all, then the new bassline lands.
+            f[0] = f[0] * (1 - np.clip((t - (swap - b)) / (b / 8), 0.0, 1.0))
+            f[3] = f[3] * (1 - np.clip((t - (swap - b)) / (b / 8), 0.0, 1.0) * (t < swap))
+            # The old record's air pulled back over the bar into it.
+            bump = _ease((t - (swap - 4 * b)) / (3 * b)) * (1 - _ease((t - swap) / b))
+            f[2] = f[2] * (1 - 0.35 * e * bump)
+            if swap - 4 * b <= now < swap:
+                label = "pulling the old one's air back — bass out for the beat before the swap"
+    elif plan is None and grid is not None and getattr(grid, "bar_known", False) and e > 0.15:
+        bar = 4 * grid.beat / ratio
+        bi = (t - grid.downbeat / ratio) / bar + grid.bar0
+        ph = int(np.floor(float(bi[-1]) / PHRASE_BARS))
+        every = 1 if e > 0.7 else 2 if e > 0.4 else 4
+        depth = 0.6 + 0.4 * e
+
+        def gesture(n):
+            import zlib
+            if n < 1 or n % every:
+                return None
+            return ("tension", "air", "scoop")[zlib.crc32(f"{seed}:{n}".encode()) % 3]
+
+        pos = bi - ph * PHRASE_BARS                                 # bars into this phrase
+        g = gesture(ph + 1)                                         # the one being built towards
+        if g == "tension":
+            f[0] = 1 - 0.4 * depth * _ease(pos - 14)
+            label = "holding the bass back into the phrase"
+        elif g == "air":
+            f[2] = 1 + 0.18 * depth * _ease((pos - 12) / 4)
+            label = "lifting the air into the phrase"
+        elif g == "scoop":
+            f[1] = 1 - 0.22 * depth * _ease((pos - 12) / 2)
+            label = "scooping the mids into the phrase"
+        if gesture(ph) == "air":                                    # let the last lift down gently
+            f[2] = f[2] * (1 + 0.18 * depth * (1 - _ease(pos / 2)))
+        if float(pos[-1]) < 12 and not (gesture(ph) == "air" and float(pos[-1]) < 2):
+            label = ""
+    return tuple(f), label
 
 
 IDENTITY = (1.0, 1.0, 1.0, 1.0)
@@ -561,6 +663,11 @@ class CrossfadeSource(_AudioSource):
         self._hand_quiet = 0
         self._hand_starting = False
         self._gen = 0                             # bumped by every hand on the free deck
+        # Kaia's hands on the mixer (`kaia_hands`), how much energy she has
+        # for them (0–1, from her mood), and what she is doing right now.
+        self.rides = True
+        self.energy = 0.5
+        self.gesture = ""
         self._lock = threading.RLock()
         self._prefetch()
 
@@ -675,15 +782,18 @@ class CrossfadeSource(_AudioSource):
             playing = self.hand is not None
             if playing:
                 self._drop_hand(keep_cue=True)
-            elif self.plan is not None and not self.blend_started():
-                self._call_off_plan()            # the plan was made from the old cue
+            elif not self.blend_started():
+                # A plan made, or being made, from the old cue is called off;
+                # the next one is made from this one.
+                self._call_off_plan()
         if playing:
             self.play_hand()
         return True
 
     def _cued(self, nxt: Next) -> Next:
-        """`nxt` as it comes in from the cue point: bar one at the cue."""
-        if self.cue is None or not self.by_hand:
+        """`nxt` as it comes in from the cue point: bar one at the cue. A cue
+        set at the booth is kept whoever lined the record up."""
+        if self.cue is None:
             return nxt
         from utils.audio import beatgrid
         g = self._grid_at(nxt.record, max(0.0, self.cue - 4.0), 30.0) or nxt.grid
@@ -847,8 +957,9 @@ class CrossfadeSource(_AudioSource):
                 log_debug(f"[records] on_change: {e}")
         self._prefetch()
 
-    #: The booth's blend lengths, in beats: about 15 s, 30 s and a minute at 125 bpm.
-    BLEND_CHOICES = (32, 64, 128)
+    #: The booth's blend lengths, in beats — at 125 bpm about 15 s, 30 s, and
+    #: two minutes, a full minute of it both records up together.
+    BLEND_CHOICES = (32, 64, 256)
 
     def set_mix_beats(self, beats: int) -> bool:
         """The length of the next blend (one already planned keeps its own)."""
@@ -1052,18 +1163,28 @@ class CrossfadeSource(_AudioSource):
                 self.controls.set(self.incoming.slot, "fader", 1.0)    # loaded with its fader down: she brings it in
             inc = self.incoming.frame() or SILENCE
         hands = self.controls
-        if plan is None and hands.flat():
+        solo = SOLO
+        if plan is None and self.rides and out is not None and cur.grid is not None:
+            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
+            fac, self.gesture = kaia_hands(None, times, self.energy, cur.grid, cur.ratio,
+                                           seed=hash(cur.record.path) & 0xFFFF)
+            if any(float(np.abs(x - 1).max()) > 1e-4 for x in fac[:3]):
+                solo = tuple(fac[:3]) + (0.0, 0.0, 0.0)
+        if plan is None and hands.flat() and solo is SOLO:
             frame = out
             self.applied = SOLO
             self.levels["b"] = -90.0
         elif plan is None:
-            frame = mix_frames(cur.split(out) if out is not None else None, None, SOLO,
+            frame = mix_frames(cur.split(out) if out is not None else None, None, solo,
                                hands.channel(cur.slot), IDENTITY, hands.master)
-            self.applied = SOLO
+            self.applied = tuple(round(float(np.asarray(x).reshape(-1)[-1]), 3) for x in solo)
             self.levels["b"] = -90.0
         else:
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             g = gains(plan, times)
+            if self.rides:
+                fac, self.gesture = kaia_hands(plan, times, self.energy)
+                g = tuple(a * b for a, b in zip(g, fac))
             out_parts = cur.split(out) if out is not None else None
             in_parts = self.incoming.split(inc) if inc is not None else None
             frame = mix_frames(out_parts, in_parts, g, hands.channel(cur.slot),
@@ -1116,6 +1237,7 @@ class CrossfadeSource(_AudioSource):
         old, self.current, self.incoming = self.current, self.incoming, None
         self.plan, self._start_frame = None, None
         self.cue, self.by_hand = None, False
+        self.gesture = ""
         if old:
             old.close()
         if self.current and self._on_change:
@@ -1276,10 +1398,23 @@ class RecordsSession:
     def _humans(self) -> list[str]:
         return [m.display_name for m in getattr(self.vc.channel, "members", []) if not m.bot]
 
+    def _feel(self) -> None:
+        """Her energy for the mixer, from her mood (arousal and energy)."""
+        try:
+            from utils.core.kaia_art_intent import mood
+            m = mood() or {}
+            vals = [float(m[k]) for k in ("arousal", "energy") if isinstance(m.get(k), (int, float))]
+            if vals and self.source is not None:
+                self.source.energy = min(1.0, max(0.0, sum(vals) / len(vals)))
+        except Exception as e:
+            log_debug(f"[records] mood not read: {e}")
+
     async def _watch(self) -> None:
         alone_since = None
+        await asyncio.to_thread(self._feel)
         while not self._closing:
             await asyncio.sleep(15)
+            await asyncio.to_thread(self._feel)
             people = self._humans()
             self.listeners_seen.update(people)
             if people:
@@ -1402,6 +1537,11 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
     session._changed(first)
     session.source = CrossfadeSource(deck, session._choose, on_change=session._changed,
                                      mix_beats=int(mix_beats))
+    try:
+        from utils.infrastructure.system.yaml_config import config
+        session.source.rides = bool(config.get("music.records_kaia_hands", True))
+    except Exception as e:
+        log_debug(f"[records] records_kaia_hands not read: {e}")
     settle("a records set")
     vc.play(session.source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None)
     _sessions[guild.id] = session

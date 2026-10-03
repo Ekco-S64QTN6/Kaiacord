@@ -748,9 +748,14 @@ music:
   #   library_catalog: "~/Music/music/dj_catalog.json"
   library_catalog: ""
   # Beats from the incoming record's first downbeat to the outgoing record gone;
-  # the bass swaps halfway. Where the two have no common tempo, either beat is
-  # not steady, or a bar cannot be counted, the transition is a cut on the bar.
+  # the bass swaps halfway. The booth offers 32, 64 and 256 (EPIC: a minute of
+  # both records riding together). Where the beats cannot be laid over each
+  # other, the transition is an eight-bar fade instead.
   records_mix_beats: 64
+  # Kaia rides the mixer through a set — gain staging, trading mids and a bass
+  # kill in long blends, EQ gestures into phrases alone — phrase-locked, deeper
+  # with her energy. The booth's HANDS button toggles it for the set.
+  records_kaia_hands: true
   # The DJ booth: a window showing both decks and the mixer while records
   # play, served on 127.0.0.1 at this port (0 picks a free one) and opened
   # when a set starts. `!music booth` reopens it.

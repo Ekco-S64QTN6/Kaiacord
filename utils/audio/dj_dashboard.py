@@ -156,6 +156,7 @@ def snapshot(session) -> dict:
     """The booth as it stands: both decks, the mixer, the set."""
     if session is None or session.source is None:
         return {"live": False, "t": time.time()}
+    from utils.audio.records import ramp
     src = session.source
     cur, inc, plan, queued, hand = src.current, src.incoming, src.plan, src._queued, src.hand
     decks = {}
@@ -193,6 +194,7 @@ def snapshot(session) -> dict:
         now = cur.at()
         mix = {"kind": plan.kind, "mode": plan.mode, "why": plan.why, "out_slot": out_slot, "in_slot": in_slot,
                "started": src.blend_started(),
+               "ramp": round(ramp(plan), 3) if plan.kind == "blend" else None,
                "start": round(plan.start, 3), "drop": round(plan.drop, 3), "length": round(plan.length, 3),
                "beat": round(plan.beat, 4), "done": round(plan.done, 3), "now": round(now, 3),
                "ratio": round(plan.ratio, 5), "out_ratio": round(cur.ratio, 5)}
@@ -208,6 +210,7 @@ def snapshot(session) -> dict:
         "on_air": cur.slot if cur else None, "free": free, "loading": getattr(session, "loading", None),
         "last_load": getattr(session, "last_load", None),
         "handover": round(src._hand_quiet / FRAMES_PER_S, 2) if hand is not None else None,
+        "rides": src.rides, "gesture": src.gesture if src.rides else "", "energy": round(src.energy, 2),
     }
 
 
@@ -357,6 +360,11 @@ class _Handler(BaseHTTPRequestHandler):
             slot = body.get("slot")
             ok = src.controls.set(int(slot) if slot not in (None, "") else None, str(body.get("name", "")),
                                   body.get("value"))
+        elif self.path == "/rides":
+            src.rides = not src.rides
+            src.gesture = ""
+            log_info(f"[records] Kaia's hands on the mixer {'on' if src.rides else 'off'} from the booth")
+            ok = True
         elif self.path == "/blend":
             ok = src.set_mix_beats(int(body.get("beats") or 0))
             if ok:
