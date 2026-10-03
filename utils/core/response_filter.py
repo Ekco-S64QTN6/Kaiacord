@@ -212,11 +212,20 @@ _ORPHANED_ARTICLE = re.compile(
 
 _WORDS = re.compile(r"[a-z']+")
 
+# A linking verb left facing a word that cannot begin what it links to:
+# "it's a far more nuanced understanding than i grasped" with the noun phrase
+# cut is "it's than i grasped" — no stranded article, no fused word.
+_STRANDED_COPULA = re.compile(
+    r"\b(?:(?:it|that|there|what|this|he|she|who)['\u2019]s|is|was|are|were|be|been)"
+    r"\s+(?:than|and|or|nor)\b"
+    r"|\b(?:(?:it|that|there|what|this|he|she|who)['\u2019]s|is|was|are|were)\s*[.,;!?]",
+    re.IGNORECASE)
+
 
 def excision_broke_grammar(before: str, after: str) -> bool:
     """True if removing something left the sentence worse than it found it.
 
-    Two shapes, because the orphaned article alone missed half of them:
+    Three shapes, because the orphaned article alone missed half of them:
 
     1. An article stranded by what followed it — `"the is unhelpful"`.
     2. A word that did not exist before. An excision can only ever *remove*
@@ -224,10 +233,13 @@ def excision_broke_grammar(before: str, after: str) -> bool:
        fused its neighbours: `"the core directive: understanding"` came back as
        `"theunderstanding"`, which has no orphaned article to find. Comparing
        token sets states the property instead of enumerating the cases.
+    3. A linking verb stranded by its complement — `"it's than i grasped"`.
     """
     if not after:
         return False
     if _ORPHANED_ARTICLE.search(after) and not _ORPHANED_ARTICLE.search(before or ""):
+        return True
+    if _STRANDED_COPULA.search(after) and not _STRANDED_COPULA.search(before or ""):
         return True
     return bool(set(_WORDS.findall(after.lower()))
                 - set(_WORDS.findall((before or "").lower())))
@@ -1022,6 +1034,9 @@ class BotSpeakFilter:
     # Object pronouns too: "thank you for correcting" stranded "me again, cecily."
     # Only the ones that cannot open a clause; "it" and "her" can.
     _DANGLING_TAIL = re.compile(r"^(?:to|that|about|for|on|in|with|of|me|us|him|them)\b", re.IGNORECASE)
+    _MODIFIER_OPENER = re.compile(
+        r"^(?:particularly|especially|specifically|notably|mainly|primarily|including|"
+        r"such\s+as|namely)\b", re.IGNORECASE)
 
     # A finite verb, which is what separates a clause that can stand alone from
     # a phrase that cannot. Contractions are in it because a first attempt
@@ -1112,6 +1127,12 @@ class BotSpeakFilter:
             candidate = after[1].strip() if len(after) > 1 else ''
             # The connector joined the rescued clause to the offence, which is gone.
             candidate = re.sub(r'^(?:and|but|so|yet)\s+', '', candidate, flags=re.IGNORECASE)
+            # A modifier of the removed clause is not a clause: "…between
+            # cybersecurity and defi, particularly with rwas like centrifuge"
+            # shipped as "particularly with rwas like centrifuge." ("rwas"
+            # passed for a verb).
+            if cls._MODIFIER_OPENER.match(candidate):
+                candidate = ''
             tail = candidate if cls._FINITE_VERB.search(candidate) else ''
         elif not head.strip() and stripped_tail:
             # "that's a great point, and the chain is weak" — the praised noun is

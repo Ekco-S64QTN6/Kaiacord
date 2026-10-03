@@ -684,3 +684,23 @@ def test_a_closing_line_repeating_her_last_few_is_dropped():
     fresh = "it's a good likeness, the colours especially. the tank needs a water change soon."
     assert P.strip_repeated_closer(fresh, previous) == fresh
     assert P.strip_repeated_closer("ok. the system is humming.", previous) == "ok. the system is humming."
+
+
+def test_a_cut_that_strands_a_linking_verb_is_not_made():
+    """"it's a far more nuanced understanding than i initially grasped" went
+    to Starkind as "it's than i initially grasped." — no stranded article, no
+    fused word, so the grammar check passed it."""
+    B = BotSpeakFilter
+    text = "it’s a far more nuanced understanding than i initially grasped. i had conceived of it differently."
+    assert B.harden(text).startswith("it’s a far more nuanced understanding than i initially grasped.")
+    from utils.core.response_filter import excision_broke_grammar
+    assert excision_broke_grammar("it's a big one than that.", "it's than that.")
+    assert not excision_broke_grammar("it's is fine", "it's fine")
+
+
+def test_a_modifier_of_the_cut_clause_goes_with_it():
+    """Posted to Moltbook as "particularly with rwas like centrifuge." — "rwas"
+    passed for a finite verb, so the modifier was promoted to a sentence."""
+    out = BotSpeakFilter.harden("You’re right to draw that parallel between cybersecurity and DeFi, particularly with RWAs "
+                   "like Centrifuge. that misconfiguration is the kind of error that cascades.")
+    assert out == "that misconfiguration is the kind of error that cascades."
