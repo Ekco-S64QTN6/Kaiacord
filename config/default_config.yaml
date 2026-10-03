@@ -756,6 +756,9 @@ music:
   # kill in long blends, EQ gestures into phrases alone — phrase-locked, deeper
   # with her energy. The booth's HANDS button toggles it for the set.
   records_kaia_hands: true
+  # A record that clashes in key with the one on air, and fits a semitone up
+  # or down, is shifted that semitone (rubberband) as it comes in.
+  records_key_sync: true
   # The DJ booth: a window showing both decks and the mixer while records
   # play, served on 127.0.0.1 at this port (0 picks a free one) and opened
   # when a set starts. `!music booth` reopens it.

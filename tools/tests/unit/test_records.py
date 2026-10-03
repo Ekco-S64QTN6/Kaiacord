@@ -484,3 +484,85 @@ def test_a_blend_leaves_the_incoming_room_to_play_on_its_own():
     assert fits.kind == "blend"                          # 123 s of blend, 37 s left over
     short = plan_transition(3.0, 1.0, g125, 600.0, nxt(g125, seconds=140.0), "skip", 256, lead=2.0)
     assert short.kind != "blend" and short.fallback == "room"   # the planner halves it
+
+
+def test_the_bass_swap_lands_where_the_new_bassline_comes_in():
+    """Bassline in at bar 16 of the incoming, a 64-beat blend swaps at its
+    bar 8: the incoming starts 8 bars into its intro, so bar 16 is the swap."""
+    late = Next(rec("two", 120, "8A"), 300.0, 0.0, STEADY, bass_in=16)
+    plan = plan_transition(3.0, 1.0, STEADY, 600.0, late, "skip", 64, lead=2.0)
+    assert plan.kind == "blend"
+    bar16 = STEADY.downbeat + 16 * 4 * STEADY.beat                     # incoming's own seconds
+    swap = plan.drop + plan.length / 2                                  # outgoing seconds
+    at_swap = plan.offset + (swap - plan.start) * plan.ratio            # incoming position there
+    assert at_swap == pytest.approx(bar16, abs=1e-6)
+    early = Next(rec("two", 120, "8A"), 300.0, 0.0, STEADY, bass_in=4)
+    assert plan_transition(3.0, 1.0, STEADY, 600.0, early, "skip", 64, lead=2.0).offset == 0.0
+
+
+def test_the_bassline_is_found_on_a_phrase(tmp_path):
+    import shutil
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    from scipy.io import wavfile
+    from utils.audio import beatgrid
+    # 120 bpm kicks from 0.5 s; a 55 Hz bassline joins at bar 16 (32.5 s).
+    rate, seconds = 44100, 70
+    x = np.zeros(seconds * rate, np.float32)
+    k = np.arange(int(0.03 * rate))
+    kick = np.sin(2 * np.pi * 55 * k / rate) * np.exp(-k / (0.008 * rate))
+    for n, t in enumerate(np.arange(0.5, seconds - 0.1, 0.5)):
+        i = int(round(t * rate))
+        x[i:i + len(kick)] += (0.9 if n % 4 == 0 else 0.6) * kick
+    j = int(32.5 * rate)
+    x[j:] += 0.4 * np.sin(2 * np.pi * 55 * np.arange(len(x) - j) / rate)
+    path = tmp_path / "bass.wav"
+    wavfile.write(path, rate, (x / np.abs(x).max() * 0.9 * 32767).astype(np.int16))
+    assert beatgrid.bass_entry(str(path), 120) == 16
+
+
+def test_a_new_blend_length_replans_a_blend_not_yet_started():
+    src, _ = _source()
+    src.skip()
+    assert wait_until(lambda: src.plan is not None)
+    old = src.plan
+    assert src.set_mix_beats(32)
+    assert src.plan is not old
+    assert wait_until(lambda: src.plan is not None) and round(src.plan.length / src.plan.beat) == 32
+
+
+def test_key_sync_moves_a_clash_a_semitone_into_key():
+    assert library.shift_key("8A", 1) == "3A" and library.shift_key("8A", -1) == "1A"
+    assert library.key_sync("8A", "8A") == 0 and library.key_sync("8A", "9A") == 0 and library.key_sync("8A", "8B") == 0
+    assert library.key_sync("8A", "3A") == -1                # a semitone up from 8A: brought back down
+    assert library.key_sync("8A", "1A") == 1
+    assert library.key_sync("8A", "5A") == 0                 # no single semitone fixes it
+    assert library.key_sync(None, "5A") == 0
+
+
+def test_a_shifted_key_reaches_rubberband_as_a_pitch(monkeypatch):
+    from utils.audio import beatgrid
+    monkeypatch.setattr(beatgrid, "has_rubberband", lambda: True)
+    f = beatgrid.stretch_filter(1.0, 1)
+    assert f.startswith("rubberband=tempo=1.00000:pitch=1.059463")
+    assert beatgrid.stretch_filter(1.0, 0) is None
+    monkeypatch.setattr(beatgrid, "has_rubberband", lambda: False)
+    assert beatgrid.stretch_filter(1.0, 1) is None            # atempo cannot move a key
+
+
+def test_a_clashing_incoming_is_key_synced_in_the_blend(monkeypatch):
+    from utils.audio import beatgrid
+    monkeypatch.setattr(beatgrid, "has_rubberband", lambda: True)
+    first = Deck(rec("one", 120, "8A"), 1.0, 20.0, tone(1000, 20.0))
+    seen = {}
+
+    def factory(path, ratio, gain=0.0, offset=0.0, semitones=0):
+        seen[path] = semitones
+        return tone(-1000, 20.0)(path, ratio)
+    src = CrossfadeSource(first, lambda d: Next(rec("two", 120, "3A"), 300.0, 0.0, STEADY),
+                          stream_factory=factory, grid_at=lambda *a: STEADY, mix_beats=16)
+    src._fine = lambda deck, plan: None
+    wait_for(first, 100)
+    src.skip()
+    assert wait_until(lambda: src.plan is not None)
+    assert src.incoming.semitones == -1 and src.incoming.key == "8A" and seen["/music/two.mp3"] == -1

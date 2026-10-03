@@ -149,7 +149,7 @@ def _deck(d, state: str) -> dict:
             "pos": round(d.at() * d.ratio, 4),            # seconds of the record's own time
             "length": round(d.end * d.ratio, 3),
             "tempo": round(g.bpm * d.ratio, 2) if g else (round(d.record.bpm * d.ratio, 2) if d.record.bpm else None),
-            "grid": _grid(g), "buffering": not d.ready(5)}
+            "grid": _grid(g), "buffering": not d.ready(5), "key_now": d.key, "semitones": d.semitones}
 
 
 def snapshot(session) -> dict:
@@ -180,7 +180,9 @@ def snapshot(session) -> dict:
                             "ratio": round(ratio, 5), "pitch": round((ratio - 1) * 100, 2), "gain_db": queued.gain,
                             "pos": round(cue, 4), "cue": round(cue, 4), "length": round(queued.seconds, 3),
                             "tempo": round(bpm * ratio, 2) if bpm else None, "grid": _grid(queued.grid),
-                            "buffering": False, "hand": src.by_hand, "synced": ratio != 1.0 or bool(bpm and master
+                            "buffering": False, "hand": src.by_hand, "key_now": queued.record.key, "semitones": 0,
+                            "bass_in": (queued.grid.downbeat + queued.bass_in * 4 * queued.grid.beat)
+                            if queued.bass_in is not None and queued.grid else None, "synced": ratio != 1.0 or bool(bpm and master
                                                                                        and abs(bpm - master) < 0.05)}
     a_low, a_mid, a_high, b_low, b_mid, b_high = src.applied
     out_slot = str(cur.slot) if cur else "1"
@@ -210,7 +212,7 @@ def snapshot(session) -> dict:
         "on_air": cur.slot if cur else None, "free": free, "loading": getattr(session, "loading", None),
         "last_load": getattr(session, "last_load", None),
         "handover": round(src._hand_quiet / FRAMES_PER_S, 2) if hand is not None else None,
-        "rides": src.rides, "gesture": src.gesture if src.rides else "", "energy": round(src.energy, 2),
+        "key_sync": src.key_sync, "rides": src.rides, "gesture": src.gesture if src.rides else "", "energy": round(src.energy, 2),
     }
 
 

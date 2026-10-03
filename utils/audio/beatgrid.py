@@ -78,14 +78,17 @@ def has_rubberband() -> bool:
     return _RUBBERBAND
 
 
-def stretch_filter(ratio: float) -> Optional[str]:
+def stretch_filter(ratio: float, semitones: int = 0) -> Optional[str]:
     """The ffmpeg filter that plays a record at `ratio` times its tempo, pitch
-    kept, or None at 1.0. Rubberband keeps the kicks where they were; atempo,
-    the fallback, moves them ATEMPO_EARLY_S early (`stretch_latency`)."""
-    if abs(ratio - 1.0) <= 1e-4:
+    kept (or moved by `semitones`, rubberband only), or None when nothing
+    changes. Rubberband keeps the kicks where they were; atempo, the fallback,
+    moves them ATEMPO_EARLY_S early (`stretch_latency`) and cannot shift key."""
+    semitones = semitones if has_rubberband() else 0
+    if abs(ratio - 1.0) <= 1e-4 and not semitones:
         return None
     if has_rubberband():
-        return f"rubberband=tempo={ratio:.5f}:transients=crisp:detector=percussive"
+        pitch = f":pitch={2 ** (semitones / 12):.6f}" if semitones else ""
+        return f"rubberband=tempo={ratio:.5f}{pitch}:transients=crisp:detector=percussive"
     return f"atempo={ratio:.5f}"
 
 
@@ -266,6 +269,43 @@ def first_sound(path: str, threshold_db: float = -45.0) -> float:
     rms = np.sqrt(np.mean(a[: n * 400].astype(np.float32).reshape(n, 400) ** 2, axis=1))
     loud = np.flatnonzero(rms > 32768 * 10 ** (threshold_db / 20))
     return float(max(0.0, loud[0] * 0.05 - 0.05)) if len(loud) else 0.0
+
+
+@functools.lru_cache(maxsize=256)
+def bass_entry(path: str, bpm: Optional[float], bars: int = 64) -> Optional[int]:
+    """The bar (counted from bar one, 0-based) where the record's bassline
+    comes in: the first bar whose sub-bass (under 100 Hz) reaches 60% of its
+    usual level over the opening and holds for three of the next four. A dance
+    record's intro carries kick and percussion with the bassline held back for
+    8, 16 or 32 bars, so the result is snapped to a four-bar phrase when within
+    a bar of one. None if the record has no counted bar one or no bassline in
+    its first `bars` bars."""
+    g = grid_for(path, bpm)
+    if g is None or not g.bar_known:
+        return None
+    bar = 4 * g.beat
+    try:
+        raw = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", f"{g.downbeat:.3f}",
+                              "-t", f"{bars * bar:.2f}", "-i", path, "-ac", "1", "-ar", str(RATE),
+                              "-f", "s16le", "pipe:1"], capture_output=True, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if len(raw) < 2 * RATE * 8 * bar:                       # under eight bars decoded
+        return None
+    from scipy.signal import butter, sosfilt
+    x = sosfilt(butter(4, 100, btype="low", fs=RATE, output="sos"),
+                np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0)
+    n = int(bar * RATE)
+    count = len(x) // n
+    if count < 8:
+        return None
+    rms = np.sqrt(np.mean(x[: count * n].reshape(count, n) ** 2, axis=1))
+    on = rms >= 0.6 * np.percentile(rms, 75)
+    for k in range(count - 4):
+        if on[k] and on[k + 1:k + 5].sum() >= 3:
+            near = int(round(k / 4)) * 4
+            return near if abs(near - k) <= 1 else k
+    return None
 
 
 @functools.lru_cache(maxsize=128)

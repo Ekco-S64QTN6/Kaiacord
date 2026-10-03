@@ -576,6 +576,16 @@ a mix that sounded wrong:
   first beat, not across its beatless intro, which had read steady records as loose. Every transition
   and what it was decided from is appended to `memory/records/transitions.jsonl`; read that, not the
   log line, when a mix sounded wrong.
+- **The bass swap lands on the incoming's bassline** (`beatgrid.bass_entry`: sub-bass per bar from bar
+  one, snapped to a 4-bar phrase). Intros hold the bassline back 8–48 bars; when it comes in later than
+  the swap's bar, the incoming starts that many bars into its intro, so the swap never hands the low end
+  to a kick alone. A cue set at the booth is never moved for it.
+- **Key sync** (`library.key_sync`, `music.records_key_sync`): an incoming that clashes with the key
+  on air (`Deck.key`, after any earlier sync) and fits a semitone up or down is shifted by rubberband's
+  `pitch`, and stays shifted. Rubberband only — atempo cannot move a key.
+- **Levels are LUFS** (`gain_db`: EBU R128 integrated, to `TARGET_LUFS`). A record is raised only as
+  far as its true peak allows (+2 dB into the limiter) and lowered as far as needed — many masters peak
+  over 0 dBTP, and capping cuts by peak made the spread worse than mean volume did.
 - **Kaia rides the mixer** (`kaia_hands`, `music.records_kaia_hands`, the booth's HANDS): multipliers on
   the automix, locked to bars and scaled by her energy — both records -1.5 dB in a ride (gain staging),
   the mids traded every 8 bars, no bass for the beat before the swap; alone, one EQ gesture into the end

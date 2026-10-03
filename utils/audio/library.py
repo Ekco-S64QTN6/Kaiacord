@@ -85,6 +85,27 @@ def key_step(a: Optional[str], b: Optional[str]) -> Optional[int]:
     return 1 if around == 0 else None
 
 
+def shift_key(key: Optional[str], semitones: int) -> Optional[str]:
+    """The Camelot code of `key` moved by `semitones` (seven steps round the
+    wheel a semitone)."""
+    c = _camelot(key)
+    if not c or not semitones:
+        return key
+    return f"{(c[0] - 1 + 7 * semitones) % 12 + 1}{c[1]}"
+
+
+def key_sync(playing: Optional[str], incoming: Optional[str]) -> int:
+    """Semitones to shift `incoming` so it sits with `playing` — the same key,
+    a neighbour or the relative key — when it does not already: +1 or -1, or
+    0 if it already fits, a key is unknown, or one semitone would not do it."""
+    if key_step(playing, incoming) in (0, 1) or not _camelot(playing) or not _camelot(incoming):
+        return 0
+    for s in (1, -1):
+        if key_step(playing, shift_key(incoming, s)) in (0, 1):
+            return s
+    return 0
+
+
 def tempo_ratio(from_bpm: Optional[float], to_bpm: Optional[float]) -> Optional[float]:
     """The stretch that makes `to` play at `from`'s tempo — counting half and
     double time — or None if no stretch within BPM_TOLERANCE does it."""

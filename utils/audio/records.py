@@ -20,6 +20,7 @@ another before its frames are needed.
 from __future__ import annotations
 
 import asyncio
+import functools
 import random
 import re
 import subprocess
@@ -62,35 +63,43 @@ def probe_seconds(path: str) -> Optional[float]:
         return None
 
 
-#: Every record is brought to about this mean level, so the next one is not
-#: twice as loud as the last. Never raised past its own peak.
-TARGET_MEAN_DB = -14.0
+#: Every record is brought to this integrated loudness (EBU R128, what the ear
+#: hears as loud), so the next one is not louder than the last. A record is
+#: raised only as far as its true peak allows, plus BOOST_HEADROOM_DB the soft
+#: limiter takes; it is lowered as far as needed whatever its peak.
+TARGET_LUFS = -11.0
+BOOST_HEADROOM_DB = 2.0
 
 
+@functools.lru_cache(maxsize=1024)
 def gain_db(path: str) -> float:
-    """The gain that brings a record's mean level to TARGET_MEAN_DB without
-    pushing its peak past full scale. 0 if it cannot be measured."""
+    """The gain that brings a record to TARGET_LUFS. 0 if it cannot be measured."""
     try:
-        out = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-i", path, "-af", "volumedetect",
-                              "-f", "null", "-"], capture_output=True, text=True, timeout=60).stderr
-        mean = float(re.search(r"mean_volume:\s*(-?[\d.]+) dB", out).group(1))
-        peak = float(re.search(r"max_volume:\s*(-?[\d.]+) dB", out).group(1))
-    except (OSError, AttributeError, ValueError, subprocess.SubprocessError):
+        out = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-nostats", "-i", path,
+                              "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-"],
+                             capture_output=True, text=True, timeout=90).stderr
+        lufs = float(re.findall(r"I:\s*(-?[\d.]+) LUFS", out)[-1])
+        peak = float(re.findall(r"Peak:\s*(-?[\d.]+) dBFS", out)[-1])
+    except (OSError, IndexError, ValueError, subprocess.SubprocessError):
         return 0.0
-    return round(max(-12.0, min(TARGET_MEAN_DB - mean, -peak, 12.0)), 1)
+    gain = TARGET_LUFS - lufs
+    if gain > 0:
+        gain = min(gain, max(0.0, -1.0 - peak) + BOOST_HEADROOM_DB)
+    return round(max(-12.0, min(gain, 12.0)), 1)
 
 
-def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0.0) -> subprocess.Popen:
+def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0.0,
+             semitones: int = 0) -> subprocess.Popen:
     """ffmpeg decoding a record to 48 kHz stereo s16le from `offset` seconds
     of its own time, stretched by `ratio` (`beatgrid.stretch_filter`: tempo
-    changed, pitch and kick timing kept)."""
+    changed, pitch and kick timing kept), its key moved by `semitones`."""
     from utils.audio.beatgrid import stretch_filter
     args = ["ffmpeg", "-nostdin", "-loglevel", "error"]
     if offset > 0:
         args += ["-ss", f"{offset:.4f}"]
     args += ["-i", path]
     filters = []
-    if (stretch := stretch_filter(ratio)):
+    if (stretch := stretch_filter(ratio, semitones)):
         filters.append(stretch)
     if abs(gain) >= 0.1:
         filters.append(f"volume={gain:.1f}dB")
@@ -156,10 +165,11 @@ class Deck:
 
     def __init__(self, record: library.Record, ratio: float, seconds: float,
                  stream_factory: Callable[..., object] = open_pcm, buffer_frames: int = 150,
-                 gain: float = 0.0, pad: int = 0, offset: float = 0.0):
+                 gain: float = 0.0, pad: int = 0, offset: float = 0.0, semitones: int = 0):
         self.record = record
         self.ratio = ratio
         self.gain = gain
+        self.semitones = int(semitones)                     # key moved by key sync
         self.grid = None                                    # beatgrid.Grid of its opening, for display
         self.slot = 1                                       # which CDJ: records alternate 1, 2, 1…
         self.loaded_at = time.time()
@@ -167,7 +177,8 @@ class Deck:
         self.offset = max(0.0, offset)                      # seconds of the record skipped, own time
         self.total_frames = int(((seconds - self.offset) / ratio * RATE + self.pad) / FRAME_SAMPLES)
         self.played = 0
-        extra = {**({"gain": gain} if gain else {}), **({"offset": self.offset} if self.offset else {})}
+        extra = {**({"gain": gain} if gain else {}), **({"offset": self.offset} if self.offset else {}),
+                 **({"semitones": self.semitones} if self.semitones else {})}
         self._proc = stream_factory(record.path, ratio, **extra)
         self._frames: deque[bytes] = deque()
         self._lock = threading.Lock()
@@ -217,6 +228,11 @@ class Deck:
         return (n * FRAME_SAMPLES - self.pad) / RATE + self.offset / self.ratio
 
     @property
+    def key(self) -> Optional[str]:
+        """The key it is sounding in: its own, moved by any key sync."""
+        return library.shift_key(self.record.key, self.semitones)
+
+    @property
     def remaining(self) -> int:
         return max(0, self.total_frames - self.played)
 
@@ -261,6 +277,9 @@ class Next:
     grid: Optional["beatgrid.Grid"] = None
     #: Seconds to its first sound: a fade starts it there, not in its silence.
     lead: float = 0.0
+    #: The bar (from bar one) its bassline comes in on, if found: a blend
+    #: starts it so that bar lands on the bass swap.
+    bass_in: Optional[int] = None
 
 
 @dataclass
@@ -309,10 +328,15 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
     if ratio is not None:
         beat = 60.0 / playing_bpm
         length = mix_beats * beat
-        # The incoming is silent until its first downbeat, so it is started
-        # just short of it rather than from the top.
-        offset = max(0.0, in_grid.downbeat - PREROLL_S)
-        lead_in = (in_grid.downbeat - offset) / ratio       # incoming: start to its first downbeat
+        # The bass swap lands where the incoming's bassline comes in: if that
+        # is later than the swap's bar, the incoming starts that many bars into
+        # its intro (always on a phrase), or the new low end would be a kick
+        # alone. The incoming is started just short of the bar it drops on.
+        swap_bars = mix_beats // 8
+        late = (nxt.bass_in - swap_bars) if nxt.bass_in is not None and nxt.bass_in > swap_bars else 0
+        bar_in = in_grid.downbeat + late * 4 * in_grid.beat
+        offset = max(0.0, bar_in - PREROLL_S)
+        lead_in = (bar_in - offset) / ratio                  # incoming: start to the bar it drops on
         earliest = now + lead_in + lead
         bar = 4 * beat
         drop = None
@@ -666,6 +690,7 @@ class CrossfadeSource(_AudioSource):
         # Kaia's hands on the mixer (`kaia_hands`), how much energy she has
         # for them (0–1, from her mood), and what she is doing right now.
         self.rides = True
+        self.key_sync = True                      # shift a clashing incoming a semitone to fit
         self.energy = 0.5
         self.gesture = ""
         self._lock = threading.RLock()
@@ -780,14 +805,18 @@ class CrossfadeSource(_AudioSource):
             pos = min(max(0.0, float(pos)), max(0.0, nxt.seconds - 8.0))
             self.cue = self.snap(nxt.grid, pos)
             playing = self.hand is not None
+            replan = None
             if playing:
                 self._drop_hand(keep_cue=True)
             elif not self.blend_started():
                 # A plan made, or being made, from the old cue is called off;
-                # the next one is made from this one.
+                # the next one is made from this one, for the same reason.
+                replan = self.plan.mode if self.plan is not None else None
                 self._call_off_plan()
         if playing:
             self.play_hand()
+        elif replan:
+            self._begin_planning(replan)
         return True
 
     def _cued(self, nxt: Next) -> Next:
@@ -831,6 +860,12 @@ class CrossfadeSource(_AudioSource):
         threading.Thread(target=run, daemon=True, name="kaia-records-hand").start()
         return "starting"
 
+    def _semitones(self, playing: Deck, nxt: Next) -> int:
+        from utils.audio.beatgrid import has_rubberband
+        if not self.key_sync or not has_rubberband():
+            return 0
+        return library.key_sync(playing.key, nxt.record.key)
+
     def _start_hand(self, nxt: Next, cur: Deck, cue: float, gen: int) -> None:
         global _SOS
         if _SOS is None:
@@ -859,7 +894,8 @@ class CrossfadeSource(_AudioSource):
             at = (when - cur.offset / cur.ratio) * RATE + cur.pad
             k = int(np.floor(at / FRAME_SAMPLES))
             pad = int(round(at - k * FRAME_SAMPLES))
-            deck = Deck(nxt.record, ratio, nxt.seconds, self._factory, gain=nxt.gain, pad=max(0, pad), offset=c)
+            deck = Deck(nxt.record, ratio, nxt.seconds, self._factory, gain=nxt.gain, pad=max(0, pad), offset=c,
+                        semitones=self._semitones(cur, nxt) if synced else 0)
             deadline = time.time() + 1.0
             while not deck.ready() and time.time() < deadline:
                 time.sleep(0.02)
@@ -965,7 +1001,18 @@ class CrossfadeSource(_AudioSource):
         """The length of the next blend (one already planned keeps its own)."""
         if int(beats) not in self.BLEND_CHOICES:
             return False
-        self._mix_beats = int(beats)
+        with self._lock:
+            self._mix_beats = int(beats)
+            # A blend planned at the old length and not yet begun is planned
+            # again at this one, for the same reason (a skip stays a skip).
+            plan = self.plan
+            if plan is not None and not self.blend_started() and plan.kind == "blend":
+                self._call_off_plan()
+                replan = plan.mode
+            else:
+                replan = None
+        if replan:
+            self._begin_planning(replan)
         return True
 
     @staticmethod
@@ -1043,7 +1090,8 @@ class CrossfadeSource(_AudioSource):
                     k = int(np.floor(at / FRAME_SAMPLES))
                     pad = int(round(at - k * FRAME_SAMPLES))
                     incoming = Deck(nxt.record, plan.ratio, nxt.seconds, self._factory,
-                                    gain=nxt.gain, pad=max(0, pad), offset=plan.offset)
+                                    gain=nxt.gain, pad=max(0, pad), offset=plan.offset,
+                                    semitones=self._semitones(deck, nxt))
                     deadline = time.time() + 1.0
                     while not incoming.ready() and time.time() < deadline:
                         time.sleep(0.02)
@@ -1081,8 +1129,10 @@ class CrossfadeSource(_AudioSource):
                                      "at": round(plan.drop, 2), "ratio": round(plan.ratio, 4),
                                      "why": plan.why})
                 del self.history[:-50]
+                shift = (f", key sync {incoming.semitones:+d} ({nxt.record.key} → {incoming.key} against {deck.key})"
+                         if incoming.semitones else "")
                 log_action(f"[records] {plan.kind} into {nxt.record.name} at {plan.drop:.2f}s "
-                           f"(stretch {plan.ratio:.4f}, {mode}{why})")
+                           f"(stretch {plan.ratio:.4f}, {mode}{why}{shift})")
             except Exception as e:
                 log_warning(f"[records] transition not planned: {e}")
             finally:
@@ -1106,7 +1156,9 @@ class CrossfadeSource(_AudioSource):
                    "out_ratio": round(deck.ratio, 5), "drop": round(plan.drop, 3), "length": round(plan.length, 2),
                    "beats": round(plan.length / plan.beat) if plan.beat else None, "ratio": round(plan.ratio, 5),
                    "offset": round(plan.offset, 3), "music_end": round(music_end, 2), "file_end": round(deck.end, 2),
-                   "out_grid": g(out_grid), "in_grid": g(nxt.grid), "controls_flat": self.controls.flat()}
+                   "out_grid": g(out_grid), "in_grid": g(nxt.grid), "controls_flat": self.controls.flat(),
+                   "bass_in": nxt.bass_in, "keys": [deck.key, nxt.record.key], "rides": self.rides,
+                   "semitones": self.incoming.semitones if self.incoming else 0}
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         except Exception as e:
@@ -1314,7 +1366,7 @@ class RecordsSession:
         if not seconds or seconds < MIN_RECORD_S:
             return None
         return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
-                    beatgrid.first_sound(rec.path))
+                    beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm))
 
     def load(self, rec: library.Record) -> None:
         """Put `rec` on the free deck, now if it can be (`CrossfadeSource.load`),
@@ -1380,8 +1432,10 @@ class RecordsSession:
             else:
                 grid = beatgrid.grid_for(rec.path, rec.bpm)
                 if grid and grid.contrast >= BLEND_CONTRAST:
-                    return Next(rec, seconds, gain_db(rec.path), grid, beatgrid.first_sound(rec.path))
-                fallback = fallback or Next(rec, seconds, None, grid, beatgrid.first_sound(rec.path))
+                    return Next(rec, seconds, gain_db(rec.path), grid, beatgrid.first_sound(rec.path),
+                                beatgrid.bass_entry(rec.path, rec.bpm))
+                fallback = fallback or Next(rec, seconds, None, grid, beatgrid.first_sound(rec.path),
+                                            beatgrid.bass_entry(rec.path, rec.bpm))
                 passed_over.append(rec.path)
                 if len(passed_over) >= self.STEADY_TRIES:
                     break
@@ -1540,6 +1594,7 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
     try:
         from utils.infrastructure.system.yaml_config import config
         session.source.rides = bool(config.get("music.records_kaia_hands", True))
+        session.source.key_sync = bool(config.get("music.records_key_sync", True))
     except Exception as e:
         log_debug(f"[records] records_kaia_hands not read: {e}")
     settle("a records set")

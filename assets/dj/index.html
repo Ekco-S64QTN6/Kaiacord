@@ -553,6 +553,10 @@ function drawOverview(slot, d) {
     const xd = mix.drop * mix.out_ratio / len * W, xe = mix.done * mix.out_ratio / len * W;
     g.fillStyle = mix.kind === "blend" ? "rgba(61,255,138,.25)" : mix.kind === "fade" ? "rgba(162,89,255,.3)" : "rgba(255,228,92,.35)"; g.fillRect(xd, 0, Math.max(2, xe - xd), H);
   }
+  if (isFree(slot) && d.bass_in != null && d.cue != null) {
+    const xb = d.bass_in / len * W;
+    g.fillStyle = "rgba(255,47,209,.85)"; g.fillRect(xb - 0.5, H - 9, 1, 9); g.font = "600 8px JetBrains Mono"; g.fillText("BASS", xb + 2, H - 2);
+  }
   if (isFree(slot) && d.cue != null) {
     const c = dragged(slot) ?? d.cue, xc = c / len * W;
     g.fillStyle = COL.yellow; glow(g, COL.yellow, 8);
@@ -604,7 +608,9 @@ function updateDeck(slot) {
   const master = d && slot === S.on_air;
   setBadge(slot, "master", master);
   setBadge(slot, "sync", d && ((mix && mix.kind === "blend" && String(slot) === mix.in_slot) || (isFree(slot) && !mix && d.synced)), "SYNC", COL.green);
-  setBadge(slot, "key", d && d.key, d && d.key ? `KEY ${d.key}` : "KEY", d ? keyColor(d.key) : "");
+  const kn = d && (d.key_now || d.key);
+  setBadge(slot, "key", kn, kn ? `KEY ${kn}${d.semitones ? ` ${d.semitones > 0 ? "+" : "−"}${Math.abs(d.semitones)}ST` : ""}` : "KEY", d ? keyColor(kn) : "");
+  q(slot, '[data-b="key"]').title = d && d.semitones ? `key sync: ${d.key} shifted ${d.semitones > 0 ? "up" : "down"} a semitone to sit with the other deck` : "";
   setBadge(slot, "grid", d && d.grid, d && d.grid ? (d.grid.bar_known ? `BAR LOCK ${d.grid.contrast.toFixed(1)}` : `BEAT ${d.grid.contrast.toFixed(1)}`) : "GRID", d && d.grid ? (d.grid.bar_known && d.grid.contrast >= 4 ? COL.green : COL.yellow) : "");
   setBadge(slot, "gain", d && d.gain_db, d && d.gain_db ? `GAIN ${d.gain_db > 0 ? "+" : ""}${d.gain_db.toFixed(1)}dB` : "GAIN", COL.purple);
   const pos = d ? posOf(d) : 0, ratio = d ? d.ratio || 1 : 1;
@@ -998,9 +1004,11 @@ function updateBottom() {
   if (nxt) {
     $("nxt-t").textContent = nxt.title || nxt.name; $("nxt-a").textContent = nxt.artist || "";
     const chips = [];
-    if (cur) { const [kr, cls] = keyRelation(cur.key, nxt.key); chips.push(`<span class="chip ${cls}"><i>KEY</i>${cur.key || "?"} → ${nxt.key || "?"} · ${kr}</span>`); }
+    if (cur) { const ck = cur.key_now || cur.key, nk = nxt.key_now || nxt.key, [kr, cls] = keyRelation(ck, nk);
+      chips.push(`<span class="chip ${cls}"><i>KEY</i>${ck || "?"} → ${nk || "?"} · ${kr}${nxt.semitones ? " (synced)" : ""}</span>`); }
     if (cur && cur.tempo && nxt.bpm) { const pct = (cur.tempo / nxt.bpm - 1) * 100; chips.push(`<span class="chip ${Math.abs(pct) < 3 ? "good" : Math.abs(pct) < 6 ? "ok" : "bad"}"><i>TEMPO</i>${nxt.bpm} → ${cur.tempo.toFixed(1)} (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)</span>`); }
     if (nxt.grid) chips.push(`<span class="chip ${nxt.grid.contrast >= 4 && nxt.grid.bar_known ? "good" : "ok"}"><i>BEAT</i>${nxt.grid.contrast >= 4 ? "steady" : "loose"} ${nxt.grid.contrast.toFixed(1)}${nxt.grid.bar_known ? " · bar 1 at " + nxt.grid.downbeat.toFixed(2) + "s" : ""}</span>`);
+    if (nxt.bass_in != null && nxt.grid) chips.push(`<span class="chip"><i>BASS IN</i>bar ${Math.round((nxt.bass_in - nxt.grid.downbeat) / (240 / nxt.grid.bpm)) + 1} · ${fmt(nxt.bass_in)}</span>`);
     if (nxt.genre) chips.push(`<span class="chip"><i>GENRE</i>${esc(nxt.genre)}</span>`);
     chips.push(`<span class="chip"><i>LENGTH</i>${fmt(nxt.length)}</span>`);
     $("nxt-chips").innerHTML = chips.join("");
@@ -1038,11 +1046,20 @@ function tempoGap(playing, bpm) {      // the stretch it would take, half and do
 function mixScore(md, r) {
   const gap = tempoGap(md && md.tempo, r.bpm);
   if (gap === null || gap > 0.06) return null;
-  return Math.round(100 * KEY_WEIGHT[relation(md.key, r.key)] * (1 - 0.5 * gap / 0.06));
+  const [rel, st] = keyRel(md, r);
+  return Math.round(100 * (st ? 0.8 : KEY_WEIGHT[rel]) * (1 - 0.5 * gap / 0.06));
 }
-function masterDeck() {
-  if (!S || !S.decks) return null;
-  return S.decks[S.on_air] || null;
+function masterDeck() {          // the record on air, in the key it is sounding in
+  const d = S && S.decks && S.decks[S.on_air];
+  return d ? { ...d, key: d.key_now || d.key } : null;
+}
+function shiftKey(k, st) { const c = camelot(k); return c ? `${((c[0] - 1 + 7 * st) % 12 + 12) % 12 + 1}${c[1]}` : k; }
+// Key sync can move a clashing record a semitone to fit: it then counts nearly as in key.
+function keyRel(md, r) {
+  const rel = relation(md.key, r.key);
+  if (rel <= 2 || !S.key_sync) return [rel, 0];
+  for (const st of [1, -1]) if (relation(md.key, shiftKey(r.key, st)) <= 2) return [rel, st];
+  return [rel, 0];
 }
 function loadCrate() {
   fetch("/crate").then((r) => r.json()).then((c) => { c.stamp = Date.now(); crateData = c; renderCrate(); }).catch(() => {});
@@ -1083,7 +1100,8 @@ function renderCrate() {
     for (const r of all) {
       if (md && r.id === md.id) continue;
       const gap = tempoGap(md && md.tempo, r.bpm);
-      buckets[gap === null ? 3 : r.score === null ? 2 : relation(md.key, r.key) <= 2 ? 0 : 1].push(r);
+      const [rel, st] = keyRel(md, r); r.sync = st;
+      buckets[gap === null ? 3 : r.score === null ? 2 : rel <= 2 || st ? 0 : 1].push(r);
     }
     buckets[0].sort((a, c) => c.score - a.score); buckets[1].sort((a, c) => c.score - a.score);
     buckets[2].sort((a, c) => relation(md.key, a.key) - relation(md.key, c.key) || tempoGap(md.tempo, a.bpm) - tempoGap(md.tempo, c.bpm));
@@ -1101,7 +1119,7 @@ function renderCrate() {
           const gap = tempoGap(md.tempo, r.bpm), sc = r.score;
           col = sc === null
             ? `<span class="bpm fit" style="color:var(--dim)" title="${(gap * 100).toFixed(1)}% off ${md.tempo.toFixed(1)} bpm — past 6% it can only be faded in">FADE</span>`
-            : `<span class="bpm fit" style="color:${sc >= 70 ? "var(--green)" : sc >= 40 ? "var(--yellow)" : "var(--red)"}" title="mix score ${sc}/100: key ${md.key || "?"} → ${r.key || "?"}, stretch ${(gap * 100).toFixed(1)}% to ${md.tempo.toFixed(1)} bpm">MIX ${sc}</span>`;
+            : `<span class="bpm fit" style="color:${sc >= 70 ? "var(--green)" : sc >= 40 ? "var(--yellow)" : "var(--red)"}" title="mix score ${sc}/100: key ${md.key || "?"} → ${r.key || "?"}${r.sync ? ` (key sync ${r.sync > 0 ? "+1" : "−1"} semitone → ${shiftKey(r.key, r.sync)})` : ""}, stretch ${(gap * 100).toFixed(1)}% to ${md.tempo.toFixed(1)} bpm">MIX ${sc}</span>`;
         }
         return `<div class="trk ${cls}" data-id="${r.id}" title="load on the free deck">` +
           `<span class="nm">${esc(r.title)}${r.artist ? ` <i>— ${esc(r.artist)}</i>` : ""}</span>` + col +
