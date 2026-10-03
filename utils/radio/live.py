@@ -76,6 +76,12 @@ async def free_voice(guild) -> None:
     One connection per guild, and discord.py refuses a second play()."""
     await stop(guild.id)
     try:
+        from utils.audio.records import get_records
+        if (crate := get_records(guild.id)):
+            await crate.stop(disconnect=False)
+    except Exception as e:
+        log_debug(f"[radio] records not stopped: {e}")
+    try:
         from utils.radio import scanner
         await scanner.stop_listen_along(guild.id, disconnect=False)
     except Exception as e:

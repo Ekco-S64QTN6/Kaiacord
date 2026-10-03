@@ -539,6 +539,15 @@ answered in her voice. Every decision reads her *state*; none of it calls a mode
 (play it, measure it) covers the sound. When a set ends, `kaia_expression.remember` writes it
 into the channel's history and the growth log, so she knows she played and for whom.
 
+**`!music records` mixes the local library** (`utils/audio/library.py`, `records.py`). The crate is
+a `dj_catalog.json` of BPM, Camelot key and genre written *outside* the repo; nothing here analyses
+audio. The next record is plain Python (key step, tempo within 6% counting half/double time, genre,
+nothing recent), stretched with ffmpeg `atempo`, levelled with `volumedetect` to a common mean
+(never past its peak), and crossfaded in NumPy inside the audio source — so §7's "no model, no
+VRAM" holds. Records, a live set and the radio share one voice connection: whichever starts stops
+the others without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the
+channel it was handed.
+
 **`!art` is decided before it is drawn.** `kaia_art_intent.decide` turns a prompt, her mood or an
 attached image into an `ArtIntent` — palette (or a colour ramp from the image), symmetry, lead
 shapes, complexity, title. Her own choice comes from one short model call that picks *from the

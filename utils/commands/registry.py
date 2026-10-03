@@ -207,7 +207,7 @@ COMMANDS = (
             summary="Link your forum account "
                     "(other `!forum` subcommands are admin-only)"),
     Command("music", handle_music_command, GROUP_MEDIA, extra=RESPONDER,
-            usage="!music on [--genre] | off | status | <request>",
+            usage="!music on [--genre] | off | status | <request> | records [query] | skip",
             summary="Kaia DJs a live-coded set in your voice channel; "
                     "take requests with `!music darker`, `!music drop` … (`!music help`)"),
     Command("sysmon", handle_sysmon_command, GROUP_MEDIA, extra=RESPONDER,

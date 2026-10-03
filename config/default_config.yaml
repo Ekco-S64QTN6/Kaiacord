@@ -742,6 +742,14 @@ music:
   # Leave the channel this long after the last human does.
   alone_grace_seconds: 120
 
+  # `!music records`: the local record library, a dj_catalog.json listing each
+  # file with its BPM, Camelot key and genre (written by the library analysis,
+  # outside this repo). Empty switches records off. Example:
+  #   library_catalog: "~/Music/music/dj_catalog.json"
+  library_catalog: ""
+  # How long one record overlaps the next.
+  records_crossfade_seconds: 8.0
+
 # ============================================================================
 # Response filters
 # ============================================================================

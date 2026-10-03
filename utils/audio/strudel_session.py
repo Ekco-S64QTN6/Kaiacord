@@ -302,6 +302,12 @@ async def start_session(channel, *, genre: str, requested_by: str,
     guild_id = channel.guild.id
     if (existing := _sessions.get(guild_id)):
         await existing.stop()
+    try:
+        from utils.audio.records import get_records
+        if (crate := get_records(guild_id)):
+            await crate.stop(disconnect=False)
+    except Exception as e:
+        log_debug(f"[music] records not stopped: {e}")
 
     if not discord.opus.is_loaded():
         try:

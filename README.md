@@ -307,6 +307,10 @@ guessed. With no genre named she picks one for her mood and the hour; requests s
 The sound comes from [Strudel](https://codeberg.org/uzu/strudel) running in a local browser,
 captured into Discord voice. No model is involved and no VRAM is used.
 
+`!music records` plays your own music library instead: each next record is chosen to sit with
+the last in key and tempo, stretched to match and crossfaded in, from a catalog of BPM and key
+(`music.library_catalog`). It is ffmpeg on the CPU, with nothing analysed live.
+
 ### Night shift: radio and sky
 
 `!nightshift` opens a control panel with a button for every one of these, including the live receivers; `!nightshift list` lists the commands.

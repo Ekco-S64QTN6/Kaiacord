@@ -7,6 +7,9 @@ Handles !music — joins a voice channel and performs generative music.
     !music status           what is playing, and where in the arrangement
     !music genres           list them
     !music <genre>          switch without leaving
+    !music records [query]  a set from the local record library, mixed record
+                            to record (starting from the query, if given)
+    !music skip             the next record, now
 
 The sound engine is Strudel (https://codeberg.org/uzu/strudel, AGPL-3.0),
 driven in a local browser and captured off a PipeWire null sink. It is CPU and
@@ -37,6 +40,8 @@ _COOLDOWN_S = 20
 _ON = {"on", "start", "play", "join"}
 _OFF = {"off", "stop", "leave", "quit"}
 _INFO = {"status", "info", "now", "genres", "list", "help"}
+_RECORDS = {"records", "vinyl", "crate", "library"}
+_SKIP = {"skip", "next"}
 
 
 def _parse(parts: list[str]) -> tuple[str, str | None, str]:
@@ -64,8 +69,22 @@ async def handle_music_command(ctx, msg, send_kaia_response):
         await msg.channel.send(embed=notice("only in a server voice channel."))
         return
 
-    verb, genre, request = _parse(msg.content.strip().split())
+    parts = msg.content.strip().split()
+    if len(parts) > 1 and parts[1].lower() in _RECORDS:
+        return await _records(msg, " ".join(parts[2:]))
+    from utils.audio.records import get_records
+    crate_session = get_records(msg.guild.id)
+    if crate_session and len(parts) > 1 and parts[1].lower() in _SKIP:
+        crate_session.skip()
+        return await msg.channel.send(embed=notice("bringing the next one in."))
+
+    verb, genre, request = _parse(parts)
     session = get_session(msg.guild.id)
+    if crate_session and verb in _OFF:
+        await msg.channel.send(embed=notice("fading out."))
+        return await crate_session.stop()
+    if crate_session and verb in {"status", "info", "now"}:
+        return await msg.channel.send(embed=_records_status(crate_session))
 
     if verb in {"genres", "list"}:
         embed = box("🎧  What I can play",
@@ -79,6 +98,7 @@ async def handle_music_command(ctx, msg, send_kaia_response):
             "`!music on` — i pick something for the mood we're in",
             "`!music on --<genre>` · `!music <genre>` — play or switch genre",
             "`!music off` · `!music status` · `!music genres`",
+            "`!music records [artist or title]` — records from the library, mixed · `!music skip`",
             "",
             "**requests while i play:** " + " · ".join(f"`{r}`" for r in dj.REQUESTS),
         )), COLOR_MUSIC)
@@ -192,3 +212,66 @@ async def handle_music_command(ctx, msg, send_kaia_response):
     await msg.channel.send(embed=embed)
     log_action(f"[music] {msg.author.display_name} started a set; kaia picked {genre}"
                + (f" ({why})" if why else ""))
+
+
+def _records_status(session) -> discord.Embed:
+    st = session.stats()
+    now = st["now"] or "—"
+    meta = " · ".join(x for x in (f"{st['bpm']:g} bpm" if st["bpm"] else "", st["key"] or "", st["genre"] or "") if x)
+    e = box("🎧  records", f"**{clean(now, 200)}**" + (f"\n{meta}" if meta else ""), COLOR_MUSIC,
+            footer=f"up {st['uptime_min']} min · {st['played']} played · !music skip · !music off")
+    add_field(e, "Next", clean(st["next"], 200) if st["next"] else "choosing…", inline=False)
+    add_field(e, "Channel", st["channel"], inline=True)
+    add_field(e, "Listeners", str(st["listeners"]), inline=True)
+    return e
+
+
+async def _records(msg, query: str) -> None:
+    """Start a set from the local record library."""
+    from utils.audio import library, records
+    voice_state = getattr(msg.author, "voice", None)
+    if not voice_state or not voice_state.channel:
+        return await msg.channel.send(embed=notice("join a voice channel first."))
+    channel = voice_state.channel
+    perms = channel.permissions_for(msg.guild.me)
+    if not (perms.connect and perms.speak):
+        return await msg.channel.send(embed=notice(f"i can't speak in {channel.name}.", error=True))
+
+    import asyncio
+    crate = await asyncio.to_thread(library.load, config.get("music.library_catalog", "") or "")
+    if not crate:
+        return await msg.channel.send(embed=notice(
+            "i don't have a record library — `music.library_catalog` in kaia.yaml points at it.", error=True))
+    if query:
+        first = library.find(crate, query)
+        if not first:
+            return await msg.channel.send(embed=notice(f"nothing in the crate matches *{clean(query, 80)}*."))
+        why = "you asked for it"
+    else:
+        from datetime import datetime
+        try:
+            from utils.core.kaia_art_intent import mood
+            feeling = mood()
+        except Exception:
+            feeling = {}
+        first = library.opener(crate, feeling, datetime.now().hour)
+        why = "for the mood i'm in"
+    try:
+        async with msg.channel.typing():
+            await records.start_records(
+                channel, crate, first, requested_by=msg.author.display_name, text_channel=msg.channel,
+                fade_s=float(config.get("music.records_crossfade_seconds", 8.0)),
+                alone_grace_s=float(config.get("music.alone_grace_seconds", 120)))
+    except discord.ClientException as exc:
+        log_warning(f"[records] join failed: {exc}")
+        return await msg.channel.send(embed=notice("i couldn't get into that channel.", error=True))
+    except Exception as exc:
+        log_error(f"[records] start failed: {exc}")
+        return await msg.channel.send(embed=notice("the records wouldn't start; the log has why.", error=True))
+    meta = " · ".join(x for x in (f"{first.bpm:g} bpm" if first.bpm else "", first.key or "") if x)
+    await msg.channel.send(embed=box(
+        f"🎧  Records in {channel.name}",
+        f"starting with **{clean(first.name, 200)}**{' (' + meta + ')' if meta else ''}, {why}. "
+        f"{len(crate)} in the crate; each next one picked to sit with the last in key and tempo.",
+        COLOR_MUSIC, footer="!music skip · !music status · !music off"))
+    log_action(f"[records] {msg.author.display_name} started records in {channel.name}: {first.name}")

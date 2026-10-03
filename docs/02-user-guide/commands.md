@@ -208,7 +208,17 @@ Puts Kaia in your voice channel performing a live-coded set.
 !music status                what is playing, the section and the tempo
 !music genres                the fourteen genres
 !music help                  every request
+!music records [query]       records from the local library, mixed one into the next
+!music skip                  bring the next record in now
 ```
+
+`!music records` plays the local music library instead of a live-coded set. The library is a
+`dj_catalog.json` listing each file with its BPM, Camelot key and genre, written by the library
+analysis outside this repo; `music.library_catalog` in `kaia.yaml` points at it. Each next record
+is chosen to sit with the last in key (the same Camelot code, a neighbour, or the relative key)
+and tempo (within 6%, counting half and double time), stretched to the playing tempo without
+changing pitch, levelled to the same loudness, and brought in under the last with an 8-second
+crossfade. With no query she picks the first record from her mood.
 
 Genres: psytrance, techno, house, deephouse, trance, drumnbass, acid, breakbeat, dub, lofi,
 triphop, synthwave, berlinschool, ambient. Requests: darker, brighter, faster, slower, drop,
