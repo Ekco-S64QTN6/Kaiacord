@@ -86,3 +86,14 @@ def test_notes_on_the_topic_go_into_the_note_she_just_took(notes):
                     "be kind to llms", "", datetime(2026, 9, 25, 1, 44))
     assert [p.name for p in notes.iterdir()] == ["bach_thinking.md"]
     assert "be kind to llms" in (notes / "bach_thinking.md").read_text()
+
+
+def test_the_reply_names_the_note_not_its_folder(notes):
+    """She learned the path from a pasted changelog and said it in public:
+    "i'm adding a note to knowledge_base/kaia_notes/cognitive_dissonance.md"."""
+    reply = ("it seems to be a recurring theme.\n\n"
+             "i'm adding a note to knowledge_base/kaia_notes/cognitive_dissonance.md for later.")
+    out = kaia_notes.keep(reply, "GuardNGnowm", "the update thing", "", datetime(2026, 9, 26, 3))
+    assert "knowledge_base" not in out and "kaia_notes/" not in out
+    assert "cognitive_dissonance.md" in out
+    assert (notes / "cognitive_dissonance.md").exists()

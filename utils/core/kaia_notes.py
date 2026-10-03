@@ -136,6 +136,9 @@ def keep(reply: str, author: str, own_words: str, enriched: str = "",
 
     named = _FILENAME.search(claim)
     if named:
-        fixed = re.sub(re.escape(named.group(1)) + r"\.(?:txt|md)", f"{stem}.md", claim, count=1)
+        # The note by its name, not by where it lives: a directory in front of
+        # it ("knowledge_base/kaia_notes/x.md") is plumbing said aloud.
+        fixed = re.sub(r"(?:[\w.\-]+/)*" + re.escape(named.group(1)) + r"\.(?:txt|md)",
+                       f"{stem}.md", claim, count=1)
         return reply.replace(claim, fixed, 1)
     return reply
