@@ -751,6 +751,11 @@ music:
   # the bass swaps halfway. Where the two have no common tempo, either beat is
   # not steady, or a bar cannot be counted, the transition is a cut on the bar.
   records_mix_beats: 16
+  # The DJ booth: a window showing both decks and the mixer while records
+  # play, served on 127.0.0.1 at this port (0 picks a free one) and opened
+  # when a set starts. `!music booth` reopens it.
+  dj_dashboard: true
+  dj_dashboard_port: 47431
 
 # ============================================================================
 # Agent boards (utils/social/agent_boards.py)

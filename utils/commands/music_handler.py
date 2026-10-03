@@ -10,6 +10,7 @@ Handles !music — joins a voice channel and performs generative music.
     !music records [query]  a set from the local record library, mixed record
                             to record (starting from the query, if given)
     !music skip             the next record, now
+    !music booth            the DJ booth window: both decks and the mixer, live
 
 The sound engine is Strudel (https://codeberg.org/uzu/strudel, AGPL-3.0),
 driven in a local browser and captured off a PipeWire null sink. It is CPU and
@@ -42,6 +43,7 @@ _OFF = {"off", "stop", "leave", "quit"}
 _INFO = {"status", "info", "now", "genres", "list", "help"}
 _RECORDS = {"records", "vinyl", "crate", "library"}
 _SKIP = {"skip", "next"}
+_BOOTH = {"booth", "decks", "dashboard"}
 
 
 def _parse(parts: list[str]) -> tuple[str, str | None, str]:
@@ -74,6 +76,12 @@ async def handle_music_command(ctx, msg, send_kaia_response):
         return await _records(msg, " ".join(parts[2:]))
     from utils.audio.records import get_records
     crate_session = get_records(msg.guild.id)
+    if crate_session and len(parts) > 1 and parts[1].lower() in _BOOTH:
+        from utils.audio import dj_dashboard
+        import asyncio
+        await asyncio.to_thread(dj_dashboard.open_window)
+        return await msg.channel.send(embed=notice(
+            f"the booth is open on my screen — {dj_dashboard.url() or 'the server would not start'}"))
     if crate_session and len(parts) > 1 and parts[1].lower() in _SKIP:
         crate_session.skip()
         return await msg.channel.send(embed=notice("bringing the next one in."))
@@ -98,7 +106,8 @@ async def handle_music_command(ctx, msg, send_kaia_response):
             "`!music on` — i pick something for the mood we're in",
             "`!music on --<genre>` · `!music <genre>` — play or switch genre",
             "`!music off` · `!music status` · `!music genres`",
-            "`!music records [artist or title]` — records from the library, mixed · `!music skip`",
+            "`!music records [artist or title]` — records from the library, mixed · `!music skip` · "
+            "`!music booth` — the DJ booth window",
             "",
             "**requests while i play:** " + " · ".join(f"`{r}`" for r in dj.REQUESTS),
         )), COLOR_MUSIC)

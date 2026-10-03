@@ -111,9 +111,10 @@ CUT_FADE_S = 1.5
 #: those beat against beat is a clash. Below it the transition is a cut on the bar.
 BLEND_CONTRAST = 4.0
 #: The kick cross-correlation may move the incoming record by at most this
-#: much. Larger corrections came only from records without a steady kick,
-#: where the correlation had latched onto a bassline.
-MAX_FINE_S = 0.045
+#: much. The counted grids land within a few ms (click tracks; a 2 ms comb at
+#: a real mix point agreed to 1 ms); larger corrections came from sparse
+#: intros and basslines the correlation latched onto.
+MAX_FINE_S = 0.020
 #: How much of the incoming record before its first beat is decoded in a blend.
 PREROLL_S = 1.0
 #: A gap between frame requests longer than this is counted as late.
@@ -140,6 +141,10 @@ class Deck:
                  gain: float = 0.0, pad: int = 0, offset: float = 0.0):
         self.record = record
         self.ratio = ratio
+        self.gain = gain
+        self.grid = None                                    # beatgrid.Grid of its opening, for display
+        self.slot = 1                                       # which CDJ: records alternate 1, 2, 1…
+        self.loaded_at = time.time()
         self.pad = max(0, int(pad))
         self.offset = max(0.0, offset)                      # seconds of the record skipped, own time
         self.total_frames = int(((seconds - self.offset) / ratio * RATE + self.pad) / FRAME_SAMPLES)
@@ -252,6 +257,8 @@ class Plan:
     #: Seconds of the incoming record (its own time) skipped: its muted run-up
     #: to the first beat, so a skip does not wait out a long intro.
     offset: float = 0.0
+    mode: str = "skip"
+    why: str = ""
 
     @property
     def done(self) -> float:
@@ -352,6 +359,13 @@ class CrossfadeSource(_AudioSource):
         # over LATE_S is one a listener may hear as a stutter.
         self._last_read: Optional[float] = None
         self.late: list[float] = []
+        # What the mixer is doing, for the DJ dashboard: pre-fader levels of
+        # each deck and the mix (dBFS), the band gains applied this frame, and
+        # every transition planned.
+        self.levels = {"a": -90.0, "b": -90.0, "master": -90.0}
+        self.applied = (1.0, 1.0, 0.0, 0.0)
+        self.history: list[dict] = []
+        self.planning_mode: Optional[str] = None
         self._prefetch()
 
     def is_opus(self) -> bool:
@@ -378,10 +392,19 @@ class CrossfadeSource(_AudioSource):
         """Bring the next record in at the next bar it can land on."""
         self._begin_planning("skip")
 
+    @staticmethod
+    def _db(frame: Optional[bytes]) -> float:
+        if not frame:
+            return -90.0
+        x = np.frombuffer(frame, dtype=np.int16)[::8].astype(np.float32)
+        rms = float(np.sqrt(np.mean(x * x))) if len(x) else 0.0
+        return round(20 * np.log10(rms / 32768.0), 1) if rms > 1 else -90.0
+
     def _begin_planning(self, mode: str) -> None:
         if self._planning or self.plan or self.current is None:
             return
         self._planning = True
+        self.planning_mode = mode
         deck = self.current
 
         def run():
@@ -405,6 +428,8 @@ class CrossfadeSource(_AudioSource):
                     _SOS = _bands()
                 here = (deck.end - 60.0 if mode == "end" else deck.at()) * deck.ratio
                 out_grid = self._grid_at(deck.record, max(0.0, here - 8.0), 45.0)
+                if out_grid is not None:
+                    deck.grid = out_grid                     # measured here, where it is mixed out
                 for attempt in range(4):
                     lead = 2.0 + attempt                     # room to check the kicks, start ffmpeg, fill
                     plan = plan_transition(deck.at(), deck.ratio, out_grid, deck.end, nxt, mode,
@@ -435,6 +460,9 @@ class CrossfadeSource(_AudioSource):
                     incoming = None
                 if incoming is None or deck is not self.current:
                     return
+                incoming.grid = nxt.grid
+                incoming.slot = 3 - deck.slot
+                plan.mode = mode
                 self._queued = None
                 self._start_frame = k
                 self.incoming = incoming
@@ -446,12 +474,19 @@ class CrossfadeSource(_AudioSource):
                            f"{nxt.grid.contrast:.1f})" if min(out_grid.contrast, nxt.grid.contrast) < BLEND_CONTRAST
                            else "; bar not found" if not (out_grid.bar_known and nxt.grid.bar_known)
                            else "; tempos too far apart, or no room left to blend")
+                plan.why = why.lstrip("; ")
+                self.history.append({"ts": time.time(), "kind": plan.kind, "mode": mode,
+                                     "from": deck.record.name, "to": nxt.record.name,
+                                     "at": round(plan.drop, 2), "ratio": round(plan.ratio, 4),
+                                     "why": plan.why})
+                del self.history[:-50]
                 log_action(f"[records] {plan.kind} into {nxt.record.name} at {plan.drop:.2f}s "
                            f"(stretch {plan.ratio:.4f}, {mode}{why})")
             except Exception as e:
                 log_warning(f"[records] transition not planned: {e}")
             finally:
                 self._planning = False
+                self.planning_mode = None
         threading.Thread(target=run, daemon=True, name="kaia-records-plan").start()
 
     def _fine(self, deck: Deck, plan: Plan) -> Optional[float]:
@@ -494,14 +529,21 @@ class CrossfadeSource(_AudioSource):
             inc = self.incoming.frame() or SILENCE
         if plan is None:
             frame = out
+            self.applied = (1.0, 1.0, 0.0, 0.0)
+            self.levels["b"] = -90.0
         else:
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             g = gains(plan, times)
             out_parts = cur.split(out) if out is not None else None
             in_parts = self.incoming.split(inc) if inc is not None else None
             frame = mix_frames(out_parts, in_parts, g)
+            self.applied = tuple(round(float(x[-1]), 3) for x in g)
+            self.levels["b"] = self._db(inc)
             if out is None or t0 + FRAME_MS / 1000 >= plan.done:
                 self._advance()
+        if self.frames_sent % 2 == 0:                       # every 40 ms is plenty for meters
+            self.levels["a"] = self._db(out)
+            self.levels["master"] = self._db(frame)
         self.frames_sent += 1
         return frame or SILENCE
 
@@ -648,6 +690,12 @@ class RecordsSession:
                 log_debug(f"[records] disconnect: {e}")
         if self._task and not self._task.done() and self._task is not asyncio.current_task():
             self._task.cancel()
+        try:
+            from utils.audio import dj_dashboard
+            if not _sessions:
+                await asyncio.to_thread(dj_dashboard.close_window)
+        except Exception as e:
+            log_debug(f"[records] DJ booth not closed: {e}")
         minutes = (time.time() - self.started_at) / 60
         late = self.source.late if self.source else []
         log_action(f"[records] set ended after {minutes:.1f} min, {len(self.names)} records; "
@@ -720,12 +768,20 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
 
     session = RecordsSession(vc, crate, requested_by, text_channel, alone_grace_s)
     deck = Deck(first, 1.0, seconds, gain=await asyncio.to_thread(gain_db, first.path))
+    from utils.audio import beatgrid
+    deck.grid = await asyncio.to_thread(beatgrid.grid_for, first.path, first.bpm)
     session._changed(first)
     session.source = CrossfadeSource(deck, session._choose, on_change=session._changed,
                                      mix_beats=int(mix_beats))
     settle("a records set")
     vc.play(session.source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None)
     _sessions[guild.id] = session
+    try:
+        from utils.audio import dj_dashboard
+        await asyncio.to_thread(dj_dashboard.serve)
+        session._booth = asyncio.create_task(asyncio.to_thread(dj_dashboard.open_window))
+    except Exception as e:
+        log_debug(f"[records] DJ booth not opened: {e}")
     from utils.infrastructure.monitoring.async_task_registry import task_registry
     session._task = asyncio.create_task(session._watch())
     task_registry.register(f"records_watch_{guild.id}", session._task)

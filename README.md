@@ -312,6 +312,8 @@ chosen to sit with the last in key and tempo, stretched to match, and its first 
 a bar of the record playing — blended over sixteen beats with the bass swapped halfway, or, where
 either beat isn't steady enough to lay over the other, cut cleanly on the bar. The catalog of BPM
 and key is `music.library_catalog`; beats and bars are found with ffmpeg and NumPy on the CPU.
+A DJ booth window opens beside it — two CDJs and a mixer showing what she is actually doing
+(`!music booth`).
 
 ### Night shift: radio and sky
 

@@ -554,12 +554,19 @@ a mix that sounded wrong:
   only when the count comes out whole (`bar_known`).
 - **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
   mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is a cut on the
-  bar. A kick correction over 45 ms is not applied — those came only from records with no steady kick.
+  bar. A kick correction over 20 ms is not applied — the counted grids land within a few ms, and
+  larger corrections came from sparse intros and basslines the correlation latched onto.
 - **Check a change on click tracks** through the real `CrossfadeSource` (the incoming first kick must
   land on the planned bar, kicks within a few ms) — a beat detector on real music is not a reliable
   judge of another beat detector.
 - **Nothing slow on the voice thread.** The incoming ffmpeg is started and buffered by the planner
   thread; the set logs every frame the voice thread came back late for (`[records] voice thread`).
+
+**The DJ booth** (`dj_dashboard.py`, `assets/dj/index.html`) shows only the mixer's own state —
+the decks `CrossfadeSource` holds, their grids, the plan, the band gains applied this frame and the
+levels produced — streamed at 20 Hz from 127.0.0.1, with waveforms computed by ffmpeg off the voice
+thread. Its one control is the real skip. Check a change by rendering it headless against a real
+session (Playwright screenshot), not by reading the HTML.
 
 Records, a live set and the radio share one voice connection: whichever starts stops the others
 without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the channel it was
