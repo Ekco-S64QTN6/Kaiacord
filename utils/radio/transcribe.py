@@ -96,7 +96,7 @@ def prepare(src: Path, dst: Path) -> Path:
     return dst
 
 
-def transcribe_file(path: Path, language: Optional[str] = "en") -> str:
+def transcribe_file(path: Path, language: Optional[str] = "en", prompt: Optional[str] = None) -> str:
     """Blocking. Run it in a thread."""
     global _last_used
     with _lock:
@@ -105,7 +105,7 @@ def transcribe_file(path: Path, language: Optional[str] = "en") -> str:
             prepare(path, clean)
             segments, _info = _load().transcribe(
                 str(clean), language=language, beam_size=5, vad_filter=False,
-                condition_on_previous_text=False, temperature=0.0)
+                condition_on_previous_text=False, temperature=0.0, initial_prompt=prompt)
             text = " ".join(s.text.strip() for s in segments)
         finally:
             clean.unlink(missing_ok=True)
@@ -121,7 +121,7 @@ _NOISE_PHRASES = ("teksting av", "tekstet av", "subtitles by", "subtitled by", "
                   "please subscribe", "like and subscribe")
 
 
-def transcribe_speech(path: Path, language: Optional[str] = "en") -> str:
+def transcribe_speech(path: Path, language: Optional[str] = "en", prompt: Optional[str] = None) -> str:
     """Stricter than transcribe_file, for audio that may be nothing but a
     carrier: keeps only segments Whisper itself scores as speech (no-speech
     probability under 0.5, mean log-probability over -1.0, compression ratio
@@ -133,7 +133,7 @@ def transcribe_speech(path: Path, language: Optional[str] = "en") -> str:
             prepare(path, clean)
             segments, _info = _load().transcribe(
                 str(clean), language=language, beam_size=5, vad_filter=False,
-                condition_on_previous_text=False, temperature=0.0)
+                condition_on_previous_text=False, temperature=0.0, initial_prompt=prompt)
             kept = [s.text.strip() for s in segments
                     if s.no_speech_prob < 0.5 and s.avg_logprob > -1.0 and s.compression_ratio < 2.4]
         finally:

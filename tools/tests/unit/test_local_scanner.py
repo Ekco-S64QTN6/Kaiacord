@@ -39,7 +39,7 @@ def _catch(freq, audio, seconds=8.0):
 
 
 def test_a_catch_with_words_is_voice_and_lands_in_its_hour(monkeypatch):
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: "checking in from the north side, over")
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: "checking in from the north side, over")
     quiet = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 8)) * 3000).astype(np.int16)
     scanner.classify(_catch(146_860_000, quiet))
     ch = ledger.channel(146_860_000)
@@ -49,14 +49,14 @@ def test_a_catch_with_words_is_voice_and_lands_in_its_hour(monkeypatch):
 
 
 def test_a_kerchunk_is_ignored(monkeypatch):
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: "should not be called")
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: "should not be called")
     scanner.classify(_catch(146_860_000, np.zeros(6000, np.int16), seconds=0.5))
     assert ledger.recent(5) == []
 
 
 def test_digital_audio_is_data_and_not_transcribed(monkeypatch):
     called = []
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: called.append(1) or "")
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: called.append(1) or "")
     # FM-demodulated digital audio rises with frequency (the Fusion repeater on
     # 444.200 measured 73% above 3 kHz); differentiated noise has that shape.
     # Under a carrier, well below the hiss of an empty channel.
@@ -69,7 +69,7 @@ def test_static_is_ledgered_as_noise_and_never_transcribed_or_kept(monkeypatch):
     """Hiss that trips the trigger has no carrier under it; Whisper would
     write words onto it ("We'll be right back." on 445.51)."""
     called, saved = [], []
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: called.append(1) or "we'll be right back")
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: called.append(1) or "we'll be right back")
     monkeypatch.setattr(scanner, "_save_clip", lambda *a: saved.append(1) or "clip.ogg")
     scanner.classify(_catch(445_510_000, _hiss(8.0)))
     rows = ledger.catches_since(0)
@@ -113,7 +113,7 @@ def test_history_offers_recorded_catches_to_play(monkeypatch, tmp_path):
     from unittest.mock import AsyncMock
     from utils.commands import scanner_handler as sh
     monkeypatch.setattr(scanner, "_clips_dir", lambda: tmp_path)
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: "net control, this is kilo five, over")
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: "net control, this is kilo five, over")
     audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
     scanner.classify(_catch(146_860_000, audio))
     assert sh._recorded() == []                  # the clip isn't on disk: nothing to play
@@ -162,7 +162,7 @@ def test_one_transmitter_is_one_row():
 
 def test_a_channel_that_never_carries_voice_stops_being_transcribed(monkeypatch):
     calls = []
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: calls.append(1) or "")
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: calls.append(1) or "")
     audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
     for _ in range(scanner.QUIET_CHANNEL_HITS + 2):
         scanner.classify(_catch(462_275_000, audio, seconds=6))
@@ -174,7 +174,7 @@ def test_a_channel_that_never_carries_voice_stops_being_transcribed(monkeypatch)
 def test_a_net_is_transcribed_and_clipped_whatever_the_nights_budget(monkeypatch):
     """The overnight scan spends the same date's allowance; a net at 20:15 must still be heard."""
     calls, clips = [], []
-    monkeypatch.setattr(scanner, "_transcribe", lambda a: calls.append(1) or "")
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: calls.append(1) or "")
     monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
     monkeypatch.setitem(scanner._transcribed, "date", datetime.now().strftime("%Y-%m-%d"))
     monkeypatch.setitem(scanner._transcribed, "count", scanner.TRANSCRIBE_PER_NIGHT)
@@ -484,7 +484,7 @@ def test_speech_the_strict_pass_drops_gets_a_second_pass(monkeypatch):
     from utils.radio import waterfall as w
     passes = []
     monkeypatch.setattr(scanner, "_transcribe",
-                        lambda a, speech_only=True: passes.append(speech_only) or ("" if speech_only else "I can't believe this. Yeah, I can't either."))
+                        lambda a, speech_only=True, **k: passes.append(speech_only) or ("" if speech_only else "I can't believe this. Yeah, I can't either."))
     monkeypatch.setattr(w, "voice_like", lambda a: True)
     monkeypatch.setattr(scanner, "morse_id", lambda a: False)
     burst = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
@@ -530,3 +530,35 @@ def test_packet_radio_is_told_from_carriers_voice_and_hiss():
     assert not waterfall.is_packet(voice)
     short = afsk[: rate // 4]                                  # a quarter second: a Morse-ID-length blip
     assert not waterfall.is_packet(short)
+
+
+def test_whisper_hears_the_speech_not_the_squelch_tail():
+    """66 s of hiss round a 2 s "audio check" gave Whisper the hiss to write on."""
+    import numpy as np
+    from utils.radio import waterfall as w
+    rng = np.random.default_rng(3)
+    hiss = (rng.standard_normal(w.AUDIO_FS * 20) * 6000).astype(np.int16)          # an empty channel's hiss
+    t = np.arange(w.AUDIO_FS * 2) / w.AUDIO_FS
+    voice = (3000 * np.sin(2 * np.pi * 700 * t) * (0.5 + 0.5 * np.sin(2 * np.pi * 3 * t))).astype(np.int16)
+    audio = np.concatenate([hiss[:w.AUDIO_FS * 8], voice, hiss[w.AUDIO_FS * 8:]])
+    on, _ = w.carried(audio)
+    if not on.any():
+        pytest.skip("the synthetic voice did not quiet the hiss detector")
+    speech = w.speech_audio(audio)
+    assert 1.5 * w.AUDIO_FS <= len(speech) <= 3.0 * w.AUDIO_FS                  # the over, a little padding
+
+
+def test_the_prompt_follows_the_band_and_an_echo_is_redone():
+    assert scanner.prompt_for(145_690_000) is None                         # ham: no prompt
+    assert scanner.prompt_for(460_575_000) is scanner.DISPATCH_PROMPT
+    assert not any(ch.isdigit() for ch in scanner.DISPATCH_PROMPT)        # vocabulary, no example numbers to copy
+    echo = "Engine, truck, rescue, medic, battalion, units, medical emergency, cross of, northbound"
+    real = "Engine 11, 4500 Example Boulevard, cross of First Avenue and Second Avenue, map 45, X-ray."
+    assert scanner.prompt_echo(echo, scanner.DISPATCH_PROMPT)
+    assert not scanner.prompt_echo(real, scanner.DISPATCH_PROMPT)
+    assert not scanner.prompt_echo(echo, None)
+
+
+def test_repeated_filler_is_not_speech():
+    assert not scanner.looks_like_speech("Thank you. Thank you")
+    assert scanner.looks_like_speech("Jackson Street and South Market Street. Jackson Street and South Market Street.")

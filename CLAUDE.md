@@ -739,6 +739,13 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   `rtl.DEVICE` cannot see it, and the bot's watch then fails "busy" and backs off 15 minutes — stop
   any such run before a configured net or the nightly hours. Local repeaters and nets are
   deployment facts and live in config, never in code or tracked docs.
+- **Whisper hears the carried audio, with the band's vocabulary.** `_transcribe` hands it `speech_audio`
+  (carried runs, padded, 0.3 s apart), not the squelch tail, and an `initial_prompt` by band: dispatch
+  words and the APCO alphabet, or ham terms (`prompt_for`). Keep the prompts word lists. Example
+  sentences were copied into transcripts ("Westview 38" became "11, rescue 38"; a cross street nobody
+  said appeared), and the dispatch list rewrote a ham conversation. Measured on 52 real clips old
+  against new and every changed one read. `looks_like_speech` drops repeated filler ("Thank you.
+  Thank you") but lets an address read twice through.
 - **Transcription on FM static hallucinates.** Auto-detected language on a bare carrier produced a
   Norwegian subtitle credit three times in an hour. The scanner transcribes in English through
   `transcribe.transcribe_speech`, which keeps only segments Whisper scores as speech. Human repeater

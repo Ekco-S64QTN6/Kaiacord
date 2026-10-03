@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -219,19 +220,60 @@ def _wav(audio):
         yield p
 
 
-def _transcribe(audio, speech_only: bool = True) -> str:
+# Dispatch channels get a vocabulary prompt: it took valid map letters from 48%
+# to 77% over 52 real clips and recovered calls the plain pass missed. Word
+# lists, never example sentences — sentences with numbers and street names
+# were copied into the transcripts ("Westview 38" became "11, rescue 38", a
+# cross street nobody said appeared). Ham bands get none: a ham word list
+# clipped a conversation and, on a hard clip, came back as the list itself.
+DISPATCH_PROMPT = ("Fire and EMS dispatch. Engine, truck, rescue, medic, battalion, units, medical emergency, "
+                   "cross of, map, northbound, southbound, eastbound, westbound, service road, number. Adam, Boy, "
+                   "Charles, David, Edward, Frank, George, Henry, Ida, John, King, Lincoln, Mary, Nora, Ocean, Paul, "
+                   "Queen, Robert, Sam, Tom, Union, Victor, William, X-ray, Young, Zebra.")
+HAM_BANDS = [(144_000_000, 148_000_000), (222_000_000, 225_000_000), (420_000_000, 450_000_000),
+             (902_000_000, 928_500_000)]
+
+
+#: A transcript this much made of the prompt's own words is the prompt read
+#: back, not the channel: real dispatch measured 0.57 at most, echoes 1.00.
+ECHO_SHARE = 0.8
+
+
+def prompt_for(freq_hz: int) -> Optional[str]:
+    return None if any(lo <= freq_hz < hi for lo, hi in HAM_BANDS) else DISPATCH_PROMPT
+
+
+def prompt_echo(text: str, prompt: Optional[str]) -> bool:
+    if not prompt:
+        return False
+    vocab = {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z-]+", prompt)}
+    words = [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z-]+", text)]
+    return len(words) >= 6 and sum(w in vocab for w in words) / len(words) >= ECHO_SHARE
+
+
+def _transcribe(audio, speech_only: bool = True, freq_hz: int = 0) -> str:
     """`speech_only` keeps only segments Whisper scores as speech, which is
     what stops it writing words onto a carrier; it also scores some real
     repeater voice low, so a strong, speech-like catch gets a second pass
-    without it."""
+    without it. Whisper hears only the carried audio (`speech_audio`): a clip
+    that was mostly squelch tail gave it hiss to write words onto."""
     from utils.radio import transcribe
+    from utils.radio.waterfall import speech_audio
     if not transcribe.available():
         return ""
+    speech = speech_audio(audio)
+    if len(speech) >= rtl.SAMPLE_RATE // 2:
+        audio = speech
+    prompt = prompt_for(freq_hz) if freq_hz else None
     with _wav(audio) as p:
         # English, not auto-detect: on static, auto-detect picked Norwegian and
         # Whisper produced a subtitle credit. radio.local.language overrides.
         run = transcribe.transcribe_speech if speech_only else transcribe.transcribe_file
-        return run(p, language=_cfg("language", "en")).strip()
+        text = run(p, language=_cfg("language", "en"), prompt=prompt).strip()
+        if prompt_echo(text, prompt):
+            log_debug(f"[scanner] the prompt came back as the transcript on {freq_hz / MHZ:.4f}; again without it")
+            text = run(p, language=_cfg("language", "en")).strip()
+        return text
 
 
 # A Morse ID keys fast on one tone: 150–257 key-downs a minute on 145.690's and
@@ -300,7 +342,17 @@ def looks_like_speech(text: str) -> bool:
     words = [w for w in words if w]
     if len(words) < 3:
         return False
-    if len(set(words)) / len(words) < 0.5:
+    # Whisper's stock filler, however many times over: "Thank you. Thank you"
+    # came off three minutes of hiss on 457.606 and passed as half-unique.
+    rest = " " + " ".join(words) + " "
+    for filler in (" thank you ", " thanks for watching ", " thanks ", " you ", " bye "):
+        while filler in rest:
+            rest = rest.replace(filler, " ")
+    if len(rest.split()) < 2:
+        return False
+    # A loop is three or more of the same words; dispatch reads every address
+    # twice, and "…Street and South Market Street", twice, is 42% unique.
+    if len(set(words)) / len(words) < 0.4:
         return False
     low = text.strip().lower()
     if any(p in low for p in ("teksting av", "subtitles by", "amara.org", "nicolai winther")):
@@ -368,9 +420,9 @@ def classify(catch) -> None:
     if net or (not m.digital and not packet and not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT):
         if not net:
             _transcribed["count"] += 1
-        text = _transcribe(catch.audio)
+        text = _transcribe(catch.audio, freq_hz=catch.freq_hz)
         if not looks_like_speech(text) and speechlike and not morse_id(catch.audio):
-            text = _transcribe(catch.audio, speech_only=False)
+            text = _transcribe(catch.audio, speech_only=False, freq_hz=catch.freq_hz)
         if looks_like_speech(text):
             kind, transcript = "voice", text
     # Only what's worth hearing is kept: voice, a net, and a carrier that sounds

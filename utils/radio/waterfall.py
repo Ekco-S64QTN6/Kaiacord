@@ -232,6 +232,32 @@ def carried_audio(audio: np.ndarray) -> np.ndarray:
     return audio[:k * FRAME].reshape(k, FRAME)[on].ravel() if k else audio[:0]
 
 
+def speech_audio(audio: np.ndarray, pad_frames: int = 3, gap_s: float = 0.3) -> np.ndarray:
+    """What to hand a transcriber: each carried run with `pad_frames` either
+    side (word onsets sit under the carrier's first frames), runs under 0.2 s
+    dropped, a short silence between them. A clip that was mostly squelch
+    tail and gaps — 66 s of hiss round a 2 s "audio check" — gave Whisper the
+    hiss to write words onto, and diluted its speech scores."""
+    on, _ = carried(audio)
+    k = len(on)
+    if not k or not on.any():
+        return audio[:0]
+    keep = on.copy()
+    for d in range(1, pad_frames + 1):
+        keep[d:] |= on[:-d]
+        keep[:-d] |= on[d:]
+    frames = audio[:k * FRAME].reshape(k, FRAME)
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], keep.astype(np.int8), [0]))))
+    gap = np.zeros(int(gap_s * AUDIO_FS), dtype=audio.dtype)
+    runs = [frames[a:b].ravel() for a, b in zip(edges[::2], edges[1::2]) if (b - a) * FRAME >= 0.2 * AUDIO_FS]
+    if not runs:
+        return audio[:0]
+    out = [runs[0]]
+    for r in runs[1:]:
+        out += [gap, r]
+    return np.concatenate(out)
+
+
 #: A catch is packet data (APRS, AX.25) when the Bell 202 tones hold this share
 #: of at least AFSK_MIN_FRAMES carrier frames. Measured: APRS packets off the
 #: air 52–62%, idle hiss 0%, the most tone-like voice clip 36%; a Morse ID hits
