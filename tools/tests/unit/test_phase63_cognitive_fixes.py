@@ -71,7 +71,6 @@ def test_message_context_default_pipeline_attributes():
     assert ctx.context_nodes == []
     assert ctx.system_prompt == ""
     assert ctx.user_traits == {}
-    assert ctx.knowledge_boundary_check == {}
     assert ctx.classification_task is None
     assert ctx._is_channel_recall is False
     assert ctx._channel_refs is None

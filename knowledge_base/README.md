@@ -49,11 +49,10 @@ They run weekly from `_make_dream_curation_task` (`dream_mode.auto_curate`).
 
 ## Adding a folder
 
-A new top-level folder has to be added in four places or it will half-work:
+A new top-level folder has to be added in three places or it will half-work:
 
 1. `process_ingress.ALLOWED_FOLDERS` — or a sidecar naming it is silently ignored
-2. `knowledge_boundary` — or she will not vouch for anything in it
-3. `enrich_metadata.knowledge_dirs` — or its frontmatter is never backfilled
-4. `kaia_rag_indexer` — only if it needs a `source_type` of its own
+2. `enrich_metadata.knowledge_dirs` — or its frontmatter is never backfilled
+3. `kaia_rag_indexer` — only if it needs a `source_type` of its own
 
-`tools/tests/unit/test_kb_structure.py` checks 1 and 2 against what is on disk.
+`tools/tests/unit/test_kb_structure.py` checks 1 against what is on disk.

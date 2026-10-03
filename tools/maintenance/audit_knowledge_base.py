@@ -51,8 +51,8 @@ NOT_CORPUS = {"_ingress", "_quarantine", "forum_posts"}
 
 # `forum_posts` is excluded above because the curated-corpus checks do not apply
 # to scraped threads: they are short by nature, duplicated by nature, and carry
-# no hand-written summary. It is still **indexed and retrievable**
-# (`knowledge_boundary.py` lists it), so a mechanical fault there reaches her
+# no hand-written summary. Forum drafting reads these threads directly, so a
+# mechanical fault there reaches her
 # answers exactly like one anywhere else — and 4,516 files were invisible to
 # every check. The integrity checks below run over it; the quality ones do not.
 MECHANICAL_ONLY = {"forum_posts"}

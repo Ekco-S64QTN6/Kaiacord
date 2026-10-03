@@ -13,7 +13,6 @@ Core utility modules used by Kaiacord.
 | `kaia_rag_retriever.py` | `SimpleBM25Retriever`, `HybridRetriever` (RRF), the RAG lock decorators, and vector search from a cached matrix (filtered queries included), which keeps a search from holding the GIL ~100 ms |
 | `rag_utils.py` | Node text/metadata helpers, `is_news_node` / `is_profile_node`, speaker from a log path, `request_reindex` |
 | `rag_executor.py` | The thread pool retrieval runs in, off the event loop |
-| `knowledge_boundary.py` | Flags names in the user's message that nothing in her corpus contains (logged only; nothing reads the result) |
 | `kaia_intelligence.py` | Intelligence facade — coordinates intent matching, budgeting and enrichment |
 | `intent_classifier.py` | Intent detection by regex. No model — the `gemma2:2b` second pass was removed in Sept 2026 because its verdict was never read |
 | `context_optimizer.py` | The one context budget, and the labels retrieved chunks carry into the prompt |

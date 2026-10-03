@@ -947,7 +947,7 @@ message actually sent, a guard's verdict against its own return value.
   `quarantine` → `_quarantine`, `snapshots` + `system_logs` → `runtime`, `blogs` and
   `deep_dive_reports` → `documents`, `documents/tech_updates` → `news/tech_updates`); `kaia_notes/`
   (her own notes, deliberately not an ingress destination) later made thirteen. A new folder
-  has to be named in `process_ingress.ALLOWED_FOLDERS`, `knowledge_boundary` and
+  has to be named in `process_ingress.ALLOWED_FOLDERS` and
   `enrich_metadata.knowledge_dirs` or it half-works silently — a sidecar naming a folder absent
   from the allow-list is discarded and the file is filed as a document instead. That is not
   hypothetical: `_classify_folder` returned `"Books"` against an allow-list holding `"books"`, so

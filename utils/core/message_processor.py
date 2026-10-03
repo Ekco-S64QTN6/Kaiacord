@@ -49,7 +49,6 @@ from utils.infrastructure.logging.kaia_logger import (
 )
 from utils.core.message_context import MessageContext
 from utils.core.response_filter import BotSpeakFilter
-from utils.core.knowledge_boundary import KnowledgeBoundary
 from utils.core.rag_executor import run_rag_retrieval
 from utils.infrastructure.monitoring.async_task_registry import task_registry
 from utils.social.kaia_social_responder import load_persona_async
@@ -261,7 +260,6 @@ class MessageProcessor:
         # Internal components
         from utils.core.context_enricher import ContextEnricher
         self.context_enricher = ContextEnricher(self.bot)
-        self.knowledge_boundary = KnowledgeBoundary(self.config.knowledge_base_dir)
         
         # Backpressure lock for background logging tasks
         self._bg_semaphore = asyncio.Semaphore(10)
@@ -742,52 +740,11 @@ class MessageProcessor:
             log_debug(f"Retrieval confidence: {ctx.retrieval_confidence:.2f} "
                       f"({ctx.retrieval_node_count} nodes)")
 
-        # 6. Knowledge Boundary Check (Entity Verification)
-        ctx.knowledge_boundary_check = {"all_known": True, "unknown_in_context": []}
+        # Cache history in context early to avoid redundant list conversions
         try:
-            # Cache history in context early to avoid redundant list conversions
             ctx.history = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
-            
-            from utils.core.rag_utils import get_node_text
-            # Avoid massive join for boundary check - KnowledgeBoundary should handle list of strings
-            rag_snippets = [get_node_text(n) for n in ctx.context_nodes] if ctx.context_nodes else []
-            
-            # Extract snippets safely whether history contains strings or dicts
-            history_snippets = []
-            for m in ctx.history[-5:]:
-                if isinstance(m, dict) and 'content' in m:
-                    history_snippets.append(m['content'])
-                elif isinstance(m, str):
-                    history_snippets.append(m)
-                    
-            context_list = rag_snippets + history_snippets
-            
-            # Whitelist current author and bot
-            whitelist = {ctx.author_name, "Kaia"}
-            if self.bot and self.bot.user:
-                whitelist.add(self.bot.user.name)
-            # Resolve display name variants
-            if hasattr(ctx.message.author, 'display_name') and ctx.message.author.display_name:
-                whitelist.add(ctx.message.author.display_name)
-                
-            # The user's own words, not the enriched message: passing
-            # sanitized_content makes the enricher's own markers
-            # ('LINKED_WEB_CONTENT', 'CORE_DIRECTIVE') look like entities the
-            # user named.
-            from utils.core.sanitizer import user_authored_text
-            boundary_check = self.knowledge_boundary.check_known_entities(
-                user_authored_text(ctx.sanitized_content), context_list, whitelist=whitelist)
-            ctx.knowledge_boundary_check = boundary_check
-            
-            if not boundary_check["all_known"]:
-                log_msg = f"Knowledge Boundary: Detected unknown entities: {boundary_check['unknown_in_context']}"
-                # Only escalate to warning for multi-word entities (likely real proper nouns)
-                if any(len(e.split()) > 1 for e in boundary_check['unknown_in_context']):
-                    log_warning(log_msg)
-                else:
-                    log_debug(log_msg)
         except Exception as e:
-            log_warning(f"Error in Knowledge Boundary Check: {e}")
+            log_warning(f"Channel history not cached on the turn: {e}")
 
         # 7. Curiosity injection — soft follow-up prompt for unresolved user mentions
         curiosity_note = ""

@@ -179,17 +179,6 @@ async def on_ready():
     if ctx.rag:
         ctx.rag._bot_user_id = bot.user.id
 
-    # Register guild member names for Knowledge Boundary
-    if ctx.message_processor and hasattr(ctx.message_processor, "knowledge_boundary"):
-        all_names = set()
-        for guild in bot.guilds:
-            for member in guild.members:
-                all_names.add(member.name)
-                if member.display_name != member.name:
-                    all_names.add(member.display_name)
-        ctx.message_processor.knowledge_boundary.register_usernames(all_names)
-        log_info(f"Registered {len(all_names)} guild member names in Knowledge Boundary.")
-
     # ── PHASE 1: Exclusive GPU warm for chat model ──────────────────────────
     # Runs alone — no other Ollama calls permitted concurrently.
     async with _gpu_startup_lock:
