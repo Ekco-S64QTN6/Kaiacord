@@ -383,6 +383,13 @@ Rules that follow:
   "re" was a word she had brought. Names are address, not content: her vocative ("…, starkind.")
   made a verbatim echo look original.
 
+**Her recent replies are the next reply's template.** History goes into every prompt, so a line she
+repeats becomes an example, each copy one more. On 3 Oct "it's a reminder that even in the digital
+realm, there's still room for quiet …" went from nothing to 28 of 58 replies in a morning, most
+opening "a <adjective> <noun>, starkind. a <noun phrase>." `detemplate_history` shows her own turns
+without lines she has used twice in the window (and without that grading opener); the logs are not
+touched. `strip_repeated_lines` drops the same from what she sends, with any fragment left hanging.
+
 **Detect by vocabulary, not by shape — and measure what the marker is actually used for.**
 The stage-direction guard classified a span as roleplay if it was multi-word, lowercase and
 digit-free. Two things were wrong. The lowercase test was dead (`content.lower()` ran before

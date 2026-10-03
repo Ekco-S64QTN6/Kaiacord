@@ -1732,6 +1732,11 @@ class MessageProcessor:
         system_prompt = optimized['persona']
         context_str = optimized['rag']
         optimized_history = optimized.get('history', [])
+        try:
+            from utils.core.safety_pipeline import PostGenerationSafetyPipeline
+            optimized_history = PostGenerationSafetyPipeline.detemplate_history(optimized_history)
+        except Exception as _tpl_err:
+            log_debug(f"History not de-templated: {_tpl_err}")
 
         # An image with almost no text is the one case where history can
         # outweigh the message: a picture captioned "Kaia," against 27 injected
@@ -2439,6 +2444,11 @@ class MessageProcessor:
             _mine = [t.get("content", "") for t in list(_bs.channel_memory.get(ctx.channel_id, []))
                      if t.get("role") == "assistant"]
             ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_closer(ctx.response_text, _mine)
+            ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_lines(ctx.response_text, _mine)
+        except Exception:
+            pass
+        try:
+            ctx.response_text = PostGenerationSafetyPipeline.strip_grading_opener(ctx.response_text)
         except Exception:
             pass
         try:

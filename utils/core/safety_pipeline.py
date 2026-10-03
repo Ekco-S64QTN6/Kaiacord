@@ -766,6 +766,163 @@ class PostGenerationSafetyPipeline:
         log_warning(f"[CLOSER_GUARD] Dropped a closing line repeating her recent ones: {last[:60]!r}")
         return rest
 
+    # ── Her own templates ────────────────────────────────────────────
+    #
+    # A reply is generated with her recent replies in the channel as history,
+    # so a line she happens to repeat becomes an example the next reply copies,
+    # and the copy is one more example. On 3 Oct "it's a reminder that even in
+    # the digital realm, there's still room for quiet …" went from nothing to
+    # 28 of 58 replies in a morning, most opening "a <adjective> <noun>,
+    # starkind. a <noun phrase>." — grading what was said, which the persona
+    # bans. These break the loop on both sides: in the history she is shown,
+    # and in what she sends.
+
+    # The first fragment names something *said* — the grading is of the
+    # speaker's words. "it's an enclosed space, starkind. a narrow, vertical
+    # shaft." describes a picture and is the answer; a shape rule took it too.
+    _SAID_NOUN = (r"(?:point|question|observation|declaration|perspective|assessment|statement|assertion|"
+                  r"clarification|qualification|comment|take|inquiry|interpretation|analogy|request|response|"
+                  r"sentiment|suggestion|distinction|correction|hypothesis|caveat|challenge|stance|remark|"
+                  r"argument|framing|reading|summary|proposition|premise|objection|idea|thought|query|"
+                  r"concern|description|explanation|claim|critique|counterpoint|reply|answer|admission|"
+                  r"confession|reminder|insight|note|proposal|theory|conclusion|summation|reframing)s?")
+    _GRADING_OPENER = re.compile(
+        r"^(?:(?:that|it)(?:'|\u2019)s\s+)?an?\s+(?:[a-z\-]+\s+){0,2}" + _SAID_NOUN +
+        r",\s+[a-z0-9_.\-]{2,24}\.\s+(an?\s+[a-z][a-z ,'\u2019\-]{2,70})\.\s+", re.IGNORECASE)
+    _FRAGMENT = re.compile(r"^an?\s+[a-z][a-z ,'\u2019\-]{2,70}\.$", re.IGNORECASE)
+    #: A verb that makes a clause of a fragment: the grading opener's second half
+    #: has none ("a definitive stance."), a real sentence does.
+    _CLAUSE_VERB = re.compile(
+        r"\b(?:is|are|was|were|be|been|being|am|has|have|had|do|does|did|can|could|will|would|shall|"
+        r"should|may|might|must)\b|['\u2019](?:s|re|ve|ll|d|m)\b", re.IGNORECASE)
+    #: A sentence left hanging off the line before it: "…room for quiet
+    #: conviction. for a commitment to deeply held beliefs." Dropped with it.
+    _HANGING = re.compile(r"^(?:for|to|with|of|in|and|or|but|nor|an?|like|as)\b", re.IGNORECASE)
+    _WORD = re.compile(r"[a-z0-9']+")
+    #: A sentence is "the same line" as another when its first this many words match.
+    TEMPLATE_WORDS = 6
+
+    @classmethod
+    def _sentences(cls, text: str) -> list:
+        return [x for x in re.split(r"(?<=[.!?\u2026])\s+", (text or "").strip()) if x.strip()]
+
+    #: Only a short line is a template: past this many words a shared opening
+    #: carries different content ("the document now explores the concept of
+    #: 'digital feudalism' – the idea that …").
+    TEMPLATE_MAX_WORDS = 18
+
+    @classmethod
+    def _line_key(cls, sentence: str):
+        words = cls._WORD.findall(sentence.lower().replace("\u2019", "'"))
+        if not cls.TEMPLATE_WORDS <= len(words) <= cls.TEMPLATE_MAX_WORDS:
+            return None
+        return " ".join(words[:cls.TEMPLATE_WORDS])
+
+    @classmethod
+    def _drop_fragment_run(cls, rest: str) -> str:
+        """Further verbless "a …" fragments continuing the opener's run go with it:
+        left behind, "a deliberate attempt to replicate a flawed process." opens
+        the reply on nothing."""
+        while True:
+            m = re.match(r"^([^.!?\n]{3,80}\.)\s*", rest)
+            if not m or not cls._FRAGMENT.match(m.group(1)) or cls._CLAUSE_VERB.search(m.group(1)):
+                return rest
+            rest = rest[m.end():].lstrip()
+
+    @classmethod
+    def _hanging(cls, sentence: str) -> bool:
+        return bool(cls._HANGING.match(sentence.strip())) and len(sentence.split()) <= 14 \
+            and not cls._CLAUSE_VERB.search(sentence)
+
+    @classmethod
+    def strip_grading_opener(cls, text: str) -> str:
+        """Drop an opening pair of verbless fragments that grade what was said —
+        "a bold declaration, starkind. a definitive stance." — keeping the reply."""
+        m = cls._GRADING_OPENER.match((text or "").lstrip())
+        if not m or cls._CLAUSE_VERB.search(m.group(1)):
+            return text
+        rest = cls._drop_fragment_run(text.lstrip()[m.end():].lstrip())
+        if len(rest) < 40:
+            return text
+        log_warning(f"[TEMPLATE_GUARD] Dropped a grading opener: {m.group(0).strip()[:70]!r}")
+        return rest
+
+    @classmethod
+    def strip_repeated_lines(cls, text: str, previous: list, window: int = 6) -> str:
+        """Drop a sentence she has used in two or more of her last `window`
+        replies, or already used earlier in this one. Whole paragraphs are kept
+        intact otherwise; the reply is left alone if under 40 characters would remain."""
+        recent = {}
+        for p in (previous or [])[-window:]:
+            for k in {cls._line_key(x) for x in cls._sentences(p)} - {None}:
+                recent[k] = recent.get(k, 0) + 1
+        out_paras, seen, dropped = [], set(), []
+        for para in re.split(r"(\n\s*\n)", text or ""):
+            if not para.strip() or re.fullmatch(r"\n\s*\n", para):
+                out_paras.append(para)
+                continue
+            kept, after_drop = [], False
+            for sent in cls._sentences(para):
+                k = cls._line_key(sent)
+                if k and (recent.get(k, 0) >= 2 or k in seen):
+                    dropped.append(sent)
+                    after_drop = True
+                    continue
+                if after_drop and cls._hanging(sent):
+                    dropped.append(sent)
+                    continue
+                after_drop = False
+                if k:
+                    seen.add(k)
+                kept.append(sent)
+            out_paras.append(" ".join(kept))
+        if not dropped:
+            return text
+        out = re.sub(r"(\n\s*\n){2,}", "\n\n", "".join(out_paras)).strip()
+        if len(out) < 40:
+            return text
+        log_warning(f"[TEMPLATE_GUARD] Dropped {len(dropped)} line(s) she keeps repeating: {dropped[0][:70]!r}")
+        return out
+
+    @classmethod
+    def detemplate_history(cls, history: list) -> list:
+        """Her own turns as she is shown them, without the lines she has been
+        repeating: a sentence opening the same way in two or more of her turns
+        in the window, and the grading opener. The logs are untouched; this is
+        what keeps one repeated line from becoming the next reply's template."""
+        mine = [i for i, t in enumerate(history or []) if isinstance(t, dict) and t.get("role") == "assistant"]
+        if len(mine) < 3:
+            return history
+        counts = {}
+        for i in mine:
+            for k in {cls._line_key(x) for x in cls._sentences(history[i].get("content", ""))} - {None}:
+                counts[k] = counts.get(k, 0) + 1
+        repeated = {k for k, n in counts.items() if n >= 2}
+        out = list(history)
+        for i in mine:
+            text = history[i].get("content", "")
+            m = cls._GRADING_OPENER.match(text.lstrip())
+            if m and not cls._CLAUSE_VERB.search(m.group(1)):
+                rest = cls._drop_fragment_run(text.lstrip()[m.end():].lstrip())
+                if len(rest.strip()) >= 20:
+                    text = rest
+            if repeated:
+                paras = []
+                for para in re.split(r"\n\s*\n", text):
+                    kept, after_drop = [], False
+                    for x in cls._sentences(para):
+                        if cls._line_key(x) in repeated or (after_drop and cls._hanging(x)):
+                            after_drop = True
+                            continue
+                        after_drop = False
+                        kept.append(x)
+                    if kept:
+                        paras.append(" ".join(kept))
+                text = "\n\n".join(paras) if paras else text
+            if text != history[i].get("content", ""):
+                out[i] = {**history[i], "content": text}
+        return out
+
     @classmethod
     def apply_style_collapsers(cls, text: str) -> str:
         """Step 10: Ellipsis & Em Dash Collapsers (run on final response before send)."""

@@ -704,3 +704,62 @@ def test_a_modifier_of_the_cut_clause_goes_with_it():
     out = BotSpeakFilter.harden("You’re right to draw that parallel between cybersecurity and DeFi, particularly with RWAs "
                    "like Centrifuge. that misconfiguration is the kind of error that cascades.")
     assert out == "that misconfiguration is the kind of error that cascades."
+
+
+# ── Her own templates: the 3 Oct "digital realm" loop ────────────────
+
+def test_a_grading_opener_is_dropped_and_an_answer_is_not():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    out = P.strip_grading_opener("a bold declaration, starkind. a definitive stance.\n\n"
+                                 "the rejection of conciseness as a virtue is a provocative challenge.")
+    assert out == "the rejection of conciseness as a virtue is a provocative challenge."
+    # Describing a picture is the answer, not grading anything said.
+    for keep in ("it's an enclosed space, starkind. a narrow, vertical shaft. there's a metal staircase down.",
+                 "it's a riverfront, ekco. the sign is warning about drowning and strong currents here.",
+                 "a fair point, jimjam. a good one is hard to find, honestly. but build time matters more."):
+        assert P.strip_grading_opener(keep) == keep
+    # A run of further fragments goes with the opener rather than opening the reply.
+    out = P.strip_grading_opener("it's a strange request, ekco. a return to an earlier experiment. "
+                                 "a deliberate attempt to replicate a flawed process. i'm setting it up now, as starkind outlined it.")
+    assert out == "i'm setting it up now, as starkind outlined it."
+
+
+def test_a_line_she_keeps_repeating_goes_with_what_hangs_off_it():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    line = "it’s a reminder that even in the digital realm, there’s still room for quiet {}."
+    previous = [f"something else. {line.format('empathy')} for understanding.",
+                f"another thing. {line.format('curiosity')}"]
+    reply = (f"the cable's length is a limiting factor, and a longer one would fix it.\n\n"
+             f"{line.format('problem-solving')} for a moment of ingenuity.\n\n[i am adjusting the lights.]")
+    out = P.strip_repeated_lines(reply, previous)
+    assert "digital realm" not in out and "for a moment of ingenuity" not in out
+    assert out.startswith("the cable's length") and "[i am adjusting the lights.]" in out
+    # Once is not a habit; a long sentence sharing an opening is content.
+    assert P.strip_repeated_lines(reply, previous[:1]) == reply
+    long = "the document now explores the concept of “digital feudalism” – the idea that platforms own the land we build on."
+    assert P.strip_repeated_lines("first. " + long, ["x. " + long, "y. " + long]) == "first. " + long
+
+
+def test_the_same_line_twice_in_one_reply_is_said_once():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    line = "it’s a reminder that even in the digital realm, there’s still room for quiet {}."
+    reply = f"the assertion is unexpected, and it lands oddly.\n\n{line.format('conviction')}\n\n{line.format('contemplation')}"
+    out = P.strip_repeated_lines(reply, [])
+    assert out.count("digital realm") == 1
+
+
+def test_her_history_is_shown_without_the_lines_she_keeps_repeating():
+    """The loop's engine: repeated lines in her recent turns are the template
+    the next reply copies. The logs are untouched; the prompt's copy is not."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    tic = "it’s a reminder that even in the digital realm, there’s still room for quiet reflection."
+    hist = [{"role": "user", "content": "starkind: hm"},
+            {"role": "assistant", "content": f"a pointed question, starkind. a challenge to the assumption.\n\nthe impulse is verification. {tic}"},
+            {"role": "user", "content": "ekco: ok"},
+            {"role": "assistant", "content": f"no apology necessary, ekco. attention is finite. {tic}"},
+            {"role": "assistant", "content": "the cable is too short for the desk, that's all."}]
+    out = P.detemplate_history(hist)
+    assert all("digital realm" not in t["content"] for t in out)
+    assert out[1]["content"] == "the impulse is verification."
+    assert out[0] == hist[0] and out[4] == hist[4]
+    assert "digital realm" in hist[1]["content"]                      # the original is not mutated
