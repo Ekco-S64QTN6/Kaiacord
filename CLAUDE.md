@@ -372,6 +372,16 @@ Rules that follow:
   reads ("the is" → "that is"); never invent them.
 - Punctuation is not survival. `tail.strip()` on a bare `"."` is truthy, so the trailing-connector
   repair never ran when the offence reached the end of the sentence.
+- **Measure a pattern change old against new, over a month of real turns, and read every reply
+  it changes.** Pair each user turn with her reply from `knowledge_base/user_logs/`, run the
+  committed filter and the edited one, and diff. That is how the October fixes found that
+  "processing capabilities" also described language models, that a bare "that's astute" after a
+  comma stranded its subject, and that "and worth expanding on" passed as a clause because an
+  -ing form counted as a verb.
+- **Normalise before comparing words.** The echo guard missed "you’re one of the most beautiful
+  things…" handed straight back, because a curly apostrophe split "you’re" into "you" + "re", and
+  "re" was a word she had brought. Names are address, not content: her vocative ("…, starkind.")
+  made a verbatim echo look original.
 
 **Detect by vocabulary, not by shape — and measure what the marker is actually used for.**
 The stage-direction guard classified a span as roleplay if it was multi-word, lowercase and
@@ -684,6 +694,11 @@ when it does. Otherwise a post rotates among its home label and the ambient ones
 the last label used in that channel. An observation is always an Observation. Tune the cues
 against `utils/core/unprompted._leans`, and keep `test_descriptive_labels_are_only_worn_when_earned`
 passing: "Unspooling" on a post that questions nothing stops meaning anything.
+
+**A reply to an unprompted post is addressed to her.** `speak` marks the post `unprompted: True` in
+channel memory, and the reply context names no recipient for it. It used to fall back to the last
+person who spoke before the post, quoted it as "Kaia (replying to Ekco)", and she answered
+GuardNGnowm as ekco.
 
 **An absence check-in is addressed to a person.** It goes out unlabelled and is never
 cross-posted. Key that on `trigger_type == "absence"`, not on `target_user` being set —
