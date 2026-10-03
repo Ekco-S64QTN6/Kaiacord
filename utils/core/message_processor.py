@@ -228,6 +228,14 @@ def _extract_recap_hours(text: str) -> int:
 _NEWS_CUE = re.compile(r"\b(?:news|headlines?|current events)\b", re.IGNORECASE)
 
 
+def _pronoun_line() -> str:
+    try:
+        from utils.core import pronouns
+        return pronouns.line()
+    except Exception:
+        return "Anyone you mention: they/them unless you know otherwise — or just use their name."
+
+
 class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
@@ -1736,6 +1744,7 @@ class MessageProcessor:
             from utils.core.safety_pipeline import PostGenerationSafetyPipeline
             optimized_history = PostGenerationSafetyPipeline.detemplate_history(optimized_history)
             optimized_history = PostGenerationSafetyPipeline.events_as_notes(optimized_history)
+            optimized_history = PostGenerationSafetyPipeline.without_greeting_lines(optimized_history)
         except Exception as _tpl_err:
             log_debug(f"History not de-templated: {_tpl_err}")
 
@@ -1984,6 +1993,7 @@ class MessageProcessor:
             "- NO OVER-ANALYSIS: When shown a photo or image, start with what you SEE, not what you theorize. "
             "A sunset is a sunset. An orange sky is an orange sky. Do not discuss 'atmospheric particulates' or "
             "'aerosols' unless specifically asked for a scientific explanation.\n"
+            f"- OTHER PEOPLE: {_pronoun_line()}\n"
             "- PRONOUN PRECISION: When using 'our' or 'we', ensure it is appropriate. "
             "'our infrastructure' is fine (shared co-involvement). "
             "'our anxiety' or 'our fear' is wrong — you do not experience human emotions the same way. Be precise.\n"
@@ -2444,6 +2454,12 @@ class MessageProcessor:
             from utils.infrastructure.system.bot_state import bot_state as _bs
             _mine = [t.get("content", "") for t in list(_bs.channel_memory.get(ctx.channel_id, []))
                      if t.get("role") == "assistant"]
+            _author = getattr(ctx.message, "author", None)
+            _aliases = [getattr(_author, k, None) for k in ("name", "display_name", "global_name", "nick")]
+            ctx.response_text = PostGenerationSafetyPipeline.correct_addressee(
+                ctx.response_text, ctx.author_name or "",
+                PostGenerationSafetyPipeline.history_names(list(_bs.channel_memory.get(ctx.channel_id, []))),
+                ctx.own_words or "", aliases=_aliases)
             ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_closer(ctx.response_text, _mine)
             ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_lines(ctx.response_text, _mine)
         except Exception:

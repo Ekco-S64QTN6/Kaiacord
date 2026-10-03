@@ -40,3 +40,36 @@ def test_no_prompt_line_tells_her_to_use_the_speakers_name():
     src = (ROOT / "utils/core/message_processor.py").read_text(encoding="utf-8")
     for phrase in ("by this name", "by their name", "Address them"):
         assert phrase not in src, phrase
+
+
+# ── Answering the person who spoke, by their name ─────────────────────
+
+def test_an_opening_that_names_someone_else_is_put_right():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    names = {"starkind", "tenno henka", "ekco"}
+    out = P.correct_addressee("acknowledged, starkind.\n\na spirited sentiment.", "Tenno Henka", names,
+                              "Kaia, I'm an Irish-ish American, I like to give John Bull ballyhooley.")
+    assert out.startswith("acknowledged, tenno henka.")
+    # Named by the person speaking: left alone. Not someone in the channel: left alone.
+    assert P.correct_addressee("tell starkind, starkind.", "Ekco", names, "say hi to starkind") == "tell starkind, starkind."
+    assert P.correct_addressee("a fair point, gandalf.", "Ekco", names, "") == "a fair point, gandalf."
+    assert P.correct_addressee("yes, ekco?", "Ekco", names, "") == "yes, ekco?"
+
+
+def test_her_history_loses_its_greeting_lines():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    history = [{"role": "user", "content": "Starkind: Cherenkov radiation during a fission startup."},
+               {"role": "assistant", "content": "acknowledged, starkind.\n\nthe blue glow is the giveaway, a charged particle outrunning light in water."},
+               {"role": "user", "content": "Tenno Henka: Kaia, hello"}]
+    out = P.without_greeting_lines(history)
+    assert out[1]["content"].startswith("the blue glow") and out[0] == history[0] and out[2] == history[2]
+    assert history[1]["content"].startswith("acknowledged")                 # the log's own copy untouched
+
+
+def test_pronouns_default_to_they_and_follow_the_list(monkeypatch):
+    from utils.core import pronouns
+    monkeypatch.setattr(pronouns, "known", lambda: {"robin": "xe/xem"})
+    assert "robin — xe/xem" in pronouns.line(["Robin", "Sam"]) and "they/them" in pronouns.line()
+    assert pronouns.of("Robin") == "xe/xem" and pronouns.of("Sam") is None
+    monkeypatch.setattr(pronouns, "known", lambda: {})
+    assert pronouns.line(["Robin"]).startswith("Anyone else: they/them")

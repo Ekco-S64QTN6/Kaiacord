@@ -149,6 +149,11 @@ class InnerMonologue:
                 unsettled = open_threads.for_monologue()
         except Exception:
             unsettled = ""
+        try:
+            from utils.core import pronouns
+            pronouns_line = pronouns.line({t.split(":", 1)[0] for t in window if ":" in t})
+        except Exception:
+            pronouns_line = "Anyone you mention: they/them unless you know otherwise — or just use their name."
         prompt = (
             "You are Kaia, observing recent conversation activity in your Discord server. "
             "Generate ONE brief internal thought — something you've noticed, a pattern, "
@@ -162,6 +167,7 @@ class InnerMonologue:
             "- No roleplay asterisks, no headers, no labels\n"
             "- Think like a person watching a conversation, not narrating one\n"
             "- You MUST write in the first person ('i', 'my'). Never refer to yourself or Kaia in the third person ('she', 'her').\n"
+            f"- {pronouns_line}\n"
             "Your thought:"
         )
 

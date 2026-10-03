@@ -851,6 +851,89 @@ class PostGenerationSafetyPipeline:
             return False
         return bool(turn.get("event")) or bool(cls._EVENT_LINE.match(str(turn.get("content", ""))))
 
+    # An opening that only addresses someone: "acknowledged, starkind." On 3
+    # Oct her replies to Starkind opened that way four times in eight minutes,
+    # and the next reply — to Tenno — opened "acknowledged, starkind." too:
+    # copied whole from her history, the name with it.
+    _VOCATIVE_OPENER = re.compile(r"^(\s*[^\n.!?,]{1,40},\s*)([^\n,.!?]{2,30}?)(\s*[.!?])")
+
+    @staticmethod
+    def history_names(history: list) -> set:
+        """The names people go by in this history ("Name: text" user turns)."""
+        names = set()
+        for t in history or []:
+            if isinstance(t, dict) and t.get("role") == "user":
+                head = str(t.get("content", ""))[:60].split(":", 1)
+                if len(head) == 2 and 1 < len(head[0].strip()) <= 40 and "\n" not in head[0]:
+                    names.add(head[0].strip().lower())
+        return names
+
+    @staticmethod
+    def _vocative_spans(text: str, names: set):
+        """Where a name from `names` is used to address someone: opening a line
+        ("starkind, …" / "yes, starkind."), or ending a sentence after a comma
+        ("…interesting, starkind."). Yields (start, end, name)."""
+        if not names:
+            return
+        alt = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+        seen = set()
+        for m in re.finditer(rf"(?im)(?:^|(?<=[.!?]\s))\s*({alt})(?=\s*,)", text):
+            seen.add(m.start(1))
+            yield m.start(1), m.end(1), m.group(1).lower()
+        for m in re.finditer(rf"(?i),\s*({alt})(?=\s*(?:[.!?…]|$))", text):
+            if m.start(1) not in seen:
+                yield m.start(1), m.end(1), m.group(1).lower()
+
+    @classmethod
+    def without_greeting_lines(cls, history: list) -> list:
+        """Her turns as the prompt shows them, without an opening line that only
+        addresses someone, and without the names she addressed people by: those
+        were copied onto replies to someone else. The logs are untouched."""
+        names = cls.history_names(history)
+        if not names:
+            return history
+        out = []
+        for t in history or []:
+            if isinstance(t, dict) and t.get("role") == "assistant":
+                text = str(t.get("content", ""))
+                m = cls._VOCATIVE_OPENER.match(text)
+                if m and m.group(2).strip().lower() in names and len(m.group(1).split()) <= 4:
+                    rest = text[m.end():].lstrip()
+                    if len(rest) >= 20:
+                        text = rest
+                for start, end, _ in sorted(cls._vocative_spans(text, names), reverse=True):
+                    head = text[:start].rstrip()
+                    if head.endswith(","):
+                        text = head[:-1] + text[end:]                   # "…interesting, starkind." -> "…interesting."
+                    else:
+                        text = text[:start] + text[end:].lstrip(" ,")    # "starkind, it's…" -> "it's…"
+                if text != t.get("content"):
+                    t = {**t, "content": text}
+            out.append(t)
+        return out
+
+    @classmethod
+    def correct_addressee(cls, text: str, speaker: str, names: set, asked: str = "", aliases=()) -> str:
+        """Every place she addresses someone in the channel by name is the person
+        she is answering — unless that person brought the other one up. All of
+        the speaker's names count as theirs (`aliases`: account name, display
+        name, nickname): GuardNGnowm is GnowmaticFlux's nickname."""
+        if not text or not speaker or not names:
+            return text
+        me = speaker.strip().lower()
+        mine = {me, me.split()[0]} | {str(a).strip().lower() for a in aliases if a}
+        out, changed = text, []
+        for start, end, said in sorted(cls._vocative_spans(text, names), reverse=True):
+            if said in mine or any(m.startswith(said + " ") for m in mine):
+                continue
+            if re.search(rf"\b{re.escape(said.split()[0])}\b", asked or "", re.IGNORECASE):
+                continue
+            out = out[:start] + me + out[end:]
+            changed.append(said)
+        if changed:
+            log_warning(f"[ADDRESSEE_GUARD] Addressed {', '.join(sorted(set(changed)))} answering {me!r}; corrected")
+        return out
+
     @classmethod
     def events_as_notes(cls, history: list) -> list:
         """History as the prompt shows it: an event turn becomes a bracketed
