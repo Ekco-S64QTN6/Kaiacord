@@ -637,3 +637,38 @@ def test_a_collapsed_list_keeps_its_headers_without_the_bold():
     out = B.collapse_bullets(text)
     assert "**" not in out
     assert "weakened position: he faced a hard race." in out and "strategic realignment: the party" in out
+
+
+def test_she_does_not_address_herself_by_name():
+    from utils.core.response_filter import BotSpeakFilter as B
+    out = B.harden("scraping is fragile, but the patterns are worth it. \"you\" there refers to me, kaia. be well.")
+    assert "kaia" not in out and "refers to me." in out
+    assert "i'm kaia." in B.harden("i'm kaia. i live in a small apartment with too many computers.")
+
+
+@pytest.mark.parametrize("reply, fixed", [
+    ("cecil.\n\nthere is no classified information on you.", "cecily.\n\nthere is no classified information on you."),
+    ("this isn't a national security matter, cecil. it's a file.", "this isn't a national security matter, cecily. it's a file."),
+    ("cecil, i'm relieved to hear you've stopped.", "cecily, i'm relieved to hear you've stopped."),
+])
+def test_a_clipped_name_used_to_address_the_speaker_is_corrected(reply, fixed):
+    from utils.core.response_filter import BotSpeakFilter as B
+    assert B.correct_vocative_name(reply, "Cecily") == fixed
+
+
+def test_someone_she_talks_about_keeps_their_name():
+    from utils.core.response_filter import BotSpeakFilter as B
+    reply = "the man who went by cecil took your avatar. cecil was never you."
+    assert B.correct_vocative_name(reply, "Cecily") == reply
+    assert B.correct_vocative_name("star, that's the one.", "Starkind") == "star, that's the one."
+
+
+def test_a_name_the_speaker_used_is_not_corrected():
+    from utils.core.response_filter import BotSpeakFilter as B
+    reply = "cecil.\n\nit's a name with a history, a certain weight."
+    assert B.correct_vocative_name(reply, "Cecily", "Kaia compare and contrast the names Cecil and Cecily.") == reply
+
+
+def test_a_quoted_self_address_is_left_alone():
+    from utils.core.response_filter import BotSpeakFilter as B
+    assert '"be well, kaia."' in B.harden('"be well, kaia." the sentiment is appreciated, and returned.')

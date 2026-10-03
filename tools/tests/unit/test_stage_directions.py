@@ -162,4 +162,5 @@ def test_a_bold_label_keeps_its_closing_marker():
                "*   **simplicity and elegance:** early protocols were simple.")
     out = BotSpeakFilter.harden(listing)
     assert out.count("**") % 2 == 0
-    assert "**order vs. chaos:** a symbol" in out
+    # The collapsed list keeps each label's words; the bold goes with the list.
+    assert "order vs. chaos: a symbol" in out

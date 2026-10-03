@@ -2477,6 +2477,11 @@ class MessageProcessor:
         # message is the post being replied to.
         ctx.response_text = PostGenerationSafetyPipeline.strip_echoed_query(
             ctx.response_text, ctx.own_words, speaker=ctx.author_name or "")
+        try:
+            from utils.core.response_filter import BotSpeakFilter as _BSF
+            ctx.response_text = _BSF.correct_vocative_name(ctx.response_text, ctx.author_name or "", ctx.own_words or "")
+        except Exception:
+            pass
         # The same fault in the body of a reply rather than at its front. Measured
         # against `user_authored_text`, not `sanitized_content`: the enricher's
         # appended blocks are not words the user typed, and counting them would

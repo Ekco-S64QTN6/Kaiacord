@@ -43,7 +43,9 @@ def test_ordinary_speech_passes_unchanged():
 
 
 @pytest.mark.parametrize("text,reason", [
-    ("your observation is remarkably astute and worth expanding on further here.", "sycophancy"),
+    # The live filter now removes "your observation is remarkably astute" itself
+    # (too_short), so the gate is shown praise the filter leaves in.
+    ("i appreciate the link. the salient part is the dates, which line up with march.", "sycophancy"),
     ("acknowledged. initiating a shift in data intake and re-prioritizing content.", "corporate_register"),
     ("caffeine level approaching critical. the server hum continues unabated tonight.", "phantom_hardware"),
     ("your assessment is accurate. the changes you describe line up with what happened.", "grades_the_user"),

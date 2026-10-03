@@ -938,6 +938,10 @@ class BotSpeakFilter:
         cleaned = cls.strip_self_dissociation(cleaned)        # P2
         cleaned = cls.collapse_bullets(cleaned)               # P8
         cleaned = cls.strip_addressee_opener(cleaned)         # P1a
+        # Her own name as a vocative is her addressing herself ("i appreciate
+        # your observation, kaia."): the name goes, the sentence stays.
+        # Not inside a quotation of what someone said to her ('"be well, kaia."').
+        cleaned = re.sub(r",\s*kaia(?=\s*[.!?](?![\"\u201d\u2019']))", "", cleaned, flags=re.IGNORECASE)
         for _sig in cls.SIGNOFF_PATTERNS:                     # P1b
             cleaned = re.sub(_sig, '', cleaned, flags=re.IGNORECASE)
         # Removing a trailing clause leaves the comma that introduced it.
@@ -1121,7 +1125,11 @@ class BotSpeakFilter:
             # sound." With a verb it is a clause, and only the conjunction goes.
             elif re.match(r'^(?:and|but|or|yet|nor)\b', stripped_tail, re.IGNORECASE):
                 rest = re.sub(r'^(?:and|but|or|yet|nor)\s+', '', stripped_tail, flags=re.IGNORECASE)
-                tail = rest if cls._FINITE_VERB.search(rest) else ""
+                # An -ing form is not a verb of its own here: "and worth
+                # expanding on" is still the predicate that was removed.
+                finite = [m.group(0) for m in cls._FINITE_VERB.finditer(rest)
+                          if not m.group(0).lower().endswith("ing")]
+                tail = rest if finite else ""
 
         # Punctuation is not survival: `tail.strip()` on a bare "." is truthy, so
         # a plain truthiness test skips the repair whenever the offence runs to the
@@ -1297,6 +1305,33 @@ class BotSpeakFilter:
         return cls._strip_matching_sentences(
             text, cls.RE_SELF_MODEL_CAPITULATION, "WATCHDOG_STANCE_GUARD", mode="sentence"
         )
+
+    @staticmethod
+    def correct_vocative_name(text: str, name: str, asked: str = "") -> str:
+        """Put the speaker's name right where she addresses them by a clipped form.
+
+        She called Cecily "cecil" on two days, as the opening line and at the
+        end of sentences. Only a vocative is corrected — the name alone on a
+        line, or set off by a comma before the line or sentence ends — and only
+        a strict prefix of the speaker's own name missing one or two letters, so
+        a Cecil she is talking *about* is left alone — and not at all when the
+        person used that name themselves ("compare the names Cecil and Cecily").
+        """
+        if not text or not name:
+            return text
+        first = name.strip().split()[0] if name.strip() else ""
+        full = first.lower()
+        if len(full) < 5 or not full.isalpha():
+            return text
+        clipped = [c for c in (full[:n] for n in (len(full) - 1, len(full) - 2) if n >= 4)
+                   if not re.search(rf"\b{re.escape(c)}\b", asked or "", re.IGNORECASE)]
+        if not clipped:
+            return text
+        alt = "|".join(map(re.escape, clipped))
+        out = re.sub(rf"(?im)^(\s*)(?:{alt})(?=\s*[.,!?:]?\s*$)", lambda m: m.group(1) + full, text)
+        out = re.sub(rf"(?im)^(\s*)(?:{alt})(?=,\s)", lambda m: m.group(1) + full, out)
+        out = re.sub(rf"(?i),(\s*)(?:{alt})(?=\s*[.!?]|\s*$)", lambda m: "," + m.group(1) + full, out)
+        return out
 
     @classmethod
     def collapse_bullets(cls, text: str) -> str:
