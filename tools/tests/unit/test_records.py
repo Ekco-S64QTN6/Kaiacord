@@ -8,7 +8,9 @@ import numpy as np
 import pytest
 
 from utils.audio import library
-from utils.audio.records import FRAME_BYTES, FRAMES_PER_S, CrossfadeSource, Deck, mix
+from utils.audio import records as R
+from utils.audio.beatgrid import Grid
+from utils.audio.records import FRAME_BYTES, FRAMES_PER_S, RATE, CrossfadeSource, Deck, Next, plan_transition, gains
 
 
 def rec(name, bpm, key, genre="House"):
@@ -80,7 +82,7 @@ def tone(value: int, seconds: float):
     """A fake decoded record: every sample `value`."""
     frames = int(seconds * FRAMES_PER_S)
     data = np.full(frames * FRAME_BYTES // 2, value, dtype=np.int16).tobytes()
-    return lambda path, ratio: io.BytesIO(data)
+    return lambda path, ratio, gain=0.0, offset=0.0: io.BytesIO(data)
 
 
 def level(frame: bytes) -> float:
@@ -89,52 +91,143 @@ def level(frame: bytes) -> float:
 
 def wait_for(deck, frames):
     deadline = time.time() + 2
-    while time.time() < deadline and len(deck._frames) < frames:
+    while time.time() < deadline and len(deck._frames) < frames and not deck._eof:
         time.sleep(0.01)
 
 
-def test_equal_power_crossfade_ends_where_it_should():
-    a = np.full(FRAME_BYTES // 2, 1000, dtype=np.int16).tobytes()
-    b = np.full(FRAME_BYTES // 2, -1000, dtype=np.int16).tobytes()
-    assert level(mix(a, b, 0.0)) == pytest.approx(1000)
-    assert level(mix(a, b, 1.0)) == pytest.approx(-1000)
+STEADY = Grid(bpm=120.0, downbeat=0.0, contrast=8.0)          # a bar every 2 s
+LOOSE = Grid(bpm=120.0, downbeat=0.0, contrast=2.7)            # rock, breaks: Big Country measured 2.7
 
 
-def test_the_next_record_comes_in_under_the_last_and_takes_over():
-    first = Deck(rec("one", 124, "8A"), 1.0, 2.0, tone(1000, 2.0))
-    second = (rec("two", 124, "8A"), 1.0, 2.0)
+def nxt(grid=STEADY, seconds=20.0, name="two"):
+    return Next(rec(name, 120, "8A"), seconds, 0.0, grid)
+
+
+def test_a_blend_drops_the_incoming_downbeat_on_an_outgoing_bar():
+    late_downbeat = Grid(bpm=120.0, downbeat=0.75, contrast=8.0)
+    plan = plan_transition(3.1, 1.0, STEADY, 60.0, nxt(late_downbeat), "skip", 16, lead=2.0)
+    assert plan.kind == "blend"
+    assert plan.drop % 2.0 == pytest.approx(0.0, abs=1e-9)          # on a bar
+    assert plan.drop >= 3.1 + 0.75 + 2.0                            # room to start the incoming
+    assert plan.drop - plan.start == pytest.approx(0.75)            # its downbeat lands on the drop
+    assert plan.length == pytest.approx(8.0)                        # sixteen beats
+
+
+def test_an_end_blend_finishes_before_the_record_does():
+    plan = plan_transition(10.0, 1.0, STEADY, 60.0, nxt(), "end", 16, lead=2.0)
+    assert plan.kind == "blend" and plan.done <= 60.0 and plan.drop > 40.0
+
+
+def test_a_loose_beat_is_cut_not_blended():
+    """Beat against beat, a record without a steady kick is a clash: the
+    transitions that sounded wrong were all into or out of one."""
+    assert plan_transition(3.0, 1.0, STEADY, 60.0, nxt(LOOSE), "skip").kind == "cut"
+    assert plan_transition(3.0, 1.0, LOOSE, 60.0, nxt(STEADY), "skip").kind == "cut"
+    assert plan_transition(3.0, 1.0, None, 60.0, nxt(STEADY), "skip").kind == "cut"
+
+
+def test_tempos_too_far_apart_are_cut():
+    fast = Grid(bpm=150.0, downbeat=0.0, contrast=8.0)
+    plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(fast), "skip")
+    assert plan.kind == "cut" and plan.drop % 2.0 == pytest.approx(0.0, abs=1e-9)
+
+
+def test_a_cut_never_lays_two_grooves_over_each_other():
+    plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(LOOSE), "skip")
+    t = np.arange(0, 12, 0.001)
+    out_low, out_high, in_low, in_high = gains(plan, t)
+    assert np.all(out_high * in_high == 0) and np.all(out_low * in_low == 0)
+
+
+def test_a_blend_swaps_the_bass_halfway_and_keeps_one_bassline():
+    plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(), "skip")
+    t = np.arange(plan.drop - 1, plan.done + 1, 0.001)
+    out_low, out_high, in_low, in_high = gains(plan, t)
+    assert np.allclose(out_low + in_low, 1.0)                       # never two basslines, never none
+    swap = plan.drop + plan.length / 2
+    assert np.all(in_low[t < swap] == 0) and np.all(in_low[t > swap + plan.beat] == 1)
+    assert out_high[t <= plan.drop].min() == 1 and in_high[t >= plan.done].min() == pytest.approx(1)
+
+
+def _source(first_value=1000, second_value=-1000, grid=STEADY, out_grid=STEADY, fine=None):
+    first = Deck(rec("one", 120, "8A"), 1.0, 20.0, tone(first_value, 20.0))
     changed = []
-    queue = [second]
-    src = CrossfadeSource(first, lambda deck: queue.pop() if queue else None, fade_s=0.5,
-                          stream_factory=tone(-1000, 2.0),
-                          on_change=changed.append)
+    queue = [nxt(grid)]
+    src = CrossfadeSource(first, lambda deck: queue.pop() if queue else None,
+                          stream_factory=tone(second_value, 20.0), on_change=changed.append,
+                          grid_at=lambda record, start, seconds: out_grid)
+    src._fine = lambda deck, plan: fine
     wait_for(first, 100)
     deadline = time.time() + 2
     while src._queued is None and time.time() < deadline:
         time.sleep(0.01)
-    levels = []
-    for _ in range(int(3.5 * FRAMES_PER_S)):
-        frame = src.read()
-        if frame == b"":
-            break
-        levels.append(level(frame))
+    return src, changed
+
+
+def _plan(src, mode="skip"):
+    src._begin_planning(mode)
+    deadline = time.time() + 5
+    while src.plan is None and time.time() < deadline:
+        time.sleep(0.01)
+    assert src.plan is not None
+    return src.plan
+
+
+def test_the_incoming_starts_on_the_sample_it_was_planned_for():
+    src, changed = _source(grid=LOOSE)                            # a cut: its first sample is visible
+    plan = _plan(src)
+    out = []
+    while len(out) < int((plan.drop + 1.0) * FRAMES_PER_S):
+        out.append(src.read())
         if src.incoming is not None:
-            wait_for(src.incoming, 20)
-    assert levels[0] == pytest.approx(1000)
-    # The fade passes through a mix, then the second record plays alone.
-    assert any(-900 < x < 900 for x in levels)
+            wait_for(src.incoming, 30)
+    samples = np.frombuffer(b"".join(out), dtype=np.int16).reshape(-1, 2)[:, 0]
+    first_incoming = int(np.argmax(samples < 0))
+    assert abs(first_incoming - plan.drop * RATE) <= 1
     assert [r.title for r in changed] == ["two"]
-    assert levels[-1] == pytest.approx(-1000) or levels[-1] == 0
-    # Two records of two seconds, overlapped by half a second.
-    assert len([x for x in levels if x != 0]) <= int(3.6 * FRAMES_PER_S)
+
+
+def test_a_blend_hands_over_to_the_next_record():
+    src, changed = _source()
+    plan = _plan(src)
+    assert plan.kind == "blend"
+    levels = []
+    for _ in range(int((plan.done + 1.0) * FRAMES_PER_S)):
+        levels.append(level(src.read()))
+        if src.incoming is not None:
+            wait_for(src.incoming, 30)
+    assert levels[0] == pytest.approx(1000)
+    assert any(-900 < x < 900 for x in levels)                     # a mix on the way
+    assert levels[-1] == pytest.approx(-1000)
+    assert [r.title for r in changed] == ["two"]
+
+
+def test_a_kick_correction_too_large_to_trust_is_not_applied():
+    a, _ = _source(fine=0.02)
+    b, _ = _source(fine=0.2)
+    c, _ = _source(fine=None)
+    pa, pb, pc = _plan(a), _plan(b), _plan(c)
+    assert pa.start == pytest.approx(pc.start + 0.02)
+    assert pb.start == pytest.approx(pc.start)
 
 
 def test_the_set_ends_when_nothing_comes_next():
     first = Deck(rec("one", 124, "8A"), 1.0, 0.4, tone(500, 0.4))
-    src = CrossfadeSource(first, lambda deck: None, fade_s=0.1)
+    src = CrossfadeSource(first, lambda deck: None, grid_at=lambda *a: None)
     wait_for(first, 20)
     frames = [src.read() for _ in range(60)]
     assert b"" in frames
+
+
+def test_a_late_voice_thread_is_counted():
+    first = Deck(rec("one", 124, "8A"), 1.0, 5.0, tone(500, 5.0))
+    src = CrossfadeSource(first, lambda deck: None, grid_at=lambda *a: None)
+    wait_for(first, 20)
+    src.read()
+    src.read()
+    time.sleep(R.LATE_S + 0.03)
+    src.read()
+    assert len(src.late) == 1 and src.late[0] >= R.LATE_S
 
 
 def test_a_quiet_record_is_raised_but_never_past_its_peak(tmp_path):
@@ -149,3 +242,88 @@ def test_a_quiet_record_is_raised_but_never_past_its_peak(tmp_path):
     g = gain_db(str(quiet))
     assert g == 12.0              # raised toward the target, never more than 12 dB
     assert gain_db(str(tmp_path / "missing.wav")) == 0.0
+
+
+def test_the_next_record_is_one_with_a_steady_opening_where_one_fits(monkeypatch):
+    from utils.audio import beatgrid
+    crate = [rec("now", 120, "8A"), rec("loose", 120, "8A"), rec("steady", 120, "8A")]
+    session = R.RecordsSession.__new__(R.RecordsSession)
+    session.crate, session.played, session._rng = crate, [crate[0].path], random.Random(1)
+    monkeypatch.setattr(R, "probe_seconds", lambda path: 200.0)
+    monkeypatch.setattr(R, "gain_db", lambda path: 0.0)
+    monkeypatch.setattr(beatgrid, "grid_for", lambda path, bpm: STEADY if "steady" in path else LOOSE)
+    order = iter([crate[1], crate[2]])
+    monkeypatch.setattr(library, "next_record", lambda *a, **k: next(order, None))
+    deck = Deck(crate[0], 1.0, 1.0, tone(0, 1.0))
+    assert session._choose(deck).record.title == "steady"
+    order = iter([crate[1], None])
+    assert session._choose(deck).record.title == "loose"          # nothing steadier: still a record
+    assert "loose" not in " ".join(session.played)                 # passed over, not marked played
+
+
+def test_a_bar_that_could_not_be_counted_is_cut():
+    unsure = Grid(bpm=120.0, downbeat=0.0, contrast=8.0, bar_known=False)
+    assert plan_transition(3.0, 1.0, unsure, 60.0, nxt(STEADY), "skip").kind == "cut"
+    assert plan_transition(3.0, 1.0, STEADY, 60.0, nxt(unsure), "skip").kind == "cut"
+
+
+# ── The beat grid, on click tracks where the answer is known ─────────
+
+def _clicks(path, bpm, first, seconds, rate=44100):
+    import shutil
+    import subprocess
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    x = np.zeros(int(seconds * rate), np.float32)
+    k = np.arange(int(0.03 * rate))
+    kick = np.sin(2 * np.pi * 55 * k / rate) * np.exp(-k / (0.008 * rate))
+    t, n = first, 0
+    while t < seconds - 0.1:
+        i = int(round(t * rate))
+        x[i:i + len(kick)] += (0.9 if n % 4 == 0 else 0.6) * kick
+        t += 60 / bpm
+        n += 1
+    pcm = (np.clip(x, -1, 1) * 32767).astype(np.int16)
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "s16le", "-ar", str(rate), "-ac", "1",
+                    "-i", "pipe:0", str(path)], input=pcm.tobytes(), check=True)
+    return str(path)
+
+
+@pytest.mark.parametrize("bpm, first", [(123, 1.13), (115, 2.4), (126, 0.0)])
+def test_bar_one_is_the_first_beat_and_bars_are_counted_from_it(tmp_path, bpm, first):
+    """The accent guess picked the wrong beat of the bar on two of these three:
+    kicks met kicks, and the incoming record's bar began on beat 2, 3 or 4."""
+    from utils.audio import beatgrid
+    beatgrid.grid_for.cache_clear()
+    path = _clicks(tmp_path / "c.wav", bpm, first, 120)
+    g = beatgrid.grid_for(path, bpm)
+    assert g.bar_known and g.downbeat == pytest.approx(first, abs=0.012)
+    here = beatgrid.grid_at(path, bpm, 71.3, 40, anchor=g)
+    bars = (here.downbeat - first) / (4 * 60 / bpm)
+    assert here.bar_known and bars == pytest.approx(round(bars), abs=0.01)
+
+
+def test_the_stretch_keeps_the_kicks_where_they_were(monkeypatch):
+    """ffmpeg's atempo puts every onset ~20 ms early; rubberband does not. The
+    fallback is compensated rather than trusted."""
+    from utils.audio import beatgrid
+    monkeypatch.setattr(beatgrid, "_RUBBERBAND", True)
+    assert beatgrid.stretch_filter(0.97).startswith("rubberband=") and beatgrid.stretch_latency(0.97) == 0
+    assert beatgrid.stretch_filter(1.0) is None
+    monkeypatch.setattr(beatgrid, "_RUBBERBAND", False)
+    assert beatgrid.stretch_filter(0.97).startswith("atempo=")
+    assert beatgrid.stretch_latency(0.97) == beatgrid.ATEMPO_EARLY_S and beatgrid.stretch_latency(1.0) == 0
+
+
+def test_a_late_first_beat_is_seeked_to_not_waited_for():
+    late = Grid(bpm=120.0, downbeat=12.7, contrast=8.0)            # a video intro before the beat
+    plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(late), "skip", 16, lead=2.0)
+    assert plan.kind == "blend" and plan.offset == pytest.approx(12.7 - R.PREROLL_S)
+    assert plan.drop - plan.start == pytest.approx(R.PREROLL_S)
+    assert plan.drop < 3.0 + R.PREROLL_S + 2.0 + 2.0              # the next bar, not 13 s away
+
+
+def test_a_deck_started_part_way_keeps_its_clock():
+    d = Deck(rec("x", 120, "8A"), 1.25, 100.0, tone(0, 1.0), offset=10.0)
+    assert d.at(0) == pytest.approx(8.0)                           # 10 s of record at 1.25x
+    assert d.end == pytest.approx(80.0, abs=0.02)

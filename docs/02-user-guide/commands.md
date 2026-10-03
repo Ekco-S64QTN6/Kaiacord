@@ -218,8 +218,11 @@ Puts Kaia in your voice channel performing a live-coded set.
 analysis outside this repo; `music.library_catalog` in `kaia.yaml` points at it. Each next record
 is chosen to sit with the last in key (the same Camelot code, a neighbour, or the relative key)
 and tempo (within 6%, counting half and double time), stretched to the playing tempo without
-changing pitch, levelled to the same loudness, and brought in under the last with an 8-second
-crossfade. With no query she picks the first record from her mood.
+changing pitch, and levelled to the same loudness. Its first downbeat lands on a bar of the record
+playing and the two blend over sixteen beats (`music.records_mix_beats`) with the bass swapped
+halfway; where either record's beat isn't steady enough to lay over the other — rock, breakbeat, a
+beatless intro — she cuts to it cleanly on the bar instead. `!music skip` brings the next one in at
+the next bar it can land on. With no query she picks the first record from her mood.
 
 Genres: psytrance, techno, house, deephouse, trance, drumnbass, acid, breakbeat, dub, lofi,
 triphop, synthwave, berlinschool, ambient. Requests: darker, brighter, faster, slower, drop,

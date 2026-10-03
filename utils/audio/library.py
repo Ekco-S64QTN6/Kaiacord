@@ -115,7 +115,13 @@ def next_record(current: Optional[Record], crate: list[Record], played: Iterable
     """The record to play after `current`: among the best few that fit, one at random."""
     rng = rng or random.Random()
     recent = set(list(played)[-RECENT:])
-    pool = [r for r in crate if r.path not in recent] or [r for r in crate if not current or r.path != current.path]
+    # The same song in two files (a 128 kbps copy beside the original) is the
+    # same record: compare by name as well as path.
+    recent_names = {r.name.lower() for r in crate if r.path in recent}
+    if current is not None:
+        recent_names.add(current.name.lower())
+    pool = ([r for r in crate if r.path not in recent and r.name.lower() not in recent_names]
+            or [r for r in crate if not current or r.name.lower() != current.name.lower()])
     if not pool:
         return None
     if current is None:

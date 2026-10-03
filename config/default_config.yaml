@@ -747,8 +747,10 @@ music:
   # outside this repo). Empty switches records off. Example:
   #   library_catalog: "~/Music/music/dj_catalog.json"
   library_catalog: ""
-  # How long one record overlaps the next.
-  records_crossfade_seconds: 8.0
+  # Beats from the incoming record's first downbeat to the outgoing record gone;
+  # the bass swaps halfway. Where the two have no common tempo, either beat is
+  # not steady, or a bar cannot be counted, the transition is a cut on the bar.
+  records_mix_beats: 16
 
 # ============================================================================
 # Agent boards (utils/social/agent_boards.py)

@@ -539,14 +539,39 @@ answered in her voice. Every decision reads her *state*; none of it calls a mode
 (play it, measure it) covers the sound. When a set ends, `kaia_expression.remember` writes it
 into the channel's history and the growth log, so she knows she played and for whom.
 
-**`!music records` mixes the local library** (`utils/audio/library.py`, `records.py`). The crate is
-a `dj_catalog.json` of BPM, Camelot key and genre written *outside* the repo; nothing here analyses
-audio. The next record is plain Python (key step, tempo within 6% counting half/double time, genre,
-nothing recent), stretched with ffmpeg `atempo`, levelled with `volumedetect` to a common mean
-(never past its peak), and crossfaded in NumPy inside the audio source — so §7's "no model, no
-VRAM" holds. Records, a live set and the radio share one voice connection: whichever starts stops
-the others without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the
-channel it was handed.
+**`!music records` mixes the local library** (`utils/audio/library.py`, `records.py`,
+`beatgrid.py`). The crate is a `dj_catalog.json` of BPM, Camelot key and genre written *outside* the
+repo. The next record is plain Python (key step, tempo within 6% counting half/double time, genre,
+nothing recent, a steady opening preferred), levelled with `volumedetect` (never past its peak), and
+mixed in NumPy inside the audio source — so §7's "no model, no VRAM" holds. Rules, each learned from
+a mix that sounded wrong:
+
+- **Stretch with rubberband, not `atempo`.** `atempo` puts every onset ~20 ms early (measured on
+  click tracks); rubberband is within 1 ms. The atempo fallback is compensated (`stretch_latency`).
+- **The bar is counted, never guessed from accents.** Accents on a log-energy onset curve barely
+  differ, and the guess put the incoming bar on beat 2, 3 or 4 — kicks on kicks, claps on the wrong
+  beats. Bar one is a record's first strong beat; `grid_at` counts beats from it and keeps the bar
+  only when the count comes out whole (`bar_known`).
+- **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
+  mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is a cut on the
+  bar. A kick correction over 45 ms is not applied — those came only from records with no steady kick.
+- **Check a change on click tracks** through the real `CrossfadeSource` (the incoming first kick must
+  land on the planned bar, kicks within a few ms) — a beat detector on real music is not a reliable
+  judge of another beat detector.
+- **Nothing slow on the voice thread.** The incoming ffmpeg is started and buffered by the planner
+  thread; the set logs every frame the voice thread came back late for (`[records] voice thread`).
+
+Records, a live set and the radio share one voice connection: whichever starts stops the others
+without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the channel it was
+handed.
+
+**The voice thread stalls on anything that holds the GIL for tens of milliseconds.** Measured with a
+20 ms ticker in-process: llama_index's vector query built a fresh array of every candidate embedding
+per search (~100 ms, every reply), and a full gen-2 collection walked the docstores (~230 ms).
+`install_fast_vector_query` scores every top-k query — filtered ones included — from a cached matrix,
+and `gc_quiet.settle()` collects and freezes long-lived objects after the indices load and before any
+voice playback. To find the next one, sample with `py-spy record --gil --native` while a ticker
+thread logs its lateness; `faulthandler.dump_traceback_later` from a ticker crashes the process.
 
 **`!art` is decided before it is drawn.** `kaia_art_intent.decide` turns a prompt, her mood or an
 attached image into an `ArtIntent` — palette (or a colour ramp from the image), symmetry, lead

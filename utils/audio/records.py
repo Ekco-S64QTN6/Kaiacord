@@ -2,8 +2,10 @@
 
 `!music records` plays the crate in `library.py` the way a DJ would: each next
 record chosen to sit with the last in key and tempo, stretched to its tempo
-(ffmpeg `atempo`, which keeps the pitch), and brought in under the end of the
-one playing with an equal-power crossfade. All of it is ffmpeg and NumPy on the
+(ffmpeg's rubberband, which keeps the pitch and the kicks where they were), its
+first downbeat dropped on a bar of the record playing, and blended over sixteen
+beats with the bass swapped halfway — or, where either beat is not steady
+enough to lay over the other, cut cleanly on the bar. All of it is ffmpeg and NumPy on the
 CPU: no model, no VRAM, nothing analysed live — the catalog already holds BPM
 and key.
 
@@ -21,6 +23,7 @@ import subprocess
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 import numpy as np
@@ -33,6 +36,7 @@ except Exception:                      # pragma: no cover
 
 from utils.audio import library
 from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error, log_warning
+from utils.infrastructure.system.gc_quiet import settle
 
 RATE = 48000
 FRAME_MS = 20
@@ -72,12 +76,18 @@ def gain_db(path: str) -> float:
     return round(max(-12.0, min(TARGET_MEAN_DB - mean, -peak, 12.0)), 1)
 
 
-def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0) -> subprocess.Popen:
-    """ffmpeg decoding a record to 48 kHz stereo s16le, stretched by `ratio`."""
-    args = ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", path]
+def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0.0) -> subprocess.Popen:
+    """ffmpeg decoding a record to 48 kHz stereo s16le from `offset` seconds
+    of its own time, stretched by `ratio` (`beatgrid.stretch_filter`: tempo
+    changed, pitch and kick timing kept)."""
+    from utils.audio.beatgrid import stretch_filter
+    args = ["ffmpeg", "-nostdin", "-loglevel", "error"]
+    if offset > 0:
+        args += ["-ss", f"{offset:.4f}"]
+    args += ["-i", path]
     filters = []
-    if abs(ratio - 1.0) > 0.001:
-        filters.append(f"atempo={ratio:.4f}")
+    if (stretch := stretch_filter(ratio)):
+        filters.append(stretch)
     if abs(gain) >= 0.1:
         filters.append(f"volume={gain:.1f}dB")
     if filters:
@@ -87,30 +97,74 @@ def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0) -> subprocess.Pop
                             stderr=subprocess.DEVNULL)
 
 
+FRAME_SAMPLES = RATE * FRAME_MS // 1000
+#: The blend: this many beats from the incoming record's first downbeat to the
+#: outgoing record gone. The bass swaps halfway, on a bar.
+MIX_BEATS = 16
+#: Cut transitions (no common tempo, or no clear beat): the outgoing record
+#: fades over this many seconds, ending on its bar, and the next starts clean.
+CUT_FADE_S = 1.5
+#: Both records need a beat at least this clear (`beatgrid.Grid.contrast`) for
+#: their grooves to be laid over each other. Four-on-the-floor dance records
+#: measure 4.2 and up where they are mixed; rock, breaks and sparse intros
+#: (Big Country, Evil Nine, an ambient opening) measure 1.8–3.3, and blending
+#: those beat against beat is a clash. Below it the transition is a cut on the bar.
+BLEND_CONTRAST = 4.0
+#: The kick cross-correlation may move the incoming record by at most this
+#: much. Larger corrections came only from records without a steady kick,
+#: where the correlation had latched onto a bassline.
+MAX_FINE_S = 0.045
+#: How much of the incoming record before its first beat is decoded in a blend.
+PREROLL_S = 1.0
+#: A gap between frame requests longer than this is counted as late.
+LATE_S = 0.06
+
+
+def _bands():
+    from scipy.signal import butter
+    return butter(2, 180, btype="low", fs=RATE, output="sos")
+
+
+_SOS = None
+
+
 class Deck:
-    """One record being decoded: frames pumped from a byte stream into a buffer."""
+    """One record being decoded: frames pumped from a byte stream into a buffer.
+
+    `pad` samples of silence go in front, so the record can start part-way
+    through a 20 ms frame — which is how its first downbeat is put exactly on
+    the outgoing record's bar rather than up to 20 ms off it."""
 
     def __init__(self, record: library.Record, ratio: float, seconds: float,
                  stream_factory: Callable[..., object] = open_pcm, buffer_frames: int = 150,
-                 gain: float = 0.0):
+                 gain: float = 0.0, pad: int = 0, offset: float = 0.0):
         self.record = record
         self.ratio = ratio
-        self.total_frames = int(seconds / ratio * FRAMES_PER_S)
+        self.pad = max(0, int(pad))
+        self.offset = max(0.0, offset)                      # seconds of the record skipped, own time
+        self.total_frames = int(((seconds - self.offset) / ratio * RATE + self.pad) / FRAME_SAMPLES)
         self.played = 0
-        self._proc = stream_factory(record.path, ratio, gain) if gain else stream_factory(record.path, ratio)
+        extra = {**({"gain": gain} if gain else {}), **({"offset": self.offset} if self.offset else {})}
+        self._proc = stream_factory(record.path, ratio, **extra)
         self._frames: deque[bytes] = deque()
         self._lock = threading.Lock()
         self._room = threading.Semaphore(buffer_frames)
         self._eof = False
         self._closed = False
+        self._zi = None
         threading.Thread(target=self._pump, daemon=True, name="kaia-records-deck").start()
 
     def _pump(self) -> None:
         out = getattr(self._proc, "stdout", self._proc)
+        carry = b"\x00" * (self.pad * 4)                    # s16le stereo: 4 bytes a sample
         try:
             while not self._closed:
                 self._room.acquire()
-                chunk = out.read(FRAME_BYTES)
+                need = FRAME_BYTES - len(carry)
+                chunk = carry + (out.read(need) if need > 0 else b"")
+                carry = b""
+                if len(chunk) > FRAME_BYTES:
+                    chunk, carry = chunk[:FRAME_BYTES], chunk[FRAME_BYTES:]
                 if not chunk:
                     break
                 if len(chunk) < FRAME_BYTES:
@@ -121,6 +175,10 @@ class Deck:
             log_debug(f"[records] deck read ended: {e}")
         self._eof = True
 
+    def ready(self, frames: int = 25) -> bool:
+        with self._lock:
+            return len(self._frames) >= frames or self._eof
+
     def frame(self) -> Optional[bytes]:
         """The next frame; silence if decoding is behind; None once the record is over."""
         with self._lock:
@@ -130,9 +188,31 @@ class Deck:
                 return self._frames.popleft()
         return None if self._eof else SILENCE
 
+    def at(self, frames: Optional[int] = None) -> float:
+        """Seconds into the record as played (stretched) at the start of frame `frames`."""
+        n = self.played if frames is None else frames
+        return (n * FRAME_SAMPLES - self.pad) / RATE + self.offset / self.ratio
+
     @property
     def remaining(self) -> int:
         return max(0, self.total_frames - self.played)
+
+    @property
+    def end(self) -> float:
+        return self.at(self.total_frames)
+
+    def split(self, frame: bytes) -> tuple:
+        """(low, high) of a frame as float stereo, the low band filtered with
+        carried state so consecutive frames join without a seam."""
+        global _SOS
+        from scipy.signal import sosfilt, sosfilt_zi
+        if _SOS is None:
+            _SOS = _bands()
+        x = np.frombuffer(frame, dtype=np.int16).astype(np.float32).reshape(-1, 2)
+        if self._zi is None:
+            self._zi = np.zeros((_SOS.shape[0], 2, 2))
+        low, self._zi = sosfilt(_SOS, x, axis=0, zi=self._zi)
+        return low, x - low
 
     def close(self) -> None:
         self._closed = True
@@ -145,32 +225,133 @@ class Deck:
             pass
 
 
-def mix(out_frame: bytes, in_frame: bytes, t: float) -> bytes:
-    """Equal-power crossfade at position t (0 = all outgoing, 1 = all incoming)."""
-    a = np.frombuffer(out_frame, dtype=np.int16).astype(np.float32)
-    b = np.frombuffer(in_frame, dtype=np.int16).astype(np.float32)
-    t = min(1.0, max(0.0, t))
-    y = a * np.cos(t * np.pi / 2) + b * np.sin(t * np.pi / 2)
+@dataclass
+class Next:
+    """The record chosen to come next, analysed and waiting."""
+    record: library.Record
+    seconds: float
+    gain: float = 0.0
+    grid: Optional["beatgrid.Grid"] = None
+
+
+@dataclass
+class Plan:
+    """When and how the next record comes in, in seconds of the outgoing record
+    as played. A blend: the incoming starts at `start` so its first downbeat
+    lands on the outgoing bar at `drop`; its top end rises over `length/2`, the
+    bass swaps on the bar halfway, the outgoing top falls away by
+    `drop + length`. A cut: the outgoing fades out by `drop` and the next
+    record starts there."""
+    kind: str
+    start: float
+    drop: float
+    length: float
+    beat: float
+    ratio: float
+    nxt: Next
+    #: Seconds of the incoming record (its own time) skipped: its muted run-up
+    #: to the first beat, so a skip does not wait out a long intro.
+    offset: float = 0.0
+
+    @property
+    def done(self) -> float:
+        return self.drop + (self.length if self.kind == "blend" else 0.0)
+
+
+def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt: Next,
+                    mode: str = "skip", mix_beats: int = MIX_BEATS, lead: float = 0.4) -> Plan:
+    """Plan the next transition from where the outgoing record is (`now`).
+
+    A blend needs both beats clear (BLEND_CONTRAST) and a common tempo within
+    stretching range; otherwise it is a cut, which never overlaps two grooves."""
+    in_grid = nxt.grid
+    playing_bpm = out_grid.bpm * out_ratio if out_grid else None
+    # Steady, and with both bars known: kicks on kicks is not enough, the
+    # incoming's bar one has to fall on a bar one, or its claps land on the
+    # outgoing's kicks and its phrases start mid-bar.
+    steady = bool(out_grid and in_grid and min(out_grid.contrast, in_grid.contrast) >= BLEND_CONTRAST
+                  and out_grid.bar_known and in_grid.bar_known)
+    ratio = library.tempo_ratio(playing_bpm, in_grid.bpm) if steady else None
+    if ratio is not None:
+        beat = 60.0 / playing_bpm
+        length = mix_beats * beat
+        # The incoming is silent until its first downbeat, so it is started
+        # just short of it rather than from the top.
+        offset = max(0.0, in_grid.downbeat - PREROLL_S)
+        lead_in = (in_grid.downbeat - offset) / ratio       # incoming: start to its first downbeat
+        earliest = now + lead_in + lead
+        if mode == "end":
+            latest = out_end - length - 0.5
+            drop = out_grid.next_bar(latest - 4 * beat, out_ratio)
+            if drop < earliest:
+                drop = out_grid.next_bar(earliest, out_ratio)
+        else:
+            drop = out_grid.next_bar(earliest, out_ratio)
+        if drop + length <= out_end + 0.01:
+            return Plan("blend", drop - lead_in, drop, length, beat, ratio, nxt, offset)
+    # A cut, on the outgoing bar where there is one.
+    fade = CUT_FADE_S
+    if mode == "end":
+        drop = max(now + fade + lead, out_end - 0.05)
+    elif out_grid:
+        drop = out_grid.next_bar(now + fade + lead, out_ratio)
+    else:
+        drop = now + fade + lead
+    drop = min(drop, max(now + lead, out_end))
+    return Plan("cut", drop, drop, fade, 60.0 / playing_bpm if playing_bpm else 0.5, 1.0, nxt)
+
+
+def gains(plan: Plan, t: np.ndarray) -> tuple:
+    """(outgoing low, outgoing high, incoming low, incoming high) gains at times t."""
+    if plan.kind == "cut":
+        out = np.clip((plan.drop - t) / plan.length, 0.0, 1.0)
+        inc = (t >= plan.drop).astype(np.float32)
+        return out, out, inc, inc
+    half = plan.length / 2
+    swap = plan.drop + half
+    rise = np.clip((t - plan.drop) / half, 0.0, 1.0)
+    fall = np.clip((t - swap) / half, 0.0, 1.0)
+    bass = np.clip((t - swap) / plan.beat, 0.0, 1.0)
+    return 1.0 - bass, np.cos(fall * np.pi / 2), bass, np.sin(rise * np.pi / 2)
+
+
+def mix_frames(out_parts, in_parts, g) -> bytes:
+    gol, goh, gil, gih = (x[:, None] for x in g)
+    y = np.zeros((FRAME_SAMPLES, 2), dtype=np.float32)
+    if out_parts is not None:
+        y += out_parts[0] * gol + out_parts[1] * goh
+    if in_parts is not None:
+        y += in_parts[0] * gil + in_parts[1] * gih
     return np.clip(np.rint(y), -32768, 32767).astype(np.int16).tobytes()
 
 
 class CrossfadeSource(_AudioSource):
-    """Plays decks one after another, overlapping the end of one with the start
-    of the next. `pick` returns the next (record, ratio, seconds) or None."""
+    """Plays decks one after another, mixing each into the next on the beat.
 
-    def __init__(self, first: Deck, pick: Callable[[Deck], Optional[tuple]],
-                 fade_s: float = 8.0, stream_factory=open_pcm,
-                 on_change: Optional[Callable[[library.Record], None]] = None):
+    `pick(deck)` returns the Next record for after `deck`, or None. `grid_at`
+    finds the outgoing record's beat round a point (patched out in tests)."""
+
+    def __init__(self, first: Deck, pick: Callable[[Deck], Optional[Next]],
+                 stream_factory=open_pcm, on_change: Optional[Callable[[library.Record], None]] = None,
+                 mix_beats: int = MIX_BEATS, grid_at: Optional[Callable] = None):
         self.current: Optional[Deck] = first
         self.incoming: Optional[Deck] = None
+        self.plan: Optional[Plan] = None
         self._pick = pick
-        self._fade = int(fade_s * FRAMES_PER_S)
         self._factory = stream_factory
         self._on_change = on_change
-        self._queued: Optional[tuple] = None
+        self._mix_beats = mix_beats
+        self._grid_at = grid_at or _default_grid_at
+        self._queued: Optional[Next] = None
         self._picking = False
-        self._skip = False
+        self._exhausted = False             # the last pick found nothing to play
+        self._planning = False
+        self._start_frame: Optional[int] = None
         self.frames_sent = 0
+        # How late discord.py's voice thread came back for a frame: every gap
+        # over LATE_S is one a listener may hear as a stutter.
+        self._last_read: Optional[float] = None
+        self.late: list[float] = []
         self._prefetch()
 
     def is_opus(self) -> bool:
@@ -189,61 +370,144 @@ class CrossfadeSource(_AudioSource):
                 log_warning(f"[records] could not choose the next record: {e}")
                 self._queued = None
             finally:
+                self._exhausted = self._queued is None
                 self._picking = False
         threading.Thread(target=run, daemon=True, name="kaia-records-pick").start()
 
     def skip(self) -> None:
-        """Start the next record's fade now."""
-        self._skip = True
+        """Bring the next record in at the next bar it can land on."""
+        self._begin_planning("skip")
 
-    def _start_incoming(self) -> None:
-        if self.incoming or not self._queued:
+    def _begin_planning(self, mode: str) -> None:
+        if self._planning or self.plan or self.current is None:
             return
-        record, ratio, seconds, *rest = self._queued
-        self._queued = None
-        try:
-            self.incoming = Deck(record, ratio, seconds, self._factory, gain=rest[0] if rest else 0.0)
-        except Exception as e:
-            log_error(f"[records] could not open {record.name}: {e}")
+        self._planning = True
+        deck = self.current
+
+        def run():
+            try:
+                deadline = time.time() + 30
+                while self._queued is None and time.time() < deadline:
+                    if not self._picking:
+                        if self._exhausted:
+                            break
+                        self._prefetch()
+                    time.sleep(0.05)
+                nxt = self._queued
+                if nxt is None or deck is not self.current:
+                    return
+                # Nothing slow may happen on discord.py's audio thread, which
+                # must hand over a frame every 20 ms: the filter (and scipy's
+                # import) is readied here, and the incoming ffmpeg is started
+                # and buffered here, before the plan is published.
+                global _SOS
+                if _SOS is None:
+                    _SOS = _bands()
+                here = (deck.end - 60.0 if mode == "end" else deck.at()) * deck.ratio
+                out_grid = self._grid_at(deck.record, max(0.0, here - 8.0), 45.0)
+                for attempt in range(4):
+                    lead = 2.0 + attempt                     # room to check the kicks, start ffmpeg, fill
+                    plan = plan_transition(deck.at(), deck.ratio, out_grid, deck.end, nxt, mode,
+                                           self._mix_beats, lead=lead)
+                    if plan.kind == "blend":
+                        # The grids put the downbeats together; the kicks
+                        # themselves have the last word, as a DJ's ear would.
+                        shift = self._fine(deck, plan)
+                        if shift is not None and abs(shift) <= MAX_FINE_S:
+                            plan.start += shift
+                    # A stretch that moves onsets early is started that much
+                    # later (only the atempo fallback does; rubberband does not).
+                    from utils.audio.beatgrid import stretch_latency
+                    plan.start += stretch_latency(plan.ratio) - stretch_latency(deck.ratio)
+                    # It starts part-way into its first frame, so its downbeat
+                    # lands on the outgoing bar to the sample.
+                    at = (plan.start - deck.offset / deck.ratio) * RATE + deck.pad   # outgoing samples
+                    k = int(np.floor(at / FRAME_SAMPLES))
+                    pad = int(round(at - k * FRAME_SAMPLES))
+                    incoming = Deck(nxt.record, plan.ratio, nxt.seconds, self._factory,
+                                    gain=nxt.gain, pad=max(0, pad), offset=plan.offset)
+                    deadline = time.time() + 1.0
+                    while not incoming.ready() and time.time() < deadline:
+                        time.sleep(0.02)
+                    if k > deck.played + 2 and incoming.ready():
+                        break
+                    incoming.close()
+                    incoming = None
+                if incoming is None or deck is not self.current:
+                    return
+                self._queued = None
+                self._start_frame = k
+                self.incoming = incoming
+                self.plan = plan
+                why = ""
+                if plan.kind == "cut":
+                    why = ("; no clear beat" if not (out_grid and nxt.grid) else
+                           f"; beat not steady enough to blend (contrast {out_grid.contrast:.1f} / "
+                           f"{nxt.grid.contrast:.1f})" if min(out_grid.contrast, nxt.grid.contrast) < BLEND_CONTRAST
+                           else "; bar not found" if not (out_grid.bar_known and nxt.grid.bar_known)
+                           else "; tempos too far apart, or no room left to blend")
+                log_action(f"[records] {plan.kind} into {nxt.record.name} at {plan.drop:.2f}s "
+                           f"(stretch {plan.ratio:.4f}, {mode}{why})")
+            except Exception as e:
+                log_warning(f"[records] transition not planned: {e}")
+            finally:
+                self._planning = False
+        threading.Thread(target=run, daemon=True, name="kaia-records-plan").start()
+
+    def _fine(self, deck: Deck, plan: Plan) -> Optional[float]:
+        from utils.audio import beatgrid
+        shift = beatgrid.fine_offset(deck.record.path, deck.ratio, plan.drop, plan.nxt.record.path,
+                                     plan.ratio, plan.drop - plan.start + plan.offset / plan.ratio, plan.beat)
+        if shift is not None:
+            log_debug(f"[records] kicks lined up: incoming moved {shift * 1000:+.0f} ms"
+                      + ("" if abs(shift) <= MAX_FINE_S else " (too far to trust; kept the grid's alignment)"))
+        return shift
 
     def read(self) -> bytes:
+        now = time.perf_counter()
+        if self._last_read is not None and now - self._last_read > LATE_S:
+            gap = now - self._last_read
+            self.late.append(gap)
+            log_debug(f"[records] voice thread {gap * 1000:.0f} ms between frames")
+        self._last_read = now
         cur = self.current
         if cur is None:
             return b""
-        fading = self._skip or cur.remaining <= self._fade
-        if fading:
-            self._start_incoming()
+        plan = self.plan
+        if plan is None and not self._planning and cur.remaining <= int((self._mix_beats * 0.6 + 25) * FRAMES_PER_S):
+            self._begin_planning("end")
+        k = cur.played
+        t0 = cur.at(k)
         out = cur.frame()
-        nxt = self.incoming
-        if nxt is not None:
-            done = nxt.played
-            t = done / max(1, min(self._fade, cur.remaining + done))
-            inc = nxt.frame() or SILENCE
-            if out is None or t >= 1.0:
-                self._advance()
-                frame = inc
-            else:
-                frame = mix(out, inc, t)
-        elif out is None:
-            # The record ended with nothing ready: a gap, then whatever comes.
-            self._start_incoming()
-            if self.incoming:
-                self._advance()
-                frame = self.current.frame() or SILENCE
-            elif self._picking or self._queued:
-                frame = SILENCE
-            else:
-                cur.close()
-                self.current = None
-                return b""
-        else:
+        if out is None and self.incoming is None:
+            # Ended with nothing planned: silence while the next is found, or stop.
+            if self._planning or self._picking or self._queued:
+                if not self._planning and self._queued:
+                    self._begin_planning("skip")
+                self.frames_sent += 1
+                return SILENCE
+            cur.close()
+            self.current = None
+            return b""
+        inc = None
+        if self.incoming is not None and self._start_frame is not None and k >= self._start_frame:
+            inc = self.incoming.frame() or SILENCE
+        if plan is None:
             frame = out
+        else:
+            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
+            g = gains(plan, times)
+            out_parts = cur.split(out) if out is not None else None
+            in_parts = self.incoming.split(inc) if inc is not None else None
+            frame = mix_frames(out_parts, in_parts, g)
+            if out is None or t0 + FRAME_MS / 1000 >= plan.done:
+                self._advance()
         self.frames_sent += 1
-        return frame
+        return frame or SILENCE
 
     def _advance(self) -> None:
         old, self.current, self.incoming = self.current, self.incoming, None
-        self._skip = False
+        self.plan, self._start_frame = None, None
         if old:
             old.close()
         if self.current and self._on_change:
@@ -258,6 +522,13 @@ class CrossfadeSource(_AudioSource):
             if deck:
                 deck.close()
         self.current = self.incoming = None
+
+
+def _default_grid_at(record: library.Record, start: float, seconds: float):
+    """The record's grid round `start`, its bars counted from its first beat."""
+    from utils.audio import beatgrid
+    return beatgrid.grid_at(record.path, record.bpm, start, seconds,
+                            anchor=beatgrid.grid_for(record.path, record.bpm))
 
 
 # ── Sessions ─────────────────────────────────────────────────────────
@@ -298,20 +569,33 @@ class RecordsSession:
     def now(self) -> Optional[library.Record]:
         return self.source.current.record if self.source and self.source.current else None
 
-    def _choose(self, deck: Deck) -> Optional[tuple]:
+    #: How many fitting records are looked at for one whose opening has a
+    #: beat steady enough to blend into, before settling for a cut.
+    STEADY_TRIES = 3
+
+    def _choose(self, deck: Deck) -> Optional[Next]:
+        from utils.audio import beatgrid
+        passed_over: list[str] = []
+        fallback: Optional[Next] = None
         rec = library.next_record(deck.record, self.crate, self.played, self._rng)
-        for _ in range(5):
+        for _ in range(5 + self.STEADY_TRIES):
             if rec is None:
-                return None
+                break
             seconds = probe_seconds(rec.path)
-            if seconds and seconds >= MIN_RECORD_S:
-                # Stretched to the tempo of the one playing, as heard (its own stretch included).
-                playing = deck.record.bpm * deck.ratio if deck.record.bpm else None
-                ratio = library.tempo_ratio(playing, rec.bpm) or 1.0
-                return rec, ratio, seconds, gain_db(rec.path)
-            self.played.append(rec.path)
-            rec = library.next_record(deck.record, self.crate, self.played, self._rng)
-        return None
+            if not seconds or seconds < MIN_RECORD_S:
+                self.played.append(rec.path)
+            else:
+                grid = beatgrid.grid_for(rec.path, rec.bpm)
+                if grid and grid.contrast >= BLEND_CONTRAST:
+                    return Next(rec, seconds, gain_db(rec.path), grid)
+                fallback = fallback or Next(rec, seconds, None, grid)
+                passed_over.append(rec.path)
+                if len(passed_over) >= self.STEADY_TRIES:
+                    break
+            rec = library.next_record(deck.record, self.crate, self.played + passed_over, self._rng)
+        if fallback is not None:
+            fallback.gain = gain_db(fallback.record.path)
+        return fallback
 
     def _changed(self, record: library.Record) -> None:
         self.played.append(record.path)
@@ -365,7 +649,10 @@ class RecordsSession:
         if self._task and not self._task.done() and self._task is not asyncio.current_task():
             self._task.cancel()
         minutes = (time.time() - self.started_at) / 60
-        log_action(f"[records] set ended after {minutes:.1f} min, {len(self.names)} records.")
+        late = self.source.late if self.source else []
+        log_action(f"[records] set ended after {minutes:.1f} min, {len(self.names)} records; "
+                   + (f"the voice thread was late {len(late)} times, worst {max(late) * 1000:.0f} ms."
+                      if late else "no late frames."))
         self._remember(minutes)
 
     def _remember(self, minutes: float) -> None:
@@ -388,7 +675,8 @@ class RecordsSession:
             log_debug(f"[records] set not remembered: {e}")
 
     def stats(self) -> dict:
-        nxt = self.source._queued[0].name if self.source and self.source._queued else None
+        q = self.source._queued if self.source else None
+        nxt = q.record.name if q else (self.source.incoming.record.name if self.source and self.source.incoming else None)
         now = self.now
         return {"now": now.name if now else None, "bpm": now.bpm if now else None,
                 "key": now.key if now else None, "genre": now.genre if now else None,
@@ -397,7 +685,7 @@ class RecordsSession:
 
 
 async def start_records(channel, crate: list[library.Record], first: library.Record, *,
-                        requested_by: str, text_channel=None, fade_s: float = 8.0,
+                        requested_by: str, text_channel=None, mix_beats: int = MIX_BEATS,
                         alone_grace_s: float = 120.0) -> RecordsSession:
     """Join `channel` and start the set at `first`. Stops whatever was playing there."""
     guild = channel.guild
@@ -433,7 +721,9 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
     session = RecordsSession(vc, crate, requested_by, text_channel, alone_grace_s)
     deck = Deck(first, 1.0, seconds, gain=await asyncio.to_thread(gain_db, first.path))
     session._changed(first)
-    session.source = CrossfadeSource(deck, session._choose, fade_s=fade_s, on_change=session._changed)
+    session.source = CrossfadeSource(deck, session._choose, on_change=session._changed,
+                                     mix_beats=int(mix_beats))
+    settle("a records set")
     vc.play(session.source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None)
     _sessions[guild.id] = session
     from utils.infrastructure.monitoring.async_task_registry import task_registry
