@@ -306,7 +306,59 @@ async def process(job: dict, wav: Path, receiver: kiwi.Receiver, started: dateti
     return entry
 
 
-async def sample_uvb76(job: dict) -> Optional[Path]:
+#: The buzz, measured on 22 night samples from five receivers in Finland and
+#: Poland (26 Sept – 3 Oct): a period of 3.0–3.3 s, on about 40% of it, with an
+#: S-meter autocorrelation at that period of 0.42–0.58.
+BUZZ_PERIOD_S = (2.6, 3.8)
+BUZZ_STRENGTH = 0.35
+#: Under this spread (p90 − p10 of the S-meter) nothing is on the frequency.
+SIGNAL_SPAN_DB = 6.0
+
+
+def buzz_state(readings: list) -> dict:
+    """What 4625 kHz was doing over a run of S-meter readings ([(time, dBm)]):
+    "buzz" (the pattern intact), "quiet" (no signal over the noise) or
+    "changed" — a signal that is not the buzz: a voice message, a marker, the
+    station doing something else. Only "changed" is news."""
+    import numpy as np
+    if len(readings) < 30:
+        return {"state": "unknown"}
+    t = np.array([(r[0] if isinstance(r[0], (int, float)) else datetime.fromisoformat(str(r[0])).timestamp())
+                  for r in readings], float)
+    v = np.array([r[1] for r in readings], float)
+    t -= t[0]
+    if t[-1] < 20:
+        return {"state": "unknown"}
+    span = float(np.percentile(v, 90) - np.percentile(v, 10))
+    y = np.interp(np.arange(0, t[-1], 0.05), t, v)
+    y = y - y.mean()
+    ac = np.correlate(y, y, "full")[len(y) - 1:]
+    ac = ac / (ac[0] or 1)
+    lo, hi = int(2.0 / 0.05), int(5.0 / 0.05)
+    k = lo + int(np.argmax(ac[lo:hi]))
+    period, strength = k * 0.05, float(ac[k])
+    out = {"period_s": round(period, 2), "strength": round(strength, 2), "span_db": round(span, 1)}
+    if span < SIGNAL_SPAN_DB:
+        return {"state": "quiet", **out}
+    if BUZZ_PERIOD_S[0] <= period <= BUZZ_PERIOD_S[1] and strength >= BUZZ_STRENGTH:
+        return {"state": "buzz", **out}
+    return {"state": "changed", **out}
+
+
+def _silent(wav: Path) -> bool:
+    """True for a recording that is digital silence: some receivers sent 60 s of
+    zeros for every sample while their S-meter read the buzz."""
+    import wave
+    import numpy as np
+    try:
+        with wave.open(str(wav)) as f:
+            a = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16)
+    except Exception:
+        return True
+    return len(a) == 0 or int(np.abs(a).max()) < 4
+
+
+async def sample_uvb76(job: dict, poster=None) -> Optional[Path]:
     """Two minutes of S-meter readings and a clip from a north-eastern European
     receiver, kept in memory/radio/uvb76/ for calibrating a buzz detector.
     Returns the sample's JSON path, or None."""
@@ -314,32 +366,87 @@ async def sample_uvb76(job: dict) -> Optional[Path]:
     folder = radio_log.clips_dir().parent / "uvb76"
     folder.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc)
-    for r in kiwi.choose(await kiwi.directory(), job["khz"], job["region"], n=4):
+    receivers = kiwi.choose(await kiwi.directory(), job["khz"], job["region"], n=4)
+    for i, r in enumerate(receivers):
         try:
             readings = await kiwi.smeter(r, job["khz"], "usb", job["seconds"])
-            wavs = await kiwi.record(r, job["khz"], "usb", 60, folder / "work", label="uvb76")
         except FeedError as e:
             log_warning(f"[radio] UVB-76 sample: {e}; trying the next receiver")
             continue
         stem = f"{started:%Y%m%dT%H%M}"
-        clip = None
-        if wavs:
-            clip = await asyncio.to_thread(_to_opus, wavs[0], folder / f"{stem}.ogg")
+        # The clip from this receiver, or the next whose audio is not silence.
+        clip, clip_from = None, None
+        for cr in [r] + receivers[i + 1:]:
+            try:
+                wavs = await kiwi.record(cr, job["khz"], "usb", 60, folder / "work", label="uvb76")
+            except FeedError as e:
+                log_debug(f"[radio] UVB-76 clip: {e}")
+                continue
+            good = [w for w in wavs if not await asyncio.to_thread(_silent, w)]
+            if not good and wavs:
+                log_warning(f"[radio] UVB-76 clip from {cr.location or cr.host} was silence; trying the next receiver")
+            if good:
+                clip = await asyncio.to_thread(_to_opus, good[0], folder / f"{stem}.ogg")
+                clip_from = cr
             for w in wavs:
                 w.unlink(missing_ok=True)
+            if clip:
+                break
+        state = buzz_state(readings)
         out = folder / f"{stem}.json"
         from utils.core.atomic_write import write_atomic
         write_atomic(out, json.dumps({
             "started": started.isoformat(), "khz": job["khz"], "receiver": r.host,
             "receiver_location": r.location,
             "clip": clip.name if clip else None,
+            "clip_receiver": clip_from.host if clip_from else None,
+            "buzz": state,
             "readings": [[t.isoformat(), dbm] for t, dbm in readings]}, indent=1))
         levels = [dbm for _, dbm in readings]
         log_info(f"[radio] UVB-76 sample from {r.location or r.host}: {len(levels)} readings, "
-                 f"{min(levels):.0f} to {max(levels):.0f} dBm")
+                 f"{min(levels):.0f} to {max(levels):.0f} dBm; {state['state']}"
+                 + (f" (period {state.get('period_s')} s, strength {state.get('strength')})" if "period_s" in state else ""))
+        if state["state"] == "changed":
+            await _uvb76_changed(job, started, state, clip, clip_from or r, poster)
         return out
     log_warning("[radio] UVB-76 sample: no north-east European receiver gave readings")
     return None
+
+
+async def _uvb76_changed(job: dict, started: datetime, state: dict, clip: Optional[Path],
+                         receiver, poster) -> None:
+    """The buzz broke: keep the clip in the radio log, transcribe it in Russian
+    (Whisper large-v3 reads Russian), and post it like any other catch."""
+    import shutil
+    entry_id = f"{started:%Y%m%dT%H%M%S}-uvb76-{secrets.token_hex(2)}"
+    transcript = ""
+    kept = None
+    if clip:
+        kept = radio_log.clips_dir() / f"{entry_id}.ogg"
+        await asyncio.to_thread(shutil.copyfile, clip, kept)
+        if transcribe.available():
+            try:
+                transcript = await transcribe.transcribe(kept, language="ru")
+            except Exception as e:
+                log_warning(f"[radio] UVB-76 transcription failed: {e}")
+            finally:
+                transcribe.release_if_idle()
+    entry = {
+        "id": entry_id, "kind": "uvb76", "station": "UVB-76", "khz": job["khz"], "mode": "usb",
+        "receiver": receiver.host, "receiver_location": receiver.location, "started": started.isoformat(),
+        "seconds": 60.0 if kept else 0.0, "clip": kept.name if kept else None, "transcript": transcript,
+        "parsed": None, "check": None, "posted": False, "heard": "changed", "measured": state,
+    }
+    radio_log.add(entry)
+    log_warning(f"[radio] UVB-76: the buzz broke (period {state.get('period_s')} s, strength "
+                f"{state.get('strength')}, {state.get('span_db')} dB over the noise)"
+                + (f"; heard: {transcript[:120]!r}" if transcript else ""))
+    if poster:
+        try:
+            if await poster(entry):
+                radio_log.update(entry_id, posted=True)
+        except Exception as e:
+            log_warning(f"[radio] posting the UVB-76 break failed: {e}")
 
 
 async def run_job(job: dict, poster=None) -> list[dict]:
@@ -349,7 +456,7 @@ async def run_job(job: dict, poster=None) -> list[dict]:
         return []
     if job["kind"] == "uvb76":
         async with _lock_for(job):
-            await sample_uvb76(job)
+            await sample_uvb76(job, poster)
         return []
     async with _lock_for(job):
         receivers = kiwi.choose(await kiwi.directory(), job["khz"], job["region"])

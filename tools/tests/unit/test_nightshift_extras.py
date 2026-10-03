@@ -102,3 +102,71 @@ def test_the_overnight_note_is_written_by_her_pipeline(monkeypatch):
     assert note.startswith("quiet.")
     assert seen[0][:3] == ("Kaia", overnight.PLATFORM, True)
     assert "the planetary K index is 0.7" in seen[0][3]
+
+
+def _readings(period=3.2, on=0.4, seconds=120, rate=5.9, lo=-108.0, hi=-78.0, buzz=True):
+    import numpy as np
+    t = np.arange(0, seconds, 1 / rate)
+    rng = np.random.default_rng(1)
+    v = np.where((t % period) < on * period, hi, lo) if buzz else np.full_like(t, lo)
+    return [(float(x), float(y)) for x, y in zip(t, v + rng.normal(0, 1.5, len(t)))]
+
+
+def test_the_uvb76_buzz_is_told_from_silence_and_from_a_change():
+    """Measured on 22 night samples (five receivers): period 3.0-3.3 s, on ~40%,
+    strength 0.42-0.58; a daytime North American receiver read 2.3 dB of spread."""
+    from utils.radio.watch import buzz_state
+    assert buzz_state(_readings())["state"] == "buzz"
+    assert buzz_state(_readings(buzz=False))["state"] == "quiet"
+    import numpy as np
+    rng = np.random.default_rng(2)
+    voice = [(t, -80.0 + rng.normal(0, 6)) for t in np.arange(0, 120, 1 / 5.9)]   # carrier, no rhythm
+    assert buzz_state(voice)["state"] == "changed"
+    assert buzz_state(_readings(seconds=10))["state"] == "unknown"
+
+
+def test_a_silent_uvb76_clip_is_not_kept(tmp_path):
+    """21 of 23 clips were 60 s of zeros while the S-meter read the buzz."""
+    import wave
+    import numpy as np
+    from utils.radio.watch import _silent
+    def wav(name, data):
+        p = tmp_path / name
+        with wave.open(str(p), "wb") as f:
+            f.setnchannels(1); f.setsampwidth(2); f.setframerate(12000)
+            f.writeframes(np.asarray(data, np.int16).tobytes())
+        return p
+    assert _silent(wav("zeros.wav", np.zeros(12000)))
+    assert not _silent(wav("hiss.wav", np.random.default_rng(0).normal(0, 2000, 12000)))
+
+
+def test_the_uvb76_sample_takes_its_clip_from_a_receiver_that_sends_sound(tmp_path, monkeypatch):
+    import asyncio, json, types, wave
+    import numpy as np
+    from utils.radio import kiwi, watch, log as radio_log
+    monkeypatch.setattr(radio_log, "clips_dir", lambda: tmp_path / "clips")
+    (tmp_path / "clips").mkdir()
+    a = types.SimpleNamespace(host="muurame", location="Muurame", port=8073)
+    b = types.SimpleNamespace(host="plonsk", location="Płońsk", port=8073)
+    async def directory():
+        return []
+    monkeypatch.setattr(kiwi, "directory", directory)
+    monkeypatch.setattr(kiwi, "choose", lambda *args, **k: [a, b])
+    from datetime import datetime, timezone
+    async def smeter(r, khz, mode, seconds):
+        return [(datetime.fromtimestamp(t, timezone.utc), v) for t, v in _readings()]
+    monkeypatch.setattr(kiwi, "smeter", smeter)
+    async def record(r, khz, mode, seconds, out_dir, label, squelch_db=None):
+        out_dir.mkdir(parents=True, exist_ok=True)
+        p = out_dir / f"{r.host}.wav"
+        data = np.zeros(12000) if r.host == "muurame" else np.random.default_rng(0).normal(0, 2000, 12000)
+        with wave.open(str(p), "wb") as f:
+            f.setnchannels(1); f.setsampwidth(2); f.setframerate(12000)
+            f.writeframes(data.astype(np.int16).tobytes())
+        return [p]
+    monkeypatch.setattr(kiwi, "record", record)
+    monkeypatch.setattr(watch, "_to_opus", lambda wav, dest: (dest.write_bytes(b"ogg"), dest)[1])
+    out = asyncio.run(watch.sample_uvb76({"khz": 4625.0, "region": "ne", "seconds": 120}))
+    meta = json.loads(out.read_text())
+    assert meta["receiver"] == "muurame" and meta["clip_receiver"] == "plonsk"
+    assert meta["buzz"]["state"] == "buzz"

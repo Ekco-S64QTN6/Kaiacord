@@ -286,6 +286,10 @@ def entry_embed(e: dict):
                                          f"{measured.get('prominence_db', 0):.0f} dB over the band", inline=True)
     elif heard == "speech":
         add_field(embed, "Why I kept it", "a voice came through", inline=True)
+    elif heard == "changed":
+        add_field(embed, "Why I kept it", f"the buzz broke — the signal stopped repeating every "
+                                         f"{measured.get('period_s', 0):g} s (pattern strength {measured.get('strength', 0):.2f}); "
+                                         "it is usually a voice message", inline=False)
     elif heard == "unchecked":
         add_field(embed, "Why I kept it", "couldn't check it for a voice; kept to be safe", inline=True)
     if parsed.get("callsign"):
