@@ -1735,6 +1735,7 @@ class MessageProcessor:
         try:
             from utils.core.safety_pipeline import PostGenerationSafetyPipeline
             optimized_history = PostGenerationSafetyPipeline.detemplate_history(optimized_history)
+            optimized_history = PostGenerationSafetyPipeline.events_as_notes(optimized_history)
         except Exception as _tpl_err:
             log_debug(f"History not de-templated: {_tpl_err}")
 
@@ -2052,7 +2053,7 @@ class MessageProcessor:
                     # replaces its oldest 15 turns. Dropped here, those turns
                     # were simply gone. It goes in as a bracketed note in the
                     # user role rather than as a second system message.
-                    if str(turn['content']).startswith('[summary of earlier conversation'):
+                    if str(turn['content']).startswith(('[summary of earlier conversation', '[earlier in this channel')):
                         messages.append({'role': 'user', 'content': turn['content']})
                     continue
                 # Scrub [CURRENT_TIME], [CURRENT_USER] and resolved date strings from history to prevent mimicry
@@ -2450,6 +2451,7 @@ class MessageProcessor:
         try:
             ctx.response_text = PostGenerationSafetyPipeline.strip_grading_opener(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_room_status(ctx.response_text)
+            ctx.response_text = PostGenerationSafetyPipeline.strip_event_echo(ctx.response_text)
         except Exception:
             pass
         try:

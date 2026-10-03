@@ -389,6 +389,9 @@ realm, there's still room for quiet …" went from nothing to 28 of 58 replies i
 opening "a <adjective> <noun>, starkind. a <noun phrase>." `detemplate_history` shows her own turns
 without lines she has used twice in the window (and without that grading opener); the logs are not
 touched. `strip_repeated_lines` drops the same from what she sends, with any fragment left hanging.
+What she *did* — `kaia_expression.remember`'s "[i played records…]", "[i made a piece…]" — is written into
+channel memory marked `event`, and the prompt shows it as a note (`events_as_notes`), never as her turn:
+read back as one, it was copied onto the end of an unrelated reply to Starkind (`strip_event_echo`).
 
 **Detect by vocabulary, not by shape — and measure what the marker is actually used for.**
 The stage-direction guard classified a span as roleplay if it was multi-word, lowercase and

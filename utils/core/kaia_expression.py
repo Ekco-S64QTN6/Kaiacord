@@ -34,7 +34,9 @@ def remember(kind: str, line: str, *, channel_id: Optional[int] = None,
             memory = bot_state.channel_memory
             if channel_id not in memory:
                 memory[channel_id] = deque(maxlen=config.max_memory_messages)
-            memory[channel_id].append({"role": "assistant", "content": line,
+            # Marked as an event: the prompt shows it as a note of what she
+            # did, not as a turn of hers to copy (`events_as_notes`).
+            memory[channel_id].append({"role": "assistant", "content": line, "event": True,
                                        "timestamp": time.time()})
         except Exception as e:
             log_debug(f"[expression] channel memory not updated: {e}")

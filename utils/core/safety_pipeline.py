@@ -839,6 +839,53 @@ class PostGenerationSafetyPipeline:
         r"turning)\s+(?:the\s+)?(?:room|lights?|lighting|temperature|thermostat|blinds|heating|brightness)[^\]]*\]\s*$",
         re.IGNORECASE | re.MULTILINE)
 
+    # What she did, recorded into the channel's history by `kaia_expression.remember`
+    # as a bracketed line in her voice: "[i played records in general for 1
+    # minutes — …]", "[i made a piece called …]". Read back as one of her own
+    # turns, it was copied onto the end of an unrelated reply to Starkind.
+    _EVENT_LINE = re.compile(r"^\s*\[i (?:played|made|drew|painted|recorded) [^\n\[\]]{8,}\]\s*$", re.I)
+
+    @classmethod
+    def is_event_turn(cls, turn) -> bool:
+        if not isinstance(turn, dict) or turn.get("role") != "assistant":
+            return False
+        return bool(turn.get("event")) or bool(cls._EVENT_LINE.match(str(turn.get("content", ""))))
+
+    @classmethod
+    def events_as_notes(cls, history: list) -> list:
+        """History as the prompt shows it: an event turn becomes a bracketed
+        note (it is what she did, not a line she said), and an event line copied
+        into one of her replies is taken out of it."""
+        out = []
+        for t in history or []:
+            if cls.is_event_turn(t):
+                out.append({**t, "role": "system",
+                            "content": f"[earlier in this channel, something you did — not a line to say: "
+                                       f"{str(t['content']).strip().strip('[]')}]"})
+                continue
+            if isinstance(t, dict) and t.get("role") == "assistant":
+                text = str(t.get("content", ""))
+                kept = [ln for ln in text.split("\n") if not cls._EVENT_LINE.match(ln)]
+                stripped = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+                if stripped != text.strip() and len(stripped) >= 2:
+                    t = {**t, "content": stripped}
+            out.append(t)
+        return out
+
+    @classmethod
+    def strip_event_echo(cls, text: str) -> str:
+        """Drop a bracketed event line ("[i played records …]") from a reply: it
+        belongs to the channel's history, not to what she says next."""
+        lines = (text or "").split("\n")
+        kept = [ln for ln in lines if not cls._EVENT_LINE.match(ln)]
+        if len(kept) == len(lines):
+            return text
+        out = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+        if len(out) < 20:
+            return text
+        log_warning("[TEMPLATE_GUARD] Dropped an event line copied into a reply")
+        return out
+
     @classmethod
     def strip_room_status(cls, text: str) -> str:
         out = cls._ROOM_STATUS.sub("", text or "")
