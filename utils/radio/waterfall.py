@@ -401,8 +401,12 @@ class Watcher:
                  sink: Optional[Callable[[np.ndarray], None]] = None, ppm: int = 0,
                  hops: Optional[tuple[list[int], list[int]]] = None,
                  scope: Optional[Callable[[dict], None]] = None,
-                 exempt: Optional[list[int]] = None):
+                 exempt: Optional[list[int]] = None,
+                 squelch_open: Optional[Callable[[], bool]] = None):
         self.on_catch = on_catch
+        # SQL OPEN on the receiver dashboard: on a tuned channel the listener
+        # hears the channel itself — hiss and all — not only what keys up.
+        self.squelch_open = squelch_open or (lambda: False)
         self.ppm = ppm
         # The receiver dashboard (rx_dashboard): every spectrum measured, and
         # each pass's lockouts. Called from the watcher's thread; must not block.
@@ -625,8 +629,12 @@ class Watcher:
                 d.tune(center)
                 idx = int(np.argmin(np.abs(_bin_freqs(center) - freq_hz)))
                 s = self.slices[center]
+                demod = NbfmDemod(freq_hz - center)
                 while not self.stop.is_set() and time.time() < until:
-                    spec, shown = _spectra(d.read(NFFT * 32))
+                    iq = d.read(NFFT * 32)
+                    if self.sink and self.squelch_open():
+                        self.sink(demod(iq))                   # the channel, unsquelched
+                    spec, shown = _spectra(iq)
                     self._show(center, shown, "pinned", freq_hz)
                     s.history = (s.history + [spec])[-FLOOR_VISITS * 4:]
                     self.passes += 1
@@ -669,7 +677,7 @@ class Watcher:
 # queues.
 
 def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
-               stop, catches, audio, passes, hops=None, spectra=None, exempt=None) -> None:
+               stop, catches, audio, passes, hops=None, spectra=None, exempt=None, squelch=None) -> None:
     import os
     # The bot leaves by os._exit, which skips multiprocessing's cleanup of
     # daemon children: an orphaned watcher kept the dongle, and the next boot's
@@ -703,7 +711,8 @@ def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
             return stop.is_set()
 
     w = Watcher(_send, gain_db=gain_db, stop=_Stop(), sink=_sink, ppm=ppm, hops=hops,
-                scope=_scope if spectra is not None else None, exempt=exempt)
+                scope=_scope if spectra is not None else None, exempt=exempt,
+                squelch_open=(lambda: bool(squelch.value)) if squelch is not None else None)
     try:
         if mode == "pinned":
             w.run_pinned(freq_hz, until)

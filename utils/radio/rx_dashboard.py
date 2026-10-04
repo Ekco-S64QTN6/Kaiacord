@@ -98,6 +98,7 @@ def status() -> dict:
         mode, freq = ("idle" if rtl.available() else "no dongle"), 0
     return {"mode": mode, "freq": freq, "live": lv, "passes": scope.passes, "lockouts": scope.lockouts,
             "tuned": tuned, "net": pinned if pinned and not tuned else None,
+            "squelch_open": scanner.squelch_open(),
             "hours": str(_cfg("hours", "00:00-06:00")), "gain": _cfg("gain", rtl.DEFAULT_GAIN),
             "audio_level": _last_audio["level"] if time.time() - _last_audio["t"] < 1.5 else -90.0,
             "along": scanner.listening_along(), "kaia": _kaia_line(mode, freq, lv, tuned),
@@ -272,6 +273,8 @@ class _Handler(BaseHTTPRequestHandler):
                     self.wfile.write(b"data: " + json.dumps(st).encode() + b"\n\n")
                     self.wfile.flush()
                     time.sleep(1.0 / STREAM_HZ)
+            elif path == "/monitor.wav":
+                self._monitor_wav()
             elif path == "/audio":
                 q: queue.Queue = queue.Queue(maxsize=50)
                 with _mon_lock:
@@ -298,6 +301,43 @@ class _Handler(BaseHTTPRequestHandler):
             pass
         except Exception as e:
             log_debug(f"[rx] {path}: {e}")
+
+    def _monitor_wav(self) -> None:
+        """The monitor as an endless 12 kHz WAV for an <audio> element: the
+        scanner's audio as it comes, padded with silence to keep real time so
+        the player never runs dry. Web Audio was the first way, and in the
+        desktop window (WebKitGTK) its context stayed suspended and played
+        nothing; a media element goes through GStreamer and plays."""
+        import struct
+        q: queue.Queue = queue.Queue(maxsize=100)
+        with _mon_lock:
+            _monitors.append(q)
+        rate = 12000
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b"RIFF" + struct.pack("<I", 0xFFFFFFFF) + b"WAVEfmt " +
+                             struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16) +
+                             b"data" + struct.pack("<I", 0xFFFFFFFF))
+            started, sent = time.time(), 0
+            while _server is not None:
+                try:
+                    data = q.get(timeout=0.1)
+                except queue.Empty:
+                    data = b""
+                behind = int((time.time() - started) * rate) - sent - len(data) // 2
+                if behind > rate // 10:                      # more than 0.1 s short of real time
+                    data += b"\x00\x00" * behind
+                if data:
+                    self.wfile.write(data)
+                    self.wfile.flush()
+                    sent += len(data) // 2
+        finally:
+            with _mon_lock:
+                if q in _monitors:
+                    _monitors.remove(q)
 
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
@@ -327,6 +367,11 @@ class _Handler(BaseHTTPRequestHandler):
                 fut = asyncio.run_coroutine_threadsafe(scanner.start_scan(minutes), _loop)
             elif self.path == "/stop":
                 fut = asyncio.run_coroutine_threadsafe(scanner.stop_scan(), _loop)
+            elif self.path == "/squelch":
+                on = scanner.set_squelch_open(bool(body.get("open")))
+                return self._json({"ok": True, "open": on, "say": (
+                    "squelch open: a tuned channel plays hiss and all" if on else
+                    "squelch automatic: you hear a channel when something keys up")})
             else:
                 return self._send(404, b"", "text/plain")
             # The answer if it comes quickly; otherwise say it is under way.

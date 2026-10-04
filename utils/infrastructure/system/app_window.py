@@ -31,8 +31,15 @@ def available() -> bool:
     if _available is None:
         py = SYSTEM_PYTHON if os.path.exists(SYSTEM_PYTHON) else shutil.which("python3")
         try:
+            # And GStreamer able to play sound: WebKitGTK's audio — media
+            # elements and Web Audio alike — goes out through an audio sink from
+            # gst-plugins-good. Without one the window opens and plays nothing
+            # (the receiver's monitor, the booth's headphones), so a browser,
+            # which plays, is better.
             out = subprocess.run([py, "-c", "import gi; gi.require_version('Gtk', '3.0'); "
-                                  "gi.require_version('WebKit2', '4.1'); from gi.repository import Gtk, WebKit2"],
+                                  "gi.require_version('WebKit2', '4.1'); gi.require_version('Gst', '1.0'); "
+                                  "from gi.repository import Gtk, WebKit2, Gst; Gst.init(None); "
+                                  "import sys; sys.exit(0 if Gst.ElementFactory.find('autoaudiosink') else 3)"],
                                  capture_output=True, timeout=20)
             _available = out.returncode == 0
         except (OSError, subprocess.SubprocessError):

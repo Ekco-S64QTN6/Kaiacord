@@ -107,3 +107,33 @@ def test_a_held_slice_becomes_the_tuned_span_full_width():
     s.feed({"kind": "spec", "center": 147_000_000, "state": "pinned", "spec": full.astype(np.float16)})
     assert span.lo == 147_000_000 - w.FS // 2                    # retuned: a new span
     assert {b["span"] for b in s.bands_info()} == {False, True}
+
+
+def test_squelch_open_plays_a_tuned_channel_all_the_time(monkeypatch):
+    """SQL OPEN: a tuned channel is heard hiss and all, not only when it keys up."""
+    import utils.radio.dongle as dongle
+    from tools.tests.unit.test_local_scanner import _SimDongle
+    d = _SimDongle([], 8)                                  # nothing transmits
+    d.stop = threading.Event()
+    monkeypatch.setattr(w, "time", NS(time=lambda: d.t))
+    monkeypatch.setattr(dongle, "Dongle", lambda **k: d)
+    heard = {"auto": [], "open": []}
+    for mode in ("auto", "open"):
+        d.t, d.stop = 0.0, threading.Event()
+        watcher = w.Watcher(lambda c: None, stop=d.stop, sink=heard[mode].append,
+                            squelch_open=(lambda: mode == "open"))
+        watcher.run_pinned(146_520_000, until=4.0)
+    assert not heard["auto"]                               # squelched: nothing keyed up, nothing heard
+    assert len(heard["open"]) > 20 and all(len(a) for a in heard["open"])
+
+
+def test_the_squelch_setting_reaches_the_running_watch():
+    from utils.radio import scanner
+    import multiprocessing as mp
+    v = mp.get_context("fork").Value("b", 0)
+    scanner._squelch_value = v
+    try:
+        assert scanner.set_squelch_open(True) and v.value == 1 and scanner.squelch_open()
+        assert not scanner.set_squelch_open(False) and v.value == 0
+    finally:
+        scanner._squelch_value = None

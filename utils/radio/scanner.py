@@ -610,6 +610,8 @@ async def _watch(net: Optional[dict] = None) -> None:
     _stops.add(stop)
     catches, audio, passes = ctx.Queue(), ctx.Queue(maxsize=600), ctx.Value("i", 0)
     spectra = ctx.Queue(maxsize=400)              # what the receiver dashboard draws (rx_scope)
+    global _squelch_value
+    _squelch_value = ctx.Value("b", 1 if _squelch_open else 0)
 
     def _consume():
         while True:
@@ -652,7 +654,7 @@ async def _watch(net: Optional[dict] = None) -> None:
             digital = [c["freq_hz"] for c in seeded if c.get("mode") == "digital"]
             proc = ctx.Process(target=waterfall.child_main, name="kaia-scanner", daemon=True,
                                args=(mode, freq, until, float(_cfg("gain", rtl.DEFAULT_GAIN)), rtl.ppm(),
-                                     stop, catches, audio, passes, hops, spectra, digital))
+                                     stop, catches, audio, passes, hops, spectra, digital, _squelch_value))
             proc.start()
             consumer = threading.Thread(target=_consume, name="scanner-classify", daemon=True)
             forwarder = threading.Thread(target=_forward, name="scanner-audio", daemon=True)
@@ -728,6 +730,23 @@ def _save_night() -> None:
 # held, recorded and classified. Outside the scanning hours too — the dongle
 # is idle then. A live listen in voice still has the dongle first.
 _tuned: Optional[dict] = None
+
+
+# SQL OPEN on the receiver dashboard: a tuned channel's audio unsquelched.
+_squelch_open = False
+_squelch_value = None             # the running watch's shared flag
+
+
+def set_squelch_open(on: bool) -> bool:
+    global _squelch_open
+    _squelch_open = bool(on)
+    if _squelch_value is not None:
+        _squelch_value.value = 1 if _squelch_open else 0
+    return _squelch_open
+
+
+def squelch_open() -> bool:
+    return _squelch_open
 
 
 def tuned() -> Optional[dict]:

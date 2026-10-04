@@ -171,7 +171,8 @@ canvas.fill { width: 100%; height: 100%; display: block; }
         <select id="mins"><option>5</option><option selected>15</option><option>30</option><option>60</option><option>120</option></select>
         <span class="ptitle">MIN</span></div>
       <div class="row"><div class="btn" id="scan" style="display:none" title="leave the tuned channel and go back to the scan">◀ BACK TO SCAN</div>
-        <div class="btn pink" id="mon" title="hear the scanner in this window — silent while it sweeps">🎧 MONITOR</div></div>
+        <div class="btn pink" id="mon" title="hear the scanner in this window — silent while it sweeps">🎧 MONITOR</div>
+        <div class="btn" id="sql" title="squelch: AUTO plays a channel when something keys up; OPEN plays a tuned channel all the time, hiss and all">SQL AUTO</div></div>
       <div class="row"><span class="ptitle">VOL</span><input type="range" id="vol" min="0" max="1" step="0.05" value="0.7"></div>
     </div>
   </div>
@@ -418,7 +419,9 @@ function bar(cv, frac, color) {
   for (let i = 0; i < n; i++) { const on = i / n < frac; g.fillStyle = on ? (i > n * 0.8 ? "#ff3860" : i > n * 0.6 ? "#ffe45c" : color) : "rgba(42,53,84,.55)"; g.fillRect(i * (w + gap), 0, w, H); }
 }
 const SCANNING = ["scanning", "holding", "following", "starting"];
+$("sql").onclick = () => post("/squelch", { open: !(S && S.squelch_open) }).then((j) => toast(j.say)).catch(() => {});
 function updateVfo() {
+  if (S) { const o = !!S.squelch_open, b = $("sql"); b.classList.toggle("lit", o); const t = o ? "SQL OPEN" : "SQL AUTO"; if (b.textContent !== t) b.textContent = t; }
   if (!S) return;
   const L = S.live, holding = L && L.state !== "hop";
   const f = S.freq || (L && L.center) || 0;
@@ -498,26 +501,44 @@ $("scan").onclick = () => post("/scan").then((j) => toast(j.say)).catch(() => {}
 let mon = null;
 $("mon").onclick = () => { mon ? stopMon() : startMon(); };
 async function startMon() {
-  const ctx = new AudioContext({ sampleRate: 12000 }), gain = ctx.createGain(); gain.gain.value = +$("vol").value; gain.connect(ctx.destination);
-  const ctl = new AbortController(); mon = { ctx, gain, ctl, at: 0 };
+  // Web Audio first (raw PCM, the lowest latency); if its context will not
+  // run, an endless WAV through an <audio> element.
   $("mon").classList.add("lit");
   try {
-    const r = await fetch("/audio", { signal: ctl.signal }), rd = r.body.getReader(); let carry = new Uint8Array(0);
-    for (;;) {
-      const { value, done } = await rd.read(); if (done || !mon) break;
-      const buf = new Uint8Array(carry.length + value.length); buf.set(carry); buf.set(value, carry.length);
-      const n = Math.floor(buf.length / 2); carry = buf.slice(n * 2);
-      if (!n) continue;
-      const s16 = new Int16Array(buf.buffer, buf.byteOffset, n), ab = ctx.createBuffer(1, n, 12000), ch = ab.getChannelData(0);
-      for (let i = 0; i < n; i++) ch[i] = s16[i] / 32768;
-      const src = ctx.createBufferSource(); src.buffer = ab; src.connect(gain);
-      if (mon.at < ctx.currentTime + 0.05 || mon.at > ctx.currentTime + 1.0) mon.at = ctx.currentTime + 0.15;
-      src.start(mon.at); mon.at += n / 12000;
+    const ctx = new AudioContext({ sampleRate: 12000 }), gain = ctx.createGain();
+    gain.gain.value = +$("vol").value; gain.connect(ctx.destination);
+    try { await ctx.resume(); } catch (_) {}
+    if (ctx.state === "running") {
+      const ctl = new AbortController(); mon = { ctx, gain, ctl, at: 0 };
+      toast("monitoring the scanner in this window — silent until something keys up, unless SQL is OPEN");
+      const r = await fetch("/audio", { signal: ctl.signal }), rd = r.body.getReader(); let carry = new Uint8Array(0);
+      for (;;) {
+        const { value, done } = await rd.read(); if (done || !mon || mon.ctx !== ctx) break;
+        const buf = new Uint8Array(carry.length + value.length); buf.set(carry); buf.set(value, carry.length);
+        const n = Math.floor(buf.length / 2); carry = buf.slice(n * 2);
+        if (!n) continue;
+        const s16 = new Int16Array(buf.buffer, buf.byteOffset, n), ab = ctx.createBuffer(1, n, 12000), ch = ab.getChannelData(0);
+        for (let i = 0; i < n; i++) ch[i] = s16[i] / 32768;
+        const src = ctx.createBufferSource(); src.buffer = ab; src.connect(gain);
+        if (mon.at < ctx.currentTime + 0.05 || mon.at > ctx.currentTime + 1.0) mon.at = ctx.currentTime + 0.15;
+        src.start(mon.at); mon.at += n / 12000;
+      }
+      return;
     }
+    ctx.close();
   } catch (_) {}
+  const el = new Audio("/monitor.wav?" + Date.now());
+  el.volume = +$("vol").value; mon = { el };
+  toast("monitoring the scanner in this window");
+  try { await el.play(); } catch (e) { toast("this window can't play audio: " + e.message); stopMon(); }
 }
-function stopMon() { if (!mon) return; mon.ctl.abort(); mon.ctx.close(); mon = null; $("mon").classList.remove("lit"); }
-$("vol").oninput = () => { if (mon) mon.gain.gain.value = +$("vol").value; };
+function stopMon() {
+  if (!mon) return;
+  if (mon.ctl) { mon.ctl.abort(); mon.ctx.close(); }
+  if (mon.el) { mon.el.pause(); mon.el.removeAttribute("src"); mon.el.load(); }
+  mon = null; $("mon").classList.remove("lit");
+}
+$("vol").oninput = () => { if (!mon) return; if (mon.gain) mon.gain.gain.value = +$("vol").value; if (mon.el) mon.el.volume = +$("vol").value; };
 
 // ── the side panel ──
 let side = "catches";
