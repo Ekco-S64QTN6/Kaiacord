@@ -219,7 +219,7 @@ class ScannerView(discord.ui.View):
     @discord.ui.button(label="🎧 Listen along", style=discord.ButtonStyle.primary, row=1)
     async def along(self, interaction: discord.Interaction, _button):
         """Hear the scan as it happens: silence while it hops, the channel when it holds,
-        each catch posted here."""
+        nothing posted per catch."""
         from utils.radio import rtl
         member = interaction.user
         if not getattr(member, "voice", None) or not member.voice.channel:
@@ -227,7 +227,7 @@ class ScannerView(discord.ui.View):
         if not rtl.available():
             return await interaction.response.send_message("The RTL-SDR isn't connected.", ephemeral=True)
         await interaction.response.defer()
-        await interaction.followup.send(embed=await _listen_along(member, interaction.channel))
+        await interaction.followup.send(embed=await _listen_along(member))
 
     @discord.ui.button(label="⏹ Off", style=discord.ButtonStyle.danger, row=1)
     async def off(self, interaction: discord.Interaction, _button):
@@ -266,19 +266,19 @@ async def open_dashboard() -> discord.Embed:
                "spectrogram. click the waterfall to tune.", COLOR_SCANNER)
 
 
-async def _listen_along(member, text_channel) -> discord.Embed:
+async def _listen_along(member) -> discord.Embed:
     """Join the member's voice channel and scan out loud; the reply to post."""
     from utils.radio import scanner
     try:
-        await scanner.start_listen_along(member.voice.channel, text_channel, member.display_name)
+        await scanner.start_listen_along(member.voice.channel, member.display_name)
     except Exception as e:
         log_error(f"[scanner] listen along failed: {e}")
         return box("📻  Scanner", clean(str(e), 200), COLOR_ERROR)
     return box(
         "🎧  Listening along", f"I'm in **{member.voice.channel.name}** scanning the bands. It's quiet while I "
         "search; you'll hear the channel whenever a carrier holds long enough to be a transmission. When it's voice I "
-        "stay for the replies until the channel's been quiet a while, then go back to searching. I'll post "
-        "each catch here as I log it. `!scanner off` to stop.", COLOR_SCANNER)
+        "stay for the replies until the channel's been quiet a while, then go back to searching. "
+        "`!scanner history` has what I caught. `!scanner off` to stop.", COLOR_SCANNER)
 
 
 async def handle_scanner_command(ctx, msg, send_kaia_response=None):
@@ -301,7 +301,7 @@ async def handle_scanner_command(ctx, msg, send_kaia_response=None):
                 return await msg.channel.send(embed=box("📻  Scanner", "Join a voice channel first.", COLOR_SCANNER))
             if not rtl.available():
                 return await msg.channel.send(embed=box("📻  Scanner", "The RTL-SDR isn't connected.", COLOR_SCANNER))
-            return await msg.channel.send(embed=await _listen_along(member, msg.channel))
+            return await msg.channel.send(embed=await _listen_along(member))
         if verb == "off":
             stopped = msg.guild and (await live.stop(msg.guild.id) | await scanner.stop_listen_along(msg.guild.id))
             return await msg.channel.send(embed=box("📻  Scanner", "off the air." if stopped else "nothing was playing.",

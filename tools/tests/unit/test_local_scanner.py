@@ -397,7 +397,7 @@ def test_scanner_scan_joins_the_callers_voice_channel(monkeypatch):
     from utils.radio import rtl
     started = []
     monkeypatch.setattr(rtl, "available", lambda: True)
-    monkeypatch.setattr(scanner, "start_listen_along", AsyncMock(side_effect=lambda v, t, who: started.append((v, who))))
+    monkeypatch.setattr(scanner, "start_listen_along", AsyncMock(side_effect=lambda v, who: started.append((v, who))))
     vc = MagicMock()
     vc.name = "Night Shift"
     msg = MagicMock(content="!scanner scan")

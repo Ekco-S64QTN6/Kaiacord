@@ -447,10 +447,6 @@ def classify(catch) -> None:
     (log_debug if kind == "carrier" else log_info)(
         f"[scanner] {kind} on {catch.freq_hz / MHZ:.4f} MHz ({label}), {catch.seconds:.0f}s"
         + (f": {transcript[:80]}" if transcript else ""))
-    if _along:
-        icon = {"voice": "🗣️", "data": "📟", "carrier": "〰️"}.get(kind, "📻")
-        _announce(f"{icon} **{catch.freq_hz / MHZ:.4f} MHz** · {label} · {kind}, {catch.seconds:.0f}s"
-                  + (f"\n> {transcript[:300]}" if transcript else ""))
 
 
 _running = False
@@ -460,14 +456,15 @@ _stop_event = None                # the running watcher's stop flag, for shutdow
 
 # ── Listen along ────────────────────────────────────────────────────────────
 # Someone in a voice channel hearing the scan as it happens: silence while it
-# hops, the channel whenever a carrier opens the squelch on a hold, and each
-# catch posted to the text channel. While anyone listens along the watch runs
-# even outside the nightly hours.
+# hops, the channel whenever a carrier opens the squelch on a hold. Nothing is
+# posted per catch — a night is hundreds; `!scanner history` and KAIA//RX's LOG
+# have them. While anyone listens along the watch runs even outside the
+# nightly hours.
 
 import queue as _queue
 import threading as _threading
 
-_along: dict = {}                    # guild_id -> {"vc", "text", "loop"}
+_along: dict = {}                    # guild_id -> {"vc", "started"}
 _audio: "_queue.Queue" = _queue.Queue(maxsize=600)
 
 
@@ -518,7 +515,7 @@ class ScanAudio:
         pass
 
 
-async def start_listen_along(voice_channel, text_channel, requested_by: str) -> None:
+async def start_listen_along(voice_channel, requested_by: str) -> None:
     import discord
     guild = voice_channel.guild
     from utils.audio.strudel_session import get_session as music_session
@@ -535,8 +532,7 @@ async def start_listen_along(voice_channel, text_channel, requested_by: str) -> 
         _audio.get_nowait()
     settle("the scanner live")
     vc.play(discord.PCMAudio(_PcmStream(ScanAudio())))
-    _along[guild.id] = {"vc": vc, "text": text_channel, "loop": asyncio.get_running_loop(),
-                        "started": time.time()}
+    _along[guild.id] = {"vc": vc, "started": time.time()}
     log_info(f"[scanner] {requested_by} is listening along in {voice_channel.name}")
     from utils.infrastructure.monitoring.async_task_registry import task_registry
     task_registry.register(f"scanner_along_watch_{guild.id}", asyncio.create_task(_along_watchdog(guild.id)))
@@ -587,17 +583,6 @@ class _PcmStream:
 
     def read(self, n: int) -> bytes:
         return self.source.read()
-
-
-def _announce(text: str) -> None:
-    """Post a catch to every listen-along text channel. From the worker thread."""
-    import discord
-    for entry in list(_along.values()):
-        try:
-            asyncio.run_coroutine_threadsafe(
-                entry["text"].send(embed=discord.Embed(description=text, color=0x2F7D6D)), entry["loop"])
-        except Exception as e:
-            log_debug(f"[scanner] announce failed: {e}")
 
 
 async def _watch(net: Optional[dict] = None) -> None:
