@@ -167,9 +167,10 @@ LOCATION_LOOK_TARGETS = {
             "The ground hums faintly if you stand still. You're not sure it's the ground.\n\n"
             "The three-flame pattern is faintly visible in the crystal lattice. "
             "It's everywhere in here, once you know to look for it.\n\n"
-            "*Something in the lattice is different today. A secondary resonance — "
-            "artificial, imposed. A lock. Someone used Aeridorian principles to seal the Trade Road.*\n\n"
-            "*(If you're on the right quest, you might know how to break it.)*"
+            "*Something in the lattice is different today. A secondary resonance — not from the ruins. "
+            "From below. Something deep in the Ironvein is singing, and the crystals are answering it.*\n\n"
+            "*(The hooded figure at the Stone Hearth never looks at you when you mention the ruins. "
+            "He might know what's down there.)*"
         ),
         "carvings": (
             "📜 **Aeridorian Carvings**\n\n"

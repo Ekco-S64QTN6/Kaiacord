@@ -276,7 +276,7 @@ CHA modifier = `(CHA - 10) // 2` (standard TTRPG formula).
 Procedurally generated 5×5 grid, 9-12 rooms. Entered via button at hunting locations.
 
 ### The Spine of the World
-A massive 77-floor mega-dungeon located past Grimstone. Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses. It features checkpoint lifts every 5 floors and progressive floor-based monster scaling (e.g. `mob_hp_cap = 80 + floor_num * 3` and `mob_atk_cap = 12 + floor_num // 5`).
+A massive 77-floor mega-dungeon — the Ironvein Deep — entered with `!rpg dungeon` from the Aeridor Ruins (Grimstone, the town once planned in front of it, was cut in May 2026). Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses. It features checkpoint lifts every 5 floors (a stop unlocks when the player reaches that floor: beating floor N's stair guardian opens N + 1) and progressive floor-based monster scaling (e.g. `mob_hp_cap = 80 + floor_num * 3` and `mob_atk_cap = 12 + floor_num // 5`).
 
 ### Room Types
 

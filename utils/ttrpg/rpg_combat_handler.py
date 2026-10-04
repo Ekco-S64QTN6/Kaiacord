@@ -314,6 +314,19 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         xp_next = xp_to_next_level(sheet["level"])
         exchange_text += f"\n\n+{xp_gain} XP ({sheet['xp']}/{xp_next}) · +{gil_gain} Gil{loot_text}{level_text}"
 
+        # A quest's kill task counts in a dungeon too ("kill_crystal_dragon",
+        # the Ironvein Deep's floor-33 guardian). The quest completes at its
+        # giver, as every kill-then-report quest does.
+        from utils.ttrpg.quest_registry import get_quest
+        for active_id in sheet.get("active_quests", []):
+            q = get_quest(active_id)
+            task = f"kill_{monster_key}"
+            if q and task in q["tasks"]:
+                prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                if task not in prog:
+                    prog.append(task)
+                    exchange_text += f"\n📜 *Quest Progress: {q['name']}*"
+
         await save(sheet)
         await save_func(uid, state)
 

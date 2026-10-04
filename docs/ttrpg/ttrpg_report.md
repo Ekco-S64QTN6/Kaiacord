@@ -50,6 +50,13 @@ The Aethelgard TTRPG is in **S-tier operational health**. Eighteen phases of dev
 
 **No active bugs remain.** All issues identified across eighteen audit phases have been fixed and verified.
 
+### Phase 19: The Crystal Quest Rewritten & the Lift's Stops (October 4, 2026)
+
+| ID | Change | Validation |
+|:--|:--|:--|
+| ✅ CONTENT-8 | **"What Sings Below"** (`resonance_lock`, the hooded figure, L15) replaces "The Road to Iron", cut with Grimstone in May while the Aeridor crystals still promised it ("a lock… to seal the Trade Road"). Look at the crystals, kill the Crystal Dragon (the Ironvein Deep's floor-33 stair guardian), report back. `look_` tasks are credited again, and a quest's kill task counts in dungeon combat. | `test_resonance_lock_quest.py`, incl. a check that every quest task names a real NPC, place, monster or look target |
+| ✅ BUG-R16 | **Resonance Lift stops held back a floor.** Stops were offered up to the deepest stair guardian beaten, but beating floor N's opens N + 1, so a player on floor 20 saw only 5–15. Now every fifth floor reached (`spine_dungeon.deepest_reached`). | Real sheets: Ekco 15 → 20, Jimjam 20 → 25 |
+
 ### Phase 18: Iron Magpies Bank Heist Overhaul, Group Boss Pooled Combat & Town Defender Scope Audit (August 29, 2026)
 
 | ID | Fix | Verification |

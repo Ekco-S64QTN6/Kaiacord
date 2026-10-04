@@ -114,6 +114,20 @@ QUESTS = {
         "rewards": {"xp": 1000, "gil": 400, "item": "ironbark_tonic"},
         "completion_msg": "The guard nods approvingly. 'The constructs collapsed back into the dark. Excellent work, scout.'",
     },
+    "resonance_lock": {
+        "id": "resonance_lock",
+        "name": "What Sings Below",
+        "npc": "hooded_figure",
+        "description": "The crystals at the Aeridor Ruins aren't dead — something is singing through them from below. "
+                       "Study them (`!rpg look at crystals` in the ruins), then descend the Ironvein Deep (`!rpg dungeon` "
+                       "from the ruins) to floor 33 and silence the Crystal Dragon. Report back to the hooded figure "
+                       "at the Stone Hearth.",
+        "requirements": {"level": 15},
+        "tasks": ["look_crystals", "kill_crystal_dragon", "talk_hooded_figure"],
+        "rewards": {"xp": 6000, "gil": 2000, "item": "aeridor_shard"},
+        "completion_msg": "He listens without moving. When you describe the dragon's last note he closes his eyes. "
+                          "'Absorbed. Not fallen. Now you've heard it too.' He slides a shard across the table. It's warm.",
+    },
     "tithe_collector": {
         "id": "tithe_collector",
         "name": "The Tithe Collector",

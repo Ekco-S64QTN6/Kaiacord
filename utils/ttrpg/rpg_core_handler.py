@@ -888,6 +888,18 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
             if callable(result):
                 result = result(sheet)
             embed = discord.Embed(description=result, color=LOCATION_COLORS.get(loc, 0x888888))
+
+            # A quest task to look at something ("look_crystals").
+            from utils.ttrpg.quest_registry import get_quest
+            for active_id in sheet.get("active_quests", []):
+                q = get_quest(active_id)
+                task = f"look_{matched}"
+                if q and task in q["tasks"]:
+                    prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+                    if task not in prog:
+                        prog.append(task)
+                        embed.add_field(name="📜 Quest Progress", value=q["name"], inline=False)
+                        await save(sheet)
             
             # Secret puzzle trigger. Keyed on what matched, not what was typed:
             # "look at the flame" showed the flame and its "Acquired" line but
