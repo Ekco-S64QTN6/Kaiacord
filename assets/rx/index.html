@@ -258,19 +258,36 @@ function connect() {
       COLS = S.cols; peak = new Float32Array(COLS);
       bands = S.bands; buildStrip(); bands.forEach((b) => loadFall(b.i));
     }
+    // The TUNED span moves with the dongle: a new range is a new waterfall.
+    for (const nb of S.bands) {
+      const b = bands.find((x) => x.i === nb.i);
+      if (b && (b.lo !== nb.lo || b.hi !== nb.hi)) { Object.assign(b, nb); delete falls[b.i]; delete views[b.i]; renameCard(b); }
+    }
     for (const [i, r] of Object.entries(S.rows || {})) addRows(+i, b64(r.data), r.n);
-    if (S.live && followBand) { const bi = bandOf(S.live.freq || S.live.center); if (bi !== null && bi !== band && S.live.state !== "hop") { band = bi; markStrip(); } }
+    // On one channel (tuned, a net, a hold) the page shows that slice full width;
+    // sweeping again, it goes back to the band being swept.
+    const sp = bands.find((x) => x.span);
+    if (S.live && followBand) {
+      if (S.live.state !== "hop" && sp && sp.lo) { if (band !== sp.i) { band = sp.i; markStrip(); } }
+      else if (sp && band === sp.i) { const bi = bandOf(S.live.center); if (bi !== null) { band = bi; markStrip(); } }
+    }
   };
   es.onerror = () => { es.close(); setTimeout(connect, 1500); };
 }
 let followBand = true;
-function bandOf(f) { for (const b of bands) if (f >= b.lo && f < b.hi) return b.i; return null; }
+function bandOf(f) { for (const b of bands) if (!b.span && f >= b.lo && f < b.hi) return b.i; return null; }
+function renameCard(b) {
+  const card = document.querySelector(`.card[data-b="${b.i}"]`); if (!card) return;
+  card.style.display = b.span && !b.lo ? "none" : "";
+  const nm = card.querySelector(".nm"); if (nm && nm.firstChild) nm.firstChild.textContent = b.name.toUpperCase();
+}
 
 // ── the band strip: every band at a glance, the sweep moving across them ──
 function buildStrip() {
   $("strip").innerHTML = bands.map((b) => `<div class="card" data-b="${b.i}" title="${esc(b.name)} · ${(b.lo / MHZ).toFixed(1)}–${(b.hi / MHZ).toFixed(1)} MHz">` +
     `<div class="nm">${esc(b.name.toUpperCase())}<span class="n" data-n="${b.i}"></span></div><canvas data-c="${b.i}"></canvas></div>`).join("");
   $("strip").querySelectorAll(".card").forEach((t) => t.onclick = () => { band = +t.dataset.b; followBand = false; markStrip(); });
+  bands.forEach(renameCard);
   markStrip();
 }
 function markStrip() { $("strip").querySelectorAll(".card").forEach((t) => t.classList.toggle("on", +t.dataset.b === band)); }
