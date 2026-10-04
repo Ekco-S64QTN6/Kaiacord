@@ -76,52 +76,55 @@ class Command:
         return (self.name,) + self.aliases
 
 
-# Groups render in this order in !help.
-GROUP_CORE = "🛠️  Core & Diagnostics"
-GROUP_MEMORY = "🧠  Cognitive & Memory"
-GROUP_KNOWLEDGE = "📚  Knowledge & Ingestion"
-GROUP_RPG = "⚔️  Aethelgard TTRPG & Fishing"
-GROUP_MEDIA = "🎭  Media & Operations"
+# !help's sections, in button order. Owner-only commands are listed in the
+# Admin section whatever their group, so every other page is the same for
+# everyone and holds only what the reader can run.
+GROUP_KAIA = "🧠  Kaia"
+GROUP_MUSIC = "🎵  Music & art"
+GROUP_NIGHT = "🌙  Radio & sky"
+GROUP_NEWS = "📰  News & social"
+GROUP_KNOWLEDGE = "📚  Knowledge"
+GROUP_RPG = "⚔️  Aethelgard"
 
-GROUP_ORDER = (GROUP_CORE, GROUP_MEMORY, GROUP_KNOWLEDGE, GROUP_RPG, GROUP_MEDIA)
+GROUP_ORDER = (GROUP_KAIA, GROUP_MUSIC, GROUP_NIGHT, GROUP_NEWS, GROUP_KNOWLEDGE, GROUP_RPG)
 
 
 COMMANDS = (
-    # ── Core & Diagnostics ───────────────────────────────────────────
-    Command("help", handle_help_command, GROUP_CORE, extra=RESPONDER,
-            summary="Display this command directory"),
+    # ── Kaia ─────────────────────────────────────────────────────────
+    Command("help", handle_help_command, GROUP_KAIA, extra=RESPONDER,
+            usage="!help [section | command]",
+            summary="This directory; `!help music` explains one command"),
     # Open to everyone: read-only provenance for the previous answer, no
     # privileged state and no mutation.
-    Command("explain", handle_explain_command, GROUP_CORE, extra=RESPONDER,
+    Command("explain", handle_explain_command, GROUP_KAIA, extra=RESPONDER,
             usage="!explain [n | back [n]]",
             summary="Which sources informed a reply (`!explain 2` opens source 2, "
                     "`!explain back` the retrieval before)"),
-    Command("flag", handle_flag_command, GROUP_CORE, extra=RESPONDER,
+    Command("flag", handle_flag_command, GROUP_KAIA, extra=RESPONDER,
             owner_only=True, usage="!flag <construct>",
             summary="Flag retrieval nodes with a Data Rot label"),
-    Command("audit", handle_audit_command, GROUP_CORE, extra=RESPONDER,
+    Command("audit", handle_audit_command, GROUP_KAIA, extra=RESPONDER,
             owner_only=True,
             summary="Show audit flag statistics"),
 
-    # ── Cognitive & Memory ───────────────────────────────────────────
-    Command("scores", handle_scores_command, GROUP_MEMORY,
+    Command("scores", handle_scores_command, GROUP_KAIA,
             aliases=("score", "leaderboard", "halloffame", "stats"),
             usage="!scores",
             summary="Leaderboards and memory analytics "
                     "(`!leaderboard`, `!stats`, `!halloffame`)"),
-    Command("dream", handle_dreams_command, GROUP_MEMORY, extra=PERSONA,
+    Command("dream", handle_dreams_command, GROUP_KAIA, extra=PERSONA,
             aliases=("dreams",), owner_only=True, usage="!dream [list|generate|stats]",
             summary="Manage dream reflections"),
-    Command("memory", handle_memory_cmd, GROUP_MEMORY, extra=RESPONDER,
+    Command("memory", handle_memory_cmd, GROUP_KAIA, extra=RESPONDER,
             owner_only=True, usage="!memory [beliefs|anchors]",
             summary="Inspect belief and anchor stores"),
-    Command("selfmodel", handle_selfmodel_command, GROUP_MEMORY, extra=RESPONDER,
+    Command("selfmodel", handle_selfmodel_command, GROUP_KAIA, extra=RESPONDER,
             owner_only=True,
             summary="Rebuild the 30-day self-model from recent interactions"),
-    Command("snapshot", handle_snapshot_command, GROUP_MEMORY, extra=RESPONDER,
+    Command("snapshot", handle_snapshot_command, GROUP_KAIA, extra=RESPONDER,
             owner_only=True,
             summary="Save a snapshot of the current conversation"),
-    Command("stance", handle_stance_command, GROUP_MEMORY, extra=RESPONDER,
+    Command("stance", handle_stance_command, GROUP_KAIA, extra=RESPONDER,
             owner_only=True, usage="!stance [scenario|baseline]",
             summary="Pressure-test whether she holds a correct position"),
 
@@ -150,71 +153,71 @@ COMMANDS = (
             summary="Turn-based RPG status board & command menu "
                     "(`!rpg help` for the full class guide)"),
 
-    # ── Media & Operations ───────────────────────────────────────────
-    Command("news", handle_news_command, GROUP_MEDIA, extra=RESPONDER,
+    # ── News, radio & sky, music & art ─────────────────────────────
+    Command("news", handle_news_command, GROUP_NEWS, extra=RESPONDER,
             usage="!news [n | category]",
             summary="Today's headlines; `!news 3` opens story 3 with its background"),
-    Command("skyking", handle_skyking_command, GROUP_MEDIA, extra=RESPONDER, aliases=("eam",),
+    Command("skyking", handle_skyking_command, GROUP_NIGHT, extra=RESPONDER, aliases=("eam",),
             usage="!skyking [n | classic]",
             summary="The latest military Emergency Action Messages off the HFGCS net; "
                     "`!skyking classic` for an old Skyking broadcast"),
-    Command("numbers", handle_numbers_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("numbers", handle_numbers_command, GROUP_NIGHT, extra=RESPONDER,
             usage="!numbers [station] [hours]",
             summary="Number stations on the air soon, with links to listen live"),
-    Command("radio", handle_radio_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("radio", handle_radio_command, GROUP_NIGHT, extra=RESPONDER,
             usage="!radio [hfgcs | <kHz> | <station> | log [n] | listen | off]",
             summary="What Kaia has heard on shortwave; `!radio hfgcs` plays the HFGCS net live in your voice channel"),
-    Command("tacamo", handle_tacamo_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("tacamo", handle_tacamo_command, GROUP_NIGHT, extra=RESPONDER,
             summary="Are the EAM relay planes (E-6B TACAMO, E-4B) broadcasting on ADS-B?"),
-    Command("scanner", handle_scanner_command, GROUP_MEDIA, extra=RESPONDER, aliases=("localradio",),
+    Command("scanner", handle_scanner_command, GROUP_NIGHT, extra=RESPONDER, aliases=("localradio",),
             usage="!scanner [history | off]",
             summary="The local RTL-SDR scanner: what it has caught overnight, and live listening"),
-    Command("boards", handle_boards_command, GROUP_MEDIA, extra=RESPONDER, aliases=("moltbook", "agentboards"),
+    Command("boards", handle_boards_command, GROUP_NEWS, extra=RESPONDER, aliases=("moltbook", "agentboards"),
             usage="!boards [now]",
             summary="Kaia on the AI agent boards (Moltbook, Agent Room, field notes): what she read and said"),
-    Command("buzzer", handle_buzzer_command, GROUP_MEDIA, extra=RESPONDER, aliases=("uvb76",),
+    Command("buzzer", handle_buzzer_command, GROUP_NIGHT, extra=RESPONDER, aliases=("uvb76",),
             usage="!buzzer [off]",
             summary="UVB-76, The Buzzer, live in your voice channel"),
-    Command("iss", handle_iss_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("iss", handle_iss_command, GROUP_NIGHT, extra=RESPONDER,
             summary="Where the space station is, who's in orbit, and when it next passes over you"),
-    Command("nasa", handle_nasa_command, GROUP_MEDIA, extra=RESPONDER, aliases=("apod", "dsn"),
+    Command("nasa", handle_nasa_command, GROUP_NIGHT, extra=RESPONDER, aliases=("apod", "dsn"),
             summary="NASA's picture of the day, and which spacecraft the Deep Space Network is talking to now"),
-    Command("earth", handle_earth_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("earth", handle_earth_command, GROUP_NIGHT, extra=RESPONDER,
             summary="The latest picture of the whole sunlit Earth, from DSCOVR a million miles out"),
-    Command("spaceweather", handle_spaceweather_command, GROUP_MEDIA, extra=RESPONDER, aliases=("sun",),
+    Command("spaceweather", handle_spaceweather_command, GROUP_NIGHT, extra=RESPONDER, aliases=("sun",),
             summary="Geomagnetic activity, flares, and how HF radio is holding up"),
-    Command("rocks", handle_rocks_command, GROUP_MEDIA, extra=RESPONDER, aliases=("asteroids",),
+    Command("rocks", handle_rocks_command, GROUP_NIGHT, extra=RESPONDER, aliases=("asteroids",),
             summary="Asteroids passing close in the next month"),
-    Command("launch", handle_launch_command, GROUP_MEDIA, extra=RESPONDER, aliases=("launches",),
+    Command("launch", handle_launch_command, GROUP_NIGHT, extra=RESPONDER, aliases=("launches",),
             summary="The next rocket launches, anywhere"),
-    Command("quake", handle_quake_command, GROUP_MEDIA, extra=RESPONDER, aliases=("quakes",),
+    Command("quake", handle_quake_command, GROUP_NIGHT, extra=RESPONDER, aliases=("quakes",),
             summary="Magnitude 4.5+ earthquakes in the last day"),
-    Command("sky", handle_sky_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("sky", handle_sky_command, GROUP_NIGHT, extra=RESPONDER,
             summary="Tonight overhead: the moon, planets, meteor showers, the next ISS pass"),
-    Command("beacons", handle_beacons_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("beacons", handle_beacons_command, GROUP_NIGHT, extra=RESPONDER,
             usage="!beacons [20 | 17 | 15 | 12 | 10]",
             summary="Kaia listens to the worldwide HF beacon chain and says which continents she can hear"),
-    Command("overnight", handle_overnight_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("overnight", handle_overnight_command, GROUP_NIGHT, extra=RESPONDER,
             summary="Kaia writes up what her night shift saw — recordings, EAMs, the sky — from real data"),
-    Command("nightshift", handle_nightshift_command, GROUP_MEDIA, extra=RESPONDER,
-            summary="Every radio and sky command Kaia has, in one list"),
-    Command("quip", handle_quip_command, GROUP_MEDIA,
+    Command("nightshift", handle_nightshift_command, GROUP_NIGHT, extra=RESPONDER,
+            summary="Every radio and sky feature as buttons"),
+    Command("quip", handle_quip_command, GROUP_NEWS,
             summary="Draft a social post (10-minute cooldown; owners exempt)"),
-    Command("art", handle_art_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("art", handle_art_command, GROUP_MUSIC, extra=RESPONDER,
             usage="!art [what to make] [--seed N] [--palette NAME]",
             summary="Kaia makes a fractal — from your words, her mood, or an attached image's colours"),
     # Not owner_only: `!forum link <uid>` returns before the owner gate, so any
     # user can link their account. Every other subcommand is admin. Marking the
     # whole command admin hid the one part users are meant to reach.
-    Command("forum", handle_forum_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("forum", handle_forum_command, GROUP_NEWS, extra=RESPONDER,
             usage="!forum link <uid>",
             summary="Link your forum account "
                     "(other `!forum` subcommands are admin-only)"),
-    Command("music", handle_music_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("music", handle_music_command, GROUP_MUSIC, extra=RESPONDER,
             usage="!music on [--genre] | off | status | <request> | records [query] | skip",
             summary="Kaia DJs a live-coded set in your voice channel; "
                     "take requests with `!music darker`, `!music drop` … (`!music help`)"),
-    Command("sysmon", handle_sysmon_command, GROUP_MEDIA, extra=RESPONDER,
+    Command("sysmon", handle_sysmon_command, GROUP_KAIA, extra=RESPONDER,
             owner_only=True,
             summary="Live system/hardware monitoring dashboard"),
 )

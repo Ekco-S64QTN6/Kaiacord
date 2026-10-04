@@ -934,7 +934,7 @@ same reply. A button that later edits such a message changes only the status lin
 (`kaia_forum.draft_review_embed`), and an edit that runs before bookkeeping must not be able to
 throw past it — Reject's did, and the rejected reply came back.
 
-`!nightshift` and `!scanner` are button panels (`discord.ui.View`). A button runs the same handler
+`!help`, `!nightshift` and `!scanner` are button panels (`discord.ui.View`). `!help` is a landing page with a button per section that swaps the page in place; owner-only commands are only in its Admin section, and what a press shows is decided by the presser's ownership, not the invoker's. A button runs the same handler
 the typed command does, with a message-shaped stand-in for the click (`nightshift._Click`), so a
 feature has one code path whether it is clicked or typed.
 

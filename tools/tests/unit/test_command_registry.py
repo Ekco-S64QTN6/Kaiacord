@@ -132,7 +132,7 @@ def test_trailing_period_usernames_still_match():
 
 # ── Help rendering ───────────────────────────────────────────────────
 
-def _render(is_owner):
+def _help(is_owner, content="!help"):
     import asyncio
     from unittest.mock import MagicMock
     from utils.commands.help_handler import handle_help_command
@@ -140,49 +140,112 @@ def _render(is_owner):
     ctx = MagicMock()
     ctx.config.is_owner.return_value = is_owner
     msg = MagicMock()
+    msg.content = content
     msg.author.name = "u"
     msg.author.display_name = "u"
     msg.author.id = 1
-    captured = {}
+    sent = []
 
-    async def send(embed=None):
-        captured["embed"] = embed
+    async def send(embed=None, view=None):
+        sent.append((embed, view))
 
     msg.channel.send = send
     asyncio.run(handle_help_command(ctx, msg, None))
-    return captured["embed"]
+    return ctx, sent
+
+
+def _press(ctx, view, label, owner):
+    """Press a help button as a user who is (or isn't) an owner."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    ctx.config.is_owner.return_value = owner
+    button = next(b for b in view.children if b.label == label)
+    inter = MagicMock()
+    inter.response.edit_message = AsyncMock()
+    inter.response.send_message = AsyncMock()
+    asyncio.run(button.callback(inter))
+    return inter
+
+
+def _all_pages(is_owner):
+    from utils.commands.help_handler import section_embed, sections
+    return " ".join(f.value for s in sections(is_owner) for f in section_embed(s, is_owner).fields)
 
 
 def test_help_documents_every_non_admin_command():
     """The old help omitted three dispatched aliases. Rendering from the table
     makes that impossible."""
-    body = " ".join(f.value for f in _render(is_owner=False).fields)
+    body = _all_pages(is_owner=False)
     for cmd in COMMANDS:
         if not cmd.owner_only:
             assert f"!{cmd.name}" in body, f"!{cmd.name} missing from help"
 
 
 def test_help_hides_admin_commands_from_ordinary_users():
-    body = " ".join(f.value for f in _render(is_owner=False).fields)
+    from utils.commands.help_handler import ADMIN, sections
+    body = _all_pages(is_owner=False)
+    assert ADMIN not in sections(False)
     for cmd in COMMANDS:
         if cmd.owner_only:
-            assert cmd.usage not in body, f"!{cmd.name} shown to a non-owner"
+            assert f"`!{cmd.name}`" not in body, f"!{cmd.name} shown to a non-owner"
 
 
 def test_help_shows_admin_commands_to_owners():
-    body = " ".join(f.value for f in _render(is_owner=True).fields)
+    body = _all_pages(is_owner=True)
     assert "!reindex" in body and "!sysmon" in body
+
+
+def test_help_is_one_short_landing_page_with_a_button_per_section():
+    from utils.commands.help_handler import LABELS, sections
+    _, sent = _help(is_owner=False)
+    (embed, view), = sent
+    assert len(embed) < 1500                               # not the old 45-command wall
+    labels = [b.label for b in view.children]
+    assert labels == ["Home"] + [LABELS[s][1] for s in sections(False)]
+
+
+def test_a_section_button_swaps_the_page_in_place():
+    ctx, sent = _help(is_owner=False)
+    inter = _press(ctx, sent[0][1], "Music & art", owner=False)
+    kwargs = inter.response.edit_message.call_args.kwargs
+    assert "!music" in " ".join(f.value for f in kwargs["embed"].fields)
+    pressed = next(b for b in kwargs["view"].children if b.label == "Music & art")
+    assert pressed.style.name == "primary"
+
+
+def test_admin_is_only_shown_to_an_owner_who_presses_it():
+    ctx, sent = _help(is_owner=True)
+    inter = _press(ctx, sent[0][1], "Admin", owner=False)  # someone else in the channel
+    assert not inter.response.edit_message.called
+    assert "!reindex" not in str(inter.response.send_message.call_args)
+    inter = _press(ctx, sent[0][1], "Admin", owner=True)
+    assert "!reindex" in " ".join(f.value for f in inter.response.edit_message.call_args.kwargs["embed"].fields)
+
+
+def test_help_with_a_word_opens_that_command_or_section():
+    _, sent = _help(is_owner=False, content="!help eam")       # an alias
+    assert sent[0][0].title == "!skyking" and sent[0][1] is None
+    _, sent = _help(is_owner=False, content="!help aethelgard")
+    assert "Aethelgard" in sent[0][0].title and sent[0][1] is not None
+    _, sent = _help(is_owner=False, content="!help nonsense")
+    assert sent[0][0].title == "Not a command" and sent[1][1] is not None
 
 
 @pytest.mark.parametrize("is_owner", [True, False])
 def test_help_embed_stays_within_discord_limits(is_owner):
-    """Discord rejects a field over 1024 chars or an embed over 6000."""
-    embed = _render(is_owner)
-    total = len(embed.title or "") + len(embed.description or "")
-    for field in embed.fields:
-        assert len(field.value) <= 1024, f"field '{field.name}' too long"
-        total += len(field.name) + len(field.value)
-    assert total <= 6000
+    """Discord rejects a field over 1024 chars, an embed over 6000, or a view
+    of more than 25 buttons in 5 rows."""
+    from utils.commands.help_handler import (command_embed, help_view, home_embed, section_embed,
+                                             sections, HOME)
+    pages = [home_embed(is_owner)] + [section_embed(s, is_owner) for s in sections(is_owner)]
+    pages += [command_embed(c, is_owner) for c in COMMANDS]
+    for embed in pages:
+        for field in embed.fields:
+            assert len(field.value) <= 1024, f"field '{field.name}' too long"
+        assert len(embed) <= 6000 and len(embed.fields) <= 25
+    for page in [HOME] + sections(is_owner):
+        view = help_view(None, is_owner, page)
+        assert len(view.children) <= 25 and max(b.row for b in view.children) <= 4
 
 
 # ── Dispatch behaviour ───────────────────────────────────────────────
