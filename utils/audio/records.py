@@ -135,6 +135,12 @@ FADE_BARS = 8
 MAX_FINE_S = 0.020
 #: A blend leaves the incoming record at least this long to play on its own.
 IN_LEFT_S = 30.0
+#: The shortest blend: a blend planned without room for its length is halved
+#: down to this, never to a quick crossfade.
+MIN_BLEND_BEATS = 32
+#: The furthest two tracked beats may be predicted to drift apart over a whole
+#: blend before it is refused for a clean switch.
+MAX_DRIFT_S = 0.025
 #: How much of the incoming record before its first beat is decoded in a blend.
 PREROLL_S = 1.0
 #: A gap between frame requests longer than this is counted as late.
@@ -324,7 +330,30 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
     # outgoing's kicks and its phrases start mid-bar.
     steady = bool(out_grid and in_grid and min(out_grid.contrast, in_grid.contrast) >= BLEND_CONTRAST
                   and out_grid.bar_known and in_grid.bar_known)
+    # With both records' beats tracked, a beat is lockable wherever its ticks
+    # run straight, whatever its kick pattern, and bars are counted on the
+    # ticks from bar one: a breakbeat that scores loose on the onset comb, or
+    # whose bar the comb could not count, still blends beat on beat.
+    tracked = bool(out_grid and in_grid and out_grid.tracked and in_grid.tracked)
+    onset_steady = steady
+    # The incoming is cued at the first phrase from its bar one where its beat
+    # holds for the blend — past a loose intro, as a DJ scrubs to where the
+    # record locks — and the outgoing is judged at each drop tried below, so a
+    # blend mixes out before a beatless outro rather than being refused for one.
+    in_phrase = None
+    if tracked:
+        n = min(64, mix_beats)
+        for m in range(0, 65, 4):
+            j = in_grid.bar_tick + 4 * m
+            if j + n >= len(in_grid.ticks):
+                break
+            if in_grid.tick_steady(float(in_grid.ticks[j]), n=n):
+                in_phrase = m
+                break
+    if tracked and not steady:
+        steady = in_phrase is not None
     ratio = library.tempo_ratio(playing_bpm, in_grid.bpm) if steady else None
+    drifts = no_phrase = False
     if ratio is not None:
         beat = 60.0 / playing_bpm
         length = mix_beats * beat
@@ -334,35 +363,67 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
         # alone. The incoming is started just short of the bar it drops on.
         swap_bars = mix_beats // 8
         late = (nxt.bass_in - swap_bars) if nxt.bass_in is not None and nxt.bass_in > swap_bars else 0
-        bar_in = in_grid.counted(in_grid.downbeat + late * 4 * in_grid.beat)
+        if in_phrase:
+            late = max(late, in_phrase)
+        if tracked and in_grid.bar_tick + 4 * late < len(in_grid.ticks):
+            bar_in = float(in_grid.ticks[in_grid.bar_tick + 4 * late])
+        else:
+            bar_in = in_grid.counted(in_grid.downbeat + late * 4 * in_grid.beat)
         offset = max(0.0, bar_in - PREROLL_S)
         lead_in = (bar_in - offset) / ratio                  # incoming: start to the bar it drops on
         earliest = now + lead_in + lead
         bar = 4 * beat
+
+        def out_ok(d: float) -> bool:
+            return onset_steady or out_grid.tick_steady(d * out_ratio, n=min(64, mix_beats))
+
+        def next_bar(t_played: float, every: int = 1) -> float:
+            """The outgoing's next phrase start at or after `t_played`: a real
+            tracked beat counted from its bar one, where it has ticks."""
+            if tracked:
+                v = out_grid.tick_bar(t_played * out_ratio, every)
+                return v / out_ratio if v is not None else float("inf")
+            return out_grid.next_bar(t_played, out_ratio, every)
         drop = None
         if mode == "end":
             # The last phrase of eight bars (else four, else any bar) that
             # leaves room for the whole blend before the record ends.
             latest = out_end - length - 0.5
+            # Further back a phrase at a time while the beat there will not
+            # hold a blend.
             for every in (8, 4, 1):
-                d = out_grid.next_bar(latest - every * bar, out_ratio, every)
-                if earliest <= d <= latest + 0.01:
-                    drop = d
+                for back in range(1, 13):
+                    d = next_bar(latest - back * every * bar, every)
+                    if d < earliest:
+                        break
+                    if d <= latest + 0.01 and out_ok(d):
+                        drop = d
+                        break
+                if drop is not None:
                     break
         else:
-            # A skip comes in on the next four-bar phrase, or the next bar if
-            # that would not leave room.
+            # A skip comes in on the next four-bar phrase where the beat holds,
+            # or the next bar if that would not leave room.
             for every in (4, 1):
-                d = out_grid.next_bar(earliest, out_ratio, every)
-                if d + length <= out_end + 0.01:
-                    drop = d
+                d = next_bar(earliest, every)
+                for _ in range(8):
+                    if d + length > out_end + 0.01:
+                        break
+                    if out_ok(d):
+                        drop = d
+                        break
+                    d = next_bar(d + bar / 2, every)
+                if drop is not None:
                     break
+        if drop is None and onset_steady:
+            drop = next_bar(earliest)
         if drop is None:
-            drop = out_grid.next_bar(earliest, out_ratio)
-        # On the outgoing's real kick: the bar counted on its tracked beats.
-        counted = out_grid.counted(drop * out_ratio) / out_ratio
-        if abs(counted - drop) < beat / 2 and counted >= now + lead_in:
-            drop = counted
+            drop, no_phrase = float("inf"), True   # no phrase where both beats hold: not a blend
+        if not tracked:
+            # On the outgoing's real kick: the bar counted on its tracked beats.
+            counted = out_grid.counted(drop * out_ratio) / out_ratio
+            if abs(counted - drop) < beat / 2 and counted >= now + lead_in:
+                drop = counted
         # The stretch from the two records' tempos over the blend itself, where
         # their beats were tracked: a whole-record figure let a record whose
         # tempo moves a little slide off the other's kick over a long ride.
@@ -372,53 +433,55 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
             if local is not None and abs(local / ratio - 1.0) < 0.02:
                 ratio = local
                 lead_in = (bar_in - offset) / ratio
+        # Decided before it starts: where both records' beats are tracked, the
+        # two beats may not drift further apart than MAX_DRIFT_S over the whole
+        # blend, or it is not a blend.
+        if out_grid.ticks is not None and in_grid.ticks is not None:
+            out_beat = out_grid.local_beat(drop * out_ratio, mix_beats) / out_ratio
+            in_beat = in_grid.local_beat(bar_in, mix_beats) / ratio
+            in_beat *= min((0.5, 1.0, 2.0), key=lambda k: abs(out_beat - in_beat * k))   # half/double time
+            drifts = abs(out_beat - in_beat) * mix_beats > MAX_DRIFT_S
         # Room on both sides: the outgoing before its music ends, and the
         # incoming with IN_LEFT_S still to play once it is the record on air.
-        if drop + length <= out_end + 0.01 and length <= (nxt.seconds - offset) / ratio - IN_LEFT_S:
+        if (not drifts and drop != float("inf") and drop + length <= out_end + 0.01
+                and length <= (nxt.seconds - offset) / ratio - IN_LEFT_S):
             return Plan("blend", drop - lead_in, drop, length, beat, ratio, nxt, offset)
-    # Not beat-matched: a fade on the outgoing bar, the incoming from its
-    # first sound, stretched to the tempo where the tempos are close enough.
-    fallback = "beat" if not steady else ("tempo" if ratio is None else "room")
+    # Not beat-matched: a clean switch, never two grooves at once. The
+    # outgoing fades over its last beat into a bar line and the incoming's first
+    # beat lands exactly on it — at the playing tempo where it can be stretched
+    # to it, so the pulse carries straight on.
+    fallback = ("beat" if not steady or no_phrase else
+                ("tempo" if ratio is None else ("drift" if drifts else "room")))
     beat = 60.0 / playing_bpm if playing_bpm else 0.5
-    fade_ratio = 1.0
-    if out_grid and in_grid:
-        fade_ratio = library.tempo_ratio(playing_bpm, in_grid.bpm) or 1.0
-    for bars in (FADE_BARS, FADE_BARS // 2, 2):
-        length = bars * 4 * beat
-        if mode == "end":
-            latest = out_end - length - 0.2
-            drop = None
-            if out_grid:
-                for every in (8, 4, 1):
-                    d = out_grid.next_bar(latest - every * 4 * beat, out_ratio, every)
-                    if now + lead <= d <= latest + 0.01:
-                        drop = d
-                        break
-            if drop is None:
-                drop = max(now + lead, latest)
-        else:
-            drop = out_grid.next_bar(now + lead, out_ratio) if out_grid else now + lead
-        if drop + length <= out_end + 0.01:
-            start, offset = drop, nxt.lead
-            # Where both records' beats were tracked and their tempos meet,
-            # the incoming comes in beat on beat: its first beat after its
-            # first sound on the outgoing's bar. Left to start at any phase, a
-            # fade at the same tempo played eight bars of flams.
-            if (out_grid is not None and in_grid is not None and out_grid.ticks is not None
-                    and in_grid.ticks is not None and library.tempo_ratio(playing_bpm, in_grid.bpm)):
-                counted = out_grid.counted(drop * out_ratio) / out_ratio
-                k = int(np.searchsorted(in_grid.ticks, nxt.lead))
-                if abs(counted - drop) < beat / 2 and k < len(in_grid.ticks) and counted + length <= out_end + 0.01:
-                    first = float(in_grid.ticks[k])
-                    off = max(0.0, first - PREROLL_S)
-                    if counted - (first - off) / fade_ratio >= now + lead / 2:
-                        drop, offset = counted, off
-                        start = drop - (first - off) / fade_ratio
-            return Plan("fade", start, drop, length, beat, fade_ratio, nxt, offset, fallback=fallback)
-    # No room even for two bars: a cut where the music ends.
-    fade = CUT_FADE_S
-    drop = max(now + lead, min(out_end - 0.05, now + fade + lead))
-    return Plan("cut", drop, drop, fade, beat, 1.0, nxt, nxt.lead, fallback="room")
+    sw_ratio = (library.tempo_ratio(playing_bpm, in_grid.bpm) if out_grid and in_grid else None) or 1.0
+    if mode == "end" and out_grid:
+        drop = None
+        for every in (8, 4, 1):
+            d = out_grid.next_bar(out_end - beat - every * 4 * beat, out_ratio, every)
+            if now + lead <= d <= out_end - 0.05:
+                drop = d
+                break
+        drop = drop if drop is not None else max(now + lead, out_end - 0.05)
+    elif out_grid:
+        drop = out_grid.next_bar(now + lead, out_ratio)
+        if drop > out_end - 0.05:
+            drop = max(now + lead, out_end - 0.05)
+    else:
+        drop = min(now + lead, max(now, out_end - 0.05))
+    if out_grid:
+        counted = out_grid.counted(drop * out_ratio) / out_ratio
+        if abs(counted - drop) < beat / 2 and now + lead / 2 <= counted <= out_end:
+            drop = counted
+    # The incoming from its first beat (its bar one where counted), else its first sound.
+    offset = nxt.lead
+    if in_grid is not None:
+        first = in_grid.downbeat if in_grid.bar_known else in_grid.downbeat % in_grid.beat
+        if in_grid.ticks is not None and len(in_grid.ticks):
+            k = int(np.searchsorted(in_grid.ticks, max(nxt.lead, first) - 0.05))
+            if k < len(in_grid.ticks):
+                first = float(in_grid.ticks[k])
+        offset = max(0.0, first)
+    return Plan("cut", drop, drop, min(max(beat, 0.25), 0.8), beat, sw_ratio, nxt, offset, fallback=fallback)
 
 
 def _ease(x):
@@ -1123,7 +1186,7 @@ class CrossfadeSource(_AudioSource):
                     # record has no room left for it, before giving up to a cut.
                     beats = self._mix_beats
                     plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode, beats, lead=lead)
-                    while plan.kind != "blend" and plan.fallback == "room" and beats > 16:
+                    while plan.kind != "blend" and plan.fallback == "room" and beats > MIN_BLEND_BEATS:
                         beats //= 2
                         plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode, beats, lead=lead)
                     if plan.kind == "blend":
@@ -1173,6 +1236,7 @@ class CrossfadeSource(_AudioSource):
                            f"{nxt.grid.contrast:.1f})" if min(out_grid.contrast, nxt.grid.contrast) < BLEND_CONTRAST
                            else "; bar not found" if not (out_grid.bar_known and nxt.grid.bar_known)
                            else "; tempos too far apart" if plan.fallback == "tempo"
+                           else "; the beats would drift apart over the blend" if plan.fallback == "drift"
                            else "; no room left to blend")
                 plan.why = why.lstrip("; ")
                 self._journal(deck, nxt, plan, out_grid, music_end, mode)
@@ -1243,6 +1307,12 @@ class CrossfadeSource(_AudioSource):
         if cur is None:
             return b""
         plan = self.plan
+        # One consistent view per frame: a skip, a load or a cue from the
+        # booth calls a plan off from another thread, and a frame that read
+        # the plan before it and the incoming deck after it dereferenced None.
+        incoming, start_frame = self.incoming, self._start_frame
+        if plan is not None and incoming is None:
+            plan = None
         # Early enough to fit a blend before a long outro: the plan places
         # itself on the last phrase that leaves room, however soon it is made.
         if (plan is None and self.hand is None and not self._planning
@@ -1265,7 +1335,7 @@ class CrossfadeSource(_AudioSource):
               and cur.grid is not None and cur.grid.bar_known
               and cur.remaining > int((self._mix_beats * 0.6 + 120) * FRAMES_PER_S)):
             self._begin_glide(cur)
-        if out is None and self.incoming is None:
+        if out is None and incoming is None:
             # Ended with nothing planned: silence while the next is found, or stop.
             if self._planning or self._picking or self._queued:
                 if not self._planning and self._queued:
@@ -1276,11 +1346,11 @@ class CrossfadeSource(_AudioSource):
             self.current = None
             return b""
         inc = None
-        if (self.incoming is not None and self._start_frame is not None and k >= self._start_frame
-                and self.incoming.slot not in self.paused):
-            if k == self._start_frame and self.by_hand and self.controls.channels[self.incoming.slot]["fader"] <= 0.0:
-                self.controls.set(self.incoming.slot, "fader", 1.0)    # loaded with its fader down: she brings it in
-            inc = self.incoming.frame() or SILENCE
+        if (incoming is not None and start_frame is not None and k >= start_frame
+                and incoming.slot not in self.paused):
+            if k == start_frame and self.by_hand and self.controls.channels[incoming.slot]["fader"] <= 0.0:
+                self.controls.set(incoming.slot, "fader", 1.0)    # loaded with its fader down: she brings it in
+            inc = incoming.frame() or SILENCE
         hands = self.controls
         solo = SOLO
         if plan is None and self.rides and out is not None and cur.grid is not None:
@@ -1305,13 +1375,15 @@ class CrossfadeSource(_AudioSource):
                 fac, self.gesture = kaia_hands(plan, times, self.energy)
                 g = tuple(a * b for a, b in zip(g, fac))
             out_parts = cur.split(out) if out is not None else None
-            in_parts = self.incoming.split(inc) if inc is not None else None
+            in_parts = incoming.split(inc) if inc is not None else None
             frame = mix_frames(out_parts, in_parts, g, hands.channel(cur.slot),
-                               hands.channel(self.incoming.slot), hands.master)
+                               hands.channel(incoming.slot), hands.master)
             self.applied = tuple(round(float(x[-1]), 3) for x in g)
             self.levels["b"] = self._db(inc)
             if out is None or t0 + FRAME_MS / 1000 >= plan.done:
-                self._advance()
+                with self._lock:
+                    if self.incoming is incoming and self.plan is plan:
+                        self._advance()
         if self.frames_sent % 2 == 0:                       # every 40 ms is plenty for meters
             self.levels["a"] = self._db(out)
             self.levels["master"] = self._db(frame)
@@ -1504,9 +1576,9 @@ class RecordsSession:
     def now(self) -> Optional[library.Record]:
         return self.source.current.record if self.source and self.source.current else None
 
-    #: How many fitting records are looked at for one whose opening has a
-    #: beat steady enough to blend into, before settling for a cut.
-    STEADY_TRIES = 3
+    #: How many fitting records are looked at for one that will blend with the
+    #: record on air, before settling for one that can only be switched to.
+    BLEND_TRIES = 20
 
     def _prepare(self, rec: library.Record) -> Optional[Next]:
         """A record made ready to come next, whatever its beat: the person
@@ -1548,28 +1620,53 @@ class RecordsSession:
             nxt = self._prepare(rec) if rec else None
             if nxt:
                 return nxt
+        # Her own pick is a record that will blend with the one on air: a steady
+        # beat, bar one counted, its tempo within stretch of the tempo actually
+        # playing. A pick that could only be switched to was most of the
+        # pedestrian transitions (167 bpm DnB into an 80 bpm pop song).
+        playing = (deck.grid.bpm * deck.ratio) if deck.grid else ((deck.record.bpm or 0) * deck.ratio or None)
         passed_over: list[str] = []
         fallback: Optional[Next] = None
         rec = library.next_record(deck.record, self.crate, self.played, self._rng)
-        for _ in range(5 + self.STEADY_TRIES):
+        for _ in range(self.BLEND_TRIES):
             if rec is None:
                 break
             seconds = probe_seconds(rec.path)
             if not seconds or seconds < MIN_RECORD_S:
                 self.played.append(rec.path)
             else:
-                beatgrid.ensure_ticks(rec.path, rec.bpm)
                 grid = beatgrid.grid_for(rec.path, rec.bpm)
-                if grid and grid.contrast >= BLEND_CONTRAST:
-                    return Next(rec, seconds, gain_db(rec.path), grid, beatgrid.first_sound(rec.path),
-                                beatgrid.bass_entry(rec.path, rec.bpm))
+                steady = bool(grid and ((grid.contrast >= BLEND_CONTRAST and grid.bar_known)
+                                        or (grid.tracked and grid.tick_steady(float(grid.ticks[grid.bar_tick])))))
+                blends = steady and bool(library.tempo_ratio(playing, grid.bpm))
+                if blends:
+                    beatgrid.ensure_ticks(rec.path, rec.bpm)
+                    return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
+                                beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm))
                 fallback = fallback or Next(rec, seconds, None, grid, beatgrid.first_sound(rec.path),
                                             beatgrid.bass_entry(rec.path, rec.bpm))
                 passed_over.append(rec.path)
-                if len(passed_over) >= self.STEADY_TRIES:
-                    break
             rec = library.next_record(deck.record, self.crate, self.played + passed_over, self._rng)
+        # Second pass, over the whole crate: what can be stretched to the tempo
+        # actually playing (a blend can leave a record well off its own), in key
+        # order — the first pass follows the catalog tempo of the record alone.
+        seen = set(self.played) | set(passed_over)
+        pool = [r for r in self.crate if r.path not in seen and r.bpm and library.tempo_ratio(playing, r.bpm)]
+        pool.sort(key=lambda r: ({0: 0, 1: 1, 2: 2}.get(library.key_step(deck.record.key, r.key), 3),
+                                 abs(library.tempo_ratio(playing, r.bpm) - 1.0)))
+        for rec in pool[:self.BLEND_TRIES]:
+            seconds = probe_seconds(rec.path)
+            if not seconds or seconds < MIN_RECORD_S:
+                continue
+            grid = beatgrid.grid_for(rec.path, rec.bpm)
+            if grid and ((grid.contrast >= BLEND_CONTRAST and grid.bar_known)
+                         or (grid.tracked and grid.tick_steady(float(grid.ticks[grid.bar_tick])))):
+                beatgrid.ensure_ticks(rec.path, rec.bpm)
+                return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
+                            beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm))
         if fallback is not None:
+            log_info(f"[records] nothing in {self.BLEND_TRIES} candidates blends with {deck.record.name}; "
+                     f"{fallback.record.name} will be switched to on the bar")
             fallback.gain = gain_db(fallback.record.path)
         return fallback
 

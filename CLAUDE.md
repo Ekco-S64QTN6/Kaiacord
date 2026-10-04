@@ -597,15 +597,23 @@ a mix that sounded wrong:
   for a skip), counted from bar one (`Grid.bar0`), and is fitted before the outgoing's last strong
   beat (`last_strong_beat`), not the end of the file: blending into a fade swaps the bass to nothing.
   Two full records sum through a soft limiter.
-- **Nothing the booth's skip button asks for is a hard cut unless there is no room at all.** A pair
-  that cannot be beat-matched (a loose beat, an uncounted bar, tempos past 6%) gets a `fade`:
-  equal-power over 8 bars on the outgoing bar, basslines handed over halfway, the incoming started at
-  its first sound (`first_sound`), not in its leading silence — and, where both records' beats are
-  tracked and their tempos meet, with its first beat on the outgoing's bar: left at any phase, a fade
-  at a matched tempo played eight bars of flams. Steadiness is measured from a record's
-  first beat, not across its beatless intro, which had read steady records as loose. Every transition
-  and what it was decided from is appended to `memory/records/transitions.jsonl`; read that, not the
-  log line, when a mix sounded wrong.
+- **Two beats play together only when they are known to lock.** A blend is decided before it starts:
+  both beats steady (the onset comb, or — for anything tracked — ticks that run straight around the mix
+  points, which is what lets breakbeats and DnB blend), bars counted (`Grid.bar_tick`, bar one carried on
+  the ticks from a record's opening to where it is mixed), tempos within stretch (half/double counted),
+  and the two tracked beats predicted to drift under `MAX_DRIFT_S` over the whole blend. The incoming is
+  cued at the first phrase where its beat holds (past a loose intro) and the outgoing mixes out at the
+  last phrase where its does (before a beatless outro). Anything else is a `cut`: a clean switch, the
+  outgoing faded over its last beat into a bar line and the incoming's first beat exactly on it — never
+  an overlap. The 8-bar crossfade it replaced overlapped unmatched beats. Blends are never halved below
+  `MIN_BLEND_BEATS` (32). Kaia's own pick must be blendable with the record on air at its *playing*
+  tempo (`_choose`: 20 candidates by key and tempo, then the whole crate by playing tempo); on the real
+  crate that took 9 of 20 transitions blending to 19. Every transition and what it was decided from is
+  appended to `memory/records/transitions.jsonl`.
+- **The audio thread works from one snapshot per frame.** A skip, a load or a cue from the booth calls a
+  plan off on another thread; a frame that read the plan before it and the incoming deck after it raised
+  `'NoneType' object has no attribute 'slot'`, and discord.py stopped the set. `read()` takes plan,
+  incoming and start frame once, and `_advance` re-checks them under the lock.
 - **The bass swap lands on the incoming's bassline** (`beatgrid.bass_entry`: sub-bass per bar from bar
   one, snapped to a 4-bar phrase). Intros hold the bassline back 8–48 bars; when it comes in later than
   the swap's bar, the incoming starts that many bars into its intro, so the swap never hands the low end
@@ -645,7 +653,8 @@ CDJ: a crate click loads it now (`RecordsSession.load` → `CrossfadeSource.load
 blend not yet started and pulls that channel's fader down); dragging its overview, jog or lane moves
 its cue (snapped to a bar); ▶ starts it at the on-air tempo with its cue on the same beat of the bar
 (`play_hand`); the faders mix, and it takes over after `HANDOVER_S` of the on-air record silent.
-NEXT with a deck playing by hand is Kaia finishing the mix (`finish`, a plan of kind `out`). PHONES
+NEXT with a deck playing by hand is Kaia finishing the mix (`finish`, a plan of kind `out`). The button has
+one name; the line under it (`#skiphint`) says what pressing it does now — five rotating labels did not. PHONES
 plays a deck's file in the booth window only (`/audio/<id>`), never on air. Kaia raises a hand-loaded
 fader when *her* blend into it starts, not when she plans it — a planned blend is called off by ▶.
 A cue set on the record already in her plan (she plans a record's end minutes ahead) calls that plan
@@ -658,11 +667,14 @@ contents (`min-width: 0`, long labels ellipsised).
 Check a change by driving it headless against a real session (Playwright: click, drag, screenshot),
 not by reading the HTML.
 
-**Both dashboards open as desktop windows** (`utils/infrastructure/system/app_window.py`): a GTK
+**Both dashboards open as desktop windows where they can play sound** (`utils/infrastructure/system/app_window.py`): a GTK
 window around a WebKitGTK view, run by the *system* Python (it has `gi`; the venv does not), its own
 title and window class, no browser around it. Chrome's app mode is the fallback where WebKitGTK is
 missing. WebKit's DMA-BUF renderer is off (`WEBKIT_DISABLE_DMABUF_RENDERER`): on this NVIDIA driver
-under Wayland it closed the window at once with a protocol error.
+under Wayland it closed the window at once with a protocol error. WebKitGTK plays every sound through a
+GStreamer audio sink from `gst-plugins-good`; without it the window opened and played nothing (the
+receiver's monitor, the booth's PHONES), so `available()` also requires `autoaudiosink` and Chrome is used
+otherwise. The monitor plays through Web Audio and falls back to an endless WAV (`/monitor.wav`).
 
 Records, a live set and the radio share one voice connection: whichever starts stops the others
 without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the channel it was
@@ -788,6 +800,9 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   line and squeezed the waterfall every few seconds.
   `!scanner history` lists voice and data and folds bare carriers into one line; every catch is in
   the page's LOG tab.
+  SQL OPEN (`scanner.set_squelch_open`, a shared flag the child reads) plays a tuned channel continuously,
+  hiss and all; AUTO plays only what keys up — and a sweep is silent either way, which read as "does
+  nothing" on a quiet morning.
   Spectrograms (`spectrogram.py`) are rendered once beside a clip and pruned with it.
 - **One dongle.** `rtl.DEVICE` is held by the watch; a live listen sets `rtl.YIELD` and the watch
   gives it up within a hop. A process outside the bot (a hand-run survey) holds the device where

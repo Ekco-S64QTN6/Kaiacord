@@ -266,7 +266,7 @@ def test_the_booth_serves_a_record_for_the_headphones_with_ranges(session, monke
 
 def test_kaia_raises_a_hand_loaded_fader_only_when_her_blend_starts(session):
     src = session.source
-    src.load(R.Next(rec("mine"), 20.0, 0.0, Grid(120.0, 0.0, 8.0)))
+    src.load(R.Next(rec("mine"), 300.0, 0.0, Grid(120.0, 0.0, 8.0)))
     src.skip()
     assert _wait(lambda: src.plan is not None)
     assert src.controls.channels[2]["fader"] == 0.0          # planned, not started: still down

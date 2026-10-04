@@ -125,33 +125,33 @@ def test_an_end_blend_finishes_before_the_record_does():
     assert plan.kind == "blend" and plan.done <= 60.0 and plan.drop > 40.0
 
 
-def test_a_loose_beat_is_faded_not_blended():
-    """Beat against beat, a record without a steady kick is a clash — but a
-    hard cut with a gap was worse. It is a fade: equal-power, from the new
-    record's first sound, the basslines handed over halfway."""
+def test_a_loose_beat_is_a_clean_switch_never_an_overlap():
+    """Two beats that can't be matched never play at once: the outgoing fades
+    over its last beat into a bar line and the incoming's bar one lands on it."""
     late = Next(rec("two", 120, "8A"), 20.0, 0.0, LOOSE, lead=1.7)
     plan = plan_transition(3.0, 1.0, STEADY, 60.0, late, "skip")
-    assert plan.kind == "fade" and plan.fallback == "beat" and plan.offset == pytest.approx(1.7)
-    assert plan.drop % 2.0 == pytest.approx(0.0, abs=1e-9) and plan.length == pytest.approx(16.0)
-    assert plan_transition(3.0, 1.0, LOOSE, 60.0, nxt(STEADY), "skip").kind == "fade"
-    assert plan_transition(3.0, 1.0, None, 60.0, nxt(STEADY), "skip").kind == "fade"
+    assert plan.kind == "cut" and plan.fallback == "beat" and plan.start == plan.drop
+    assert plan.drop % 2.0 == pytest.approx(0.0, abs=1e-9)                 # on the outgoing's bar
+    assert plan.offset == pytest.approx(LOOSE.downbeat)                    # from its first beat
+    t = np.arange(plan.drop - 2.0, plan.drop + 2.0, 0.001)
+    ol, om, oh, il, im, ih = gains(plan, t)
+    assert not np.any((oh > 0) & (ih > 0))                                 # never both at once
+    assert plan_transition(3.0, 1.0, LOOSE, 60.0, nxt(STEADY), "skip").kind == "cut"
+    assert plan_transition(3.0, 1.0, None, 60.0, nxt(STEADY), "skip").kind == "cut"
 
-def test_tempos_too_far_apart_are_faded_at_their_own_speed():
+def test_tempos_too_far_apart_switch_on_the_bar_at_their_own_speed():
     fast = Grid(bpm=150.0, downbeat=0.0, contrast=8.0)
     plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(fast), "skip")
-    assert plan.kind == "fade" and plan.fallback == "tempo" and plan.ratio == 1.0
+    assert plan.kind == "cut" and plan.fallback == "tempo" and plan.ratio == 1.0
     assert plan.drop % 2.0 == pytest.approx(0.0, abs=1e-9)
 
-def test_a_fade_keeps_one_bassline_and_constant_power():
-    plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(LOOSE), "skip")
-    t = np.arange(plan.drop, plan.done, 0.01)
-    out_low, out_mid, out_high, in_low, in_mid, in_high = gains(plan, t)
-    assert np.allclose(out_low + in_low, 1.0)
-    assert np.allclose(out_high ** 2 + in_high ** 2, 1.0)
+def test_a_switch_carries_the_tempo_where_it_can():
+    near = Grid(bpm=123.0, downbeat=0.5, contrast=8.0, bar_known=False)   # steady, bar not counted
+    plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(near), "skip")
+    assert plan.kind == "cut" and plan.ratio == pytest.approx(120.0 / 123.0)
 
-
-def test_only_no_room_at_all_makes_a_cut():
-    plan = plan_transition(9.0, 1.0, STEADY, 10.0, nxt(LOOSE), "end")
+def test_a_steady_pair_with_no_room_left_is_a_switch():
+    plan = plan_transition(9.0, 1.0, STEADY, 10.0, nxt(STEADY), "end")
     assert plan.kind == "cut" and plan.fallback == "room"
 
 def test_a_blend_swaps_the_bass_halfway_and_keeps_one_bassline():
@@ -273,14 +273,17 @@ def test_the_next_record_is_one_with_a_steady_opening_where_one_fits(monkeypatch
     deck = Deck(crate[0], 1.0, 1.0, tone(0, 1.0))
     assert session._choose(deck).record.title == "steady"
     order = iter([crate[1], None])
-    assert session._choose(deck).record.title == "loose"          # nothing steadier: still a record
+    assert session._choose(deck).record.title == "steady"         # found by the pass over the whole crate
+    session.crate = crate[:2]
+    order = iter([crate[1], None])
+    assert session._choose(deck).record.title == "loose"          # nothing steady anywhere: still a record
     assert "loose" not in " ".join(session.played)                 # passed over, not marked played
 
 
-def test_a_bar_that_could_not_be_counted_is_faded():
+def test_a_bar_that_could_not_be_counted_is_a_switch():
     unsure = Grid(bpm=120.0, downbeat=0.0, contrast=8.0, bar_known=False)
-    assert plan_transition(3.0, 1.0, unsure, 60.0, nxt(STEADY), "skip").kind == "fade"
-    assert plan_transition(3.0, 1.0, STEADY, 60.0, nxt(unsure), "skip").kind == "fade"
+    assert plan_transition(3.0, 1.0, unsure, 60.0, nxt(STEADY), "skip").kind == "cut"
+    assert plan_transition(3.0, 1.0, STEADY, 60.0, nxt(unsure), "skip").kind == "cut"
 
 def _clicks(path, bpm, first, seconds, rate=44100):
     import shutil
@@ -654,19 +657,54 @@ def test_the_stretch_comes_from_a_line_through_all_the_ticks_not_a_median_of_qua
     assert 60.0 / float(np.median(np.diff(t))) != pytest.approx(123.4, abs=0.3)   # what the median gave
 
 
-def test_a_fade_brings_the_incoming_in_beat_on_beat_where_both_are_tracked():
+def test_a_switch_lands_the_incoming_first_beat_on_the_outgoing_beat_where_tracked():
     out_t = _drifting_ticks(120.0, 0.0)
     in_t = _drifting_ticks(121.0, 1.37)
-    out_g = Grid(120.0, 0.0, 8.0, bar_known=False, ticks=out_t)          # bar not found: a fade
+    out_g = Grid(120.0, 0.0, 8.0, bar_known=False, ticks=out_t)          # bar not found: a switch
     in_g = Grid(121.0, 1.37, 8.0, ticks=in_t)
     plan = plan_transition(50.0, 1.0, out_g, 200.0, Next(rec("two", 121, "8A"), 300.0, 0.0, in_g, lead=1.2), "skip")
-    assert plan.kind == "fade"
-    first = in_t[np.searchsorted(in_t, 1.2)]
-    assert plan.offset + (plan.drop - plan.start) * plan.ratio == pytest.approx(first, abs=1e-6)
-    assert np.min(np.abs(out_t - plan.drop)) < 1e-6
+    assert plan.kind == "cut" and plan.start == plan.drop
+    assert plan.offset == pytest.approx(float(in_t[np.searchsorted(in_t, 1.37 - 0.05)]), abs=1e-6)
+    assert np.min(np.abs(out_t - plan.drop)) < 1e-6                     # on the outgoing's tracked beat
 
 
-def test_a_fade_without_ticks_still_starts_at_the_first_sound():
+def test_two_tracked_beats_that_would_drift_apart_are_not_blended():
+    out_t = np.arange(0.0, 400.0, 0.5)                                   # 120.00 bpm
+    in_t = np.arange(0.0, 400.0, 60.0 / 119.8)                           # drifts 64 beats * ~0.8 ms = 54 ms
+    out_g = Grid(120.0, 0.0, 8.0, ticks=out_t)
+    in_g = Grid(120.0, 0.0, 8.0, ticks=in_t)                             # the catalog says the same tempo
+    plan = plan_transition(3.0, 1.0, out_g, 600.0, Next(rec("two", 120, "8A"), 600.0, 0.0, in_g), "skip", 64)
+    assert plan.kind == "blend"                                          # the stretch from the ticks absorbs it
+    in_g2 = Grid(120.0, 0.0, 8.0, ticks=np.arange(0.0, 400.0, 0.5) * np.linspace(1, 1.012, 800))   # tempo moves 1.2%
+    plan2 = plan_transition(3.0, 1.0, out_g, 600.0, Next(rec("two", 120, "8A"), 600.0, 0.0, in_g2), "skip", 64)
+    assert plan2.kind in ("blend", "cut")
+    if plan2.kind == "cut":
+        assert plan2.fallback == "drift"
+
+def test_a_switch_without_ticks_starts_at_bar_one():
     plan = plan_transition(50.0, 1.0, Grid(120.0, 0.0, 8.0, bar_known=False), 200.0,
                            Next(rec("two", 121, "8A"), 300.0, 0.0, Grid(121.0, 1.37, 8.0), lead=1.2), "skip")
-    assert plan.kind == "fade" and plan.start == plan.drop and plan.offset == 1.2
+    assert plan.kind == "cut" and plan.start == plan.drop and plan.offset == pytest.approx(1.37)
+
+def test_a_blend_called_off_mid_frame_does_not_stop_playback():
+    """A skip or a crate load from the booth calls a planned blend off on its
+    own thread; a frame that read the plan before it and the incoming deck after
+    it raised "'NoneType' object has no attribute 'slot'" and discord.py stopped
+    the set (twice on 4 Oct)."""
+    src, _ = _source()
+    src.skip()
+    assert wait_until(lambda: src.plan is not None)
+    assert not src.blend_started()
+    real_split = src.current.split
+    fired = []
+
+    def split_then_call_off(frame):
+        if not fired:
+            fired.append(1)
+            with src._lock:
+                src._call_off_plan()                 # the booth's thread, mid-frame
+        return real_split(frame)
+    src.current.split = split_then_call_off
+    for _ in range(5):
+        assert src.read()                            # no exception, frames keep coming
+    assert fired and src.current is not None

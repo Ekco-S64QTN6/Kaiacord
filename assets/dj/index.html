@@ -174,7 +174,8 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .knob.touched { color: var(--yellow); }
 .btn.play { cursor: pointer; }
 .btn.paused { color: #221; background: var(--red); border-color: var(--red); box-shadow: 0 0 14px rgba(255,56,96,.7); animation: blink 1s infinite; }
-.btns { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.btns { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; }
+#skiphint { grid-column: 1 / -1; font-size: 10px; letter-spacing: .5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #auto { font-family: var(--disp); font-weight: 700; font-size: 11px; letter-spacing: 2px; padding: 0 14px; cursor: pointer;
   color: var(--green); background: rgba(61,255,138,.06); border: 1px solid var(--green); border-radius: 3px; }
 #auto.hot { background: var(--green); color: #031; box-shadow: 0 0 14px rgba(61,255,138,.6); }
@@ -267,7 +268,7 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
         <div class="why" id="fxwhy">no transition planned</div>
         <canvas id="prog"></canvas>
       </div>
-      <div class="btns"><button id="skip">NEXT ▸▸ ON THE BAR</button><button id="auto" title="hand the mixer back to Kaia">KAIA MIX</button></div>
+      <div class="btns"><button id="skip">NEXT ▸▸</button><button id="auto" title="hand the mixer back to Kaia">KAIA MIX</button><div id="skiphint">—</div></div>
     </div>
     <div class="panel deck" data-slot="2" id="deck2"></div>
   </div>
@@ -940,7 +941,7 @@ function updateMixer() {
   const [pg, PW, PH] = fit($("prog")); pg.clearRect(0, 0, PW, PH);
   if (mix) {
     const t = mixNow(), bar = 4 * mix.beat;
-    kind.textContent = mix.kind.toUpperCase(); kind.className = "kind " + mix.kind;
+    kind.textContent = mix.kind === "cut" ? "SWITCH" : mix.kind.toUpperCase(); kind.className = "kind " + mix.kind;
     const r = mix.ramp || mix.length / 4, swap = mix.drop + mix.length / 2;
     const rideAt = mix.drop + 2 * r, outAt = mix.done - 2 * r, highsOut = mix.done - r;
     const bars = (x) => `${((x - t) / bar).toFixed(1)} BARS`;
@@ -986,15 +987,20 @@ function updateMixer() {
   document.querySelectorAll("#blendsel [data-beats]").forEach((x) => x.classList.toggle("on", +x.dataset.beats === beats));
   const lr = local["0:rides"]; $("rides").classList.toggle("on", lr && performance.now() < lr.until ? lr.v : !!S.rides);
   const md = masterDeck(); $("blendsec").textContent = md && md.tempo ? `≈ ${Math.round(beats * 60 / md.tempo)} s` : "";
-  // What NEXT does now, said on the button.
+  // One button, one name; the line under it says what pressing it does now.
   const fd = S.decks && S.decks[S.free];
-  const [label, live] = performance.now() < skipLock ? ["ON IT…", false]
-    : mix && mix.started ? [mix.kind === "out" ? "KAIA'S FINISHING…" : "MIXING…", false]
-    : mix ? ["BRING IT IN NOW ▸▸", true]
-    : handDeck() ? ["KAIA FINISHES THE MIX ▸▸", true]
-    : S.planning ? ["SYNCING…", false]
-    : fd && fd.hand ? [`MIX DECK ${S.free} IN ▸▸ ON THE BAR`, true]
-    : ["NEXT ▸▸ ON THE BAR", true];
+  const title = (d) => (d && (d.title || d.name)) || "the next record";
+  const inDeck = mix && S.decks ? S.decks[mix.in_slot] : null;
+  const barsTo = (x) => mix && mix.beat ? Math.max(0, Math.round((x - mixNow()) / (4 * mix.beat))) : 0;
+  const how = (k) => k === "blend" ? "beat-matched blend" : k === "out" ? "kaia finishing your mix" : "clean switch on the bar (the beats can't be matched)";
+  let live = true, hint = `NEXT: kaia brings in ${title(fd)} on the next phrase`;
+  if (performance.now() < skipLock) { live = false; hint = "on it…"; }
+  else if (mix && mix.started) { live = false; hint = `${how(mix.kind)} into ${title(inDeck)} — ${barsTo(mix.done)} bars to go`; }
+  else if (mix) hint = `${how(mix.kind)} into ${title(inDeck)} in ${barsTo(mix.drop)} bars — NEXT starts it now`;
+  else if (handDeck()) hint = `NEXT: kaia takes over and finishes your mix into ${title(handDeck())}`;
+  else if (S.planning) { live = false; hint = `lining up ${title(fd)}…`; }
+  const label = mix && mix.started ? "MIXING…" : "NEXT ▸▸";
+  if ($("skiphint").textContent !== hint) $("skiphint").textContent = hint;
   $("skip").disabled = !live; if ($("skip").textContent !== label) $("skip").textContent = label;
 }
 

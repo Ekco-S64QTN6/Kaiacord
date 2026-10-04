@@ -50,10 +50,41 @@ class Grid:
     #: The record's tracked beats (own seconds), where it has them: what a
     #: plan counts beats on instead of extrapolating `bpm` from `downbeat`.
     ticks: Optional[np.ndarray] = field(default=None, compare=False, repr=False)
+    #: The index in `ticks` of a beat that starts a bar — the record's bar one
+    #: (its first strong beat), carried from its opening to wherever it is
+    #: mixed. Bars and phrases are counted on the ticks from here.
+    bar_tick: Optional[int] = field(default=None, compare=False)
 
     @property
     def beat(self) -> float:
         return 60.0 / self.bpm
+
+    @property
+    def tracked(self) -> bool:
+        return self.ticks is not None and self.bar_tick is not None and len(self.ticks) >= 32
+
+    def tick_steady(self, own: float, n: int = 32, tol: float = 0.015) -> bool:
+        """Whether the `n` tracked beats from `own` sit on a straight line to
+        within `tol` seconds: a beat a record can be locked to there, whatever
+        its kick pattern (a breakbeat scores low on an onset comb)."""
+        if self.ticks is None or len(self.ticks) < n:
+            return False
+        i = int(np.searchsorted(self.ticks, own))
+        i = max(0, min(i, len(self.ticks) - n))
+        seg = self.ticks[i:i + n]
+        x = np.arange(n)
+        fit = np.polyval(np.polyfit(x, seg, 1), x)
+        return float(np.std(seg - fit)) <= tol
+
+    def tick_bar(self, own: float, every: int = 1) -> Optional[float]:
+        """The first tracked beat at or after `own` (record seconds) that opens
+        a phrase of `every` bars, counted from bar one on the ticks."""
+        if not self.tracked:
+            return None
+        step = 4 * max(1, every)
+        j = int(np.searchsorted(self.ticks, own - 1e-6))
+        j += (-(j - self.bar_tick)) % step
+        return float(self.ticks[j]) if j < len(self.ticks) else None
 
     def tick_index(self, own: float) -> Optional[int]:
         """The index of the tracked beat nearest `own` (record seconds)."""
@@ -284,7 +315,7 @@ def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
     return ticks_for(path) is not None
 
 
-def _snap(g: Optional[Grid], path: str) -> Optional[Grid]:
+def _snap(g: Optional[Grid], path: str, anchor: Optional[Grid] = None) -> Optional[Grid]:
     """`g` with its tempo and phase from the record's ticks, where it has them:
     the downbeat moved onto the nearest tick, the beat fitted through all of
     them. Left alone where the tracker disagrees grossly on the tempo."""
@@ -295,13 +326,21 @@ def _snap(g: Optional[Grid], path: str) -> Optional[Grid]:
     beat = Grid(g.bpm, g.downbeat, g.contrast, ticks=t).local_beat()
     if beat <= 0 or not 0.85 < (60.0 / beat) / g.bpm < 1.18:
         return g
-    return Grid(60.0 / beat, float(t[k]), g.contrast, g.bar_known, g.bar0, ticks=t)
+    # Bar one on the ticks: here if this grid's downbeat is a counted bar (or
+    # it is the record's opening, where bar one is its first strong beat),
+    # else the opening's, carried on the same ticks.
+    if g.bar_known or anchor is None or anchor.bar_tick is None:
+        bar_tick = k - 4 * int(g.bar0) if g.bar_known else k
+        bar_tick = bar_tick % 4 if bar_tick < 0 else bar_tick
+    else:
+        bar_tick = anchor.bar_tick
+    return Grid(60.0 / beat, float(t[k]), g.contrast, g.bar_known, g.bar0, ticks=t, bar_tick=bar_tick)
 
 
 def grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float = 40.0,
             anchor: Optional[Grid] = None) -> Optional[Grid]:
     """`_grid_at`, its tempo and phase from the record's ticks where it has them."""
-    return _snap(_grid_at(path, bpm, start, seconds, anchor), path)
+    return _snap(_grid_at(path, bpm, start, seconds, anchor), path, anchor)
 
 
 def grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional[Grid]:
