@@ -501,8 +501,9 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
             color=0xcc4444))
 
     if loc == "aeridor_ruins":
-        max_defeated = max(sheet.get("spine_defeated_guards", [0]))
-        if max_defeated < 5:
+        from utils.ttrpg.spine_dungeon import deepest_reached
+        reached = deepest_reached(sheet)
+        if reached < 5:
             # No checkpoints unlocked, start at floor 1
             # Consume torch NOW (player is committing to entry)
             if not has_lightstone and has_torch:
@@ -521,7 +522,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
         else:
             # Checkpoints unlocked, show lift menu — torch consumed in callback
             from utils.ttrpg.rpg_views import SpineLiftView
-            view = SpineLiftView(ctx, uid, uname, is_owner, sheet, max_defeated, has_lightstone)
+            view = SpineLiftView(ctx, uid, uname, is_owner, sheet, reached, has_lightstone)
             embed = discord.Embed(
                 title="⚙️ The Resonance Lift",
                 description="*The ancient lift shudders. Runes along the frame glow, recognizing the depths you have conquered.*" + torch_line,

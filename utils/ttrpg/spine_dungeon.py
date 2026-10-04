@@ -59,6 +59,15 @@ with open(_LAYOUT_FILE, "r") as f:
 FLOORS = {int(k): v for k, v in FLOORS_STR.items()}
 MAX_FLOOR = 77
 
+
+def deepest_reached(sheet: dict) -> int:
+    """The deepest floor the player has stood on. A floor's stair guardian
+    guards the way down, so beating floor N's opens floor N + 1: a player on
+    floor 20 has beaten 1–19. The Resonance Lift stops at every fifth floor
+    reached; counting guardians alone held each stop back a floor."""
+    beaten = sheet.get("spine_defeated_guards") or [0]
+    return min(MAX_FLOOR, max(beaten) + 1)
+
 STAIR_GUARDIANS = {
     1: "foreman_kregg",
     2: "cactuar",

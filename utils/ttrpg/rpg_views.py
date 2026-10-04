@@ -1234,7 +1234,7 @@ class BossApproachView(discord.ui.View):
         await interaction.followup.send(embed=embed, view=view)
 
 class SpineLiftView(discord.ui.View):
-    def __init__(self, ctx_obj, uid, uname, is_owner, sheet, max_floor_defeated, has_lightstone=True):
+    def __init__(self, ctx_obj, uid, uname, is_owner, sheet, deepest_floor, has_lightstone=True):
         super().__init__(timeout=120)
         self._ctx = ctx_obj
         self._uid = uid
@@ -1243,9 +1243,9 @@ class SpineLiftView(discord.ui.View):
         self._sheet = sheet
         self._has_lightstone = has_lightstone
         
-        # Build options for floors: 1, 5, 10, 15... up to highest multiple of 5 <= max_floor_defeated
+        # Floor 1, then every fifth floor the player has reached (spine_dungeon.deepest_reached).
         options = [discord.SelectOption(label="Floor 1", description="The Working Tunnels", value="1")]
-        for f in range(5, max_floor_defeated + 1, 5):
+        for f in range(5, deepest_floor + 1, 5):
             options.append(discord.SelectOption(label=f"Floor {f}", description="Start from checkpoint", value=str(f)))
             
         lift_sel = discord.ui.Select(
