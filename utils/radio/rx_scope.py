@@ -26,7 +26,7 @@ import numpy as np
 
 from utils.radio import waterfall as wf
 
-COLS = 1024                       # panorama width, whatever the band's span
+COLS = 2048                       # panorama width, whatever the band's span: ~5 kHz a column on 10 MHz
 ROWS = 360                        # live waterfall history, per band
 NIGHT_EVERY = 6                   # passes folded into one row of a night's picture
 NIGHT_ROWS = 2400
@@ -46,8 +46,9 @@ NAMES = {
 
 
 #: A gap this many columns wide or less is drawn across: a slice's DC guard,
-#: which the tuner's centre spike keeps from ever being measured.
-FILL_COLS = 16
+#: which the tuner's centre spike keeps from ever being measured — 40 kHz,
+#: 21 columns on the 4 MHz 2 m band.
+FILL_COLS = 32
 
 
 def _fill_gaps(row: np.ndarray) -> np.ndarray:
@@ -92,6 +93,7 @@ class Scope:
         self.lockouts: list = []
         self.passes = 0
         self.updated = 0.0
+        self.cols = COLS
         self._last_hold_row = 0.0
 
     # ── feeding ──────────────────────────────────────────────────────

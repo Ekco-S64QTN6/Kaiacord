@@ -562,3 +562,67 @@ def test_the_prompt_follows_the_band_and_an_echo_is_redone():
 def test_repeated_filler_is_not_speech():
     assert not scanner.looks_like_speech("Thank you. Thank you")
     assert scanner.looks_like_speech("Jackson Street and South Market Street. Jackson Street and South Market Street.")
+
+
+def test_a_pulse_train_is_let_go_and_left_alone(monkeypatch):
+    """463.71875 sends a 0.2 s burst every 1.5 s. Each burst kept the hold
+    alive, so it held the watch for the whole minute, played its pops to
+    whoever was listening, and came back every half hour. It never holds a
+    carrier long enough to open the squelch: let go at PULSED_DECIDE_S,
+    left alone, and nothing of it heard."""
+    from utils.radio import waterfall as w
+    heard = []
+    pulses = [(146_860_000, 40 + 1.5 * k, 0.25) for k in range(60)]
+    _, caught = _simulate(monkeypatch, pulses, 140, sink=heard.append)
+    mine = [c for c in caught if abs(c.freq_hz - 146_860_000) < 5000]
+    assert len(mine) == 1 and mine[0].seconds < w.PULSED_DECIDE_S + 1
+    assert not any(h.any() for h in heard)
+
+
+def test_the_sweep_is_silent_and_a_transmission_is_heard_from_its_start(monkeypatch):
+    """No tick per hop: the monitor and a listen-along hear nothing until a
+    carrier holds, and then the over from its first syllable."""
+    from utils.radio import waterfall as w
+    heard = []
+    _simulate(monkeypatch, [], 30, sink=heard.append)
+    assert heard == []
+    _, caught = _simulate(monkeypatch, [(146_860_000, 40, 6)], 60, sink=heard.append)
+    audible = sum(np.count_nonzero(h.reshape(-1, w.FRAME).any(axis=1)) for h in heard) / 50
+    c = next(c for c in caught if abs(c.freq_hz - 146_860_000) < 5000)
+    assert w.carrier_seconds(c.audio) - 0.3 <= audible <= w.carrier_seconds(c.audio) + w.SQUELCH_S + 0.1
+
+
+def test_history_lists_voice_and_folds_carriers_into_one_line():
+    from utils.commands import scanner_handler as sh
+    import time as _t
+    now = _t.time()
+    for k in range(30):
+        ledger.record(463_218_750, "carrier", 5, 2000, 0.01, when=now - 600 + k)
+    for k in range(5):
+        ledger.record(144_390_000, "data", 3, 2000, 0.1, when=now - 300 + k)
+    ledger.record(146_860_000, "voice", 8, 2000, 0.05, transcript="net control, this is kilo five", when=now - 60)
+    text = sh.history_embed(20).description
+    lines = text.splitlines()
+    assert "kilo five" in lines[0] and "×5" in lines[1] and "144.3900" in lines[1]
+    assert sum("463.2188" in ln for ln in lines) == 1 and "30 bare carriers on 1 channels" in text
+
+
+def test_a_scan_from_the_dashboard_lasts_while_a_page_is_open(monkeypatch):
+    import asyncio
+    import time as _t
+    from utils.radio import live
+    started = []
+    monkeypatch.setattr(scanner.rtl, "available", lambda: True)
+    monkeypatch.setattr(live, "active", lambda: [])
+    monkeypatch.setattr(scanner, "within_hours", lambda now=None: False)
+    monkeypatch.setattr(scanner, "tick", lambda now=None: started.append(1) or True)
+    try:
+        assert "15 minutes" in asyncio.run(scanner.start_scan(15)) and started
+        assert scanner.asked()
+        scanner._asked["seen"] = _t.time() - scanner.DASH_GONE_S - 1           # the window was closed
+        assert not scanner.asked()
+        scanner.seen_by_dashboard()
+        assert scanner.asked()
+        assert asyncio.run(scanner.stop_scan()) == "scan stopped" and not scanner.asked()
+    finally:
+        scanner._asked = None

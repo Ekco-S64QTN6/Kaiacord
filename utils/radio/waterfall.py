@@ -66,6 +66,17 @@ QUIET_DB = 6.0                   # hiss this far under it: a carrier is up (nois
 FULL_QUIETING_DB = 10.0          # a carrier strong enough to follow: voice quieted 12–14 dB, weak fades 5–7
 VOICE_SWING_DB = 3.0             # voice-band level spread under a carrier: speech swings, data and tones sit flat
 SQUELCH_S = 0.4                  # a listener hears silence, not hiss, this long after a channel drops
+# What a listener hears of a hold (Squelch): a carrier held OPEN_S opens it,
+# dropouts up to GAP_S don't break the run. A pulsing beacon (463.71875: a
+# 0.2 s burst every 1.5 s) and a rise in the noise never open it.
+OPEN_S = 0.4
+GAP_S = 0.06
+# A hold whose squelch has not opened in this long is a pulse train or noise,
+# not a transmission: the watch goes back to hopping and leaves the channel
+# alone for PULSED_COOLDOWN_S, doubling on each return as a constant carrier's
+# lockout does. The beacon above otherwise held the watch the whole minute.
+PULSED_DECIDE_S = 4.0
+PULSED_COOLDOWN_S = 5 * 60
 
 MHZ = 1_000_000
 #: The bands people talk on, visited every pass: (low, high) in Hz.
@@ -135,15 +146,29 @@ def covered(freq_hz: int, centres: list[int]) -> bool:
 FAST_HOPS, SLOW_HOPS = hop_plan()
 
 
+def _power(iq: np.ndarray) -> np.ndarray:
+    """Power per FFT bin, averaged over frames."""
+    frames = len(iq) // NFFT
+    x = iq[: frames * NFFT].reshape(frames, NFFT) * np.hanning(NFFT)
+    return np.mean(np.abs(np.fft.fftshift(np.fft.fft(x, axis=1), axes=1)) ** 2, axis=0)
+
+
+def _db(p: np.ndarray, width_hz: float) -> np.ndarray:
+    width = max(1, int(width_hz / (FS / NFFT)))
+    return 10 * np.log10(np.convolve(p, np.ones(width) / width, mode="same") + 1e-12)
+
+
 def _smooth_spectrum(iq: np.ndarray) -> np.ndarray:
     """Power (dB) per FFT bin, averaged over frames and smoothed across ~12 kHz
     so a whole NBFM channel reads as one peak."""
-    frames = len(iq) // NFFT
-    x = iq[: frames * NFFT].reshape(frames, NFFT) * np.hanning(NFFT)
-    p = np.mean(np.abs(np.fft.fftshift(np.fft.fft(x, axis=1), axes=1)) ** 2, axis=0)
-    width = max(1, int(12_500 / (FS / NFFT)))
-    p = np.convolve(p, np.ones(width) / width, mode="same")
-    return 10 * np.log10(p + 1e-12)
+    return _db(_power(iq), 12_500)
+
+
+def _spectra(iq: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(the trigger's smoothed spectrum, the dashboard's): the dashboard's is
+    smoothed over only two bins, so zooming in shows channels apart."""
+    p = _power(iq)
+    return _db(p, 12_500), _db(p, 2 * FS / NFFT)
 
 
 def _bin_freqs(center: int) -> np.ndarray:
@@ -187,13 +212,6 @@ class NbfmDemod:
         audio = np.angle(x[1:] * np.conj(x[:-1]))                    # FM discriminator
         audio = resample_poly(audio, 1, 48_000 // AUDIO_FS)
         return np.clip(audio * 9000, -32767, 32767).astype(np.int16)
-
-
-# What a hop sounds like to someone listening along: 40 ms of faint static,
-# then a breath of silence — the sound of a scanner stepping.
-_TICK = np.concatenate([
-    (np.random.default_rng(7).normal(size=AUDIO_FS // 25) * 700).astype(np.int16),
-    np.zeros(AUDIO_FS // 12, np.int16)])
 
 
 FRAME = AUDIO_FS // 50                                        # 20 ms
@@ -318,6 +336,53 @@ def voice_like(audio: np.ndarray) -> bool:
     return float(np.std(voice[on])) >= VOICE_SWING_DB
 
 
+class Squelch:
+    """What a listener hears of a hold. Audio passes only where a carrier ran
+    OPEN_S or longer (dropouts under GAP_S bridged), plus SQUELCH_S after it
+    drops; everything else is silence. Output runs OPEN_S behind the input, so
+    the run that opens it is heard from its first syllable."""
+
+    def __init__(self):
+        self.flags = np.zeros(0, bool)
+        self.pending: list = []
+        self.sent = 0                      # frames already emitted
+        self.opened = False                # a run has opened it, this hold
+
+    def _mask(self) -> np.ndarray:
+        on = self.flags.copy()
+        gap, need, hang = round(GAP_S * 50), round(OPEN_S * 50), round(SQUELCH_S * 50)
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], on.astype(np.int8), [0]))))
+        starts, ends = edges[::2], edges[1::2]
+        for a, b in zip(starts[1:], ends[:-1]):            # bridge short dropouts
+            if a - b <= gap:
+                on[b:a] = True
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], on.astype(np.int8), [0]))))
+        out = np.zeros(len(on), bool)
+        for a, b in zip(edges[::2], edges[1::2]):
+            if b - a >= need:
+                out[max(0, a - 2):min(len(on), b + hang)] = True
+                self.opened = True
+        return out
+
+    def push(self, audio: np.ndarray, final: bool = False) -> list:
+        """Feed one chunk; returns the chunks now ready for the listener."""
+        if len(audio):
+            self.flags = np.concatenate([self.flags, carried(audio)[0]])
+            self.pending.append(audio)
+        mask = self._mask()
+        ready = len(self.flags) - (0 if final else round(OPEN_S * 50))
+        out = []
+        while self.pending and self.sent + len(self.pending[0]) // FRAME <= ready:
+            chunk = self.pending.pop(0)
+            n = len(chunk) // FRAME
+            keep = np.repeat(mask[self.sent:self.sent + n], FRAME)
+            heard = np.zeros_like(chunk)
+            heard[:n * FRAME] = np.where(keep, chunk[:n * FRAME], 0)
+            out.append(heard)
+            self.sent += n
+        return out
+
+
 @dataclass
 class Catch:
     freq_hz: int
@@ -335,20 +400,26 @@ class Watcher:
                  stop: Optional[threading.Event] = None,
                  sink: Optional[Callable[[np.ndarray], None]] = None, ppm: int = 0,
                  hops: Optional[tuple[list[int], list[int]]] = None,
-                 scope: Optional[Callable[[dict], None]] = None):
+                 scope: Optional[Callable[[dict], None]] = None,
+                 exempt: Optional[list[int]] = None):
         self.on_catch = on_catch
         self.ppm = ppm
         # The receiver dashboard (rx_dashboard): every spectrum measured, and
         # each pass's lockouts. Called from the watcher's thread; must not block.
         self.scope = scope
-        # Listen-along: 12 kHz int16 audio — a soft tick per hop, and the
-        # channel itself while holding. Called from the watcher's thread.
+        # Listen-along and the dashboard's monitor: 12 kHz int16 audio of a
+        # hold, through the Squelch. Nothing while hopping. Called from the
+        # watcher's thread.
         self.sink = sink
+        # Channels whose audio is hiss-shaped by nature (configured `mode:
+        # digital`): never released as a pulse train.
+        self.exempt = list(exempt or [])
         self.gain_db = gain_db
         self.stop = stop or threading.Event()
         self.fast, self.slow = hops or (FAST_HOPS, SLOW_HOPS)
         self.slices = {c: _Slice(c) for c in self.fast + self.slow}
         self.cooldown: dict[int, float] = {}
+        self.reach: dict[int, int] = {}          # freq -> how far either side its cooldown covers
         self.constant: dict[int, float] = {}     # freq -> the long cooldown it was last given
         self.catches: "queue.Queue[Optional[Catch]]" = queue.Queue()
         self.passes = 0
@@ -362,8 +433,8 @@ class Watcher:
         s = self.slices[center]
         if dongle.tune(center) is False:
             return None                      # a failed retune would read the last slice
-        spec = _smooth_spectrum(dongle.read(NFFT * 32))
-        self._show(center, spec, "hop")
+        spec, shown = _spectra(dongle.read(NFFT * 32))
+        self._show(center, shown, "hop")
         s.history.append(spec)
         s.history = s.history[-FLOOR_VISITS:]
         s.visits += 1
@@ -386,9 +457,8 @@ class Watcher:
         best = ready[np.argmax(over[ready])]
         freq = int(round(_bin_freqs(center)[best] / 2500) * 2500)
         now = time.time()
-        # Only a long cooldown (a near-constant carrier) runs past a few seconds.
-        if any(abs(f - freq) <= (DRIFT_SPAN_HZ if until - now > COOLDOWN_S * 10 else COOLDOWN_SPAN_HZ)
-               and now < until for f, until in self.cooldown.items()):
+        if any(abs(f - freq) <= self.reach.get(f, COOLDOWN_SPAN_HZ) and now < until
+               for f, until in self.cooldown.items()):
             return None
         return freq, float(over[best])
 
@@ -405,12 +475,14 @@ class Watcher:
         idx = int(np.argmin(np.abs(_bin_freqs(center) - freq)))
         valid = _valid_mask(center)
         chunks, quiet, started, resumed = [], 0.0, time.time(), None
-        follow = constant = False
+        follow = constant = pulsed = False
+        squelch = Squelch()
+        exempt = any(abs(f - freq) <= 5000 for f in self.exempt)
         chunk_n = FS // 5                                      # 0.2 s
         while not self.stop.is_set():
             iq = dongle.read(chunk_n)
             audio = demod(iq)
-            spec = _smooth_spectrum(iq)
+            spec, shown = _spectra(iq)
             over = spec - floor
             # Over the slice's own rise, as the trigger is: against the floor
             # alone, a hold begun during a rise in the noise never went quiet.
@@ -425,10 +497,16 @@ class Watcher:
                 quiet = quiet + 0.2 if level < GATE_DB - 3 else 0.0
             if quiet <= SILENCE_S:
                 chunks.append(audio)
+            heard = squelch.push(audio)
             if self.sink:
-                self.sink(audio if quiet < SQUELCH_S else np.zeros_like(audio))
-            self._show(center, spec, "follow" if follow else "hold", freq, float(level), quiet < SQUELCH_S)
+                for h in heard:
+                    self.sink(h)
+            self._show(center, shown, "follow" if follow else "hold", freq, float(level),
+                       bool(squelch.flags[-round(SQUELCH_S * 50):].any()) and squelch.opened)
             held = time.time() - started
+            if not follow and not exempt and held >= PULSED_DECIDE_S and not squelch.opened:
+                pulsed = True
+                break
             if not follow:
                 if held >= MAX_HOLD_S:
                     # Keyed the whole minute: a stuck or constant carrier, or a
@@ -455,20 +533,27 @@ class Watcher:
         # Held the whole minute with no speech: something near-constant (425.950
         # ran the full minute eight times in an hour). Left alone for
         # LONG_COOLDOWN_S, doubling on each return.
+        if self.sink:
+            for h in squelch.push(np.zeros(0, np.int16), final=True):
+                self.sink(h)
         wait = COOLDOWN_S
-        if constant:
+        if constant or pulsed:
             # Again within twice its last lockout, near the same spot: longer.
-            prior = [v for f, v in self.constant.items() if abs(f - freq) <= DRIFT_SPAN_HZ
+            # A pulse train stays put, so its lockout covers its own channel only.
+            near = DRIFT_SPAN_HZ if constant else COOLDOWN_SPAN_HZ
+            prior = [v for f, v in self.constant.items() if abs(f - freq) <= near
                      and self.cooldown.get(f, 0) + v > time.time()]
-            wait = min(MAX_LONG_COOLDOWN_S, 2 * max(prior)) if prior else LONG_COOLDOWN_S
+            wait = min(MAX_LONG_COOLDOWN_S, 2 * max(prior)) if prior else \
+                (LONG_COOLDOWN_S if constant else PULSED_COOLDOWN_S)
             self.constant[freq] = wait
         self.cooldown[freq] = time.time() + wait
+        self.reach[freq] = DRIFT_SPAN_HZ if constant else COOLDOWN_SPAN_HZ
         s.persist = None
         audio = np.concatenate(chunks) if chunks else np.zeros(0, np.int16)
         return Catch(freq, started, time.time() - started, peak_db, audio)
 
-    #: Bins sent to the dashboard per slice: the smoothed spectrum, every 4th bin.
-    SCOPE_STEP = 4
+    #: Bins sent to the dashboard per slice: its lightly smoothed spectrum, every 2nd bin.
+    SCOPE_STEP = 2
 
     def _show(self, center: int, spec: np.ndarray, state: str, freq: int = 0,
               level: float = 0.0, open_: bool = False) -> None:
@@ -518,8 +603,8 @@ class Watcher:
                 idx = int(np.argmin(np.abs(_bin_freqs(center) - freq_hz)))
                 s = self.slices[center]
                 while not self.stop.is_set() and time.time() < until:
-                    spec = _smooth_spectrum(d.read(NFFT * 32))
-                    self._show(center, spec, "pinned", freq_hz)
+                    spec, shown = _spectra(d.read(NFFT * 32))
+                    self._show(center, shown, "pinned", freq_hz)
                     s.history = (s.history + [spec])[-FLOOR_VISITS * 4:]
                     self.passes += 1
                     if len(s.history) < WARM_VISITS:
@@ -544,8 +629,6 @@ class Watcher:
                         if self.stop.is_set():
                             break
                         hit = self._visit(d, center)
-                        if self.sink:
-                            self.sink(_TICK)
                         if hit:
                             self.catches.put(self._hold(d, center, *hit))
                     self.passes += 1
@@ -563,7 +646,7 @@ class Watcher:
 # queues.
 
 def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
-               stop, catches, audio, passes, hops=None, spectra=None) -> None:
+               stop, catches, audio, passes, hops=None, spectra=None, exempt=None) -> None:
     import os
     # The bot leaves by os._exit, which skips multiprocessing's cleanup of
     # daemon children: an orphaned watcher kept the dongle, and the next boot's
@@ -597,7 +680,7 @@ def child_main(mode: str, freq_hz: int, until: float, gain_db: float, ppm: int,
             return stop.is_set()
 
     w = Watcher(_send, gain_db=gain_db, stop=_Stop(), sink=_sink, ppm=ppm, hops=hops,
-                scope=_scope if spectra is not None else None)
+                scope=_scope if spectra is not None else None, exempt=exempt)
     try:
         if mode == "pinned":
             w.run_pinned(freq_hz, until)

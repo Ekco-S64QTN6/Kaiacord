@@ -60,15 +60,42 @@ def panel_embed() -> discord.Embed:
 
 
 def history_embed(limit: int = 12) -> discord.Embed:
+    """Voice and data, newest first, a run of repeats on one channel as one
+    line. Bare carriers — machines keying up with nothing in them, hundreds a
+    night — are one summary line, not the list."""
     from utils.radio import ledger
-    rows = ledger.recent(limit)
+    groups: list[list[dict]] = []
+    for e in ledger.recent(1000, kinds=("voice", "data")):
+        g = groups[-1] if groups else None
+        if g and e["kind"] != "voice" and g[0]["kind"] == e["kind"] and g[0]["freq_hz"] == e["freq_hz"]:
+            g.append(e)
+        elif len(groups) < limit:
+            groups.append([e])
+        else:
+            break
     lines = []
-    for e in rows:
+    for g in groups:
+        e = g[0]
         when = datetime.fromtimestamp(e["ts"]).strftime("%a %H:%M")
+        if len(g) > 1:
+            first, last = datetime.fromtimestamp(g[-1]["ts"]), datetime.fromtimestamp(e["ts"])
+            when = f"{first:%a %H:%M}–{last:%H:%M}" if first.date() == last.date() else f"{first:%a %H:%M}–{last:%a %H:%M}"
         what = f" — \"{clean(e['transcript'], 110)}\"" if e.get("transcript") else ""
-        lines.append(f"`{when}` **{e['kind']}** `{e['freq_hz'] / MHZ:.4f}` {clean(e.get('label') or e.get('service') or '', 40)}{what}")
+        times = f" ×{len(g)}" if len(g) > 1 else ""
+        lines.append(f"`{when}` **{e['kind']}**{times} `{e['freq_hz'] / MHZ:.4f}` "
+                     f"{clean(e.get('label') or e.get('service') or '', 40)}{what}")
+    since = time.time() - 24 * 3600
+    carriers = [e for e in ledger.catches_since(since) if e["kind"] == "carrier"]
+    if carriers:
+        per: dict = {}
+        for e in carriers:
+            per[e["freq_hz"]] = per.get(e["freq_hz"], 0) + 1
+        busiest = sorted(per.items(), key=lambda kv: -kv[1])[:4]
+        lines.append(f"\n〰️ and {len(carriers)} bare carriers on {len(per)} channels in the last 24 h — "
+                     "transmitters keying up with no voice in them (data links, beacons). Busiest: "
+                     + ", ".join(f"`{f / MHZ:.4f}` ×{n}" for f, n in busiest))
     return box("📜  What the scanner caught", "\n".join(lines) or "Nothing yet — the first night's scan will fill this.",
-               COLOR_SCANNER, footer="!scanner — the panel")
+               COLOR_SCANNER, footer="!scanner — the panel · every catch is in the dashboard's LOG")
 
 
 class HistoryView(discord.ui.View):
@@ -191,7 +218,7 @@ class ScannerView(discord.ui.View):
 
     @discord.ui.button(label="🎧 Listen along", style=discord.ButtonStyle.primary, row=1)
     async def along(self, interaction: discord.Interaction, _button):
-        """Hear the scan as it happens: a tick per hop, the channel when it holds,
+        """Hear the scan as it happens: silence while it hops, the channel when it holds,
         each catch posted here."""
         from utils.radio import rtl
         member = interaction.user
@@ -248,8 +275,8 @@ async def _listen_along(member, text_channel) -> discord.Embed:
         log_error(f"[scanner] listen along failed: {e}")
         return box("📻  Scanner", clean(str(e), 200), COLOR_ERROR)
     return box(
-        "🎧  Listening along", f"I'm in **{member.voice.channel.name}** scanning the bands. You'll hear a "
-        "soft tick each time I step, and the channel itself whenever something keys up. When it's voice I "
+        "🎧  Listening along", f"I'm in **{member.voice.channel.name}** scanning the bands. It's quiet while I "
+        "search; you'll hear the channel whenever a carrier holds long enough to be a transmission. When it's voice I "
         "stay for the replies until the channel's been quiet a while, then go back to searching. I'll post "
         "each catch here as I log it. `!scanner off` to stop.", COLOR_SCANNER)
 

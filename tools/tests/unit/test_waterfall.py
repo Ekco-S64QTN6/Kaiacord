@@ -116,3 +116,30 @@ def test_voice_is_followed_only_under_a_full_quieting_carrier():
     flutter = np.where(np.sin(2 * np.pi * 2 * t) > 0, 10 ** (-14 / 20), 1.0)
     fluttering = np.clip(np.concatenate([hiss * flutter + speech, tail]), -32767, 32767).astype(np.int16)
     assert not wf.voice_like(fluttering)
+
+
+def _carrier_then_hiss(on_s, off_s, times, quieting_db=20):
+    """Demodulated audio: a carrier (hiss quieted) for on_s, hiss for off_s."""
+    rng = np.random.default_rng(3)
+    d = wf.NbfmDemod(100_000)
+    iq = (rng.standard_normal(4_800_000) + 1j * rng.standard_normal(4_800_000)).astype(np.complex64)
+    hiss = np.concatenate([d(iq[k:k + 480_000]) for k in range(0, 4_800_000, 480_000)]).astype(float)
+    out, i = [], 0
+    for _ in range(times):
+        n_on, n_off = int(on_s * wf.AUDIO_FS), int(off_s * wf.AUDIO_FS)
+        out.append(hiss[i:i + n_on] * 10 ** (-quieting_db / 20))
+        out.append(hiss[i + n_on:i + n_on + n_off])
+        i = (i + n_on + n_off) % (len(hiss) - n_on - n_off)
+    return np.concatenate(out).astype(np.int16)
+
+
+def test_the_squelch_stays_shut_on_pulses_and_opens_on_a_held_carrier():
+    for audio, opens in ((_carrier_then_hiss(0.2, 1.3, 8), False), (_carrier_then_hiss(3.0, 1.0, 1), True)):
+        sq = wf.Squelch()
+        out = []
+        for k in range(0, len(audio), wf.AUDIO_FS // 5):
+            out += sq.push(audio[k:k + wf.AUDIO_FS // 5])
+        out += sq.push(np.zeros(0, np.int16), final=True)
+        assert sq.opened is opens and sum(len(o) for o in out) == len(audio) // wf.FRAME * wf.FRAME
+        heard = np.concatenate(out)
+        assert bool(heard[:wf.AUDIO_FS // 10].any()) is opens     # from the first syllable

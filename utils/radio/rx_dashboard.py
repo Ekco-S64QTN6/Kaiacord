@@ -6,12 +6,14 @@ frequency readout and signal meter for what the watch is on, the ledger's
 channels as bookmarks, the catches it kept (each with its spectrogram and a
 play button), the carriers it has locked out, and a monitor that plays the
 scanner's audio in the window. A click on the waterfall tunes the dongle to
-that channel for a while (`scanner.tune`).
+that channel for a while (`scanner.tune`); ▶ SCAN runs the scan outside the
+nightly hours while the page is open (`scanner.start_scan`).
 
 Served from 127.0.0.1 only: `assets/rx/index.html`, `/events` (state, ten a
 second), `/waterfall/<band>`, `/ledger`, `/catches`, `/clip/<name>`,
-`/spec/<name>`, `/night/<name>`, `/audio` (the monitor: raw 12 kHz s16le),
-and POST `/tune`, `/scan`. `!scanner dash` opens the window; nothing opens it
+`/spec/<name>`, `/night/<name>`, `/log` (every catch but noise), `/audio`
+(the monitor: raw 12 kHz s16le, silent while hopping), and POST `/tune`,
+`/scan` (leave a tuned channel), `/start`, `/stop`. `!scanner dash` opens the window; nothing opens it
 at night unasked.
 """
 from __future__ import annotations
@@ -90,6 +92,8 @@ def status() -> dict:
         freq = lv["freq"] or lv["center"]
     elif scanner.running():
         mode, freq = "starting", 0
+    elif scanner.asked():
+        mode, freq = "starting", 0
     else:
         mode, freq = ("idle" if rtl.available() else "no dongle"), 0
     return {"mode": mode, "freq": freq, "live": lv, "passes": scope.passes, "lockouts": scope.lockouts,
@@ -97,6 +101,7 @@ def status() -> dict:
             "hours": str(_cfg("hours", "00:00-06:00")), "gain": _cfg("gain", rtl.DEFAULT_GAIN),
             "audio_level": _last_audio["level"] if time.time() - _last_audio["t"] < 1.5 else -90.0,
             "along": scanner.listening_along(), "kaia": _kaia_line(mode, freq, lv, tuned),
+            "asked": scanner.asked(), "nightly": scanner.within_hours(), "cols": scope.cols,
             "bands": scope.bands_info(), "t": time.time()}
 
 
@@ -110,15 +115,21 @@ def _kaia_line(mode: str, freq: int, lv, tuned) -> str:
         if mode == "tuned":
             left = max(0, int((tuned["until"] - time.time()) / 60))
             return f"sitting on {freq / MHZ:.4f} for you ({what}), {left} min left. anything that keys up, i keep."
+        if mode == "holding" and not (lv or {}).get("open"):
+            return (f"something rose over the noise on {freq / MHZ:.4f} — {what}. no carrier that holds yet; "
+                    "if it's only pulses i'll leave it and keep sweeping.")
         return f"something keyed up on {freq / MHZ:.4f} — {what}. listening."
     if mode == "scanning":
-        return "sweeping the voice bands, a pass every few seconds. nothing standing over the noise right now."
+        return "sweeping the voice bands, a pass every few seconds. quiet until something holds a carrier."
+    if mode == "starting":
+        return "opening the dongle — the first sweep is a few seconds away."
     if mode == "live":
         return f"playing {freq / MHZ:.4f} live in voice."
     tonight = ledger.catches_since(time.time() - 18 * 3600)
     voice = sum(1 for e in tonight if e["kind"] == "voice")
     return (f"the scanner sleeps until {_cfg('hours', '00:00-06:00').split('-')[0]}. "
-            f"last night: {len(tonight)} catches, {voice} with a voice. click the waterfall to tune in now.")
+            f"last night: {len(tonight)} catches, {voice} with a voice. ▶ SCAN to sweep now, "
+            "or click the waterfall to sit on one channel.")
 
 
 def ledger_rows() -> list:
@@ -149,6 +160,15 @@ def catch_rows(limit: int = 40) -> list:
         if len(rows) >= limit:
             break
     return rows
+
+
+def log_rows(limit: int = 150) -> list:
+    """Every catch but noise, newest first: the carriers `!scanner history`
+    folds into one line are listed here."""
+    from utils.radio import ledger
+    return [{"ts": e["ts"], "freq": e["freq_hz"], "kind": e["kind"], "seconds": e.get("seconds"),
+             "label": e.get("label") or e.get("service") or "", "transcript": e.get("transcript") or ""}
+            for e in ledger.recent(limit)]
 
 
 def nights() -> list:
@@ -216,6 +236,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(catch_rows())
             elif path == "/nights":
                 self._json(nights())
+            elif path == "/log":
+                self._json(log_rows())
             elif path.startswith("/waterfall/"):
                 i = int(path.rsplit("/", 1)[-1])
                 n, data, seq = scope.rows_since(i, 0)
@@ -238,6 +260,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 seen = {}
                 while _server is not None:
+                    scanner.seen_by_dashboard()
                     st = status()
                     rows = {}
                     for b in st["bands"]:
@@ -299,6 +322,11 @@ class _Handler(BaseHTTPRequestHandler):
                 fut = asyncio.run_coroutine_threadsafe(scanner.tune(freq, minutes), _loop)
             elif self.path == "/scan":
                 fut = asyncio.run_coroutine_threadsafe(scanner.untune(), _loop)
+            elif self.path == "/start":
+                minutes = min(240.0, max(1.0, float(body.get("minutes") or 30)))
+                fut = asyncio.run_coroutine_threadsafe(scanner.start_scan(minutes), _loop)
+            elif self.path == "/stop":
+                fut = asyncio.run_coroutine_threadsafe(scanner.stop_scan(), _loop)
             else:
                 return self._send(404, b"", "text/plain")
             say = fut.result(timeout=90)

@@ -69,7 +69,31 @@ select { background: rgba(0,0,0,.5); color: var(--text); border: 1px solid var(-
 #locks { font-size: 10px; color: var(--dim); letter-spacing: 1px; }
 
 /* scope */
-#scope { grid-column: 1; display: grid; grid-template-rows: auto minmax(120px, 30%) 22px 1fr; min-height: 0; --accent: var(--cyan); }
+#scope { grid-column: 1; display: grid; grid-template-rows: auto auto minmax(120px, 30%) 22px 1fr; min-height: 0; --accent: var(--cyan); }
+#strip { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; padding: 0 10px 8px; }
+.card { border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px 3px; cursor: pointer; background: rgba(0,0,0,.25); min-width: 0; }
+.card:hover { border-color: var(--faint); }
+.card.on { border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,240,255,.3); }
+.card.hot { border-color: var(--pink); box-shadow: 0 0 10px rgba(255,47,209,.45); }
+.card .nm { font-family: var(--disp); font-size: 9px; letter-spacing: 1.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card.on .nm { color: var(--cyan); } .card.hot .nm { color: var(--pink); }
+.card .nm .n { color: var(--green); margin-left: 4px; }
+.card canvas { width: 100%; height: 22px; display: block; margin-top: 3px; }
+.zoom { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+.zoom .btn { padding: 3px 9px; font-size: 12px; }
+#zoomlbl { font-size: 10px; color: var(--dim); letter-spacing: 1px; min-width: 120px; text-align: right; }
+#idle { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-30%); z-index: 5; display: none; justify-items: center; gap: 12px; text-align: center; pointer-events: none; }
+#idle .msg { font-family: var(--disp); font-size: 13px; letter-spacing: 4px; color: var(--dim); }
+#idle .sub { font-size: 12px; color: var(--dim); max-width: 520px; line-height: 1.5; }
+#idle .btn { pointer-events: auto; font-size: 16px; padding: 14px 28px; color: var(--green); border-color: var(--green); box-shadow: 0 0 18px rgba(61,255,138,.35); background: rgba(4,6,12,.85); }
+#idle .btn:hover { background: var(--green); color: #031; }
+.btn.go { color: var(--green); border-color: var(--green); }
+.btn.go.lit { background: var(--green); border-color: var(--green); color: #031; box-shadow: 0 0 12px rgba(61,255,138,.6); }
+.lg { display: grid; grid-template-columns: 44px 70px 62px 1fr; gap: 6px; padding: 4px; border-bottom: 1px dashed var(--line); font-size: 11px; cursor: pointer; align-items: baseline; }
+.lg:hover { background: rgba(0,240,255,.07); }
+.lg .t { color: var(--dim); } .lg .f { font-family: var(--disp); color: var(--cyan); font-size: 11px; }
+.lg .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
+.lg .l q { color: var(--text); font-style: italic; }
 .tabs { display: flex; gap: 4px; padding: 8px 10px 6px; align-items: center; flex-wrap: wrap; }
 .tab { font-family: var(--disp); font-size: 10px; letter-spacing: 2px; color: var(--dim); padding: 4px 9px; border: 1px solid transparent; border-radius: 2px; cursor: pointer; user-select: none; }
 .tab.on { color: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,240,255,.35); }
@@ -95,7 +119,7 @@ canvas.fill { width: 100%; height: 100%; display: block; }
 .catch .top { display: flex; gap: 8px; align-items: baseline; }
 .catch .f { font-family: var(--disp); font-size: 12px; color: var(--cyan); }
 .kind { font-size: 9px; letter-spacing: 1.5px; padding: 1px 6px; border-radius: 2px; border: 1px solid; }
-.kind.voice { color: var(--green); } .kind.data { color: var(--yellow); } .kind.carrier { color: var(--purple); }
+.kind { text-align: center; } .kind.voice { color: var(--green); } .kind.data { color: var(--yellow); } .kind.carrier { color: var(--purple); }
 .catch .when { margin-left: auto; color: var(--dim); font-size: 10px; }
 .catch .tr { color: var(--text); margin: 4px 0; font-style: italic; }
 .catch img { width: 100%; display: block; border: 1px solid var(--line); border-radius: 2px; margin-top: 4px; cursor: pointer; }
@@ -137,11 +161,12 @@ canvas.fill { width: 100%; height: 100%; display: block; }
       <div class="meter"><span>SQUELCH</span><canvas id="sq"></canvas><span class="v" id="sqv">—</span></div>
     </div>
     <div class="ctl">
-      <div class="row"><span class="ptitle">TUNE FOR</span>
-        <select id="mins"><option>5</option><option selected>15</option><option>30</option><option>60</option></select>
+      <div class="row"><div class="btn go" id="go" title="sweep the voice bands now, and hear what holds a carrier">▶ SCAN</div>
+        <span class="ptitle">FOR</span>
+        <select id="mins"><option>5</option><option selected>15</option><option>30</option><option>60</option><option>120</option></select>
         <span class="ptitle">MIN</span></div>
-      <div class="row"><div class="btn" id="scan" title="leave the tuned channel and go back to the scan">◀ BACK TO SCAN</div>
-        <div class="btn pink" id="mon" title="hear the scanner in this window">🎧 MONITOR</div></div>
+      <div class="row"><div class="btn" id="scan" style="display:none" title="leave the tuned channel and go back to the scan">◀ BACK TO SCAN</div>
+        <div class="btn pink" id="mon" title="hear the scanner in this window — silent while it sweeps">🎧 MONITOR</div></div>
       <div class="row"><span class="ptitle">VOL</span><input type="range" id="vol" min="0" max="1" step="0.05" value="0.7"></div>
     </div>
   </div>
@@ -152,15 +177,19 @@ canvas.fill { width: 100%; height: 100%; display: block; }
   </div>
 
   <div class="panel" id="scope">
-    <div class="tabs" id="bands"></div>
+    <div class="tabs"><span class="ptitle">BANDS · CLICK ONE · WHEEL TO ZOOM · DRAG TO PAN · CLICK TO TUNE</span>
+      <div class="zoom"><span id="zoomlbl"></span><div class="btn" id="zout" title="zoom out (−)">−</div><div class="btn" id="zin" title="zoom in (+)">+</div><div class="btn" id="zfit" title="whole band (0)">FIT</div></div></div>
+    <div id="strip"></div>
     <canvas class="fill" id="spec"></canvas>
     <canvas class="fill" id="axis"></canvas>
     <canvas class="fill" id="fall"></canvas>
     <div id="hover"></div>
+    <div id="idle"><div class="msg" id="idlemsg">THE SCANNER IS IDLE</div><div class="btn" id="idlego">▶ START SCAN</div>
+      <div class="sub">sweeps 2 m, VHF, 70 cm and UHF a pass every few seconds, holds on whatever keys up, and plays it here — only what holds a carrier, never the sweep.</div></div>
   </div>
 
   <div class="panel" id="side">
-    <div class="tabs"><span class="tab on" data-t="catches">CATCHES</span><span class="tab" data-t="bm">BOOKMARKS</span><span class="tab" data-t="nights">NIGHTS</span></div>
+    <div class="tabs"><span class="tab on" data-t="catches">CATCHES</span><span class="tab" data-t="log">LOG</span><span class="tab" data-t="bm">BOOKMARKS</span><span class="tab" data-t="nights">NIGHTS</span></div>
     <div class="scroll" id="sidepane"></div>
   </div>
 </div>
@@ -177,10 +206,12 @@ for (let i = 0; i < 256; i++) {
   const [a, ca] = STOPS[k], [b, cb] = STOPS[k + 1], t = (x - a) / (b - a);
   for (let c = 0; c < 3; c++) LUT[i * 3 + c] = ca[c] + (cb[c] - ca[c]) * t;
 }
-const COLS = 1024, ROWS = 360;
-let S = null, bands = [], band = 0, ledger = [], catches = [], nightsList = [];
+const ROWS = 360;
+let COLS = 0;                                    // the server's panorama width, from the first state
+let S = null, bands = [], band = 0, ledger = [], catches = [], logRows = [], nightsList = [];
 const falls = {};          // band -> {canvas, ctx, latest: Uint8Array}
-const peak = new Float32Array(COLS).fill(0);
+const views = {};          // band -> {lo, hi}: the zoomed span
+let peak = null;
 function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), Math.max(2200, m.length * 45)); }
 function esc(s) { return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 const fmtF = (hz) => { const s = Math.round(hz).toString().padStart(9, "0"); return `${+s.slice(0, s.length - 6)}.${s.slice(-6, -3)}.${s.slice(-3)}`; };
@@ -191,6 +222,7 @@ function fit(cv) {
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, r.width, r.height];
 }
 function b64(s) { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+const post = (path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).then((r) => r.json());
 
 // ── waterfalls: one offscreen canvas per band, newest row on top ──
 function fallOf(i) {
@@ -222,80 +254,140 @@ function connect() {
   const es = new EventSource("/events");
   es.onmessage = (e) => {
     S = JSON.parse(e.data);
-    if (!bands.length && S.bands.length) { bands = S.bands; buildTabs(); bands.forEach((b) => loadFall(b.i)); }
+    if (!bands.length && S.bands.length) {
+      COLS = S.cols; peak = new Float32Array(COLS);
+      bands = S.bands; buildStrip(); bands.forEach((b) => loadFall(b.i));
+    }
     for (const [i, r] of Object.entries(S.rows || {})) addRows(+i, b64(r.data), r.n);
-    if (S.live && followBand) { const bi = bandOf(S.live.freq || S.live.center); if (bi !== null && bi !== band && S.mode !== "scanning") { band = bi; markTabs(); } }
+    if (S.live && followBand) { const bi = bandOf(S.live.freq || S.live.center); if (bi !== null && bi !== band && S.live.state !== "hop") { band = bi; markStrip(); } }
   };
   es.onerror = () => { es.close(); setTimeout(connect, 1500); };
 }
 let followBand = true;
 function bandOf(f) { for (const b of bands) if (f >= b.lo && f < b.hi) return b.i; return null; }
-function buildTabs() {
-  $("bands").innerHTML = bands.map((b) => `<span class="tab" data-b="${b.i}">${esc(b.name.toUpperCase())}<span class="n" data-n="${b.i}"></span></span>`).join("");
-  $("bands").querySelectorAll(".tab").forEach((t) => t.onclick = () => { band = +t.dataset.b; followBand = false; markTabs(); });
-  markTabs();
+
+// ── the band strip: every band at a glance, the sweep moving across them ──
+function buildStrip() {
+  $("strip").innerHTML = bands.map((b) => `<div class="card" data-b="${b.i}" title="${esc(b.name)} · ${(b.lo / MHZ).toFixed(1)}–${(b.hi / MHZ).toFixed(1)} MHz">` +
+    `<div class="nm">${esc(b.name.toUpperCase())}<span class="n" data-n="${b.i}"></span></div><canvas data-c="${b.i}"></canvas></div>`).join("");
+  $("strip").querySelectorAll(".card").forEach((t) => t.onclick = () => { band = +t.dataset.b; followBand = false; markStrip(); });
+  markStrip();
 }
-function markTabs() { $("bands").querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", +t.dataset.b === band)); }
+function markStrip() { $("strip").querySelectorAll(".card").forEach((t) => t.classList.toggle("on", +t.dataset.b === band)); }
+function drawStrip() {
+  const L = S && S.live;
+  for (const b of bands) {
+    const cv = document.querySelector(`canvas[data-c="${b.i}"]`); if (!cv) continue;
+    const [g, W, H] = fit(cv); g.clearRect(0, 0, W, H);
+    const f = fallOf(b.i), step = Math.max(1, Math.floor(COLS / W));
+    g.beginPath(); g.moveTo(0, H);
+    for (let x = 0; x < COLS; x += step) { let m = 0; for (let k = x; k < x + step && k < COLS; k++) m = Math.max(m, f.latest[k]); g.lineTo(x / COLS * W, H - m / 255 * H); }
+    g.lineTo(W, H); g.closePath(); g.fillStyle = "rgba(0,240,255,.35)"; g.fill();
+    const inBand = L && L.center >= b.lo - 1.2e6 && L.center <= b.hi + 1.2e6;
+    const card = cv.parentElement; card.classList.toggle("hot", !!(inBand && L.state !== "hop" && L.freq >= b.lo && L.freq < b.hi));
+    if (inBand) {
+      const x0 = Math.max(0, (L.lo - b.lo) / (b.hi - b.lo) * W), x1 = Math.min(W, (L.hi - b.lo) / (b.hi - b.lo) * W);
+      g.fillStyle = L.state === "hop" ? "rgba(61,255,138,.25)" : "rgba(255,47,209,.35)"; g.fillRect(x0, 0, x1 - x0, H);
+      g.fillStyle = L.state === "hop" ? "#3dff8a" : "#ff2fd1"; g.fillRect(x1 - 2, 0, 2, H);
+    }
+    if (+band === b.i && views[b.i]) {                // the zoomed window
+      const v = views[b.i]; g.strokeStyle = "rgba(255,228,92,.9)"; g.lineWidth = 1;
+      g.strokeRect((v.lo - b.lo) / (b.hi - b.lo) * W + .5, .5, (v.hi - v.lo) / (b.hi - b.lo) * W, H - 1);
+    }
+  }
+}
+
+// ── zoom ──
+const MIN_SPAN = 50e3;
+function viewOf(b) { return views[b.i] || { lo: b.lo, hi: b.hi }; }
+function setView(b, lo, hi) {
+  let span = Math.min(b.hi - b.lo, Math.max(MIN_SPAN, hi - lo));
+  lo = Math.max(b.lo, Math.min(lo, b.hi - span));
+  if (span >= b.hi - b.lo - 1) delete views[b.i]; else views[b.i] = { lo, hi: lo + span };
+}
+function zoomAt(f, k) {
+  const b = bands.find((x) => x.i === band); if (!b) return;
+  const v = viewOf(b), lo = f - (f - v.lo) * k, hi = f + (v.hi - f) * k; setView(b, lo, hi);
+}
+function zoomMid(k) { const b = bands.find((x) => x.i === band); if (!b) return; const v = viewOf(b); zoomAt((v.lo + v.hi) / 2, k); }
+$("zin").onclick = () => zoomMid(0.5); $("zout").onclick = () => zoomMid(2);
+$("zfit").onclick = () => { delete views[band]; };
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  if (e.key === "+" || e.key === "=") zoomMid(0.5); else if (e.key === "-") zoomMid(2); else if (e.key === "0") delete views[band];
+});
 
 // ── drawing ──
-const xOf = (b, f, W) => (f - b.lo) / (b.hi - b.lo) * W;
-const fOf = (b, x, W) => b.lo + x / W * (b.hi - b.lo);
 function drawScope() {
   const b = bands.find((x) => x.i === band); if (!b) return;
-  const f = fallOf(band);
+  const f = fallOf(band), v = viewOf(b), span = v.hi - v.lo;
+  const c0 = (v.lo - b.lo) / (b.hi - b.lo) * COLS, cw = span / (b.hi - b.lo) * COLS;    // the view, in columns
+  const X = (fq, W) => (fq - v.lo) / span * W;
+  const colX = (c, W) => (c + 0.5 - c0) / cw * W;
+  $("zoomlbl").textContent = views[band] ? `${(v.lo / MHZ).toFixed(3)}–${(v.hi / MHZ).toFixed(3)} · ${span >= 1e6 ? (span / MHZ).toFixed(2) + " MHz" : Math.round(span / 1e3) + " kHz"}` : "whole band";
   // spectrum: the band's latest row, a peak hold, the live slice brighter
   const [g, W, H] = fit($("spec")); g.clearRect(0, 0, W, H);
   g.strokeStyle = "rgba(24,34,58,.9)"; g.lineWidth = 1;
   for (let db = 0; db <= SPAN_DB; db += 10) { const y = H - (db / SPAN_DB) * (H - 8); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); g.fillStyle = "#5d6b8f"; g.font = "9px JetBrains Mono"; g.fillText(`+${db + LOW_DB} dB`, 4, y - 2); }
-  const yOf = (v) => H - v / 255 * (H - 8);
+  const yOf = (val) => H - val / 255 * (H - 8);
   for (let x = 0; x < COLS; x++) peak[x] = Math.max(f.latest[x], peak[x] - 0.6);
+  const a = Math.max(0, Math.floor(c0) - 1), z = Math.min(COLS, Math.ceil(c0 + cw) + 1);
+  const every = Math.max(1, Math.floor((z - a) / (W * 1.5)));
+  const trace = (arr) => { g.beginPath(); let first = true; for (let x = a; x < z; x += every) { let m = 0; for (let k = x; k < x + every && k < z; k++) m = Math.max(m, arr[k]); const px = colX(x, W), py = yOf(m); first ? g.moveTo(px, py) : g.lineTo(px, py); first = false; } };
   const grad = g.createLinearGradient(0, 0, 0, H); grad.addColorStop(0, "rgba(0,240,255,.45)"); grad.addColorStop(1, "rgba(0,240,255,0)");
-  g.beginPath(); g.moveTo(0, H);
-  for (let x = 0; x < COLS; x++) g.lineTo(x / COLS * W, yOf(f.latest[x]));
-  g.lineTo(W, H); g.closePath(); g.fillStyle = grad; g.fill();
-  g.beginPath(); for (let x = 0; x < COLS; x++) { const X = x / COLS * W, Y = yOf(f.latest[x]); x ? g.lineTo(X, Y) : g.moveTo(X, Y); }
-  g.strokeStyle = "#00f0ff"; g.lineWidth = 1.2; g.shadowColor = "#00f0ff"; g.shadowBlur = 6; g.stroke(); g.shadowBlur = 0;
-  g.beginPath(); for (let x = 0; x < COLS; x++) { const X = x / COLS * W, Y = yOf(peak[x]); x ? g.lineTo(X, Y) : g.moveTo(X, Y); }
-  g.strokeStyle = "rgba(255,47,209,.5)"; g.lineWidth = 1; g.stroke();
+  trace(f.latest); g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fillStyle = grad; g.fill();
+  trace(f.latest); g.strokeStyle = "#00f0ff"; g.lineWidth = 1.2; g.shadowColor = "#00f0ff"; g.shadowBlur = 6; g.stroke(); g.shadowBlur = 0;
+  trace(peak); g.strokeStyle = "rgba(255,47,209,.5)"; g.lineWidth = 1; g.stroke();
   const L = S && S.live;
   if (L && L.center >= b.lo - 1.2e6 && L.center <= b.hi + 1.2e6) {
-    const sp = b64(L.spec), x0 = xOf(b, L.lo, W), x1 = xOf(b, L.hi, W);
-    g.fillStyle = L.state === "hop" ? "rgba(0,240,255,.05)" : "rgba(255,47,209,.07)"; g.fillRect(x0, 0, x1 - x0, H);
-    g.beginPath(); for (let k = 0; k < sp.length; k++) { const X = x0 + k / sp.length * (x1 - x0), Y = yOf(sp[k]); k ? g.lineTo(X, Y) : g.moveTo(X, Y); }
-    g.strokeStyle = L.state === "hop" ? "rgba(235,250,255,.8)" : "#ff2fd1"; g.lineWidth = 1.4; g.stroke();
+    const sp = b64(L.spec), x0 = X(L.lo, W), x1 = X(L.hi, W), hop = L.state === "hop";
+    // the sweep: a beam over the slice being measured, its leading edge bright
+    const beam = g.createLinearGradient(x0, 0, x1, 0);
+    beam.addColorStop(0, hop ? "rgba(61,255,138,0)" : "rgba(255,47,209,.05)"); beam.addColorStop(1, hop ? "rgba(61,255,138,.12)" : "rgba(255,47,209,.10)");
+    g.fillStyle = beam; g.fillRect(x0, 0, x1 - x0, H);
+    if (hop) { g.fillStyle = "rgba(61,255,138,.8)"; g.fillRect(x1 - 1, 0, 2, H); }
+    g.beginPath(); for (let k = 0; k < sp.length; k++) { const px = x0 + k / sp.length * (x1 - x0), py = yOf(sp[k]); k ? g.lineTo(px, py) : g.moveTo(px, py); }
+    g.strokeStyle = hop ? "rgba(235,250,255,.75)" : "#ff2fd1"; g.lineWidth = 1.4; g.stroke();
   }
-  drawMarks(g, b, W, H, true);
-  // waterfall
-  const [wg, WW, WH] = fit($("fall")); wg.imageSmoothingEnabled = true;
-  wg.drawImage(f.canvas, 0, 0, COLS, ROWS, 0, 0, WW, WH);
-  drawMarks(wg, b, WW, WH, false);
+  drawMarks(g, b, v, W, H, true);
+  // waterfall: the view's columns of the band's picture
+  const [wg, WW, WH] = fit($("fall"));
+  wg.imageSmoothingEnabled = cw > WW;              // zoomed in past a column a pixel: keep channels crisp
+  wg.drawImage(f.canvas, c0, 0, Math.max(1, cw), ROWS, 0, 0, WW, WH);
+  drawMarks(wg, b, v, WW, WH, false);
+  if (L && L.state === "hop" && L.center >= b.lo - 1.2e6 && L.center <= b.hi + 1.2e6) {
+    const x0 = X(L.lo, WW), x1 = X(L.hi, WW); wg.fillStyle = "rgba(61,255,138,.9)"; wg.fillRect(x0, 0, x1 - x0, 2);
+  }
   // axis
   const [ag, AW, AH] = fit($("axis")); ag.clearRect(0, 0, AW, AH); ag.fillStyle = "rgba(4,6,12,.9)"; ag.fillRect(0, 0, AW, AH);
-  const span = b.hi - b.lo, step = [100e3, 250e3, 500e3, 1e6, 2e6, 5e6].find((s) => span / s <= 14);
+  const step = [5e3, 12.5e3, 25e3, 50e3, 100e3, 250e3, 500e3, 1e6, 2e6, 5e6].find((st) => span / st <= Math.max(6, AW / 90)) || 5e6;
+  const dec = step < 10e3 ? 4 : step < 100e3 ? 3 : step < 1e6 ? 2 : 0;
   ag.font = "10px JetBrains Mono"; ag.fillStyle = "#5d6b8f"; ag.strokeStyle = "#2a3554";
-  for (let fq = Math.ceil(b.lo / step) * step; fq <= b.hi; fq += step) { const X = xOf(b, fq, AW); ag.beginPath(); ag.moveTo(X, 0); ag.lineTo(X, 6); ag.stroke(); ag.fillText((fq / MHZ).toFixed(step < 1e6 ? 2 : 0), X + 3, 15); }
+  for (let fq = Math.ceil(v.lo / step) * step; fq <= v.hi; fq += step) { const px = X(fq, AW); ag.beginPath(); ag.moveTo(px, 0); ag.lineTo(px, 6); ag.stroke(); ag.fillText((fq / MHZ).toFixed(dec), px + 3, 15); }
 }
-function drawMarks(g, b, W, H, labels) {
+function drawMarks(g, b, v, W, H, labels) {
+  const span = v.hi - v.lo, X = (fq) => (fq - v.lo) / span * W;
   // lockouts: the carriers being ignored
-  for (const [fq, left] of (S && S.lockouts) || []) {
-    if (fq < b.lo || fq > b.hi) continue;
-    const X = xOf(b, fq, W), w = Math.max(3, 150e3 / (b.hi - b.lo) * W);
-    g.fillStyle = "rgba(255,56,96,.10)"; g.fillRect(X - w / 2, 0, w, H);
+  for (const [fq] of (S && S.lockouts) || []) {
+    if (fq < v.lo - 75e3 || fq > v.hi + 75e3) continue;
+    const w = Math.max(3, 25e3 / span * W);
+    g.fillStyle = "rgba(255,56,96,.10)"; g.fillRect(X(fq) - w / 2, 0, w, H);
   }
-  // bookmarks
+  // bookmarks; named once zoomed in far enough to read them
   if (labels) {
-    g.font = "9px JetBrains Mono";
+    g.font = "9px JetBrains Mono"; let lastX = -1e9;
     for (const c of ledger) {
-      if (c.freq < b.lo || c.freq > b.hi || !(c.voice || c.label)) continue;
-      const X = xOf(b, c.freq, W);
-      g.fillStyle = c.voice ? "#3dff8a" : "#5d6b8f"; g.beginPath(); g.moveTo(X - 3, 0); g.lineTo(X + 3, 0); g.lineTo(X, 5); g.fill();
+      if (c.freq < v.lo || c.freq > v.hi || !(c.voice || c.label)) continue;
+      const px = X(c.freq);
+      g.fillStyle = c.voice ? "#3dff8a" : "#5d6b8f"; g.beginPath(); g.moveTo(px - 3, 0); g.lineTo(px + 3, 0); g.lineTo(px, 5); g.fill();
+      if (span <= 2e6 && px - lastX > 70) { g.fillText((c.label || c.service || "").slice(0, 18), px + 4, 14); lastX = px; }
     }
   }
   // what the watch is on
   const L = S && S.live, fq = L && L.state !== "hop" ? (L.freq || L.center) : null;
-  if (fq && fq >= b.lo && fq <= b.hi) {
-    const X = xOf(b, fq, W); g.strokeStyle = "#ff2fd1"; g.lineWidth = 2; g.shadowColor = "#ff2fd1"; g.shadowBlur = 10;
-    g.beginPath(); g.moveTo(X, 0); g.lineTo(X, H); g.stroke(); g.shadowBlur = 0; g.lineWidth = 1;
+  if (fq && fq >= v.lo && fq <= v.hi) {
+    const px = X(fq); g.strokeStyle = L.open ? "#ff2fd1" : "rgba(255,228,92,.8)"; g.lineWidth = 2; g.shadowColor = g.strokeStyle; g.shadowBlur = 10;
+    g.beginPath(); g.moveTo(px, 0); g.lineTo(px, H); g.stroke(); g.shadowBlur = 0; g.lineWidth = 1;
   }
 }
 function bar(cv, frac, color) {
@@ -303,14 +395,16 @@ function bar(cv, frac, color) {
   const n = 24, gap = 2, w = (W - gap * (n - 1)) / n;
   for (let i = 0; i < n; i++) { const on = i / n < frac; g.fillStyle = on ? (i > n * 0.8 ? "#ff3860" : i > n * 0.6 ? "#ffe45c" : color) : "rgba(42,53,84,.55)"; g.fillRect(i * (w + gap), 0, w, H); }
 }
+const SCANNING = ["scanning", "holding", "following", "starting"];
 function updateVfo() {
   if (!S) return;
   const L = S.live, holding = L && L.state !== "hop";
   const f = S.freq || (L && L.center) || 0;
   $("freq").innerHTML = (f ? fmtF(f) : "---.---.---") + "<small>MHz</small>"; $("freq").classList.toggle("hold", !!holding);
   const ch = ledger.find((c) => Math.abs(c.freq - f) < 3000);
-  $("vsub").innerHTML = holding ? `<b>${esc(ch ? (ch.label || ch.service) : "unlisted")}</b> · ${L.state.toUpperCase()}${ch ? ` · heard ${ch.hits}× · voice ${ch.voice}×` : ""}`
-    : S.mode === "scanning" ? `sweeping · slice centre ${(f / MHZ).toFixed(3)} MHz` : esc(S.mode);
+  const state = holding ? (L.state === "hold" && !L.open ? "RISING · NO CARRIER YET" : L.state.toUpperCase()) : "";
+  $("vsub").innerHTML = holding ? `<b>${esc(ch ? (ch.label || ch.service) : "unlisted")}</b> · ${state}${ch ? ` · heard ${ch.hits}× · voice ${ch.voice}×` : ""}`
+    : S.mode === "scanning" ? `sweeping · slice centre ${(f / MHZ).toFixed(3)} MHz · pass ${S.passes}` : esc(S.mode);
   const lvl = holding ? L.level : 0;
   bar($("sm"), Math.max(0, Math.min(1, lvl / 40)), "#3dff8a"); $("smv").textContent = holding ? `${lvl >= 0 ? "+" : "−"}${Math.abs(lvl).toFixed(0)} dB` : "—";
   bar($("am"), Math.max(0, Math.min(1, (S.audio_level + 60) / 60)), "#00f0ff"); $("amv").textContent = S.audio_level > -89 ? `${S.audio_level.toFixed(0)} dBFS` : "—";
@@ -321,35 +415,62 @@ function updateVfo() {
   $("pass").textContent = S.passes; $("gain").textContent = `${S.gain} dB`; $("hours").textContent = S.hours;
   $("tunepill").style.display = S.tuned ? "" : "none";
   if (S.tuned) $("tuneleft").textContent = `${(S.tuned.freq_hz / MHZ).toFixed(4)} · ${Math.max(0, Math.round((S.tuned.until - S.t) / 60))} min`;
+  $("scan").style.display = S.tuned ? "" : "none";
+  const sweeping = SCANNING.includes(S.mode);
+  $("go").classList.toggle("lit", sweeping);
+  $("go").textContent = sweeping ? (S.asked && !S.nightly && !S.along ? `■ STOP · ${Math.max(0, Math.round((S.asked.until - S.t) / 60))}m` : "■ STOP") : "▶ SCAN";
+  const idle = S.mode === "idle" || S.mode === "no dongle";
+  $("idle").style.display = idle ? "grid" : "none";
+  $("idlemsg").textContent = S.mode === "no dongle" ? "THE RTL-SDR ISN'T CONNECTED" : "THE SCANNER IS IDLE";
+  $("idlego").style.display = S.mode === "no dongle" ? "none" : "";
   $("say").textContent = S.kaia;
   const locks = S.lockouts || [];
-  $("locks").textContent = locks.length ? "locked out (constant carriers): " + locks.slice(0, 6).map(([fq, s]) => `${(fq / MHZ).toFixed(3)} · ${Math.round(s / 60)}m`).join("  ·  ") : "";
+  $("locks").textContent = locks.length ? "left alone (constant carriers and pulse trains): " + locks.slice(0, 6).map(([fq, s]) => `${(fq / MHZ).toFixed(4)} · ${Math.round(s / 60)}m`).join("  ·  ") : "";
 }
 
-// ── tuning: click the spectrum or waterfall ──
-function hoverAt(e, cv) {
-  const b = bands.find((x) => x.i === band); if (!b) return null;
-  const r = cv.getBoundingClientRect(); const f = fOf(b, e.clientX - r.left, r.width);
-  return { b, f: Math.round(f / 2500) * 2500, x: e.clientX, y: e.clientY };
+// ── scan / stop ──
+function startScan() {
+  if (!mon) startMon();                       // a click is the gesture the audio needs
+  toast("starting the scan…");
+  post("/start", { minutes: +$("mins").value }).then((j) => toast(j.say)).catch(() => toast("the scan didn't start"));
 }
+function stopScan() { post("/stop").then((j) => toast(j.say)).catch(() => {}); }
+$("go").onclick = () => (S && SCANNING.includes(S.mode) ? stopScan() : startScan());
+$("idlego").onclick = startScan;
+
+// ── tuning, zooming and panning on the spectrum and waterfall ──
+function freqAt(e, cv) {
+  const b = bands.find((x) => x.i === band); if (!b) return null;
+  const v = viewOf(b), r = cv.getBoundingClientRect();
+  return { b, f: v.lo + (e.clientX - r.left) / r.width * (v.hi - v.lo), r };
+}
+let drag = null;
 for (const id of ["spec", "fall"]) {
   const cv = $(id);
+  cv.addEventListener("wheel", (e) => { e.preventDefault(); const h = freqAt(e, cv); if (h) zoomAt(h.f, e.deltaY < 0 ? 0.8 : 1.25); }, { passive: false });
+  cv.addEventListener("mousedown", (e) => { const h = freqAt(e, cv); if (h) drag = { x: e.clientX, v: viewOf(h.b), moved: false, w: h.r.width }; });
   cv.addEventListener("mousemove", (e) => {
-    const h = hoverAt(e, cv); if (!h) return;
-    const ch = ledger.find((c) => Math.abs(c.freq - h.f) < 6250);
+    const h = freqAt(e, cv); if (!h) return;
+    if (drag && (drag.moved || Math.abs(e.clientX - drag.x) > 4)) {
+      drag.moved = true; const df = (e.clientX - drag.x) / drag.w * (drag.v.hi - drag.v.lo);
+      setView(h.b, drag.v.lo - df, drag.v.hi - df); $("hover").style.display = "none"; return;
+    }
+    const fq = Math.round(h.f / 2500) * 2500;
+    const ch = ledger.find((c) => Math.abs(c.freq - fq) < 6250);
     const hv = $("hover"), pr = $("scope").getBoundingClientRect();
-    hv.style.display = "block"; hv.style.left = (h.x - pr.left + 12) + "px"; hv.style.top = (h.y - pr.top + 12) + "px";
-    hv.textContent = `${(h.f / MHZ).toFixed(4)} MHz` + (ch ? ` · ${ch.label || ch.service} · voice ${ch.voice}×` : "") + " — click to tune";
+    hv.style.display = "block"; hv.style.left = (e.clientX - pr.left + 12) + "px"; hv.style.top = (e.clientY - pr.top + 12) + "px";
+    hv.textContent = `${(fq / MHZ).toFixed(4)} MHz` + (ch ? ` · ${ch.label || ch.service} · voice ${ch.voice}×` : "") + " — click to tune";
   });
   cv.addEventListener("mouseleave", () => { $("hover").style.display = "none"; });
-  cv.addEventListener("click", (e) => { const h = hoverAt(e, cv); if (h) tune(h.f); });
+  cv.addEventListener("mouseup", (e) => { const d = drag; drag = null; if (d && !d.moved) { const h = freqAt(e, cv); if (h) tune(Math.round(h.f / 2500) * 2500); } });
 }
+window.addEventListener("mouseup", () => { drag = null; });
 function tune(f) {
+  if (!mon) startMon();
   toast(`tuning to ${(f / MHZ).toFixed(4)} MHz…`);
-  fetch("/tune", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ freq: f, minutes: +$("mins").value }) })
-    .then((r) => r.json()).then((j) => toast(j.say)).catch(() => toast("the tune didn't go through"));
+  post("/tune", { freq: f, minutes: Math.min(60, +$("mins").value) }).then((j) => toast(j.say)).catch(() => toast("the tune didn't go through"));
 }
-$("scan").onclick = () => fetch("/scan", { method: "POST" }).then((r) => r.json()).then((j) => toast(j.say)).catch(() => {});
+$("scan").onclick = () => post("/scan").then((j) => toast(j.say)).catch(() => {});
 
 // ── the monitor: the scanner's audio in this window ──
 let mon = null;
@@ -357,7 +478,7 @@ $("mon").onclick = () => { mon ? stopMon() : startMon(); };
 async function startMon() {
   const ctx = new AudioContext({ sampleRate: 12000 }), gain = ctx.createGain(); gain.gain.value = +$("vol").value; gain.connect(ctx.destination);
   const ctl = new AbortController(); mon = { ctx, gain, ctl, at: 0 };
-  $("mon").classList.add("lit"); toast("monitoring the scanner in this window");
+  $("mon").classList.add("lit");
   try {
     const r = await fetch("/audio", { signal: ctl.signal }), rd = r.body.getReader(); let carry = new Uint8Array(0);
     for (;;) {
@@ -381,6 +502,8 @@ let side = "catches";
 document.querySelectorAll("#side .tab").forEach((t) => t.onclick = () => {
   side = t.dataset.t; document.querySelectorAll("#side .tab").forEach((x) => x.classList.toggle("on", x === t)); renderSide();
 });
+const when = (ts) => new Date(ts * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+function showFreq(f) { const bi = bandOf(f); if (bi === null) return; band = bi; followBand = false; markStrip(); const b = bands.find((x) => x.i === bi); setView(b, f - 250e3, f + 250e3); }
 function renderSide() {
   const p = $("sidepane");
   if (side === "bm") {
@@ -388,17 +511,23 @@ function renderSide() {
       `<span class="l">${esc(c.label || c.service || "found")}<i>${esc(c.service)}${c.hours ? " · " + esc(c.hours) : ""}${c.transcript ? " · “" + esc(c.transcript.slice(0, 60)) + "”" : ""}</i></span>` +
       `<span class="c"><b>${c.voice}</b> voice<br>${c.hits} heard</span></div>`).join("") || `<div style="color:var(--dim);padding:8px">the ledger is empty</div>`;
     p.querySelectorAll(".bm").forEach((el) => {
-      el.onclick = () => { const f = +el.dataset.f, bi = bandOf(f); if (bi !== null) { band = bi; followBand = false; markTabs(); } };
+      el.onclick = () => showFreq(+el.dataset.f);
       el.ondblclick = () => tune(+el.dataset.f);
-      el.title = "click: show its band · double-click: tune to it";
+      el.title = "click: zoom to it · double-click: tune to it";
     });
+  } else if (side === "log") {
+    p.innerHTML = logRows.map((c) => `<div class="lg" data-f="${c.freq}" title="${esc(c.label)} · ${Math.round(c.seconds || 0)}s"><span class="t">${new Date(c.ts * 1000).toTimeString().slice(0, 5)}</span>` +
+      `<span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${c.kind}">${c.kind.toUpperCase()}</span>` +
+      `<span class="l">${c.transcript ? `<q>“${esc(c.transcript)}”</q>` : `${esc(c.label)} · ${Math.round(c.seconds || 0)}s`}</span></div>`).join("")
+      || `<div style="color:var(--dim);padding:8px;font-size:12px">nothing logged yet</div>`;
+    p.querySelectorAll(".lg").forEach((el) => { el.onclick = () => showFreq(+el.dataset.f); });
   } else if (side === "nights") {
     p.innerHTML = nightsList.length ? `<div class="nights">${nightsList.map((n) => `<img src="/night/${n}" data-n="${n}" title="${n}" loading="lazy">`).join("")}</div>`
       : `<div style="color:var(--dim);padding:8px;font-size:12px">no nights saved yet — the first night's waterfall is saved when the scan ends</div>`;
     p.querySelectorAll("img").forEach((im) => im.onclick = () => big("/night/" + im.dataset.n));
   } else {
     p.innerHTML = catches.map((c) => `<div class="catch"><div class="top"><span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${c.kind}">${c.kind.toUpperCase()}</span>` +
-      `<span style="font-size:11px;color:var(--dim)">${esc(c.label)}</span><span class="when">${new Date(c.ts * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })} · ${Math.round(c.seconds || 0)}s</span></div>` +
+      `<span style="font-size:11px;color:var(--dim)">${esc(c.label)}</span><span class="when">${when(c.ts)} · ${Math.round(c.seconds || 0)}s</span></div>` +
       (c.transcript ? `<div class="tr">“${esc(c.transcript)}”</div>` : "") +
       `<img src="/spec/${c.clip}" loading="lazy" data-c="${c.clip}" alt="">` +
       `<audio class="play" controls preload="none" src="/clip/${c.clip}" style="width:100%;height:28px"></audio></div>`).join("")
@@ -409,18 +538,19 @@ function renderSide() {
 function big(src) { $("big").querySelector("img").src = src; $("big").style.display = "grid"; }
 $("big").onclick = () => { $("big").style.display = "none"; };
 function loadSide() {
-  Promise.all([fetch("/ledger").then((r) => r.json()), fetch("/catches").then((r) => r.json()), fetch("/nights").then((r) => r.json())])
-    .then(([l, c, n]) => {
-      const changed = JSON.stringify(c.map((x) => x.id)) !== JSON.stringify(catches.map((x) => x.id)) || l.length !== ledger.length || n.length !== nightsList.length;
-      ledger = l; catches = c; nightsList = n;
+  Promise.all([fetch("/ledger").then((r) => r.json()), fetch("/catches").then((r) => r.json()), fetch("/nights").then((r) => r.json()), fetch("/log").then((r) => r.json())])
+    .then(([l, c, n, g]) => {
+      const sig = (xs) => JSON.stringify(xs.map((x) => x.id || x.ts));
+      const changed = sig(c) !== sig(catches) || l.length !== ledger.length || n.length !== nightsList.length || sig(g) !== sig(logRows);
+      ledger = l; catches = c; nightsList = n; logRows = g;
       if (changed) { const st = $("sidepane").scrollTop; renderSide(); $("sidepane").scrollTop = st; }
       for (const b of bands) { const k = l.filter((x) => x.freq >= b.lo && x.freq < b.hi && x.voice).length; const el = document.querySelector(`[data-n="${b.i}"]`); if (el) el.textContent = k ? `·${k}` : ""; }
     }).catch(() => {});
 }
-setInterval(loadSide, 15000);
+setInterval(loadSide, 10000);
 
 function frame() {
-  try { $("clock").textContent = new Date().toTimeString().slice(0, 8); if (S) { updateVfo(); drawScope(); } } catch (e) { console.error(e); }
+  try { $("clock").textContent = new Date().toTimeString().slice(0, 8); if (S && COLS) { updateVfo(); drawStrip(); drawScope(); } } catch (e) { console.error(e); }
   requestAnimationFrame(frame);
 }
 connect(); loadSide(); requestAnimationFrame(frame);

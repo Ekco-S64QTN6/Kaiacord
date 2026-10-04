@@ -459,9 +459,10 @@ FAIL_BACKOFF_S = 15 * 60          # an unplugged dongle is retried every 15 min,
 _stop_event = None                # the running watcher's stop flag, for shutdown
 
 # ── Listen along ────────────────────────────────────────────────────────────
-# Someone in a voice channel hearing the scan as it happens: a tick per hop and
-# the channel whenever it holds, with each catch posted to the text channel.
-# While anyone listens along the watch runs even outside the nightly hours.
+# Someone in a voice channel hearing the scan as it happens: silence while it
+# hops, the channel whenever a carrier opens the squelch on a hold, and each
+# catch posted to the text channel. While anyone listens along the watch runs
+# even outside the nightly hours.
 
 import queue as _queue
 import threading as _threading
@@ -655,10 +656,12 @@ async def _watch(net: Optional[dict] = None) -> None:
             mode, freq, until = ("pinned", net["freq_hz"], net["until"]) if net else ("hop", 0, 0.0)
             # The hop plan keeps every seeded and configured channel out of a
             # slice's blind centre; config is read here, before the fork.
-            hops = waterfall.hop_plan([c["freq_hz"] for c in seed_channels()])
+            seeded = seed_channels()
+            hops = waterfall.hop_plan([c["freq_hz"] for c in seeded])
+            digital = [c["freq_hz"] for c in seeded if c.get("mode") == "digital"]
             proc = ctx.Process(target=waterfall.child_main, name="kaia-scanner", daemon=True,
                                args=(mode, freq, until, float(_cfg("gain", rtl.DEFAULT_GAIN)), rtl.ppm(),
-                                     stop, catches, audio, passes, hops, spectra))
+                                     stop, catches, audio, passes, hops, spectra, digital))
             proc.start()
             consumer = threading.Thread(target=_consume, name="scanner-classify", daemon=True)
             forwarder = threading.Thread(target=_forward, name="scanner-audio", daemon=True)
@@ -675,7 +678,7 @@ async def _watch(net: Optional[dict] = None) -> None:
             while proc.is_alive():
                 if rtl.YIELD.is_set() or not _cfg("enabled", True):
                     stop.set()
-                elif not net and (due_net() or tuned() or not (within_hours() or listening_along())):
+                elif not net and (due_net() or tuned() or not (within_hours() or listening_along() or asked())):
                     stop.set()                     # a net is starting, a tune asked for, or the night is over
                 await asyncio.sleep(1)
             await asyncio.to_thread(proc.join, 5)
@@ -749,7 +752,59 @@ async def untune() -> str:
     global _tuned
     _tuned = None
     await _restart()
-    return "back to the scan" if within_hours() else "off — the scan runs " + _hours_text()
+    return "back to the scan" if within_hours() or asked() else "off — the scan runs " + _hours_text()
+
+
+# ── Started from the receiver dashboard ─────────────────────────────────────
+# ▶ SCAN runs the waterfall outside the nightly hours for as long as asked, and
+# only while a dashboard page is open: closing the window ends it within
+# DASH_GONE_S, as an empty voice channel ends a listen-along.
+DASH_GONE_S = 60.0
+_asked: Optional[dict] = None
+
+
+def seen_by_dashboard() -> None:
+    """A dashboard page is open (called by its stream, ten times a second)."""
+    if _asked is not None:
+        _asked["seen"] = time.time()
+
+
+def asked() -> Optional[dict]:
+    now = time.time()
+    if _asked and _asked["until"] > now and now - _asked["seen"] < DASH_GONE_S:
+        return _asked
+    return None
+
+
+async def start_scan(minutes: float = 30.0) -> str:
+    """Scan now, from the dashboard. Returns what happened, for the page."""
+    global _asked, _tuned
+    from utils.radio import live
+    if any(getattr(s, "local", False) for s in live.active()):
+        return "the dongle is playing live in voice — stop that first"
+    if not rtl.available():
+        return "the RTL-SDR isn't connected"
+    now = time.time()
+    _asked = {"until": now + minutes * 60, "seen": now}
+    if _running and not _pinned:
+        return f"already scanning — kept going for {minutes:g} minutes"
+    _tuned = None
+    if not _running and rtl.DEVICE.locked():
+        return "the dongle is busy"
+    ledger.seed(seed_channels())
+    await _restart()
+    log_info(f"[scanner] scan started from the receiver dashboard for {minutes:g} min")
+    return f"scanning for {minutes:g} minutes"
+
+
+async def stop_scan() -> str:
+    global _asked
+    _asked = None
+    if within_hours() or listening_along():
+        return "the scan keeps running — it's " + ("the nightly hours" if within_hours() else "being listened to in voice")
+    if _stop_event is not None and not _pinned:
+        _stop_event.set()
+    return "scan stopped"
 
 
 def _hours_text() -> str:
@@ -807,7 +862,7 @@ def tick(now: Optional[datetime] = None) -> bool:
     if time.time() - _failed_at < FAIL_BACKOFF_S:
         return False
     net = due_net(now) or tuned()
-    if not net and not within_hours(now):
+    if not net and not within_hours(now) and not asked():
         return False
     ledger.seed(seed_channels())
     from utils.infrastructure.monitoring.async_task_registry import task_registry

@@ -720,6 +720,14 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
 - **Only what is worth hearing keeps a clip:** voice, a net, and a carrier that sounds like speech (a
   spoken or Morse ID, or words Whisper missed). A Morse ID (`scanner.morse_id`) is kept once per
   channel per six hours; 145.690's node sends one every few minutes.
+- **Listeners hear a transmission, never the sweep.** Nothing is sent while hopping (a tick per hop
+  played as pops), and a hold reaches the monitor and a listen-along through `waterfall.Squelch`: open
+  only where a carrier ran `OPEN_S` (0.4 s), output delayed by that much so the over is heard from its
+  first syllable. Every one of 57 kept voice clips opens it within 4 s.
+- **A pulse train is let go.** 463.71875 sends a 0.2 s burst every 1.5 s; each burst reset the hold's
+  silence count, so it held the watch the whole minute and was reported as something keying up. A hold
+  whose squelch has not opened in `PULSED_DECIDE_S` (4 s) is released and its own channel left alone
+  for 5 minutes, doubling on return; channels configured `mode: digital` are exempt.
 - **A constant carrier is locked out, and the lockout grows.** A full-minute hold that is not speech
   locks ±75 kHz (drifting carriers wandered 55–130 kHz and cost a minute a step) for 30 minutes,
   doubling on each return to 4 h. That reach is a trade-off: roadmap R5d.
@@ -733,11 +741,16 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
 - **librtlsdr through ctypes, not pyrtlsdr.** pyrtlsdr 0.4/0.5 need `rtlsdr_set_dithering`, which the
   distribution's librtlsdr 2.0.3 does not export.
 - **KAIA//RX** (`rx_dashboard.py`, `rx_scope.py`, `assets/rx/`) draws what the watcher measures and
-  nothing else: the child sends each slice's smoothed spectrum (every 4th bin) and each pass's lockouts
+  nothing else: the child sends each slice's spectrum (smoothed over two bins, every 2nd bin, so zooming
+  in separates channels; the trigger keeps its 12.5 kHz smoothing) and each pass's lockouts
   on a third queue, `put_nowait` so a missing reader drops frames instead of blocking the sweep, and
   `rx_scope` lays slices into per-band panoramas relative to each slice's median. A click tunes by
   running the watch as a net (`scanner.tune` → `_watch(net)`), so a tuned channel is held, recorded and
-  classified exactly as the scan would. `!scanner dash` opens it; nothing opens it at night unasked.
+  classified exactly as the scan would. ▶ SCAN (`scanner.start_scan`) runs the sweep outside the
+  nightly hours for as long as asked and only while a page is open (`DASH_GONE_S`): the page's stream
+  calls `seen_by_dashboard`. `!scanner dash` opens it; nothing opens it at night unasked.
+  `!scanner history` lists voice and data and folds bare carriers into one line; every catch is in
+  the page's LOG tab.
   Spectrograms (`spectrogram.py`) are rendered once beside a clip and pruned with it.
 - **One dongle.** `rtl.DEVICE` is held by the watch; a live listen sets `rtl.YIELD` and the watch
   gives it up within a hop. A process outside the bot (a hand-run survey) holds the device where
