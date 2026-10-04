@@ -54,11 +54,13 @@ def test_a_failed_watch_backs_off(monkeypatch):
 def test_shutdown_stops_the_watcher():
     stop = threading.Event()
     scanner._stop_event = stop
+    scanner._stops.add(stop)
     try:
         asyncio.run(scanner.shutdown())
         assert stop.is_set()
     finally:
         scanner._stop_event = None
+        scanner._stops.discard(stop)
 
 
 def test_the_watcher_runs_in_a_child_whose_output_goes_nowhere():

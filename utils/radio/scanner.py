@@ -452,7 +452,12 @@ def classify(catch) -> None:
 _running = False
 _failed_at = 0.0
 FAIL_BACKOFF_S = 15 * 60          # an unplugged dongle is retried every 15 min, not every minute
-_stop_event = None                # the running watcher's stop flag, for shutdown
+_stop_event = None                # the current watch's stop flag
+# Every watch alive — running, or queued behind another for the dongle — by its
+# stop flag. Stopping goes to all of them: two restarts racing once queued a
+# second watch, which took `_stop_event` while the first kept the dongle and
+# ignored every stop until its tune ran out.
+_stops: set = set()
 
 # ── Listen along ────────────────────────────────────────────────────────────
 # Someone in a voice channel hearing the scan as it happens: silence while it
@@ -602,6 +607,7 @@ async def _watch(net: Optional[dict] = None) -> None:
     ctx = mp.get_context("fork")
     stop = ctx.Event()
     _stop_event = stop
+    _stops.add(stop)
     catches, audio, passes = ctx.Queue(), ctx.Queue(maxsize=600), ctx.Value("i", 0)
     spectra = ctx.Queue(maxsize=400)              # what the receiver dashboard draws (rx_scope)
 
@@ -670,23 +676,34 @@ async def _watch(net: Optional[dict] = None) -> None:
             if proc.exitcode not in (0, None) and time.time() - started < 30:
                 raise RuntimeError(f"the scanner process exited with code {proc.exitcode} — "
                                    "is the RTL-SDR busy or unplugged?")
-        # Outside the device lock: finishing the last classifications (Whisper
-        # on a catch can take a minute) doesn't need the dongle, and a live
-        # listen waiting for it gives up after 90 s.
-        await asyncio.to_thread(consumer.join, 120)
+        # The dongle is free: the next watch may start now. Finishing the last
+        # classifications (Whisper on a catch can take a minute) and the night's
+        # picture and notebook happen after, holding nothing — a tune waited on
+        # all of it and gave up.
+        _release(stop, net)
         log_info(f"[scanner] {'net' if net else 'waterfall'} watch stopped after {passes.value} passes")
+        await asyncio.to_thread(consumer.join, 120)
         if not net:
             await asyncio.to_thread(_save_night)
-        await asyncio.to_thread(refresh_notebook)
+            await asyncio.to_thread(refresh_notebook)
     except Exception as e:
         _failed_at = time.time()
         log_warning(f"[scanner] waterfall watch failed: {type(e).__name__}: {e} — retrying in 15 minutes")
     finally:
         from utils.radio import transcribe
         transcribe.release_if_idle()
-        _running = False
-        _stop_event = None
-        _pinned = None
+        _release(stop, net)
+
+
+def _release(stop, net) -> None:
+    """This watch no longer holds or waits for the dongle."""
+    global _running, _stop_event, _pinned
+    if stop not in _stops:
+        return
+    _stops.discard(stop)
+    if _stop_event is stop:
+        _stop_event, _pinned = None, None
+    _running = bool(_stops)
 
 
 def nights_dir() -> Path:
@@ -787,8 +804,8 @@ async def stop_scan() -> str:
     _asked = None
     if within_hours() or listening_along():
         return "the scan keeps running — it's " + ("the nightly hours" if within_hours() else "being listened to in voice")
-    if _stop_event is not None and not _pinned:
-        _stop_event.set()
+    if not _pinned:
+        _stop_all()
     return "scan stopped"
 
 
@@ -796,14 +813,41 @@ def _hours_text() -> str:
     return str(_cfg("hours", "00:00-06:00"))
 
 
+_restarting = False
+_restart_again = False
+
+
+def _stop_all() -> None:
+    for s in list(_stops):
+        s.set()
+
+
 async def _restart() -> None:
-    if _stop_event is not None:
-        _stop_event.set()
-    for _ in range(120):
-        if not _running and not rtl.DEVICE.locked():
-            break
-        await asyncio.sleep(0.5)
-    tick()
+    """Stop whatever is watching and start what the state now asks for (a
+    tune, a scan, or nothing). One at a time: a request arriving mid-restart
+    only marks it to look again, so a run of clicks ends on the last one."""
+    global _restarting, _restart_again
+    if _restarting:
+        _restart_again = True
+        _stop_all()
+        return
+    _restarting = True
+    try:
+        while True:
+            _restart_again = False
+            for _ in range(120):
+                # Every pass, not once: a watch just started by tick() registers
+                # its stop flag only when its task first runs.
+                _stop_all()
+                if not _running and not rtl.DEVICE.locked():
+                    break
+                await asyncio.sleep(0.25)
+            if _restart_again:
+                continue
+            tick()
+            return
+    finally:
+        _restarting = False
 
 
 def refresh_notebook() -> None:
@@ -829,8 +873,7 @@ def refresh_notebook() -> None:
 async def shutdown() -> None:
     """Stop the watcher thread and any listen-along. A watcher left running on
     its executor thread holds the dongle and keeps the process from exiting."""
-    if _stop_event is not None:
-        _stop_event.set()
+    _stop_all()
     for guild_id in list(_along):
         await stop_listen_along(guild_id)
     for _ in range(80):                       # a hold stops within a chunk; the last classification can take a minute
@@ -842,6 +885,7 @@ async def shutdown() -> None:
 def tick(now: Optional[datetime] = None) -> bool:
     """Start the watch if it's scanning hours and the dongle is free. Called
     every minute by the radio task. Returns whether it started."""
+    global _running
     if _running or not _cfg("enabled", True) or not rtl.available() or rtl.DEVICE.locked():
         return False
     if time.time() - _failed_at < FAIL_BACKOFF_S:
@@ -850,6 +894,7 @@ def tick(now: Optional[datetime] = None) -> bool:
     if not net and not within_hours(now) and not asked():
         return False
     ledger.seed(seed_channels())
+    _running = True                       # now, not when the task first runs: a second tick must see it
     from utils.infrastructure.monitoring.async_task_registry import task_registry
     task_registry.register(f"scanner_watch_{int(time.time())}", asyncio.create_task(_watch(net)))
     return True

@@ -626,3 +626,53 @@ def test_a_scan_from_the_dashboard_lasts_while_a_page_is_open(monkeypatch):
         assert asyncio.run(scanner.stop_scan()) == "scan stopped" and not scanner.asked()
     finally:
         scanner._asked = None
+
+
+def test_a_burst_of_tunes_ends_on_the_last_and_back_to_scan_really_stops(monkeypatch):
+    """Clicks on the waterfall raced two restarts; the second watch queued
+    behind the first took the stop handle, and the first ignored every stop
+    until its tune ran out — back to scan and SCAN did nothing."""
+    import asyncio
+    import threading
+    from utils.radio import rtl, live
+    monkeypatch.setattr(rtl, "available", lambda: True)
+    monkeypatch.setattr(live, "active", lambda: [])
+    monkeypatch.setattr(scanner, "within_hours", lambda now=None: False)
+    monkeypatch.setattr(scanner, "due_net", lambda now=None: None)
+    monkeypatch.setattr(scanner, "_failed_at", 0.0)
+    monkeypatch.setattr(scanner, "_tuned", None)
+    monkeypatch.setattr(scanner, "_asked", None)
+    monkeypatch.setattr(scanner, "_cfg", lambda k, d: d)
+    monkeypatch.setattr(scanner.ledger, "seed", lambda rows: None)
+    started, running = [], []
+
+    async def fake_watch(net=None):
+        stop = threading.Event()
+        scanner._stop_event, scanner._pinned, scanner._running = stop, net, True
+        scanner._stops.add(stop)
+        try:
+            async with rtl.DEVICE:
+                started.append(net["freq_hz"] if net else "scan")
+                running.append(net["freq_hz"] if net else "scan")
+                while not stop.is_set():
+                    await asyncio.sleep(0.01)
+                running.remove(net["freq_hz"] if net else "scan")
+        finally:
+            scanner._release(stop, net)
+
+    monkeypatch.setattr(scanner, "_watch", fake_watch)
+
+    async def go():
+        await asyncio.gather(*(scanner.tune(f) for f in (445_490_000, 445_510_000, 445_500_000,
+                                                          445_440_000, 445_505_000)))
+        await asyncio.sleep(0.2)
+        assert running == [scanner.snap_channel(445_505_000)]           # one watch, the last click
+        await scanner.untune()
+        await asyncio.sleep(0.2)
+        assert running == [] and not scanner._running and not scanner._stops    # really stopped
+        await scanner.tune(146_520_000)
+        await asyncio.sleep(0.2)
+        assert running == [scanner.snap_channel(146_520_000)]
+        await scanner.untune()
+        await asyncio.sleep(0.1)
+    asyncio.run(go())

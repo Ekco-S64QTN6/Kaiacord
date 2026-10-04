@@ -88,6 +88,12 @@ class Scope:
     def __init__(self, bands=None):
         spans = bands or (wf.FAST_BANDS + wf.SLOW_BANDS)
         self.bands = [_Band(lo, hi, NAMES.get((lo, hi), f"{lo / 1e6:g}–{hi / 1e6:g} MHz")) for lo, hi in spans]
+        # The slice the watch is sitting on (a hold, a tune, a net), every bin of
+        # it, a row per spectrum: the receiver's own span. Kept last in `bands`
+        # so the page draws it like any band; its range moves with the dongle.
+        self.span = _Band(0, wf.FS, "TUNED")
+        self.span.is_span = True
+        self.bands.append(self.span)
         self.lock = threading.Lock()
         self.live: Optional[dict] = None
         self.lockouts: list = []
@@ -115,7 +121,9 @@ class Scope:
             if not valid.any():
                 return
             rel = spec - np.median(spec[valid])
-            for b in self.bands:
+            if msg.get("state", "hop") != "hop":
+                self._feed_span(center, spec)
+            for b in self.bands[:-1]:
                 m = valid & (freqs >= b.lo) & (freqs < b.hi)
                 if m.sum() < 2:
                     continue
@@ -136,8 +144,26 @@ class Scope:
                 self._last_hold_row = time.time()
                 self._push(all_touched=False, center=center)
 
+    def _feed_span(self, center: int, spec: np.ndarray) -> None:
+        """The watch's own slice, full width: every bin as measured (the tuner's
+        centre spike included, as a receiver shows it), one row per spectrum."""
+        sp = self.span
+        lo = center - wf.FS // 2
+        if sp.lo != lo:                                  # retuned: a new span
+            sp.lo, sp.hi = lo, center + wf.FS // 2
+            sp.rows.clear()
+            sp.name = f"TUNED · {center / 1e6:.3f}"
+        n = len(spec)
+        row = np.interp(np.linspace(0, n - 1, self.cols), np.arange(n), spec) if n != self.cols else spec
+        sp.row = (row - np.median(row)).astype(np.float32)
+        sp.touched = True
+        # A row per spectrum: the watcher already holds them to its frame rate,
+        # and a hold's 0.2 s read arrives as several frames at once.
+        sp.rows.append(quantize(sp.row))
+        sp.seq += 1
+
     def _push(self, all_touched: bool, center: Optional[int] = None) -> None:
-        for b in self.bands:
+        for b in self.bands[:-1]:
             if not b.touched or (center is not None and not (b.lo - wf.FS / 2 <= center <= b.hi + wf.FS / 2)):
                 continue
             q = quantize(b.row)
@@ -155,7 +181,8 @@ class Scope:
 
     def bands_info(self) -> list:
         with self.lock:
-            return [{"i": i, "name": b.name, "lo": b.lo, "hi": b.hi, "seq": b.seq} for i, b in enumerate(self.bands)]
+            return [{"i": i, "name": b.name, "lo": b.lo, "hi": b.hi, "seq": b.seq, "span": getattr(b, "is_span", False)}
+                    for i, b in enumerate(self.bands)]
 
     def rows_since(self, i: int, seq: int, limit: int = ROWS) -> tuple[int, str, int]:
         """(rows, base64 of them oldest first, the band's seq now)."""

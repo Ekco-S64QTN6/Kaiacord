@@ -501,8 +501,8 @@ class Watcher:
             if self.sink:
                 for h in heard:
                     self.sink(h)
-            self._show(center, shown, "follow" if follow else "hold", freq, float(level),
-                       bool(squelch.flags[-round(SQUELCH_S * 50):].any()) and squelch.opened)
+            self._show_parts(center, iq, "follow" if follow else "hold", freq, float(level),
+                             bool(squelch.flags[-round(SQUELCH_S * 50):].any()) and squelch.opened)
             held = time.time() - started
             if not follow and not exempt and held >= PULSED_DECIDE_S and not squelch.opened:
                 pulsed = True
@@ -552,19 +552,42 @@ class Watcher:
         audio = np.concatenate(chunks) if chunks else np.zeros(0, np.int16)
         return Catch(freq, started, time.time() - started, peak_db, audio)
 
-    #: Bins sent to the dashboard per slice: its lightly smoothed spectrum, every 2nd bin.
+    #: Bins sent to the dashboard per slice while hopping: its lightly smoothed
+    #: spectrum, every 2nd bin. On one channel (a hold, a tune, a net) every bin
+    #: goes, up to SPAN_FPS times a second: the page shows that slice full width,
+    #: the way a receiver shows its span.
     SCOPE_STEP = 2
+    SPAN_FPS = 25
+    _last_span = 0.0
 
     def _show(self, center: int, spec: np.ndarray, state: str, freq: int = 0,
               level: float = 0.0, open_: bool = False) -> None:
         if self.scope is None:
             return
+        step = self.SCOPE_STEP
+        if state != "hop":
+            now = time.time()
+            if now - self._last_span < 1.0 / self.SPAN_FPS:
+                return
+            self._last_span, step = now, 1
         try:
             self.scope({"kind": "spec", "t": time.time(), "center": int(center), "state": state,
                         "freq": int(freq), "level": round(level, 1), "open": bool(open_), "pass": self.passes,
-                        "spec": spec[::self.SCOPE_STEP].astype(np.float16)})
+                        "spec": spec[::step].astype(np.float16)})
         except Exception:
             pass
+
+    def _show_parts(self, center: int, iq: np.ndarray, state: str, freq: int, level: float, open_: bool) -> None:
+        """A hold reads 0.2 s at a time; the dashboard gets it as several
+        frames, so its waterfall runs at the span's rate, not five rows a second."""
+        if self.scope is None:
+            return
+        parts = max(1, round(len(iq) / FS * self.SPAN_FPS))
+        for part in np.array_split(iq, parts):
+            if len(part) < NFFT * 4:
+                continue
+            self._last_span = 0.0                      # these are one read's frames, not too many
+            self._show(center, _spectra(part)[1], state, freq, level, open_)
 
     def _show_pass(self) -> None:
         if self.scope is None:

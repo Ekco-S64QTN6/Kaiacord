@@ -65,7 +65,9 @@ def test_the_watcher_feeds_the_scope_every_visit_and_pass(monkeypatch):
     kinds = {m["kind"] for m in got}
     states = {m.get("state") for m in got if m["kind"] == "spec"}
     assert kinds == {"spec", "pass"} and "hop" in states and states & {"hold", "follow"}
-    assert all(len(m["spec"]) == w.NFFT // w.Watcher.SCOPE_STEP for m in got if m["kind"] == "spec")
+    # Hopping: every SCOPE_STEP-th bin. On one channel: every bin, for the full-width span.
+    assert all(len(m["spec"]) == w.NFFT // w.Watcher.SCOPE_STEP for m in got if m["kind"] == "spec" and m["state"] == "hop")
+    assert all(len(m["spec"]) == w.NFFT for m in got if m["kind"] == "spec" and m["state"] != "hop")
 
 
 def test_the_dashboard_serves_state_and_refuses_a_path(monkeypatch):
@@ -87,3 +89,21 @@ def test_the_dashboard_serves_state_and_refuses_a_path(monkeypatch):
     finally:
         srv, rx_dashboard._server = rx_dashboard._server, None
         srv.shutdown()
+
+
+def test_a_held_slice_becomes_the_tuned_span_full_width():
+    s = rx_scope.Scope(bands=[(144_000_000, 148_000_000)])
+    full = np.full(w.NFFT, -60.0, dtype=np.float32)
+    k = int(round((146_520_000 - 146_000_000) / (w.FS / w.NFFT) + w.NFFT / 2))
+    full[k - 2:k + 3] += 30
+    s.feed({"kind": "spec", "center": 146_000_000, "state": "pinned", "freq": 146_520_000, "spec": full.astype(np.float16)})
+    span = s.bands[-1]
+    assert getattr(span, "is_span", False) and span.lo == 146_000_000 - w.FS // 2 and span.seq == 1
+    n, data, _ = s.rows_since(len(s.bands) - 1, 0)
+    import base64
+    row = np.frombuffer(base64.b64decode(data), np.uint8)
+    hz = span.lo + (int(np.argmax(row)) + 0.5) / len(row) * w.FS
+    assert n == 1 and abs(hz - 146_520_000) < 3_000             # ~1.2 kHz a column: channels apart
+    s.feed({"kind": "spec", "center": 147_000_000, "state": "pinned", "spec": full.astype(np.float16)})
+    assert span.lo == 147_000_000 - w.FS // 2                    # retuned: a new span
+    assert {b["span"] for b in s.bands_info()} == {False, True}

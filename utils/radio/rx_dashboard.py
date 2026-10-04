@@ -329,7 +329,14 @@ class _Handler(BaseHTTPRequestHandler):
                 fut = asyncio.run_coroutine_threadsafe(scanner.stop_scan(), _loop)
             else:
                 return self._send(404, b"", "text/plain")
-            say = fut.result(timeout=90)
+            # The answer if it comes quickly; otherwise say it is under way.
+            # Waiting the restart out held the page's request for up to a
+            # minute, and the page gave up (broken pipe) and clicked again.
+            try:
+                say = fut.result(timeout=2.5)
+            except TimeoutError:
+                say = {"/tune": "tuning…", "/scan": "back to the scan…", "/start": "starting the scan…",
+                       "/stop": "stopping…"}.get(self.path, "on it…")
             self._json({"ok": True, "say": say})
         except Exception as e:
             log_warning(f"[rx] {self.path} failed: {e}")

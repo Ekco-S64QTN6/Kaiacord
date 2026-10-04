@@ -24,7 +24,7 @@ ABOUT = ("An RTL-SDR attached to the bot listens to the local airwaves — ham r
          "walkie-talkies on FRS/GMRS/MURS, NOAA weather, business and marine radio. Every night "
          "({hours}) it sweeps the bands, listens wherever something is transmitting, and writes "
          "down what it heard and when. Pick a frequency and I'll play it in your voice channel, or "
-         "listen along and hear me scan.")
+         "press 📡 Scan and hear me sweep the bands.")
 
 
 def _hours() -> str:
@@ -216,7 +216,7 @@ class ScannerView(discord.ui.View):
             f"📻  Live · {self.choice / MHZ:.4f} MHz", f"{clean(label, 80)} in **{member.voice.channel.name}**. "
             "The nightly scan pauses while you listen. ⏹ Off, or `!scanner off`.", COLOR_SCANNER))
 
-    @discord.ui.button(label="🎧 Listen along", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="📡 Scan", style=discord.ButtonStyle.primary, row=1)
     async def along(self, interaction: discord.Interaction, _button):
         """Hear the scan as it happens: silence while it hops, the channel when it holds,
         nothing posted per catch."""

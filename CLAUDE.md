@@ -744,9 +744,16 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   nothing else: the child sends each slice's spectrum (smoothed over two bins, every 2nd bin, so zooming
   in separates channels; the trigger keeps its 12.5 kHz smoothing) and each pass's lockouts
   on a third queue, `put_nowait` so a missing reader drops frames instead of blocking the sweep, and
-  `rx_scope` lays slices into per-band panoramas relative to each slice's median. A click tunes by
+  `rx_scope` lays slices into per-band panoramas relative to each slice's median. On one channel (a
+  hold, a tune, a net) the child sends every bin, ~25 frames a second, and `rx_scope` keeps that slice
+  as the TUNED span (the last of `bands`), which the page switches to: the receiver's own 2.4 MHz, full
+  width, a waterfall row per frame. A click tunes by
   running the watch as a net (`scanner.tune` → `_watch(net)`), so a tuned channel is held, recorded and
-  classified exactly as the scan would. ▶ SCAN (`scanner.start_scan`) runs the sweep outside the
+  classified exactly as the scan would. Restarts are one at a time (`_restart`; a request mid-restart
+  only marks it to look again, so a burst of clicks ends on the last), every watch registers its stop in
+  `_stops` and a restart stops them all, and a stopping watch frees the dongle before it finishes its
+  last transcription: two racing restarts once queued a second watch that took the stop handle while the
+  first ignored every stop for its whole tune. ▶ SCAN (`scanner.start_scan`) runs the sweep outside the
   nightly hours for as long as asked and only while a page is open (`DASH_GONE_S`): the page's stream
   calls `seen_by_dashboard`. `!scanner dash` opens it; nothing opens it at night unasked.
   `!scanner history` lists voice and data and folds bare carriers into one line; every catch is in
