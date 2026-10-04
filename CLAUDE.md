@@ -1216,6 +1216,12 @@ retrieval never reported:
   nothing Starkind had said. Logs and profiles are scoped to the asker *and anyone the question
   names*, matched against the `user_logs/` folder names. Every error question is a diagnostic,
   and diagnostics searched chat logs only, so no troubleshooting guide was ever retrieved.
+- **A summarise request reads the file it names, or says it can't.** `_get_summarization_nodes` matches
+  the name against the manifest; a file named outright that the index has not reached yet is read from
+  disk, and a named file that does not exist becomes a `missing_document` node ("DOCUMENT NOT FOUND"),
+  never the nearest title by word overlap — "Linux Update October 2026.md", four minutes old, was
+  summarised from "Linux Threat Hunting" under its name. Reference words are stripped on word boundaries
+  ("doc" was cut out of "Doctorow").
 - **A node's type is only as good as the test that assigned it, and path tests go most-specific
   first.** A profile lives at `user_logs/<user>/user_profile.md`, so the `user_logs` test typed
   all 241 profile nodes as logs; a dream about a brief is named `…_news_brief_…`, so 116 dream

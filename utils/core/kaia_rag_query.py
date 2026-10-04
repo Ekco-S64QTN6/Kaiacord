@@ -104,6 +104,48 @@ def recency_half_lives(config) -> dict:
     return lives
 
 
+#: A request that names a file outright ("… Linux Update October 2026.md").
+_NAMED_FILE = re.compile(r"[\w'][\w ,'&()\-]*\.(?:md|txt|pdf|epub|html?)\b")
+_LEADING_ASK = re.compile(r"^(?:(?:provide|give|me|us|do|a|an|the|quick|short|brief|of|on|for)\s+)+")
+_DISK_CHUNK_CHARS = 4000          # about what the indexer's 1,000-token chunks hold
+
+
+def _missing_document_node(name: str) -> Dict[str, Any]:
+    """What she is told when the file asked for is not in her knowledge base:
+    otherwise ordinary retrieval runs, and she summarises a document she has
+    never read from whatever it brought back."""
+    return {
+        "content": (f"The file the user asked for, \"{name}\", is not in your knowledge base. "
+                    "You have not read it. Say you can't find it; do not describe its contents."),
+        "metadata": {"source_type": "missing_document", "file_path": name,
+                     "retrieval_method": "summarization"},
+        "label": f"Not found: {name}",
+        "score": 1.0,
+    }
+
+
+def _whole_document(chunks, query_words, path) -> List[Dict[str, Any]]:
+    """A document's chunks, in order, for summarising. Over 16 chunks it keeps
+    the opening eight, the four middle chunks most relevant to the request,
+    and the last four."""
+    selected = chunks
+    if len(chunks) > 16:
+        head, tail, middle = chunks[:8], chunks[-4:], chunks[8:-4]
+        picked = []
+        if query_words and middle:
+            def _rel(c):
+                txt = c[0].lower()
+                return sum(1 for w in query_words if w in txt)
+            picked = [c for c in sorted(middle, key=_rel, reverse=True)[:4] if _rel(c) > 0]
+        if not picked:
+            picked = middle[:4]
+        keep = {id(c) for c in head + picked + tail}
+        selected = [c for c in chunks if id(c) in keep]
+    return [{"content": text, "metadata": meta,
+             "label": f"Full Content: {os.path.basename(path)}", "score": 1.0}
+            for text, meta in selected]
+
+
 class RAGQueryMixin:
     """Mixin class providing retrieval and query methods for KaiaRAG."""
 
@@ -283,7 +325,7 @@ class RAGQueryMixin:
                 "what does", "say", "explain", "review", "can you", "please", "give me a",
                 "overview of", "breakdown of"
             ]:
-                query_cleaned = query_cleaned.replace(_strip, " ")
+                query_cleaned = re.sub(rf"\b{re.escape(_strip)}\b", " ", query_cleaned)
             query_cleaned = re.sub(r'\bkaia\b', ' ', query_cleaned, flags=re.IGNORECASE)
             query_cleaned = re.sub(r'\s+', ' ', query_cleaned).strip()
             query_cleaned = re.sub(r"'s\b", "", query_cleaned)
@@ -345,6 +387,22 @@ class RAGQueryMixin:
                     best_match_score = score
                     target_file_path = path
 
+            # A file named outright that the index has not reached yet — dropped
+            # in minutes ago — is read from disk. Without this the overlap
+            # fallback picked whichever indexed file shared two words with it,
+            # and she summarised the wrong document under the right name.
+            if best_match_score < 20.0:
+                on_disk = self._named_file_on_disk(query_lower, query_cleaned)
+                if on_disk:
+                    log_action(f"Summarization target identified (not indexed yet, read from disk): {on_disk}")
+                    return self._disk_document_nodes(on_disk, query_words)
+                named = _NAMED_FILE.search(query_cleaned) or _NAMED_FILE.search(query_lower)
+                if named:
+                    if target_file_path:
+                        log_info(f"[summarize] the file named is not in the knowledge base; "
+                                 f"not substituting {os.path.basename(target_file_path)}")
+                    return [_missing_document_node(_LEADING_ASK.sub("", named.group(0)).strip(" -:'\""))]
+
         if not target_file_path:
             return []
 
@@ -384,42 +442,55 @@ class RAGQueryMixin:
             return []
 
         file_nodes.sort(key=lambda x: x.metadata.get('chunk_index', 0))
-
-        # Smart chunk budgeting for large documents (>16 chunks)
-        # Keeps initial executive overview, query-relevant middle chunks, and final conclusions
-        selected_nodes = file_nodes
-        if len(file_nodes) > 16:
-            head_nodes = file_nodes[:8]
-            tail_nodes = file_nodes[-4:]
-            
-            # Find query-relevant middle chunks if specific query terms exist
-            middle_candidates = file_nodes[8:-4]
-            selected_middle = []
-            if query_words and middle_candidates:
-                def _node_relevance(n):
-                    txt = get_node_text(n).lower()
-                    return sum(1 for w in query_words if w in txt)
-                middle_candidates_scored = sorted(middle_candidates, key=_node_relevance, reverse=True)
-                selected_middle = [n for n in middle_candidates_scored[:4] if _node_relevance(n) > 0]
-            if not selected_middle:
-                selected_middle = middle_candidates[:4]
-                
-            combined = {getattr(n, 'node_id', getattr(n, 'id_', str(idx))): n for idx, n in enumerate(head_nodes + selected_middle + tail_nodes)}
-            selected_nodes = sorted(combined.values(), key=lambda x: x.metadata.get('chunk_index', 0))
-
-        result_nodes = []
-        for node in selected_nodes:
+        chunks = []
+        for node in file_nodes:
             meta = get_node_metadata(node)
             meta["retrieval_method"] = "summarization"
-            result_nodes.append({
-                "content": get_node_text(node),
-                "metadata": meta,
-                "label": f"Full Content: {os.path.basename(target_file_path)}",
-                "score": 1.0
-            })
-        return result_nodes
+            chunks.append((get_node_text(node), meta))
+        return _whole_document(chunks, query_words, target_file_path)
 
+    def _named_file_on_disk(self, query_lower: str, query_cleaned: str) -> Optional[str]:
+        """The knowledge-base file whose name the query contains, if there is one
+        and it may be indexed — the longest such name."""
+        from utils.core.kaia_rag_indexer import RAGIndexerMixin
+        root = getattr(self, "knowledge_base_dir", None) or "knowledge_base"
+        best, best_len = None, 0
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames
+                           if not RAGIndexerMixin._is_excluded_dir(os.path.join(dirpath, d))
+                           and d != "user_logs"]
+            for f in filenames:
+                stem = os.path.splitext(f)[0].lower()
+                if len(stem) < 8 or not f.lower().endswith((".md", ".txt")):
+                    continue
+                if (f.lower() in query_lower or stem in query_lower or stem in query_cleaned) and len(stem) > best_len:
+                    full = os.path.abspath(os.path.join(dirpath, f))
+                    if not RAGIndexerMixin._is_excluded_path(full):
+                        best, best_len = full, len(stem)
+        return best
 
+    def _disk_document_nodes(self, path: str, query_words) -> List[Dict[str, Any]]:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            return []
+        title = os.path.splitext(os.path.basename(path))[0]
+        chunks, cur = [], ""
+        for para in re.split(r"\n\s*\n", text):
+            if cur and len(cur) + len(para) > _DISK_CHUNK_CHARS:
+                chunks.append(cur)
+                cur = ""
+            while len(para) > _DISK_CHUNK_CHARS:            # one unbroken run (a transcript with no blank lines)
+                chunks.append(para[:_DISK_CHUNK_CHARS])
+                para = para[_DISK_CHUNK_CHARS:]
+            cur = f"{cur}\n\n{para}" if cur else para
+        if cur.strip():
+            chunks.append(cur)
+        meta = {"file_path": path, "title": title, "source_type": "knowledge",
+                "retrieval_method": "summarization"}
+        return _whole_document([(c, dict(meta, chunk_index=i)) for i, c in enumerate(chunks)],
+                               query_words, path)
 
     def _target_indices(self, routing: Dict[str, Any], base_top_k: int) -> Tuple[List[str], int]:
         """Determine which indices to search and the target retrieval count."""

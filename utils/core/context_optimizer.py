@@ -230,6 +230,10 @@ class ContextOptimizer:
                     history_nodes.append(f"[INTERNAL REFLECTION (DREAM)]\n{reflection}")
                 continue
 
+            if source_type == 'missing_document':
+                reference_nodes.insert(0, f"[DOCUMENT NOT FOUND: {path_raw}]\n{content_raw}")
+                continue
+
             # Standard Logic for non-composite nodes
             is_log = source_type in ['logs', 'user_logs', 'user_profile'] or "user_logs" in path
             is_reflection = "interactions/" in path or "reflections/" in path
