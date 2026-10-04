@@ -10,7 +10,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!art` | Generate a fractal flame artwork with Kaia commentary | All |
 | `!music` | Perform a live-coded set in your voice channel | All |
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
-| `!help` | Display interactive command and feature guide | All |
+| `!help [section \| command]` | A button panel: a page per section (owners also get Admin); `!help music` explains one command | All |
 | `!news [n \| category]` | Today's headlines; `!news 3` opens story 3 | All |
 | `!skyking [n \| classic]` | Latest military Emergency Action Messages (eam.watch) | All |
 | `!numbers [station] [hours]` | Number stations on the air soon, with listen links (Priyom) | All |
@@ -130,7 +130,8 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   **KAIA//RX** on the bot's screen: each band's panorama spectrum and waterfall while the scan runs,
   the frequency she is on with signal and squelch meters, the ledger as bookmarks, every kept catch
   with its spectrogram and a player, the carriers locked out, last nights' waterfalls, and MONITOR to
-  hear the scanner in the window. Click the waterfall (or double-click a bookmark) to tune the dongle
+  hear the scanner in the window (SQL OPEN plays a tuned channel all the time, hiss and all; AUTO only
+  when something keys up — a sweep is always silent). Click the waterfall (or double-click a bookmark) to tune the dongle
   to that channel for 5–60 minutes — outside the scanning hours too; ◀ BACK TO SCAN returns.
   Kept shortwave recordings posted to `#kaia-opolis` carry their spectrogram too.
 
@@ -228,12 +229,15 @@ changing pitch, and levelled to the same loudness. Its first downbeat lands on a
 playing, on a phrase, and the two blend over 64 beats by default (`music.records_mix_beats`), staged
 the way DJs ride a long EQ blend: the new record's highs, then its mids, the bass swapped on the
 halfway bar, then the old one's mids and highs out. The booth picks SHORT / LONG / EPIC (32 / 64 / 256
-beats); where the beats can't be laid over each other — rock, breakbeat, tempos too far apart — she
-fades over eight bars instead, from the new record's first sound. `!music skip` brings the next one in
+beats). Two beats only ever play together when they are known to lock: both steady, bars counted,
+tempos within stretch and predicted to stay within 25 ms over the whole blend — she cues a record past a
+loose intro and mixes out before a beatless outro to make that true, and picks records that will blend.
+Where a pair still can't lock she switches on the bar instead — the old record out over its last beat,
+the new one's first beat on the bar — never an overlap. `!music skip` brings the next one in
 on the next phrase. While records play, a DJ booth window opens on the bot's screen — both decks and
 the mixer, live, and it works like a pair of CDJs and a mixer: TRIM, HI/MID/LOW, the channel faders,
 the crossfader and master are yours (on top of her automix; KAIA MIX hands it back). Click a record in
-the crate (BY GENRE, or MATCHES — scored against the record on air by key and tempo; FADE means too far
+the crate (BY GENRE, or MATCHES — scored against the record on air by key and tempo; SWITCH means too far
 in tempo to beat-match) and it loads on the free deck with its fader down. Drag its waveform, jog or
 lane to move its cue (it snaps to a bar), hold CUE or switch on PHONES to hear it in the booth window
 only, and press ▶ to play it yourself — it starts synced, on the same beat of the bar as the record on

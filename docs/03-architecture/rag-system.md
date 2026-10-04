@@ -55,6 +55,10 @@ flowchart TD
   reaches a turn about the asker or about someone the turn names.
 - **News** is left out unless the turn is about news; a turn asking for what is current is also
   offered the newest briefs on its topic.
+- **"Summarise <file>"** reads that whole file, not a search over it: the name is matched against
+  the manifest, a file named outright that the index has not reached yet is read from disk, and a
+  named file that does not exist reaches her as `DOCUMENT NOT FOUND` — never the nearest title by
+  word overlap, which once had her summarise one transcript under another's name.
 
 ### 3. Into the prompt (`context_optimizer.py`)
 Each retrieved chunk is labelled by what it is, because the label is how she knows whether she

@@ -946,7 +946,7 @@ function updateMixer() {
     const rideAt = mix.drop + 2 * r, outAt = mix.done - 2 * r, highsOut = mix.done - r;
     const bars = (x) => `${((x - t) / bar).toFixed(1)} BARS`;
     if (mix.kind === "out") count.textContent = t < mix.drop ? `FADE-OUT IN ${bars(mix.drop)}` : `FINISHING · ${bars(mix.done)}`;
-    else if (t < mix.drop) count.textContent = `${mix.kind === "blend" ? "DROP" : mix.kind === "fade" ? "FADE" : "CUT"} IN ${bars(mix.drop)}`;
+    else if (t < mix.drop) count.textContent = `${mix.kind === "blend" ? "DROP" : mix.kind === "fade" ? "FADE" : "SWITCH"} IN ${bars(mix.drop)}`;
     else if (mix.kind === "fade" && t < mix.done) count.textContent = `CROSSFADING · ${bars(mix.done)}`;
     else if (mix.kind === "blend" && t < rideAt) count.textContent = `COMING IN · RIDE IN ${bars(rideAt)}`;
     else if (mix.kind === "blend" && t < swap) count.textContent = `RIDING · BASS SWAP IN ${bars(swap)}`;
@@ -1039,14 +1039,14 @@ function updateBottom() {
   const rows = [["AROUSAL", m.arousal, COL.pink], ["ENERGY", m.energy, COL.green], ["VALENCE", m.valence != null ? (m.valence + 1) / 2 : null, COL.cyan]];
   $("mood").innerHTML = rows.map(([k, v, c]) => `<span>${k}</span><div class="bar"><i style="width:${v == null ? 0 : Math.round(Math.max(0, Math.min(1, v)) * 100)}%;background:${c};box-shadow:0 0 8px ${c}"></i></div><span class="val">${v == null ? "—" : v.toFixed(2)}</span>`).join("");
   const last = hist[hist.length - 1];
-  $("say").textContent = mix ? (mix.kind === "blend" ? `bringing ${S.decks[mix.in_slot] ? (S.decks[mix.in_slot].title || "the next one") : "the next one"} in on the bar, bass swap halfway.` : mix.kind === "fade" ? `fading the next one in over ${Math.round(mix.length / mix.beat / 4)} bars — ${mix.why || "the beats won't lock"}.` : `cutting to the next one on the bar — ${mix.why || "the beats won't sit together"}.`)
+  $("say").textContent = mix ? (mix.kind === "blend" ? `bringing ${S.decks[mix.in_slot] ? (S.decks[mix.in_slot].title || "the next one") : "the next one"} in on the bar, bass swap halfway.` : mix.kind === "fade" ? `fading the next one in over ${Math.round(mix.length / mix.beat / 4)} bars — ${mix.why || "the beats won't lock"}.` : `switching to the next one on the bar, no overlap — ${mix.why || "the beats won't lock"}.`)
     : last ? `last move: ${last.kind} into ${last.to}${last.why ? " (" + last.why + ")" : ""}.` : `opened the set for ${S.by || "the room"}.`;
   if (S.gesture) $("say").textContent = S.gesture + (mix ? " · " + $("say").textContent : "");
   $("earlist").textContent = (S.listeners || []).length ? "in the room: " + S.listeners.join(", ") : "nobody in the room";
 }
 // ── the crate ────────────────────────────────────────────────────
 let crateData = null, crateShut = new Set(), crateSig = "", crateStatusSig = "", crateMode = "crate";
-const MATCH_GROUPS = ["BLENDS · IN KEY", "BLENDS · KEY CHANGE", "FADES ONLY · TEMPO TOO FAR", "NO TEMPO KNOWN"];
+const MATCH_GROUPS = ["BLENDS · IN KEY", "BLENDS · KEY CHANGE", "SWITCH ONLY · TEMPO TOO FAR", "NO TEMPO KNOWN"];
 const KEY_WEIGHT = [1, 0.9, 0.9, 0.6, 0.3];        // same, ±1, relative, ±2 (energy), anything else
 function relation(a, b) {
   const x = camelot(a), y = camelot(b); if (!x || !y) return 4;
@@ -1139,7 +1139,7 @@ function renderCrate() {
         if (crateMode === "match" && md && md.tempo && r.bpm) {
           const gap = tempoGap(md.tempo, r.bpm), sc = r.score;
           col = sc === null
-            ? `<span class="bpm fit" style="color:var(--dim)" title="${(gap * 100).toFixed(1)}% off ${md.tempo.toFixed(1)} bpm — past 6% it can only be faded in">FADE</span>`
+            ? `<span class="bpm fit" style="color:var(--dim)" title="${(gap * 100).toFixed(1)}% off ${md.tempo.toFixed(1)} bpm — past 6% it can only be switched to on the bar">SWITCH</span>`
             : `<span class="bpm fit" style="color:${sc >= 70 ? "var(--green)" : sc >= 40 ? "var(--yellow)" : "var(--red)"}" title="mix score ${sc}/100: key ${md.key || "?"} → ${r.key || "?"}${r.sync ? ` (key sync ${r.sync > 0 ? "+1" : "−1"} semitone → ${shiftKey(r.key, r.sync)})` : ""}, stretch ${(gap * 100).toFixed(1)}% to ${md.tempo.toFixed(1)} bpm">MIX ${sc}</span>`;
         }
         return `<div class="trk ${cls}" data-id="${r.id}" title="load on the free deck">` +
