@@ -17,9 +17,13 @@ of, keeping the bar only when the count comes out whole. CPU only, ~1 s a call.
 from __future__ import annotations
 
 import functools
+from pathlib import Path
+import os
+import json
+import hashlib
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
@@ -43,10 +47,46 @@ class Grid:
     #: Which bar of the record `downbeat` starts, counted from bar one (0):
     #: phrases of 4 and 8 bars are counted from it.
     bar0: int = 0
+    #: The record's tracked beats (own seconds), where it has them: what a
+    #: plan counts beats on instead of extrapolating `bpm` from `downbeat`.
+    ticks: Optional[np.ndarray] = field(default=None, compare=False, repr=False)
 
     @property
     def beat(self) -> float:
         return 60.0 / self.bpm
+
+    def tick_index(self, own: float) -> Optional[int]:
+        """The index of the tracked beat nearest `own` (record seconds)."""
+        if self.ticks is None or not len(self.ticks):
+            return None
+        return int(np.argmin(np.abs(self.ticks - own)))
+
+    def counted(self, own: float) -> float:
+        """`own` (a beat the grid predicts) moved onto the real beat it is: the
+        beats are counted from `downbeat` on the ticks, not extrapolated, so a
+        tempo that drifts a little across a record still lands on the kick."""
+        k0 = self.tick_index(self.downbeat)
+        if k0 is None:
+            return own
+        n = int(round((own - self.downbeat) / self.beat))
+        k = k0 + n
+        if not 0 <= k < len(self.ticks):
+            return own
+        return float(self.ticks[k])
+
+    def local_beat(self, own: float = 0.0, beats: int = 0) -> float:
+        """The record's beat length from its ticks: a least-squares line
+        through all of them (the grid's own beat where there are none). Not a
+        median of spacings — the tracker's ticks are quantised to its ~11.6 ms
+        hop, which snaps a median to a tempo up to 1% out — and not a window:
+        a beatless intro or outro there gives ticks that wander."""
+        if self.ticks is None or len(self.ticks) < 16:
+            return self.beat
+        n = len(self.ticks)
+        i = np.arange(n)
+        keep = slice(n // 10, n - n // 10) if n >= 64 else slice(0, n)
+        b = float(np.polyfit(i[keep], self.ticks[keep], 1)[0])
+        return b if 0.85 < b / self.beat < 1.18 else self.beat
 
     def next_bar(self, t: float, stretch: float = 1.0, every: int = 1) -> float:
         """The first bar start at or after `t`, in seconds of the record as
@@ -191,8 +231,89 @@ def _window(path: str, start: float, seconds: float) -> np.ndarray:
     return onset_curve(np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0)
 
 
+# ── Beats from Essentia ──────────────────────────────────────────────
+# The grids below come from the rise in energy under 160 Hz. On real records
+# that follows the bassline as much as the kick, and its phase wandered by up
+# to half a beat from one stretch of a record to the next: replayed blends had
+# their kicks 30–180 ms apart. Essentia's beat tracker (run by
+# tools/maintenance/beat_ticks.py under the system Python, cached per record)
+# holds within ~4–8 ms; where a record has its ticks, a grid's tempo and phase
+# are taken from them. The onset grid still decides how steady the beat is and
+# which beat is bar one.
+
+TICKS_DIR = Path(__file__).resolve().parents[2] / "memory" / "records" / "ticks"
+TICKS_TOOL = Path(__file__).resolve().parents[2] / "tools" / "maintenance" / "beat_ticks.py"
+
+
+def _ticks_path(path: str) -> Path:
+    return TICKS_DIR / (hashlib.sha1(path.encode("utf-8")).hexdigest()[:16] + ".json")
+
+
+@functools.lru_cache(maxsize=512)
+def _read_ticks(cache: str, mtime: float) -> Optional[np.ndarray]:
+    try:
+        t = np.asarray(json.loads(Path(cache).read_text(encoding="utf-8"))["ticks"], dtype=float)
+    except (OSError, ValueError, KeyError):
+        return None
+    return t if len(t) >= 16 else None
+
+
+def ticks_for(path: str) -> Optional[np.ndarray]:
+    """The record's beat ticks (seconds, own time), if they have been found."""
+    p = _ticks_path(path)
+    try:
+        return _read_ticks(str(p), p.stat().st_mtime)
+    except OSError:
+        return None
+
+
+def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
+    """Find the record's ticks if they aren't cached (~2–3 s, the system
+    Python with Essentia). Blocking: call it off the voice thread."""
+    if ticks_for(path) is not None:
+        return True
+    try:
+        from utils.infrastructure.monitoring.telemetry_paths import is_test_run
+        if is_test_run() or not os.path.isfile(path) or not TICKS_TOOL.is_file():
+            return False
+        py = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else "python3"
+        subprocess.run([py, str(TICKS_TOOL)] + (["--bpm", f"{bpm:g}"] if bpm else []) + [path],
+                       capture_output=True, timeout=180)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return ticks_for(path) is not None
+
+
+def _snap(g: Optional[Grid], path: str) -> Optional[Grid]:
+    """`g` with its tempo and phase from the record's ticks, where it has them:
+    the downbeat moved onto the nearest tick, the beat fitted through all of
+    them. Left alone where the tracker disagrees grossly on the tempo."""
+    t = ticks_for(path)
+    if g is None or t is None:
+        return g
+    k = int(np.argmin(np.abs(t - g.downbeat)))
+    beat = Grid(g.bpm, g.downbeat, g.contrast, ticks=t).local_beat()
+    if beat <= 0 or not 0.85 < (60.0 / beat) / g.bpm < 1.18:
+        return g
+    return Grid(60.0 / beat, float(t[k]), g.contrast, g.bar_known, g.bar0, ticks=t)
+
+
 def grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float = 40.0,
             anchor: Optional[Grid] = None) -> Optional[Grid]:
+    """`_grid_at`, its tempo and phase from the record's ticks where it has them."""
+    return _snap(_grid_at(path, bpm, start, seconds, anchor), path)
+
+
+def grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional[Grid]:
+    """`_grid_for`, its tempo and phase from the record's ticks where it has them."""
+    return _snap(_grid_for(path, bpm, seconds), path)
+
+
+grid_for.cache_clear = lambda: _grid_for.cache_clear()       # the onset grid underneath is cached
+
+
+def _grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float = 40.0,
+             anchor: Optional[Grid] = None) -> Optional[Grid]:
     """The beat grid round one stretch of a record — wherever it is being
     mixed out of — with `downbeat` a bar start in seconds from the record's
     start. The beat is read locally because a record's phase does not hold
@@ -222,7 +343,7 @@ def grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float 
 
 
 @functools.lru_cache(maxsize=128)
-def grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional[Grid]:
+def _grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional[Grid]:
     """The grid of a record's opening, where it is mixed in: `downbeat` is the
     first beat of the record's beat — bar one — not the comb's first tooth,
     which can fall in the silence or the beatless intro before it."""

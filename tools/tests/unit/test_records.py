@@ -619,3 +619,54 @@ def test_the_glide_waits_for_a_blend_and_stops_at_its_own_tempo(monkeypatch):
     for _ in range(100):
         src.read()
     assert src._splice is None                                  # nothing left to glide
+
+
+# ── Beats counted on the tracker's ticks ─────────────────────────────
+
+def _drifting_ticks(bpm, downbeat, n=600, drift=0.0):
+    """Ticks of a record whose tempo is `bpm` with a slow wander of `drift`
+    seconds over its length, as a real one has against one straight line."""
+    beat = 60.0 / bpm
+    i = np.arange(n)
+    return downbeat + i * beat + drift * np.sin(i / n * np.pi)
+
+
+def test_a_blend_lands_on_both_records_real_beats_not_the_extrapolated_line():
+    out_t = _drifting_ticks(122.0, 0.30, drift=0.18)
+    in_t = _drifting_ticks(124.0, 0.55, drift=-0.15)
+    out_g = Grid(122.0, 0.30, 8.0, ticks=out_t)
+    in_g = Grid(124.0, 0.55, 8.0, ticks=in_t)
+    plan = plan_transition(100.0, 1.0, out_g, 290.0, Next(rec("two", 124, "8A"), 300.0, 0.0, in_g, bass_in=16),
+                           "skip", 64)
+    assert plan.kind == "blend"
+    assert np.min(np.abs(out_t - plan.drop)) < 0.002                     # on an outgoing tick
+    in_at_drop = plan.offset + (plan.drop - plan.start) * plan.ratio
+    assert np.min(np.abs(in_t - in_at_drop)) < 0.002                     # on an incoming tick
+    k = int(np.argmin(np.abs(in_t - in_at_drop)))
+    assert k == 4 * (16 - 64 // 8)                                       # counted: the bar its bassline needs
+
+
+def test_the_stretch_comes_from_a_line_through_all_the_ticks_not_a_median_of_quantised_steps():
+    hop = 512 / 44100                                                    # the tracker's resolution
+    t = np.round(_drifting_ticks(123.4, 0.2) / hop) * hop
+    g = Grid(123.0, 0.2, 8.0, ticks=t)
+    assert 60.0 / g.local_beat() == pytest.approx(123.4, abs=0.02)
+    assert 60.0 / float(np.median(np.diff(t))) != pytest.approx(123.4, abs=0.3)   # what the median gave
+
+
+def test_a_fade_brings_the_incoming_in_beat_on_beat_where_both_are_tracked():
+    out_t = _drifting_ticks(120.0, 0.0)
+    in_t = _drifting_ticks(121.0, 1.37)
+    out_g = Grid(120.0, 0.0, 8.0, bar_known=False, ticks=out_t)          # bar not found: a fade
+    in_g = Grid(121.0, 1.37, 8.0, ticks=in_t)
+    plan = plan_transition(50.0, 1.0, out_g, 200.0, Next(rec("two", 121, "8A"), 300.0, 0.0, in_g, lead=1.2), "skip")
+    assert plan.kind == "fade"
+    first = in_t[np.searchsorted(in_t, 1.2)]
+    assert plan.offset + (plan.drop - plan.start) * plan.ratio == pytest.approx(first, abs=1e-6)
+    assert np.min(np.abs(out_t - plan.drop)) < 1e-6
+
+
+def test_a_fade_without_ticks_still_starts_at_the_first_sound():
+    plan = plan_transition(50.0, 1.0, Grid(120.0, 0.0, 8.0, bar_known=False), 200.0,
+                           Next(rec("two", 121, "8A"), 300.0, 0.0, Grid(121.0, 1.37, 8.0), lead=1.2), "skip")
+    assert plan.kind == "fade" and plan.start == plan.drop and plan.offset == 1.2

@@ -69,6 +69,9 @@ def test_a_planned_blend_shows_on_both_decks_and_the_mixer(session):
     snap = D.snapshot(session)
     assert snap["mix"]["kind"] == "blend" and snap["mix"]["out_slot"] == "1" and snap["mix"]["in_slot"] == "2"
     assert snap["decks"]["2"]["state"] in ("cued", "playing")
+    deadline = time.time() + 2                # the history entry follows the plan by a moment
+    while not session.source.history and time.time() < deadline:
+        time.sleep(0.01)
     assert session.source.history[-1]["to"] == "A — two"
 
 
@@ -270,3 +273,14 @@ def test_kaia_raises_a_hand_loaded_fader_only_when_her_blend_starts(session):
     while src.current.played <= src._start_frame:
         src.read()
     assert src.controls.channels[2]["fader"] == 1.0
+
+
+def test_cueing_the_record_already_in_her_plan_moves_the_cue(session):
+    """She plans the end of a record minutes ahead, so the free deck's record
+    is usually inside a plan; a cue there was refused and the jog snapped back."""
+    src = session.source
+    src.skip()
+    assert _wait(lambda: src.plan is not None and src._queued is None)
+    assert src.set_cue(6.1) and src.cue == pytest.approx(6.0)
+    assert _wait(lambda: src.plan is not None)
+    assert src.plan.offset == pytest.approx(6.0 - R.PREROLL_S)          # replanned from the cue

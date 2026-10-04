@@ -334,7 +334,7 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
         # alone. The incoming is started just short of the bar it drops on.
         swap_bars = mix_beats // 8
         late = (nxt.bass_in - swap_bars) if nxt.bass_in is not None and nxt.bass_in > swap_bars else 0
-        bar_in = in_grid.downbeat + late * 4 * in_grid.beat
+        bar_in = in_grid.counted(in_grid.downbeat + late * 4 * in_grid.beat)
         offset = max(0.0, bar_in - PREROLL_S)
         lead_in = (bar_in - offset) / ratio                  # incoming: start to the bar it drops on
         earliest = now + lead_in + lead
@@ -359,6 +359,19 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
                     break
         if drop is None:
             drop = out_grid.next_bar(earliest, out_ratio)
+        # On the outgoing's real kick: the bar counted on its tracked beats.
+        counted = out_grid.counted(drop * out_ratio) / out_ratio
+        if abs(counted - drop) < beat / 2 and counted >= now + lead_in:
+            drop = counted
+        # The stretch from the two records' tempos over the blend itself, where
+        # their beats were tracked: a whole-record figure let a record whose
+        # tempo moves a little slide off the other's kick over a long ride.
+        if out_grid.ticks is not None and in_grid.ticks is not None:
+            out_beat = out_grid.local_beat(drop * out_ratio, mix_beats) / out_ratio
+            local = library.tempo_ratio(60.0 / out_beat, 60.0 / in_grid.local_beat(bar_in, mix_beats))
+            if local is not None and abs(local / ratio - 1.0) < 0.02:
+                ratio = local
+                lead_in = (bar_in - offset) / ratio
         # Room on both sides: the outgoing before its music ends, and the
         # incoming with IN_LEFT_S still to play once it is the record on air.
         if drop + length <= out_end + 0.01 and length <= (nxt.seconds - offset) / ratio - IN_LEFT_S:
@@ -386,7 +399,22 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
         else:
             drop = out_grid.next_bar(now + lead, out_ratio) if out_grid else now + lead
         if drop + length <= out_end + 0.01:
-            return Plan("fade", drop, drop, length, beat, fade_ratio, nxt, nxt.lead, fallback=fallback)
+            start, offset = drop, nxt.lead
+            # Where both records' beats were tracked and their tempos meet,
+            # the incoming comes in beat on beat: its first beat after its
+            # first sound on the outgoing's bar. Left to start at any phase, a
+            # fade at the same tempo played eight bars of flams.
+            if (out_grid is not None and in_grid is not None and out_grid.ticks is not None
+                    and in_grid.ticks is not None and library.tempo_ratio(playing_bpm, in_grid.bpm)):
+                counted = out_grid.counted(drop * out_ratio) / out_ratio
+                k = int(np.searchsorted(in_grid.ticks, nxt.lead))
+                if abs(counted - drop) < beat / 2 and k < len(in_grid.ticks) and counted + length <= out_end + 0.01:
+                    first = float(in_grid.ticks[k])
+                    off = max(0.0, first - PREROLL_S)
+                    if counted - (first - off) / fade_ratio >= now + lead / 2:
+                        drop, offset = counted, off
+                        start = drop - (first - off) / fade_ratio
+            return Plan("fade", start, drop, length, beat, fade_ratio, nxt, offset, fallback=fallback)
     # No room even for two bars: a cut where the music ends.
     fade = CUT_FADE_S
     drop = max(now + lead, min(out_end - 0.05, now + fade + lead))
@@ -814,19 +842,25 @@ class CrossfadeSource(_AudioSource):
         """Move the free deck's cue point (snapped to a bar). A deck playing by
         hand jumps there, back on the beat."""
         with self._lock:
+            replan = None
+            if self.hand is None and self._queued is None and self.plan is not None and not self.blend_started():
+                # The record on the free deck is already in Kaia's plan (she
+                # plans the end of a record minutes ahead): take it back out,
+                # or the cue was refused and the deck snapped to its start.
+                replan = self.plan.mode
+                self._call_off_plan()
             nxt = self.hand_next if self.hand is not None else self._queued
             if nxt is None:
                 return False
             pos = min(max(0.0, float(pos)), max(0.0, nxt.seconds - 8.0))
             self.cue = self.snap(nxt.grid, pos)
             playing = self.hand is not None
-            replan = None
             if playing:
                 self._drop_hand(keep_cue=True)
             elif not self.blend_started():
                 # A plan made, or being made, from the old cue is called off;
                 # the next one is made from this one, for the same reason.
-                replan = self.plan.mode if self.plan is not None else None
+                replan = replan or (self.plan.mode if self.plan is not None else None)
                 self._call_off_plan()
         if playing:
             self.play_hand()
@@ -1481,6 +1515,7 @@ class RecordsSession:
         seconds = probe_seconds(rec.path)
         if not seconds or seconds < MIN_RECORD_S:
             return None
+        beatgrid.ensure_ticks(rec.path, rec.bpm)          # its beats, from the tracker, before its grid
         return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
                     beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm))
 
@@ -1523,6 +1558,7 @@ class RecordsSession:
             if not seconds or seconds < MIN_RECORD_S:
                 self.played.append(rec.path)
             else:
+                beatgrid.ensure_ticks(rec.path, rec.bpm)
                 grid = beatgrid.grid_for(rec.path, rec.bpm)
                 if grid and grid.contrast >= BLEND_CONTRAST:
                     return Next(rec, seconds, gain_db(rec.path), grid, beatgrid.first_sound(rec.path),
@@ -1680,6 +1716,7 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
     session = RecordsSession(vc, crate, requested_by, text_channel, alone_grace_s)
     deck = Deck(first, 1.0, seconds, gain=await asyncio.to_thread(gain_db, first.path))
     from utils.audio import beatgrid
+    await asyncio.to_thread(beatgrid.ensure_ticks, first.path, first.bpm)
     deck.grid = await asyncio.to_thread(beatgrid.grid_for, first.path, first.bpm)
     session._changed(first)
     session.source = CrossfadeSource(deck, session._choose, on_change=session._changed,
