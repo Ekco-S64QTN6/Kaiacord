@@ -825,8 +825,8 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   channel inside the radio and sends no IQ, so it cannot feed the scanner or KAIA//RX. The tool is
   read-only — find the cable, firmware version, EEPROM backup (calibration at 0x1E00–0x1FFF; take one
   before any flash), bootloader version — and nothing in the bot uses it. A K-plug programming cable
-  carries no audio; listening or keying needs an audio cable (AIOC, Digirig). Transmitting needs
-  Ekco's licence and a person approving it.
+  carries no audio; listening needs an audio path (an AIOC, or a 3.5 mm cable into a USB sound card).
+  **Kaia never transmits** — Ekco's decision; any PTT line an audio interface offers stays unused.
 - **discord.py needs a real file for FFmpeg's stderr.** `subprocess.DEVNULL` is an int; it fails
   `.fileno()` and gets piped through a thread that crashes on `.write()` every play.
 
