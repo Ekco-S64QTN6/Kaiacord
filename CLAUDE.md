@@ -821,6 +821,12 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   `transcribe.transcribe_speech`, which keeps only segments Whisper scores as speech. Human repeater
   voice has not yet been measured against the 90% bar; NOAA scored 100% on every sentence present in
   the NWS text.
+- **The Quansheng UV-K5** (`tools/maintenance/uvk5.py`) is a handheld, not an SDR: it demodulates one
+  channel inside the radio and sends no IQ, so it cannot feed the scanner or KAIA//RX. The tool is
+  read-only — find the cable, firmware version, EEPROM backup (calibration at 0x1E00–0x1FFF; take one
+  before any flash), bootloader version — and nothing in the bot uses it. A K-plug programming cable
+  carries no audio; listening or keying needs an audio cable (AIOC, Digirig). Transmitting needs
+  Ekco's licence and a person approving it.
 - **discord.py needs a real file for FFmpeg's stderr.** `subprocess.DEVNULL` is an int; it fails
   `.fileno()` and gets piped through a thread that crashes on `.write()` every play.
 
