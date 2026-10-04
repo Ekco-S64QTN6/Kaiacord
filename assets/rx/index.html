@@ -22,7 +22,10 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-i
 body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
   background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); mix-blend-mode: multiply; }
 #app { position: relative; z-index: 1; display: grid; height: 100%; padding: 10px 12px 12px; gap: 10px;
-  grid-template-rows: 44px auto 1fr; grid-template-columns: 1fr 400px; }
+  grid-template-rows: 44px 128px minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) 400px; }
+/* The top row has a fixed height and its text is clamped: Kaia's line growing a
+   line resized the row and squeezed the waterfall below it, every few seconds. */
+#app > * { min-width: 0; min-height: 0; }
 header { grid-column: 1 / span 2; display: flex; align-items: center; gap: 14px; padding: 0 6px; }
 .logo { font-family: var(--disp); font-weight: 900; font-size: 22px; letter-spacing: 4px; color: var(--cyan);
   text-shadow: 0 0 8px rgba(0,240,255,.8), 2px 0 0 rgba(255,47,209,.7), -2px 0 0 rgba(61,255,138,.35); }
@@ -44,7 +47,8 @@ header { grid-column: 1 / span 2; display: flex; align-items: center; gap: 14px;
 .ptitle { font-family: var(--disp); font-size: 10px; letter-spacing: 3px; color: var(--dim); }
 
 /* VFO */
-#vfo { grid-column: 1; display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: center; padding: 10px 16px; --accent: var(--pink); }
+#vfo > * { min-width: 0; } #vsub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#vfo { grid-column: 1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 10px 16px; --accent: var(--pink); }
 #freq { font-family: var(--disp); font-weight: 700; font-size: 52px; letter-spacing: 3px; color: var(--cyan); text-shadow: 0 0 16px rgba(0,240,255,.6); line-height: 1; }
 #freq small { font-size: 18px; color: var(--dim); margin-left: 8px; letter-spacing: 2px; }
 #freq.hold { color: var(--pink); text-shadow: 0 0 16px rgba(255,47,209,.7); }
@@ -64,9 +68,10 @@ header { grid-column: 1 / span 2; display: flex; align-items: center; gap: 14px;
 select { background: rgba(0,0,0,.5); color: var(--text); border: 1px solid var(--faint); font-family: var(--mono); font-size: 11px; padding: 5px; border-radius: 3px; }
 
 /* Kaia */
-#kaia { grid-column: 2; padding: 10px 14px; --accent: var(--purple); display: grid; grid-template-rows: auto 1fr; gap: 6px; }
-#say { font-size: 12px; line-height: 1.5; border-left: 2px solid var(--pink); padding-left: 9px; }
-#locks { font-size: 10px; color: var(--dim); letter-spacing: 1px; }
+#kaia { grid-column: 2; padding: 10px 14px; --accent: var(--purple); display: grid; grid-template-rows: auto 1fr; gap: 6px; overflow: hidden; }
+#say { font-size: 12px; line-height: 1.5; border-left: 2px solid var(--pink); padding-left: 9px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; height: 4.5em; }
+#locks { font-size: 10px; color: var(--dim); letter-spacing: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* scope */
 #scope { grid-column: 1; display: grid; grid-template-rows: auto auto minmax(120px, 30%) 22px 1fr; min-height: 0; --accent: var(--cyan); }
@@ -571,6 +576,8 @@ function frame() {
   requestAnimationFrame(frame);
 }
 connect(); loadSide(); requestAnimationFrame(frame);
+window.addEventListener("wheel", (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+window.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && ["+", "-", "=", "0"].includes(e.key)) e.preventDefault(); });
 </script>
 </body>
 </html>

@@ -574,6 +574,19 @@ a mix that sounded wrong:
   differ, and the guess put the incoming bar on beat 2, 3 or 4 — kicks on kicks, claps on the wrong
   beats. Bar one is a record's first strong beat; `grid_at` counts beats from it and keeps the bar
   only when the count comes out whole (`bar_known`).
+- **Beats are counted on tracked ticks, not extrapolated.** The onset grid is one line — a bpm and a
+  downbeat — and 15–30 s from where it was measured it sat 70–490 ms off the record's real beats:
+  half of the October blends put two kicks apart. `tools/maintenance/beat_ticks.py` runs Essentia's
+  beat tracker (system Python; the venv has no Essentia) and caches every beat in
+  `memory/records/ticks/`; `beatgrid.ensure_ticks` runs it for a record not yet seen, off the voice
+  thread. A plan puts the drop on the outgoing's tick and the incoming's bar on its own counted tick
+  (`Grid.counted`), and the stretch comes from a least-squares line through all the ticks
+  (`Grid.local_beat`) — the tracker's ticks are quantised to its ~11.6 ms hop, and a median of their
+  spacings snapped the tempo up to 1% out. The onset grid still decides steadiness and bar one. Do not
+  move ticks onto "the kick" by 50–150 Hz energy: an off-beat bassline rises in the same band (one
+  record's rise peaked 182 ms before the beat over the record, 43 ms after it in one minute of it).
+  Judge a mix the same way: render both decks paired by the mixer's own read counter, not by a second
+  beat tracker or that band's energy.
 - **A blend takes its time and is staged per band** (`gains`): 64 beats by default; the booth offers
   32 / 64 / 256. The incoming comes in from the top down — highs over one `ramp`, mids over the next
   while both records' mids are thinned (`MID_SHARE`) — then the *ride*, both up and locked, the bass
@@ -587,7 +600,9 @@ a mix that sounded wrong:
 - **Nothing the booth's skip button asks for is a hard cut unless there is no room at all.** A pair
   that cannot be beat-matched (a loose beat, an uncounted bar, tempos past 6%) gets a `fade`:
   equal-power over 8 bars on the outgoing bar, basslines handed over halfway, the incoming started at
-  its first sound (`first_sound`), not in its leading silence. Steadiness is measured from a record's
+  its first sound (`first_sound`), not in its leading silence — and, where both records' beats are
+  tracked and their tempos meet, with its first beat on the outgoing's bar: left at any phase, a fade
+  at a matched tempo played eight bars of flams. Steadiness is measured from a record's
   first beat, not across its beatless intro, which had read steady records as loose. Every transition
   and what it was decided from is appended to `memory/records/transitions.jsonl`; read that, not the
   log line, when a mix sounded wrong.
@@ -633,8 +648,21 @@ its cue (snapped to a bar); ▶ starts it at the on-air tempo with its cue on th
 NEXT with a deck playing by hand is Kaia finishing the mix (`finish`, a plan of kind `out`). PHONES
 plays a deck's file in the booth window only (`/audio/<id>`), never on air. Kaia raises a hand-loaded
 fader when *her* blend into it starts, not when she plans it — a planned blend is called off by ▶.
+A cue set on the record already in her plan (she plans a record's end minutes ahead) calls that plan
+off and replans from the cue; it used to be refused, and the jog snapped back to the start. A knob's
+pointer is what is *applied* — the hand's setting times the automix and her hands — so her moves turn
+it; the hand's own setting is the yellow dot, and a deck not sounding shows the hand's setting.
+Knobs drag with pointer capture, never pointer lock (the browser announced "press Esc" on every turn),
+and neither page can be zoomed: a pinch cut the mixer in half. No grid column may be widened by its
+contents (`min-width: 0`, long labels ellipsised).
 Check a change by driving it headless against a real session (Playwright: click, drag, screenshot),
 not by reading the HTML.
+
+**Both dashboards open as desktop windows** (`utils/infrastructure/system/app_window.py`): a GTK
+window around a WebKitGTK view, run by the *system* Python (it has `gi`; the venv does not), its own
+title and window class, no browser around it. Chrome's app mode is the fallback where WebKitGTK is
+missing. WebKit's DMA-BUF renderer is off (`WEBKIT_DISABLE_DMABUF_RENDERER`): on this NVIDIA driver
+under Wayland it closed the window at once with a protocol error.
 
 Records, a live set and the radio share one voice connection: whichever starts stops the others
 without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the channel it was
@@ -755,7 +783,9 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   last transcription: two racing restarts once queued a second watch that took the stop handle while the
   first ignored every stop for its whole tune. ▶ SCAN (`scanner.start_scan`) runs the sweep outside the
   nightly hours for as long as asked and only while a page is open (`DASH_GONE_S`): the page's stream
-  calls `seen_by_dashboard`. `!scanner dash` opens it; nothing opens it at night unasked.
+  calls `seen_by_dashboard`. `!scanner dash` opens it; nothing opens it at night unasked. The top
+  row has a fixed height and Kaia's line is clamped to three lines: a row sized by its text grew a
+  line and squeezed the waterfall every few seconds.
   `!scanner history` lists voice and data and folds bare carriers into one line; every catch is in
   the page's LOG tab.
   Spectrograms (`spectrogram.py`) are rendered once beside a clip and pruned with it.

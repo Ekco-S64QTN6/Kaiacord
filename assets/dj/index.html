@@ -54,7 +54,13 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 
 #lanes { width: 100%; height: 100%; display: block; }
 
-#mid { display: grid; grid-template-columns: 1fr minmax(340px, 26%) 1fr; gap: 10px; min-height: 0; }
+#mid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 26%) minmax(0, 1fr); gap: 10px; min-height: 0; }
+/* No label may widen its column: a long NEXT button or status line pushed the
+   mixer past its share and the panel clipped its right half. */
+#mid > *, .mixer > *, .strips > *, .btns > *, .fx > *, #bottom > * { min-width: 0; }
+.fx .row, .fx .count, .fx .why, .blendsel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#skip, #auto { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.turning, body.turning * { cursor: ns-resize !important; user-select: none; }
 .deck { --accent: var(--dc); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; gap: clamp(4px, 0.7vh, 8px); padding: 10px 14px 10px; min-height: 0; overflow: hidden; }
 .deck[data-slot="1"] { --dc: var(--d1); --dcg: rgba(0,240,255,.55); }
 .deck[data-slot="2"] { --dc: var(--d2); --dcg: rgba(255,47,209,.55); }
@@ -705,15 +711,17 @@ function setCtl(slot, name, v) {
   clearTimeout(sendTimer[`${slot}:${name}`]);
   sendTimer[`${slot}:${name}`] = setTimeout(() => post("/control", { slot: slot || null, name, value: v }), 40);
 }
-// Knobs turn the way plug-ins and DJ software do: grab one and the pointer
-// locks and hides, so the hand can move freely — up or right turns it up,
-// down or left turns it down, Shift for fine — and the wheel works too.
-// Faders and the crossfader follow the pointer directly.
-let turning = null;               // {slot, name, reset}
+// Knobs turn the way DJ software's do: press and drag — up turns it up, down
+// turns it down, Shift for fine — or use the wheel; double-click resets. The
+// pointer is captured, not locked: a lock made the browser announce "press Esc
+// to show your cursor" on every turn. Faders and the crossfader follow the
+// pointer directly.
+let turning = null;               // {slot, name}
 function knob(el, slot, name, reset) {
   el.addEventListener("pointerdown", (e) => {
-    turning = { slot, name };
-    try { el.requestPointerLock(); } catch (_) {}
+    turning = { slot, name, y: e.clientY, x: e.clientX };
+    el.setPointerCapture(e.pointerId);
+    document.body.classList.add("turning");
     e.preventDefault();
   });
   el.addEventListener("dblclick", () => setCtl(slot, name, reset));
@@ -723,17 +731,19 @@ function knob(el, slot, name, reset) {
     setCtl(slot, name, (ctl(slot, name) ?? reset) + (e.deltaY < 0 ? 1 : -1) * (hi - lo) * (e.shiftKey ? 0.01 : 0.04));
   }, { passive: false });
 }
-document.addEventListener("mousemove", (e) => {
+document.addEventListener("pointermove", (e) => {
   if (!turning) return;
   const [lo, hi] = RANGE[turning.name];
-  const d = (e.movementX - e.movementY) / (e.shiftKey ? 900 : 220);
+  const d = ((e.clientX - turning.x) - (e.clientY - turning.y)) / (e.shiftKey ? 900 : 200);
+  turning.x = e.clientX; turning.y = e.clientY;
   setCtl(turning.slot, turning.name, (ctl(turning.slot, turning.name) ?? lo) + d * (hi - lo));
 });
-document.addEventListener("mouseup", () => {
-  if (!turning) return;
-  turning = null;
-  if (document.pointerLockElement) document.exitPointerLock();
-});
+const endTurn = () => { turning = null; document.body.classList.remove("turning"); };
+document.addEventListener("pointerup", endTurn);
+document.addEventListener("pointercancel", endTurn);
+// A pinch or ctrl+scroll zoomed the whole page and cut the mixer in half.
+window.addEventListener("wheel", (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+window.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && ["+", "-", "=", "0"].includes(e.key)) e.preventDefault(); });
 function slider(el, slot, name, axis, reset) {
   const place = (e) => {
     const r = el.getBoundingClientRect(), [lo, hi] = RANGE[name];
@@ -866,7 +876,9 @@ function scrubbing(slot) {
   cv.addEventListener("pointerup", () => { if (lane) { commitCue(lane); lane = null; } });
 })();
 function drawKnobV(cv, frac, color, flatFrac, autoFrac) {
-  // frac: where the hand has it (0–1 of the travel); flatFrac: where "no change" sits; autoFrac: what the automix applies
+  // frac: what is applied (0–1 of the travel) — the hand's setting times Kaia's
+  // automix, so her moves turn the knob; flatFrac: where "no change" sits;
+  // autoFrac: where the hand alone has it, as a dot (null: the same)
   const [g, W, H] = fit(cv); g.clearRect(0, 0, W, H);
   const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 4, a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
   const at = (f) => a0 + (a1 - a0) * Math.max(0, Math.min(1, f));
@@ -874,8 +886,8 @@ function drawKnobV(cv, frac, color, flatFrac, autoFrac) {
   const af = at(flatFrac), av = at(frac);
   g.strokeStyle = color; glow(g, color, 8); g.beginPath(); g.arc(cx, cy, R, Math.min(af, av), Math.max(af, av) + 0.0001); g.stroke(); noGlow(g);
   g.fillStyle = "#0d1322"; g.beginPath(); g.arc(cx, cy, R - 6, 0, Math.PI * 2); g.fill();
-  if (autoFrac != null) {            // the automix, as a dot inside the ring
-    const aa = at(autoFrac); g.fillStyle = COL.green; glow(g, COL.green, 6);
+  if (autoFrac != null && Math.abs(autoFrac - frac) > 0.01) {     // the hand's own setting, as a dot
+    const aa = at(autoFrac); g.fillStyle = COL.yellow; glow(g, COL.yellow, 6);
     g.beginPath(); g.arc(cx + Math.cos(aa) * (R - 9), cy + Math.sin(aa) * (R - 9), 2.2, 0, Math.PI * 2); g.fill(); noGlow(g);
   }
   g.strokeStyle = "#e8f3ff"; g.lineWidth = 2; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(av) * (R - 7), cy + Math.sin(av) * (R - 7)); g.stroke();
@@ -883,16 +895,19 @@ function drawKnobV(cv, frac, color, flatFrac, autoFrac) {
 function updateMixer() {
   const ch = S.channels || {};
   [1, 2].forEach((slot) => {
-    const c = ch[slot] || { low: 0, high: 0, level: -90 }, sh = shown[slot], d = S.decks && S.decks[slot];
+    const d = S.decks && S.decks[slot], sounding = !!(d && d.state === "playing");
+    // A deck that is not sounding shows the hand's setting: the mix applies
+    // nothing to it, and its knobs read as cut to nothing otherwise.
+    const c = sounding ? (ch[slot] || { low: 1, mid: 1, high: 1, level: -90 }) : { low: 1, mid: 1, high: 1, level: -90 }, sh = shown[slot];
     sh.low = smooth(sh.low, c.low, 0.35); sh.high = smooth(sh.high, c.high, 0.35); sh.level = smooth(sh.level, c.level, 0.5);
     const col = DECK[slot];
     const trim = ctl(slot, "trim"), hi = ctl(slot, "high"), mid = ctl(slot, "mid"), lo = ctl(slot, "low"), fd = ctl(slot, "fader");
     drawKnobV(qs(slot, '[data-k="trim"]'), (trim + 12) / 24, COL.purple, 0.5, null);
-    drawKnobV(qs(slot, '[data-k="high"]'), hi / 1.5, col, 2 / 3, sh.high * 2 / 3);
+    drawKnobV(qs(slot, '[data-k="high"]'), hi * sh.high / 1.5, col, 2 / 3, hi / 1.5);
     sh.mid = smooth(sh.mid ?? 0, c.mid ?? c.high, 0.35);
-    drawKnobV(qs(slot, '[data-k="mid"]'), mid / 1.5, col, 2 / 3, sh.mid * 2 / 3);
+    drawKnobV(qs(slot, '[data-k="mid"]'), mid * sh.mid / 1.5, col, 2 / 3, mid / 1.5);
     const kill = (sh.low < 0.05 || lo < 0.05) && d && d.state === "playing";
-    drawKnobV(qs(slot, '[data-k="low"]'), lo / 1.5, kill ? COL.red : col, 2 / 3, sh.low * 2 / 3);
+    drawKnobV(qs(slot, '[data-k="low"]'), lo * sh.low / 1.5, kill ? COL.red : col, 2 / 3, lo / 1.5);
     const ll = qs(slot, '[data-k="lowlbl"]'); ll.textContent = kill ? "KILL" : "LOW"; ll.style.color = kill ? COL.red : "";
     for (const n of ["trim", "high", "mid", "low"]) qs(slot, `[data-n="${n}"]`).classList.toggle("touched", ctl(slot, n) !== FLAT[n]);
     drawVU(qs(slot, '[data-k="vu"]'), d && d.state === "playing" ? sh.level : -90, slot);

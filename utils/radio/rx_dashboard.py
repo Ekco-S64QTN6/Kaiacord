@@ -381,6 +381,11 @@ def open_window() -> str:
         return ""
     if _window is not None and _window.poll() is None:
         return url()
+    from utils.infrastructure.system import app_window
+    from utils.radio.kiwi import _die_with_parent
+    _window = app_window.launch(url(), "KAIA // RX", "KaiaRX", icon="network-wireless", preexec_fn=_die_with_parent)
+    if _window is not None:
+        return url()
     from utils.audio.dj_dashboard import _browser
     exe = _browser()
     if not exe:

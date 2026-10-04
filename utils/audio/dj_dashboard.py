@@ -460,6 +460,14 @@ def open_window() -> None:
         return
     if _window is not None and _window.poll() is None:
         return
+    from utils.infrastructure.system import app_window
+    from utils.radio.kiwi import _die_with_parent
+    # Its own window first (GTK + WebKitGTK): no browser around it, no
+    # pointer-lock notices, no page zoom. A browser's app mode if not.
+    _window = app_window.launch(url(), "KAIA // Booth", "KaiaBooth", icon="audio-x-generic",
+                                preexec_fn=_die_with_parent)
+    if _window is not None:
+        return
     exe = _browser()
     if not exe:
         log_warning(f"[records] no browser for the DJ booth; it's at {url()}")
