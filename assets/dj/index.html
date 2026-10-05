@@ -105,7 +105,12 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .strip { display: grid; grid-template-columns: 54px 1fr; grid-template-rows: auto 1fr; gap: 6px 10px; min-height: 0; }
 .strip .ch { grid-column: 1 / span 2; text-align: center; font-family: var(--disp); font-weight: 900; font-size: 15px; }
 .knobs { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; min-height: 0; }
-.knob { text-align: center; font-size: 8px; letter-spacing: 1.5px; color: var(--dim); line-height: 1.1; }
+.knob { text-align: center; font-size: 8px; letter-spacing: 1.5px; color: var(--dim); line-height: 1.1; position: relative; }
+/* Kaia's own hand on a knob: a badge over the canvas, so no column grows. */
+.kbadge { position: absolute; top: -3px; right: -6px; font-size: 7px; letter-spacing: 0; padding: 0 2px; border-radius: 3px;
+          color: #0b0f1a; background: var(--pink); box-shadow: 0 0 8px var(--pink); opacity: 0; transition: opacity .15s; pointer-events: none; white-space: nowrap; font-style: normal; }
+.kbadge.on { opacity: 1; }
+.knob.herhand { color: var(--pink); }
 .knob canvas { width: clamp(20px, 2.5vh, 36px); height: clamp(20px, 2.5vh, 36px); display: block; margin: 0 auto 1px; }
 .fadebox { display: flex; gap: 8px; align-items: stretch; justify-content: center; height: 100%; min-height: 0; }
 .vu, .fader { width: 14px; height: 100%; display: block; }
@@ -402,9 +407,9 @@ function buildStrip(slot) {
     <div class="ch" style="color:${col};text-shadow:0 0 10px ${col}">CH ${slot}</div>
     <div class="knobs">
       <div class="knob" data-n="trim"><canvas data-k="trim" title="trim — drag, double-click to reset"></canvas>TRIM</div>
-      <div class="knob" data-n="high"><canvas data-k="high" title="high EQ — drag, double-click to reset"></canvas>HI</div>
-      <div class="knob" data-n="mid"><canvas data-k="mid" title="mid EQ — drag, double-click to reset"></canvas>MID</div>
-      <div class="knob" data-n="low"><canvas data-k="low" title="low EQ — drag, double-click to reset"></canvas><span data-k="lowlbl">LOW</span></div>
+      <div class="knob" data-n="high"><canvas data-k="high" title="high EQ — drag, double-click to reset"></canvas>HI<em class="kbadge" data-kb="high"></em></div>
+      <div class="knob" data-n="mid"><canvas data-k="mid" title="mid EQ — drag, double-click to reset"></canvas>MID<em class="kbadge" data-kb="mid"></em></div>
+      <div class="knob" data-n="low"><canvas data-k="low" title="low EQ — drag, double-click to reset"></canvas><span data-k="lowlbl">LOW</span><em class="kbadge" data-kb="low"></em></div>
     </div>
     <div class="fadebox"><canvas class="vu" data-k="vu"></canvas><canvas class="fader" data-k="fader"></canvas></div>`;
 }
@@ -876,7 +881,7 @@ function scrubbing(slot) {
   });
   cv.addEventListener("pointerup", () => { if (lane) { commitCue(lane); lane = null; } });
 })();
-function drawKnobV(cv, frac, color, flatFrac, autoFrac) {
+function drawKnobV(cv, frac, color, flatFrac, autoFrac, kaia) {
   // frac: what is applied (0–1 of the travel) — the hand's setting times Kaia's
   // automix, so her moves turn the knob; flatFrac: where "no change" sits;
   // autoFrac: where the hand alone has it, as a dot (null: the same)
@@ -891,7 +896,24 @@ function drawKnobV(cv, frac, color, flatFrac, autoFrac) {
     const aa = at(autoFrac); g.fillStyle = COL.yellow; glow(g, COL.yellow, 6);
     g.beginPath(); g.arc(cx + Math.cos(aa) * (R - 9), cy + Math.sin(aa) * (R - 9), 2.2, 0, Math.PI * 2); g.fill(); noGlow(g);
   }
-  g.strokeStyle = "#e8f3ff"; g.lineWidth = 2; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(av) * (R - 7), cy + Math.sin(av) * (R - 7)); g.stroke();
+  // Kaia's own hand: a pink arc on the outer ring from where the knob would
+  // be without her to where she has it, and a pink pointer while she holds it.
+  const her = kaia != null && Math.abs(kaia - 1) > 0.015;
+  if (her) {
+    const without = at(frac / Math.max(kaia, 0.001)), lo = Math.min(without, av), hi = Math.max(without, av);
+    g.strokeStyle = "rgba(255,47,209,.28)"; g.lineWidth = 1.5;               // her hand is on it
+    g.beginPath(); g.arc(cx, cy, R + 2.5, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = COL.pink; g.lineWidth = 4; glow(g, COL.pink, 14);        // and this is how far
+    g.beginPath(); g.arc(cx, cy, R + 2, lo, Math.max(hi, lo + 0.12)); g.stroke(); noGlow(g);
+  }
+  g.strokeStyle = her ? COL.pink : "#e8f3ff"; g.lineWidth = her ? 2.5 : 2; if (her) glow(g, COL.pink, 8);
+  g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(av) * (R - 7), cy + Math.sin(av) * (R - 7)); g.stroke(); noGlow(g);
+}
+function kaiaBadge(slot, band, k) {
+  const el = qs(slot, `[data-kb="${band}"]`), knobEl = qs(slot, `[data-n="${band}"]`);
+  const on = k != null && Math.abs(k - 1) > 0.015;
+  if (el) { el.classList.toggle("on", on); if (on) el.textContent = k < 0.02 ? "K·KILL" : `K${(20 * Math.log10(k)).toFixed(1)}`; }
+  if (knobEl) knobEl.classList.toggle("herhand", on);
 }
 function updateMixer() {
   const ch = S.channels || {};
@@ -904,11 +926,14 @@ function updateMixer() {
     const col = DECK[slot];
     const trim = ctl(slot, "trim"), hi = ctl(slot, "high"), mid = ctl(slot, "mid"), lo = ctl(slot, "low"), fd = ctl(slot, "fader");
     drawKnobV(qs(slot, '[data-k="trim"]'), (trim + 12) / 24, COL.purple, 0.5, null);
-    drawKnobV(qs(slot, '[data-k="high"]'), hi * sh.high / 1.5, col, 2 / 3, hi / 1.5);
+    const kk = (sounding && c.kaia) || { low: 1, mid: 1, high: 1 };
+    sh.kh = smooth(sh.kh ?? 1, kk.high, 0.35); sh.km = smooth(sh.km ?? 1, kk.mid, 0.35); sh.kl = smooth(sh.kl ?? 1, kk.low, 0.35);
+    drawKnobV(qs(slot, '[data-k="high"]'), hi * sh.high / 1.5, col, 2 / 3, hi / 1.5, sh.kh);
     sh.mid = smooth(sh.mid ?? 0, c.mid ?? c.high, 0.35);
-    drawKnobV(qs(slot, '[data-k="mid"]'), mid * sh.mid / 1.5, col, 2 / 3, mid / 1.5);
+    drawKnobV(qs(slot, '[data-k="mid"]'), mid * sh.mid / 1.5, col, 2 / 3, mid / 1.5, sh.km);
+    kaiaBadge(slot, "high", sh.kh); kaiaBadge(slot, "mid", sh.km); kaiaBadge(slot, "low", sh.kl);
     const kill = (sh.low < 0.05 || lo < 0.05) && d && d.state === "playing";
-    drawKnobV(qs(slot, '[data-k="low"]'), lo * sh.low / 1.5, kill ? COL.red : col, 2 / 3, lo / 1.5);
+    drawKnobV(qs(slot, '[data-k="low"]'), lo * sh.low / 1.5, kill ? COL.red : col, 2 / 3, lo / 1.5, sh.kl);
     const ll = qs(slot, '[data-k="lowlbl"]'); ll.textContent = kill ? "KILL" : "LOW"; ll.style.color = kill ? COL.red : "";
     for (const n of ["trim", "high", "mid", "low"]) qs(slot, `[data-n="${n}"]`).classList.toggle("touched", ctl(slot, n) !== FLAT[n]);
     drawVU(qs(slot, '[data-k="vu"]'), d && d.state === "playing" ? sh.level : -90, slot);

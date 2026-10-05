@@ -187,9 +187,12 @@ def snapshot(session) -> dict:
     a_low, a_mid, a_high, b_low, b_mid, b_high = src.applied
     out_slot = str(cur.slot) if cur else "1"
     in_slot = str(3 - cur.slot) if cur else "2"
+    h = getattr(src, "hands_now", (1.0,) * 6)
     channels = {
-        out_slot: {"low": a_low, "mid": a_mid, "high": a_high, "level": src.levels["a"]},
-        in_slot: {"low": b_low, "mid": b_mid, "high": b_high, "level": src.levels["b"]},
+        out_slot: {"low": a_low, "mid": a_mid, "high": a_high, "level": src.levels["a"],
+                   "kaia": {"low": h[0], "mid": h[1], "high": h[2]}},
+        in_slot: {"low": b_low, "mid": b_mid, "high": b_high, "level": src.levels["b"],
+                  "kaia": {"low": h[3], "mid": h[4], "high": h[5]}},
     }
     mix = None
     if plan is not None and cur is not None:
