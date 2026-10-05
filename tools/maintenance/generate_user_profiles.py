@@ -122,7 +122,6 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
             print(f"  SELF {username} — would restore the self-reference document")
             return None
         m = re.search(r"^forum_(.+)_(\d+)$", username)
-        from utils.core.atomic_write import write_atomic
         write_atomic(user_dir.joinpath("user_profile.md"),
                      SELF_PROFILE.format(name=m.group(1) if m else username,
                                          uid=m.group(2) if m else 0))
@@ -157,14 +156,10 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
 
     try:
         # Get consistent GPU options to prevent Ollama from reloading/duplicating models
-        try:
-            from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
-            gpu_manager = OllamaGPUManager(MODEL)
-            options = gpu_manager.get_gpu_options(for_chat=True)
-            options["temperature"] = 0.3
-            options["num_predict"] = 800
-        except Exception:
-            options = {"temperature": 0.3, "num_predict": 800}
+        # The bot's own runner options (num_ctx included): anything else makes
+        # Ollama reload the model at another context size.
+        from utils.infrastructure.gpu.gpu_manager import chat_options
+        options = chat_options(temperature=0.3, num_predict=800)
 
         client = _ollama.AsyncClient()
         response = await client.chat(
@@ -188,7 +183,14 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
         print(f"  ✔ Wrote {profile_path}")
         return True
     except Exception as e:
+        # Logged, not only printed: inside the bot stdout reaches nobody, and a
+        # write that failed every night for a week went unseen.
         print(f"  ✘ Failed for {username}: {e}")
+        try:
+            from utils.infrastructure.logging.kaia_logger import log_warning
+            log_warning(f"[profiles] {username}: profile not written: {type(e).__name__}: {e}")
+        except Exception:
+            pass
         return False
 
 

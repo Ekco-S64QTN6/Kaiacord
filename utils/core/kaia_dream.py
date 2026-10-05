@@ -581,6 +581,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         
         # Filter out failures
         work_items = []
+        from utils.audio import voice_busy
         for i, snippet in enumerate(snippets_raw):
             if snippet:
                 file_path, salience = sample_files_with_salience[i]
@@ -594,6 +595,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         
         # 4. Generation, sequential behind the GPU guard.
         for idx, (file_path, snippet, salience) in enumerate(work_items_sorted):
+            # A set started mid-dream: the dream waits for it, not the music.
+            if not await voice_busy.wait_until_quiet("Dream cycle", max_wait_s=6 * 3600):
+                break
             phase = 'nrem' if idx < n_nrem else 'rem'
             try:
                 # Get a relative path for the source display
@@ -681,10 +685,12 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             await self._update_identity_stream(persona_content)
 
         # Auto Self-Model Regeneration — weekly inline rebuild
-        await self._maybe_regenerate_self_model(persona_content)
+        if await voice_busy.wait_until_quiet("Self-model refresh", max_wait_s=6 * 3600):
+            await self._maybe_regenerate_self_model(persona_content)
 
         # Profile staleness auto-refresh.
-        await self._maybe_refresh_user_profiles()
+        if await voice_busy.wait_until_quiet("Profile staleness check", max_wait_s=6 * 3600):
+            await self._maybe_refresh_user_profiles()
 
         log_info(f"Nightly dreaming complete. Added {new_dreams_count} new thoughts.")
 
@@ -1046,7 +1052,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 "confidence": confidence
             })
 
-    async def _maybe_refresh_user_profiles(self):
+    async def _maybe_refresh_user_profiles(self):  # noqa: C901
         """Profile staleness decay and auto-refresh.
         
         Evaluates every user profile in the user logs directory.
@@ -1076,28 +1082,10 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 if not log_files:
                     continue
 
-                # Find logs modified AFTER the profile was last generated/modified
-                new_logs = [lf for lf in log_files if lf.stat().st_mtime > profile_mtime]
-                if not new_logs and profile_exists:
-                    # Profile is up to date with all logs
-                    continue
-
-                # Calculate staleness criteria
-                # 1. Total size of subsequent logs
-                total_new_size = sum(lf.stat().st_size for lf in new_logs)
-                
-                # 2. Time gap: profile age vs oldest new log
-                is_stale = False
-                if not profile_exists:
-                    is_stale = True  # Initial generation needed
-                else:
-                    oldest_new_log_time = min(lf.stat().st_mtime for lf in new_logs)
-                    time_gap_days = (oldest_new_log_time - profile_mtime) / 86400.0
-                    if time_gap_days >= 7.0:
-                        is_stale = True
-                    elif total_new_size >= 15 * 1024:  # 15KB
-                        is_stale = True
-
+                # New conversation since the profile, by the date in each log's
+                # name — not its mtime, which enrichment and corrections bump on
+                # old logs every night. Monthly archives are older by definition.
+                is_stale, total_new_size, age_days = profile_stale(profile_path, log_files)
                 if is_stale:
                     log_action(f"User profile for {user_dir.name} is stale. Regenerating...")
                     
@@ -1624,3 +1612,32 @@ TODAY'S CONVERSATIONS:
         stats['recent'] = all_dreams[:5]
         
         return stats
+
+
+#: A profile is rewritten when it is this old and this much new conversation
+#: has come in since — or sooner for a lot of it. At 15 KB with no age floor,
+#: the two most active people would have had theirs rewritten every night.
+PROFILE_MIN_AGE_DAYS = 7
+PROFILE_MIN_NEW_BYTES = 15 * 1024
+PROFILE_BUSY_AGE_DAYS = 3
+PROFILE_BUSY_NEW_BYTES = 100 * 1024
+
+
+def profile_stale(profile_path, log_files) -> tuple:
+    """(stale, bytes of conversation since the profile, profile age in days)."""
+    import re as _re
+    import time as _time
+    from datetime import datetime as _dt
+    if not profile_path.exists():
+        return True, 0, float("inf")
+    made = profile_path.stat().st_mtime
+    made_day = _dt.fromtimestamp(made).strftime("%Y%m%d")
+    new = 0
+    for lf in log_files:
+        m = _re.match(r"interactions_(\d{8})\.md$", lf.name)
+        if m and m.group(1) >= made_day:
+            new += lf.stat().st_size
+    age = (_time.time() - made) / 86400.0
+    stale = ((age >= PROFILE_MIN_AGE_DAYS and new >= PROFILE_MIN_NEW_BYTES)
+             or (age >= PROFILE_BUSY_AGE_DAYS and new >= PROFILE_BUSY_NEW_BYTES))
+    return stale, new, age
