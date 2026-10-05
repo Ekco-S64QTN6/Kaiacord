@@ -389,12 +389,24 @@ function keyRelation(a, b) {
 function hashHue(s) { let h = 0; for (const ch of s || "") h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360; }
 
 // ── canvas helpers ───────────────────────────────────────────────
+// Canvas sizes, kept by a ResizeObserver. Asking each canvas for its size
+// every frame (getBoundingClientRect) after the frame had written text into
+// the page forced a full layout per canvas: over half the booth's CPU.
+const SIZES = new WeakMap();
+const sizeWatch = new ResizeObserver((entries) => {
+  for (const e of entries) {
+    const b = e.borderBoxSize && e.borderBoxSize[0];
+    SIZES.set(e.target, b ? { w: b.inlineSize, h: b.blockSize } : { w: e.contentRect.width, h: e.contentRect.height });
+  }
+});
 function fit(cv) {
-  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-  const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+  let sz = SIZES.get(cv);
+  if (!sz) { const r = cv.getBoundingClientRect(); sz = { w: r.width, h: r.height }; SIZES.set(cv, sz); sizeWatch.observe(cv); }
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(sz.w * dpr)), h = Math.max(1, Math.round(sz.h * dpr));
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return [g, r.width, r.height];
+  return [g, sz.w, sz.h];
 }
 function glow(g, color, blur) { g.shadowColor = color; g.shadowBlur = blur; }
 function noGlow(g) { g.shadowBlur = 0; }
@@ -908,7 +920,11 @@ function drawKnobV(cv, frac, color, flatFrac, autoFrac, kaia) {
   // frac: what is applied (0–1 of the travel) — the hand's setting times Kaia's
   // automix, so her moves turn the knob; flatFrac: where "no change" sits;
   // autoFrac: where the hand alone has it, as a dot (null: the same)
-  const [g, W, H] = fit(cv); g.clearRect(0, 0, W, H);
+  // Redrawn only when something it shows has changed.
+  const key = [frac.toFixed(3), color, flatFrac, autoFrac == null ? "" : autoFrac.toFixed(3), kaia == null ? "" : kaia.toFixed(3)].join("|");
+  if (cv._drawn === key && SIZES.get(cv) && cv._w === SIZES.get(cv).w) return;
+  cv._drawn = key;
+  const [g, W, H] = fit(cv); cv._w = W; g.clearRect(0, 0, W, H);
   const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 4, a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
   const at = (f) => a0 + (a1 - a0) * Math.max(0, Math.min(1, f));
   g.lineWidth = 4; g.strokeStyle = "rgba(42,53,84,.9)"; g.beginPath(); g.arc(cx, cy, R, a0, a1); g.stroke();
@@ -1322,7 +1338,13 @@ function updateHeader() {
   $("voice").style.color = late.count ? COL.yellow : COL.green;
 }
 
-function frame() {
+// 30 frames a second: the mixer's state arrives at 20, and every frame
+// redraws some thirty canvases — at 60 the compositor alone took a core.
+const FRAME_MS = 1000 / 30;
+let lastFrame = 0;
+function frame(ts) {
+  if (ts - lastFrame < FRAME_MS - 2) { requestAnimationFrame(frame); return; }
+  lastFrame = ts;
   try {
     updateHeader();
     if (S && S.live) { drawLanes(); updateDeck(1); updateDeck(2); updateMixer(); updateBottom(); renderCrate(); loadNews(); phonesTick(1); phonesTick(2); }
@@ -1343,7 +1365,7 @@ const FX = (() => {
   const bg = $("fxbg"), top = $("fxtop");
   let on = true, W = 0, H = 0, dpr = 1;
   try { const v = localStorage.getItem("kaia.fx"); on = v === null ? !matchMedia("(prefers-reduced-motion: reduce)").matches : v === "1"; } catch (_) {}
-  const parts = [], pops = [], reticles = new Map();
+  const parts = [], pops = [], reticles = new Map(), knobPos = new WeakMap();
   let lastDrop = -99;
   let aura = 0, combo = 0, red = 0, flash = 0, lastLate = null, lastMix = null, swapped = false, lastBeat = -1, kick = 0;
   function size() {
@@ -1426,7 +1448,11 @@ const FX = (() => {
     // reticles on the knobs her hand is on
     const held = new Set();
     for (const el of document.querySelectorAll(".knob.herhand canvas")) {
-      const r = el.getBoundingClientRect(); if (!r.width) continue;
+      // Where the knob is, re-measured four times a second at most: a layout
+      // read per held knob per frame is what made the booth itself expensive.
+      let pos = knobPos.get(el);
+      if (!pos || now - pos.t > 0.25) { const b = el.getBoundingClientRect(); pos = { r: { left: b.left, top: b.top, width: b.width, height: b.height }, t: now }; knobPos.set(el, pos); }
+      const r = pos.r; if (!r.width) continue;
       const id = el.closest("[id]").id + ":" + el.dataset.k; held.add(id);
       let st = reticles.get(id); if (!st || st.off) { st = { t0: now, off: 0 }; reticles.set(id, st); }
       st.x = r.left + r.width / 2; st.y = r.top + r.height / 2; st.r = r.width / 2;
@@ -1499,8 +1525,12 @@ const FX = (() => {
     const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(c).trim());
     return m ? `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${Math.max(0, Math.min(1, a)).toFixed(3)})` : c;
   }
+  let lastFx = 0;
   function loop(ts) {
-    try { if (on) { const t = ts / 1000; events(); stage(t); front(t); } else events(); } catch (e) { console.error(e); }
+    if (ts - lastFx >= FRAME_MS - 2) {
+      lastFx = ts;
+      try { if (on) { const t = ts / 1000; events(); stage(t); front(t); } else events(); } catch (e) { console.error(e); }
+    }
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
