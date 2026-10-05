@@ -850,6 +850,15 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
 - **discord.py needs a real file for FFmpeg's stderr.** `subprocess.DEVNULL` is an int; it fails
   `.fileno()` and gets piped through a thread that crashes on `.write()` every play.
 
+**Nothing that can wait runs under the music** (`utils/audio/voice_busy.py`). The voice thread needs a frame
+every 20 ms and anything in this process holding the GIL makes it late; a records set started into the dream
+cycle came back 60–170 ms late fifteen times in five minutes. The dream (and inside it, between reflections, the
+self-model and profile refreshes), dream curation, the evening reflection, metadata enrichment and the corpus
+audit `wait_until_quiet` — past their window if need be; the RAG sweep defers and keeps its trigger; the
+scanner's nightly sweep pauses (a tuned channel, a net, an asked-for scan or a listen-along do not) and new
+shortwave listens wait. The night is spread out relative to `dream_mode.schedule_start_hour`: enrichment at
+−1:30, the dream (never within 20 minutes of a boot), curation at +4, the corpus audit at +5.
+
 Strudel is AGPL-3.0 and is **not vendored**. `tools/maintenance/fetch_music_assets.py` fetches it
 as its own unmodified bundle at install time (needs `ffmpeg` and `pactl`), and this project only
 drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source into the tree.
