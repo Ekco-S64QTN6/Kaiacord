@@ -244,17 +244,36 @@ def partners(g: dict, path: str) -> dict:
     return g.get("edges", {}).get(path, {})
 
 
+def live_sets(g: dict, crate: list) -> list:
+    """The graph's sets with only records still in the crate, those of 4 or more."""
+    live = {r.path for r in crate}
+    sets = [[p for p in s if p in live] for s in g.get("sets", [])]
+    return [s for s in sets if len(s) >= 4]
+
+
+def _rotation_path() -> Path:
+    from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+    return Path(telemetry_path("memory/records/set_rotation.json"))
+
+
+def peek_rotation(n_sets: int) -> Optional[int]:
+    """The index the next `!music records` will start, without advancing it."""
+    if not n_sets:
+        return None
+    try:
+        return int(json.loads(_rotation_path().read_text(encoding="utf-8")).get("next", 0)) % n_sets
+    except (OSError, ValueError):
+        return 0
+
+
 def next_set(g: dict, crate: list) -> Optional[list]:
     """The next set in rotation (paths still in the crate), advancing the
     rotation kept beside the graph so each session starts the next one."""
-    live = {r.path for r in crate}
-    sets = [[p for p in s if p in live] for s in g.get("sets", [])]
-    sets = [s for s in sets if len(s) >= 4]
+    sets = live_sets(g, crate)
     if not sets:
         return None
-    from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
     from utils.core.atomic_write import write_atomic
-    path = Path(telemetry_path("memory/records/set_rotation.json"))
+    path = _rotation_path()
     try:
         k = int(json.loads(path.read_text(encoding="utf-8")).get("next", 0))
     except (OSError, ValueError):

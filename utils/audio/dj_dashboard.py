@@ -238,6 +238,31 @@ def crate(session) -> dict:
     return {"live": True, "count": len(session.crate), "genres": genres}
 
 
+def sets(session) -> dict:
+    """Kaia's pre-measured sets, for the booth's SETS tab: every transition in
+    each was measured to lock (`setlist`)."""
+    if session is None:
+        return {"live": False, "sets": []}
+    from utils.audio import setlist
+    by_path = {r.path: r for r in session.crate}
+    live = setlist.live_sets(getattr(session, "graph", {}) or {}, session.crate)
+    played = set(session.played)
+    on_air = session.now.path if session.now else None
+    current = getattr(session, "set_list", None)
+    out = []
+    for i, st in enumerate(live):
+        recs = [by_path[p] for p in st]
+        bpms = [r.bpm for r in recs if r.bpm]
+        out.append({"i": i, "playing": current == st,
+                    "bpm": [min(bpms), max(bpms)] if bpms else None,
+                    "keys": [recs[0].key, recs[-1].key],
+                    "tracks": [{"id": track_id(r.path), "title": r.title, "artist": r.artist, "bpm": r.bpm,
+                                "key": r.key, "played": r.path in played, "on_air": r.path == on_air}
+                               for r in recs]})
+    return {"live": True, "sets": out, "next": setlist.peek_rotation(len(live)),
+            "building": setlist._building.is_set()}
+
+
 def _session():
     from utils.audio import records
     for s in list(records._sessions.values()):
@@ -270,6 +295,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(snapshot(_session())).encode(), "application/json")
             elif path == "/crate":
                 self._send(200, json.dumps(crate(_session())).encode(), "application/json")
+            elif path == "/sets":
+                self._send(200, json.dumps(sets(_session())).encode(), "application/json")
             elif path.startswith("/audio/"):
                 self._audio(path.rsplit("/", 1)[-1])
             elif path.startswith("/wave/"):
@@ -395,6 +422,14 @@ class _Handler(BaseHTTPRequestHandler):
             # none, a deck playing by hand stops back at its cue point.
             pos = body.get("pos")
             ok = src.set_cue(float(pos)) if pos is not None else src.stop_hand(back_to_cue=True)
+        elif self.path == "/set":
+            try:
+                chosen = s.play_set(int(body.get("i")))
+            except (TypeError, ValueError):
+                chosen = None
+            if chosen is None:
+                return self._send(400, b"", "text/plain")
+            return self._send(200, json.dumps({"next": chosen[0], "on_air": chosen[1]}).encode(), "application/json")
         elif self.path in ("/load", "/queue"):
             rec = next((r for r in s.crate if track_id(r.path) == body.get("id")), None)
             if rec:

@@ -615,7 +615,9 @@ a mix that sounded wrong:
 - **She picks partners that lock** (`setlist`). `memory/records/graph.json` holds every tempo-compatible
   pair measured the way the mixer would plan it; it is extended, never rebuilt — a new or changed record
   costs its own pairs, in the background when a session starts. Sets are walks through the graph (every
-  transition measured), rotated per session (`set_rotation.json`); `_choose` follows the set, else the
+  transition measured), rotated per session (`set_rotation.json`) — the booth's SETS tab lists them, marks the one playing and the one
+  the rotation starts next, and ▶ PLAY follows a set from there (`play_set`: its first unplayed record is the
+  next pick; a plan not yet begun is called off and the pick in flight dropped by generation); `_choose` follows the set, else the
   partner that sits best in key, else the old picker — and the live check still runs on everything,
   skips and hand loads included. On the real crate: 2,319 locking transitions, 170 of 319 records with
   a partner, all 103 transitions of the first six sets planned as blends and measured locked (63 of them

@@ -294,3 +294,25 @@ def test_cueing_the_record_already_in_her_plan_moves_the_cue(session):
     assert src.set_cue(6.1) and src.cue == pytest.approx(6.0)
     assert _wait(lambda: src.plan is not None)
     assert src.plan.offset == pytest.approx(6.0 - R.PREROLL_S)          # replanned from the cue
+
+
+def test_the_sets_tab_lists_kaias_sets_and_plays_one(session, monkeypatch):
+    """SETS: every pre-measured set, which one is playing, which the rotation
+    starts next; PLAY makes the set's first unplayed record the next pick."""
+    from utils.audio import setlist
+    one, two = rec("one"), rec("two")
+    a, b, c = rec("a"), rec("b"), rec("c")
+    session.crate = [one, two, a, b, c]
+    session._by_path = {r.path: r for r in session.crate}
+    session.graph = {"sets": [[one.path, two.path, a.path, b.path], [a.path, b.path, c.path, two.path]]}
+    session.set_list = session.graph["sets"][0]
+    monkeypatch.setattr(setlist, "peek_rotation", lambda n: 1)
+    data = D.sets(session)
+    assert [len(x["tracks"]) for x in data["sets"]] == [4, 4] and data["next"] == 1
+    assert data["sets"][0]["playing"] and not data["sets"][1]["playing"]
+    assert data["sets"][0]["tracks"][0]["on_air"]
+
+    assert session.play_set(1) == ("A — a", False)          # "one" is on air and not in set 2
+    assert session.set_list == session.graph["sets"][1] and session.requests[0] == a.path
+    assert session.play_set(0) == ("A — one", True)         # on air already: carry on along it
+    assert session.play_set(9) is None

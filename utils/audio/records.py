@@ -1730,6 +1730,37 @@ class RecordsSession:
     def _graph_built(self, graph: dict) -> None:
         self.graph = graph
 
+    def play_set(self, index: int) -> Optional[tuple]:
+        """Follow set `index` (of `setlist.live_sets`) from here on: its first
+        record not yet played comes next — measured live like any blend — and
+        each one after it is the set's next. (record name, already on air), or None."""
+        from utils.audio import setlist
+        sets = setlist.live_sets(self.graph, self.crate)
+        if not 0 <= index < len(sets):
+            return None
+        self.set_list = sets[index]
+        on_air = self.now.path if self.now else None
+        if on_air in self.set_list:
+            log_action(f"[records] set {index + 1} chosen at the booth; already in it")
+            return self._by_path[on_air].name, True
+        played = set(self.played)
+        first = next((p for p in self.set_list if p not in played), self.set_list[0])
+        self.requests = [first] + [p for p in self.requests if p != first]
+        src = self.source
+        if src is not None and src.hand is None:
+            # The next record changed: a plan not yet begun is called off, the
+            # pick waiting (or still being made) is dropped, and the set's
+            # record is picked now. A blend already under way finishes first.
+            with src._lock:
+                if not src.blend_started():
+                    src._call_off_plan()
+                    src._gen += 1
+                    src._queued = None
+                    src._exhausted = False
+            src._prefetch()
+        log_action(f"[records] set {index + 1} chosen at the booth; {self._by_path[first].name} comes next")
+        return self._by_path[first].name, False
+
     def _partner(self, deck: Deck) -> Optional[Next]:
         """The next record from the measured graph (`setlist`): the next one in
         the set being played if it is a measured lock from this one, else the
