@@ -412,6 +412,7 @@ class ArtIntent:
     complexity: Optional[str] = None
     lut: Optional[np.ndarray] = None       # a colour ramp taken from an image
     chosen_by: str = ""                    # "kaia", "words", "mood", "image"
+    about: str = ""                        # what an unasked-for piece is about (her thought, the room)
 
     def to_dict(self) -> dict:
         return {"title": self.title, "feeling": self.feeling, "prompt": self.prompt,

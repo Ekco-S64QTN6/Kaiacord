@@ -11,11 +11,13 @@ She decides the piece before it is drawn (`kaia_art_intent.decide`), titles it,
 says what she sees in the result, and remembers having made it.
 """
 import asyncio
+import base64
 import io
 import json
 import time
 import uuid
 from pathlib import Path
+from typing import Optional
 
 import discord
 
@@ -96,22 +98,52 @@ def _comment_prompt(params, intent, viewport) -> str:
     if intent is not None:
         if intent.prompt:
             why += f'someone asked for "{intent.prompt}". '
+        elif getattr(intent, "about", ""):
+            why += f"you made it about {intent.about}. "
         if intent.title:
             why += f'you titled it "{intent.title}". '
         if intent.feeling:
             why += f"you made it feeling {intent.feeling}. "
         if intent.lut is not None:
             why += "it is painted in the colours of a picture they sent. "
-    return (f"you just made a fractal flame. {why}"
-            f"it has {params.get('symmetry_k', '?')}-fold symmetry, shapes: {', '.join(sorted(shapes)) or 'unknown'}, "
-            f"palette: {params.get('palette', 'unknown')}. "
-            "in one or two sentences, say what you see in it or what you were reaching for. "
-            "be specific and a little strange; don't explain the maths.")
+    before = ""
+    try:
+        from utils.core.kaia_art_intent import recent_art
+        said = [r["summary"].strip("[]") for r in recent_art(3) if r.get("summary")]
+        if said:
+            before = ("how you described your last pieces, so this one isn't another of them: "
+                      + " / ".join(f'"{x[:160]}"' for x in said) + ". ")
+    except Exception:
+        pass
+    return (f"you just made this fractal flame — the picture is attached; look at it. {why}"
+            f"it has {params.get('symmetry_k', '?')}-fold symmetry, palette: {params.get('palette', 'unknown')}. "
+            f"{before}"
+            "in one or two sentences, say what you actually see in it and what it has to do with what you made "
+            "it about. be specific and a little strange; don't explain the maths.")
 
 
-async def _comment(ctx, prompt: str) -> str:
+def _vision_b64(image) -> Optional[str]:
+    """The rendered piece as base64 PNG at the vision encoder's size (896 px):
+    the commentary asked her what she saw in a picture she was never shown."""
+    try:
+        im = image.convert("RGB")
+        im.thumbnail((896, 896))
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception as e:
+        log_warning(f"[art] couldn't prepare the piece for her to look at: {e}")
+        return None
+
+
+async def _comment(ctx, prompt: str, image=None) -> str:
     try:
         from utils.infrastructure.gpu.gpu_manager import GPUTaskPriority, chat_options, gpu_memory_manager
+        user = {"role": "user", "content": prompt}
+        if image is not None:
+            b64 = await asyncio.to_thread(_vision_b64, image)
+            if b64:
+                user["images"] = [b64]
         response = await gpu_memory_manager.run_with_gpu_guard(
             model_name=ctx.config.chat_model,
             priority=GPUTaskPriority.CHAT,
@@ -119,7 +151,7 @@ async def _comment(ctx, prompt: str) -> str:
                 ctx.ollama_client.chat(
                     model=ctx.config.chat_model,
                     messages=[{"role": "system", "content": "you are kaia. lowercase only. one or two sentences max. no asterisks."},
-                              {"role": "user", "content": prompt}],
+                              user],
                     options=chat_options(num_predict=90),
                     keep_alive=-1),
                 timeout=15.0),
@@ -190,7 +222,7 @@ async def handle_art_command(ctx, msg, send_kaia_response):
         else:
             from utils.core.kaia_art_intent import decide
             lut = await _image_palette(msg)
-            intent = await decide(opts["prompt"], ctx=ctx, image_lut=lut)
+            intent = await decide(opts["prompt"], ctx=ctx, image_lut=lut, channel_id=channel_id)
             log_info(f"[art] intent ({intent.chosen_by}): title={intent.title!r} "
                      f"palette={intent.palette or ('image' if intent.lut is not None else '-')} "
                      f"symmetry={intent.symmetry} shapes={intent.shapes} complexity={intent.complexity}")
@@ -215,7 +247,7 @@ async def handle_art_command(ctx, msg, send_kaia_response):
     except Exception as e:
         log_warning(f"[art] Failed to save art to disk: {e}")
 
-    comment = await _comment(ctx, _comment_prompt(params, intent, opts["viewport"]))
+    comment = await _comment(ctx, _comment_prompt(params, intent, opts["viewport"]), image)
     title = _title_for(intent, params)
 
     try:

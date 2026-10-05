@@ -24,6 +24,8 @@ from __future__ import annotations
 import io
 import json
 import re
+import time
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -202,7 +204,63 @@ def palette_from_image(data: bytes, n_colors: int = 6) -> Optional[np.ndarray]:
 
 # ── her own choice ───────────────────────────────────────────────────────
 
-def _menu_prompt(prompt: str, m: dict, image: bool) -> str:
+def recent_art(n: int = 6) -> list[dict]:
+    """Her last `n` pieces from the growth log: [{"title", "summary"}], oldest first."""
+    try:
+        from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+        path = telemetry_path("memory/growth_log.jsonl")
+        rows = []
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                if '"kind": "art"' not in line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if r.get("type") == "creation" and r.get("kind") == "art":
+                    rows.append({"title": str(r.get("title") or ""), "summary": str(r.get("summary") or "")})
+        return rows[-n:]
+    except OSError:
+        return []
+
+
+def inspiration(channel_id=None) -> str:
+    """Something of hers to make a piece about when nobody asked for anything:
+    what this channel was just talking about, or a thought she had recently.
+    With only a mood word to go on, every unprompted piece came out the same —
+    "jitter", seven times running."""
+    import random
+    options = []
+    try:
+        from utils.infrastructure.system.bot_state import bot_state
+        turns = [t for t in list(bot_state.channel_memory.get(channel_id, []))
+                 if isinstance(t, dict) and t.get("role") == "user" and not t.get("event")]
+        said = [re.sub(r"^[^:\n]{1,40}:\s*", "", str(t.get("content", ""))).strip() for t in turns[-4:]]
+        said = [x[:200] for x in said if len(x.split()) >= 3 and not x.startswith("!")]
+        if said:
+            options.append("what people here were just talking about: " + " / ".join(f'"{x}"' for x in said))
+    except Exception:
+        pass
+    try:
+        from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+        lines = Path(telemetry_path("memory/monologue_log.jsonl")).read_text(encoding="utf-8").splitlines()[-12:]
+        thoughts = []
+        for line in lines:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if r.get("thought") and time.time() - float(r.get("epoch", 0)) < 2 * 86400:
+                thoughts.append(str(r["thought"])[:240])
+        if thoughts:
+            options.append(f'a thought you had recently: "{random.choice(thoughts)}"')
+    except (OSError, ValueError):
+        pass
+    return random.choice(options) if options else ""
+
+
+def _menu_prompt(prompt: str, m: dict, image: bool, about: str = "", before: Optional[list] = None) -> str:
     import random
     # Shuffled per call: with a fixed order the first entry of each menu was
     # chosen far more often than anything the prompt asked for.
@@ -212,7 +270,12 @@ def _menu_prompt(prompt: str, m: dict, image: bool) -> str:
     shapes = ", ".join(f"{k} ({v})" for k, v in shape_items)
     palettes = ", ".join(f"{k} ({v})" for k, v in palette_items)
     asked = (f'someone asked you for a piece: "{prompt}".' if prompt
-             else "nobody asked for anything in particular; make what you feel like making.")
+             else "nobody asked for anything in particular; make what you feel like making."
+             + (f" on your mind — {about}." if about else ""))
+    titles = [r["title"] for r in (before or []) if r.get("title")]
+    if titles:
+        asked += (" your last pieces were called " + ", ".join(f'"{t}"' for t in titles)
+                  + " — this one is something else, and so is its title.")
     img = " they attached a picture, and its colours will be your palette." if image else ""
     return (
         f"you are about to make a fractal flame. {asked}{img}\n"
@@ -275,7 +338,7 @@ def merge(primary: Optional[ArtIntent], fallback: ArtIntent) -> ArtIntent:
     return primary
 
 
-async def decide(prompt: str, *, ctx=None, image_lut=None) -> ArtIntent:
+async def decide(prompt: str, *, ctx=None, image_lut=None, channel_id=None) -> ArtIntent:
     """Everything that goes into a piece before it is drawn.
 
     Her choice when the model answers well; the lexicon for anything she left
@@ -285,11 +348,13 @@ async def decide(prompt: str, *, ctx=None, image_lut=None) -> ArtIntent:
     base = merge(from_words(prompt), from_mood(m)) if prompt else from_mood(m)
     base.prompt = prompt or ""
 
+    about = "" if prompt else inspiration(channel_id)
     choice = None
     if ctx is not None and getattr(ctx, "ollama_client", None) is not None:
-        choice = await _ask(ctx, prompt, m, image_lut is not None)
+        choice = await _ask(ctx, prompt, m, image_lut is not None, about, recent_art())
     intent = merge(choice, base)
     intent.prompt = prompt or ""
+    intent.about = about
     if image_lut is not None:
         intent.lut = image_lut
         intent.palette = None
@@ -297,7 +362,8 @@ async def decide(prompt: str, *, ctx=None, image_lut=None) -> ArtIntent:
     return intent
 
 
-async def _ask(ctx, prompt: str, m: dict, image: bool) -> Optional[ArtIntent]:
+async def _ask(ctx, prompt: str, m: dict, image: bool, about: str = "",
+               before: Optional[list] = None) -> Optional[ArtIntent]:
     import asyncio
     import uuid
     try:
@@ -310,7 +376,7 @@ async def _ask(ctx, prompt: str, m: dict, image: bool) -> Optional[ArtIntent]:
                     model=ctx.config.chat_model,
                     messages=[
                         {"role": "system", "content": "you are kaia, choosing how to make a piece of art. json only."},
-                        {"role": "user", "content": _menu_prompt(prompt, m, image)},
+                        {"role": "user", "content": _menu_prompt(prompt, m, image, about, before)},
                     ],
                     options=chat_options(num_predict=160, temperature=0.9),
                     keep_alive=-1,
