@@ -450,6 +450,7 @@ def classify(catch) -> None:
 
 
 _running = False
+_paused_for = ""                         # what the nightly watch is paused for, if anything
 _failed_at = 0.0
 FAIL_BACKOFF_S = 15 * 60          # an unplugged dongle is retried every 15 min, not every minute
 _stop_event = None                # the current watch's stop flag
@@ -904,7 +905,22 @@ async def shutdown() -> None:
 def tick(now: Optional[datetime] = None) -> bool:
     """Start the watch if it's scanning hours and the dongle is free. Called
     every minute by the radio task. Returns whether it started."""
-    global _running
+    global _running, _paused_for
+    # The nightly sweep gives way to records or a live set: its spectra and
+    # transcriptions run in this process and made the voice thread late. A
+    # tuned channel, a configured net or a scan asked for keeps running.
+    from utils.audio import voice_busy
+    busy = voice_busy.music()
+    if busy and not (tuned() or asked() or due_net(now) or listening_along()):
+        if _running and not _pinned:
+            if _paused_for != busy:
+                log_info(f"[scanner] nightly watch paused: {busy} is playing; it resumes when the music stops")
+            _stop_all()
+        _paused_for = busy
+        return False
+    if _paused_for and not busy:
+        log_info("[scanner] the music stopped; the nightly watch resumes")
+        _paused_for = ""
     if _running or not _cfg("enabled", True) or not rtl.available() or rtl.DEVICE.locked():
         return False
     if time.time() - _failed_at < FAIL_BACKOFF_S:

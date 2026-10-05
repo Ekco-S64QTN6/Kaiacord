@@ -507,7 +507,12 @@ async def run_job(job: dict, poster=None) -> list[dict]:
 
 
 async def tick(poster=None, now: Optional[datetime] = None) -> None:
-    """Start whatever is due. Called every minute by the radio task."""
+    """Start whatever is due. Called every minute by the radio task. Nothing
+    new starts while records or a live set plays (a listen ends in a CPU
+    transcription in this process); the next tick retries while its window is open."""
+    from utils.audio import voice_busy
+    if voice_busy.music():
+        return
     from utils.radio import priyom
     now = now or datetime.now(timezone.utc)
     schedule = priyom.upcoming(read_cache(priyom.CACHE), hours=1, now=now - timedelta(minutes=5))

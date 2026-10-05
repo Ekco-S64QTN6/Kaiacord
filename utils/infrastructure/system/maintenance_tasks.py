@@ -44,6 +44,15 @@ async def rag_maintenance_task():
         force_sweep = os.path.exists(trigger_path)
         is_hourly = (_rag_tick_count % 12 == 0)  # Full scan every ~60 minutes
         
+        # Indexing and persisting hold the GIL long enough to make the voice
+        # thread late. While she is playing in voice the sweep waits; the
+        # trigger stays where it is, so the next tick after the music sees it.
+        if force_sweep or is_hourly:
+            from utils.audio import voice_busy
+            busy = voice_busy.playing()
+            if busy:
+                log_debug(f"RAG maintenance deferred: {busy} is playing")
+                return
         if force_sweep:
             log_info("🔗 Detected .trigger_reindex. Performing maintenance sweep...")
             try: os.remove(trigger_path)

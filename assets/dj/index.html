@@ -1344,6 +1344,7 @@ const FX = (() => {
   let on = true, W = 0, H = 0, dpr = 1;
   try { const v = localStorage.getItem("kaia.fx"); on = v === null ? !matchMedia("(prefers-reduced-motion: reduce)").matches : v === "1"; } catch (_) {}
   const parts = [], pops = [], reticles = new Map();
+  let lastDrop = -99;
   let aura = 0, combo = 0, red = 0, flash = 0, lastLate = null, lastMix = null, swapped = false, lastBeat = -1, kick = 0;
   function size() {
     dpr = Math.min(window.devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight;
@@ -1363,7 +1364,10 @@ const FX = (() => {
   // what happened in the mix, from the stream
   function events() {
     const m = S && S.live ? S.mix : null, late = S && S.late ? S.late.count : 0;
-    if (lastLate !== null && late > lastLate) bad("DROPOUT");
+    if (lastLate !== null && late > lastLate) {                // a late voice frame: once in 8 s, then just a pulse
+      const now = performance.now() / 1000;
+      if (now - lastDrop > 8) { lastDrop = now; bad("DROPOUT"); } else red = Math.max(red, 0.35);
+    }
     lastLate = late;
     const key = m ? `${m.kind}|${m.drop}|${m.mode}` : "";
     const was = lastMix;

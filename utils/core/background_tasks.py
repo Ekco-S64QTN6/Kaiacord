@@ -6,6 +6,9 @@ import time
 import sys
 import os
 from datetime import datetime, timedelta
+
+#: The first dream check waits this long after the bot comes up.
+DREAM_AFTER_BOOT_S = 20 * 60
 from pathlib import Path
 import discord
 from discord.ext import tasks
@@ -297,8 +300,7 @@ class CoreTaskManager:
         metadata, in the `logs` index, which is the corpus her memory of a
         conversation actually comes from.
 
-        Runs in the dream window, when the GPU is already hers and nobody is
-        talking, and caps each pass so a backlog is worked off over several
+        Runs before the dream window, when nobody is talking, and caps each pass so a backlog is worked off over several
         nights rather than in one long stall.
         """
         @tasks.loop(hours=24)
@@ -309,6 +311,9 @@ class CoreTaskManager:
                 return
             if not getattr(self.ctx, 'bot_state', None) or \
                     not getattr(self.ctx.bot_state, 'boot_complete', False):
+                return
+            from utils.audio import voice_busy
+            if not await voice_busy.wait_until_quiet("Metadata enrichment", max_wait_s=4 * 3600):
                 return
 
             import sys as _sys
@@ -357,10 +362,11 @@ class CoreTaskManager:
         @metadata_enrichment_task.before_loop
         async def before_enrichment():
             await self.ctx.bot.wait_until_ready()
-            # Land inside the dream window rather than at boot.
+            # Ninety minutes before the dream window, so the two never share
+            # the GPU and the night's jobs are spread out, not stacked at 3.
             start = int(config.get('dream_mode.schedule_start_hour', 3))
             now = datetime.now()
-            target = now.replace(hour=start, minute=30, second=0, microsecond=0)
+            target = now.replace(hour=(start - 2) % 24, minute=30, second=0, microsecond=0)
             if target <= now:
                 target = target + timedelta(days=1)
             await asyncio.sleep(max(60.0, (target - now).total_seconds()))
@@ -397,6 +403,9 @@ class CoreTaskManager:
                 return
             if not getattr(self.ctx, 'bot_state', None) or \
                     not getattr(self.ctx.bot_state, 'boot_complete', False):
+                return
+            from utils.audio import voice_busy
+            if not await voice_busy.wait_until_quiet("Dream curation", max_wait_s=6 * 3600):
                 return
 
             import sys as _sys
@@ -456,10 +465,11 @@ class CoreTaskManager:
         @dream_curation_task.before_loop
         async def before_curation():
             await self.ctx.bot.wait_until_ready()
-            # After the dream window, so the week's last dream is included.
+            # Two hours after the dream window, so the week's last dream is in
+            # even when a set kept it waiting past the window.
             start = int(config.get('dream_mode.schedule_start_hour', 3))
             now = datetime.now()
-            target = now.replace(hour=(start + 2) % 24, minute=0, second=0, microsecond=0)
+            target = now.replace(hour=(start + 4) % 24, minute=0, second=0, microsecond=0)
             if target <= now:
                 target = target + timedelta(days=1)
             await asyncio.sleep(max(60.0, (target - now).total_seconds()))
@@ -497,6 +507,9 @@ class CoreTaskManager:
             if shutdown_manager.shutting_down:
                 return
             if not config.get("knowledge_base.auto_hygiene", True):
+                return
+            from utils.audio import voice_busy
+            if not await voice_busy.wait_until_quiet("Corpus audit", max_wait_s=6 * 3600):
                 return
             if not getattr(self.ctx, 'bot_state', None) or \
                     not getattr(self.ctx.bot_state, 'boot_complete', False):
@@ -566,7 +579,7 @@ class CoreTaskManager:
             # An hour after the dream curation, so it sees a settled corpus.
             start = int(config.get('dream_mode.schedule_start_hour', 3))
             now = datetime.now()
-            target = now.replace(hour=(start + 3) % 24, minute=0, second=0, microsecond=0)
+            target = now.replace(hour=(start + 5) % 24, minute=0, second=0, microsecond=0)
             if target <= now:
                 target = target + timedelta(days=1)
             await asyncio.sleep(max(60.0, (target - now).total_seconds()))
@@ -761,6 +774,12 @@ class CoreTaskManager:
                 today = now.strftime('%Y-%m-%d')
                 
                 if last_dream != today:
+                    # Not while she is playing in voice: the dream's indexing and
+                    # persists hold the GIL and the voice thread lags out. It
+                    # waits for the music to stop, past the window if need be.
+                    from utils.audio import voice_busy
+                    if not await voice_busy.wait_until_quiet("Dream cycle", max_wait_s=6 * 3600):
+                        return
                     log_action("Nightly dream processing starting...")
                     
                     # Signal presence: dreaming
@@ -825,6 +844,15 @@ class CoreTaskManager:
                         if pm and pm._override_text in ("dreaming...",):
                             pm.clear_override()
 
+        @dream_engine_task.before_loop
+        async def before_dream():
+            # A restart inside the dream window is not a reason to dream that
+            # minute: boot loads the indices, refreshes the news and sweeps the
+            # corpus, and a dream on top of it all is the 3 a.m. pile-up.
+            if getattr(self.ctx, 'bot', None):
+                await self.ctx.bot.wait_until_ready()
+            await asyncio.sleep(DREAM_AFTER_BOOT_S)
+
         @dream_engine_task.error
         async def dream_engine_error(error):
             log_error(f"CRITICAL: Dream engine task died: {error}")
@@ -857,6 +885,9 @@ class CoreTaskManager:
                 today = now.strftime('%Y-%m-%d')
                 
                 if last_reflection != today:
+                    from utils.audio import voice_busy
+                    if not await voice_busy.wait_until_quiet("Evening reflection", max_wait_s=2 * 3600):
+                        return
                     try:
                         from utils.social.kaia_social_responder import load_persona_async
                         persona_content = await load_persona_async()
