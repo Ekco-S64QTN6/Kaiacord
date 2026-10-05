@@ -597,19 +597,29 @@ a mix that sounded wrong:
   for a skip), counted from bar one (`Grid.bar0`), and is fitted before the outgoing's last strong
   beat (`last_strong_beat`), not the end of the file: blending into a fade swaps the bass to nothing.
   Two full records sum through a soft limiter.
-- **Two beats play together only when they are known to lock.** A blend is decided before it starts:
-  both beats steady (the onset comb, or — for anything tracked — ticks that run straight around the mix
-  points, which is what lets breakbeats and DnB blend), bars counted (`Grid.bar_tick`, bar one carried on
-  the ticks from a record's opening to where it is mixed), tempos within stretch (half/double counted),
-  and the two tracked beats predicted to drift under `MAX_DRIFT_S` over the whole blend. The incoming is
-  cued at the first phrase where its beat holds (past a loose intro) and the outgoing mixes out at the
-  last phrase where its does (before a beatless outro). Anything else is a `cut`: a clean switch, the
-  outgoing faded over its last beat into a bar line and the incoming's first beat exactly on it — never
-  an overlap. The 8-bar crossfade it replaced overlapped unmatched beats. Blends are never halved below
-  `MIN_BLEND_BEATS` (32). Kaia's own pick must be blendable with the record on air at its *playing*
-  tempo (`_choose`: 20 candidates by key and tempo, then the whole crate by playing tempo); on the real
-  crate that took 9 of 20 transitions blending to 19. Every transition and what it was decided from is
-  appended to `memory/records/transitions.jsonl`.
+- **Two beats play together only when they are measured to lock** (`mixcheck`). The ticks put the bars
+  together to within tens of ms — the tracker sits 22 ms early on one record and 38 ms late on another,
+  and moves between sections — so a plan is only a proposal. Every planned blend is laid out on the
+  played timeline exactly as the mixer will play it and measured bar by bar through the whole overlap on
+  each record's kick envelope: locked if most bars agree on one lag inside `LOCK_S`; moved by that lag if
+  they agree on a larger one (a 109 ms flam, fixed); a clean switch if they agree on nothing — no common
+  pulse, which was 34 of 40 planned blends on the real crate before this (pop, hip-hop and synthwave
+  pairs laid over each other for 64 beats because their ticks ran straight). The search reaches a
+  quarter beat only, so an off-beat bassline can never be chosen as the alignment. A pair the judge
+  cannot read (no envelope) is a switch. The kick envelope is low-band power smoothed below the bass's own
+  frequencies (zero-phase) before it is differentiated: per 2 ms hop without that it followed each cycle
+  of a 50 Hz kick, and every alignment measured on it — the old 20 ms `fine_offset` nudge included — was
+  ripple. Check a judge change on click tracks *and* by plotting both records' envelopes after the shift:
+  identical copies prove only the time mapping. It cannot always tell a kick from a heavy rolling
+  bassline on the beat; that needs ears.
+- **She picks partners that lock** (`setlist`). `memory/records/graph.json` holds every tempo-compatible
+  pair measured the way the mixer would plan it; it is extended, never rebuilt — a new or changed record
+  costs its own pairs, in the background when a session starts. Sets are walks through the graph (every
+  transition measured), rotated per session (`set_rotation.json`); `_choose` follows the set, else the
+  partner that sits best in key, else the old picker — and the live check still runs on everything,
+  skips and hand loads included. On the real crate: 2,319 locking transitions, 170 of 319 records with
+  a partner, all 103 transitions of the first six sets planned as blends and measured locked (63 of them
+  needing a 12–122 ms shift the old code would have played as a flam).
 - **The audio thread works from one snapshot per frame.** A skip, a load or a cue from the booth calls a
   plan off on another thread; a frame that read the plan before it and the incoming deck after it raised
   `'NoneType' object has no attribute 'slot'`, and discord.py stopped the set. `read()` takes plan,
@@ -636,8 +646,7 @@ a mix that sounded wrong:
   of a 16-bar phrase, released on the one. Which gesture is a hash of record and phrase, never random.
 - **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
   mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is a cut on the
-  bar. A kick correction over 20 ms is not applied — the counted grids land within a few ms, and
-  larger corrections came from sparse intros and basslines the correlation latched onto.
+  bar. Steadiness only proposes a blend; `mixcheck` decides it.
 - **Check a change on click tracks** through the real `CrossfadeSource` (the incoming first kick must
   land on the planned bar, kicks within a few ms) — a beat detector on real music is not a reliable
   judge of another beat detector.
@@ -660,7 +669,10 @@ fader when *her* blend into it starts, not when she plans it — a planned blend
 A cue set on the record already in her plan (she plans a record's end minutes ahead) calls that plan
 off and replans from the cue; it used to be refused, and the jog snapped back to the start. A knob's
 pointer is what is *applied* — the hand's setting times the automix and her hands — so her moves turn
-it; the hand's own setting is the yellow dot, and a deck not sounding shows the hand's setting.
+it; the hand's own setting is the yellow dot, and a deck not sounding shows the hand's setting. Her own
+multipliers are streamed apart from the automix (`hands_now`), and a knob she is holding turns pink — a ring,
+an arc from where it would be without her, and a dB badge — or she visibly does nothing (the page has a
+`.kaia` grid class; a knob marked with it collapsed the mixer column).
 Knobs drag with pointer capture, never pointer lock (the browser announced "press Esc" on every turn),
 and neither page can be zoomed: a pinch cut the mixer in half. No grid column may be widened by its
 contents (`min-width: 0`, long labels ellipsised).

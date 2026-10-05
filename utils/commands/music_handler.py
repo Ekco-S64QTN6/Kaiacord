@@ -251,6 +251,7 @@ async def _records(msg, query: str) -> None:
     if not crate:
         return await msg.channel.send(embed=notice(
             "i don't have a record library — `music.library_catalog` in kaia.yaml points at it.", error=True))
+    chosen = None
     if query:
         first = library.find(crate, query)
         if not first:
@@ -263,14 +264,21 @@ async def _records(msg, query: str) -> None:
             feeling = mood()
         except Exception:
             feeling = {}
-        first = library.opener(crate, feeling, datetime.now().hour)
-        why = "for the mood i'm in"
+        # The next of the pre-measured sets, in rotation: every transition in it
+        # was measured to lock. Her mood's opener where no set exists yet.
+        from utils.audio import setlist
+        chosen = setlist.next_set(await asyncio.to_thread(setlist.load), crate)
+        by_path = {r.path: r for r in crate}
+        first = by_path.get(chosen[0]) if chosen else None
+        why = f"the start of a set of {len(chosen)} that all lock together" if first else "for the mood i'm in"
+        first = first or library.opener(crate, feeling, datetime.now().hour)
     try:
         async with msg.channel.typing():
             await records.start_records(
                 channel, crate, first, requested_by=msg.author.display_name, text_channel=msg.channel,
                 mix_beats=int(config.get("music.records_mix_beats", 64)),
-                alone_grace_s=float(config.get("music.alone_grace_seconds", 120)))
+                alone_grace_s=float(config.get("music.alone_grace_seconds", 120)),
+                set_list=chosen if not query and chosen and first.path == chosen[0] else None)
     except discord.ClientException as exc:
         log_warning(f"[records] join failed: {exc}")
         return await msg.channel.send(embed=notice("i couldn't get into that channel.", error=True))
@@ -281,6 +289,7 @@ async def _records(msg, query: str) -> None:
     await msg.channel.send(embed=box(
         f"🎧  Records in {channel.name}",
         f"starting with **{clean(first.name, 200)}**{' (' + meta + ')' if meta else ''}, {why}. "
-        f"{len(crate)} in the crate; each next one picked to sit with the last in key and tempo.",
+        f"{len(crate)} in the crate; each next one is a record measured to lock with the last, "
+        f"and anything that doesn't lock is switched on the bar, never laid over.",
         COLOR_MUSIC, footer="!music skip · !music status · !music off"))
     log_action(f"[records] {msg.author.display_name} started records in {channel.name}: {first.name}")

@@ -13,6 +13,16 @@ from utils.audio import library
 from utils.audio import records as R
 from utils.audio.beatgrid import Grid
 
+
+@pytest.fixture(autouse=True)
+def _blends_measured_as_locked(monkeypatch):
+    """These tests use fake records with no audio to measure; every planned
+    blend is taken as measured and locked unless a test says otherwise."""
+    from utils.audio import mixcheck, records as _R
+    monkeypatch.setattr(_R, "_default_verify",
+                        lambda *a: (mixcheck.Verdict(True, 16, 16, agree=16), 0.0))
+    monkeypatch.setattr(_R, "_envelope", lambda path: None)
+
 FB = R.FRAME_BYTES
 
 

@@ -13,6 +13,16 @@ from utils.audio.beatgrid import Grid
 from utils.audio.records import FRAME_BYTES, FRAMES_PER_S, RATE, CrossfadeSource, Deck, Next, plan_transition, gains
 
 
+@pytest.fixture(autouse=True)
+def _blends_measured_as_locked(monkeypatch):
+    """These tests use fake records with no audio to measure; every planned
+    blend is taken as measured and locked unless a test says otherwise."""
+    from utils.audio import mixcheck, records as _R
+    monkeypatch.setattr(_R, "_default_verify",
+                        lambda *a: (mixcheck.Verdict(True, 16, 16, agree=16), 0.0))
+    monkeypatch.setattr(_R, "_envelope", lambda path: None)
+
+
 def rec(name, bpm, key, genre="House"):
     return library.Record(path=f"/music/{name}.mp3", artist="A", title=name, bpm=bpm, key=key, genre=genre)
 
@@ -164,14 +174,13 @@ def test_a_blend_swaps_the_bass_halfway_and_keeps_one_bassline():
     assert out_high[t <= plan.drop].min() == 1 and in_high[t >= plan.done].min() == pytest.approx(1)
 
 
-def _source(first_value=1000, second_value=-1000, grid=STEADY, out_grid=STEADY, fine=None):
+def _source(first_value=1000, second_value=-1000, grid=STEADY, out_grid=STEADY, verify=None):
     first = Deck(rec("one", 120, "8A"), 1.0, 20.0, tone(first_value, 20.0))
     changed = []
     queue = [nxt(grid)]
     src = CrossfadeSource(first, lambda deck: queue.pop() if queue else None,
                           stream_factory=tone(second_value, 20.0), on_change=changed.append,
-                          grid_at=lambda record, start, seconds: out_grid, mix_beats=16)
-    src._fine = lambda deck, plan: fine
+                          grid_at=lambda record, start, seconds: out_grid, mix_beats=16, verify=verify)
     wait_for(first, 100)
     deadline = time.time() + 2
     while src._queued is None and time.time() < deadline:
@@ -218,13 +227,28 @@ def test_a_blend_hands_over_to_the_next_record():
     assert [r.title for r in changed] == ["two"]
 
 
-def test_a_kick_correction_too_large_to_trust_is_not_applied():
-    a, _ = _source(fine=0.02)
-    b, _ = _source(fine=0.2)
-    c, _ = _source(fine=None)
+def test_a_blend_is_measured_before_it_plays():
+    """Ticks put the bars within tens of ms; the records decide. A blend whose
+    bars all agree it is 54 ms late is started 54 ms earlier, whatever the size;
+    one with no common beat is a clean switch, never laid over."""
+    from utils.audio import mixcheck
+    locked = mixcheck.Verdict(True, 16, 16, agree=14)
+    unlocked = mixcheck.Verdict(False, 16, 5, why="no common beat — only 5 of 16 bars line up clearly")
+    seen = []
+
+    def measured(verdict, shift):
+        def v(out_path, out_ratio, in_path, plan):
+            seen.append((out_path, in_path, plan.kind))
+            return verdict, shift
+        return v
+    a, _ = _source(verify=measured(locked, -0.054))
+    b, _ = _source(verify=measured(locked, 0.0))
+    c, _ = _source(verify=measured(unlocked, 0.0))
     pa, pb, pc = _plan(a), _plan(b), _plan(c)
-    assert pa.start == pytest.approx(pc.start + 0.02)
-    assert pb.start == pytest.approx(pc.start)
+    assert pa.kind == pb.kind == "blend" and pa.start == pytest.approx(pb.start - 0.054)
+    assert "moved -54 ms" in pa.check
+    assert pc.kind == "cut" and pc.fallback == "unlocked" and "no common beat" in pc.why
+    assert seen[0][0].endswith("one.mp3") and seen[0][1].endswith("two.mp3")
 
 
 def test_the_set_ends_when_nothing_comes_next():
@@ -564,7 +588,6 @@ def test_a_clashing_incoming_is_key_synced_in_the_blend(monkeypatch):
         return tone(-1000, 20.0)(path, ratio)
     src = CrossfadeSource(first, lambda d: Next(rec("two", 120, "3A"), 300.0, 0.0, STEADY),
                           stream_factory=factory, grid_at=lambda *a: STEADY, mix_beats=16)
-    src._fine = lambda deck, plan: None
     wait_for(first, 100)
     src.skip()
     assert wait_until(lambda: src.plan is not None)
