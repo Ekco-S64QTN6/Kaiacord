@@ -229,9 +229,10 @@ changing pitch, and levelled to the same loudness. Its first downbeat lands on a
 playing, on a phrase, and the two blend over 64 beats by default (`music.records_mix_beats`), staged
 the way DJs ride a long EQ blend: the new record's highs, then its mids, the bass swapped on the
 halfway bar, then the old one's mids and highs out. The booth picks SHORT / LONG / EPIC (32 / 64 / 256
-beats). Two beats only ever play together when they are known to lock: both steady, bars counted,
-tempos within stretch and predicted to stay within 25 ms over the whole blend — she cues a record past a
-loose intro and mixes out before a beatless outro to make that true, and picks records that will blend.
+beats). Two beats only ever play together when they are measured to lock: every blend is laid out as it
+will play and its kicks measured bar by bar on both records — moved by the measured offset if every bar
+agrees on one, switched if they agree on nothing. With nothing asked for she plays the next of her
+pre-measured sets, every transition in it measured to lock (new music is measured in the background).
 Where a pair still can't lock she switches on the bar instead — the old record out over its last beat,
 the new one's first beat on the bar — never an overlap. `!music skip` brings the next one in
 on the next phrase. While records play, a DJ booth window opens on the bot's screen — both decks and

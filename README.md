@@ -311,8 +311,9 @@ captured into Discord voice. No model is involved and no VRAM is used.
 chosen to sit with the last in key and tempo, levelled, stretched to match (and shifted a semitone
 when that fixes a key clash), and dropped on a phrase of the record playing. Blends take their time —
 up to two minutes with both records riding together, the bass swapped where the new bassline comes
-in — and she rides the EQs through the set. Two beats only play together when they lock; where
-they can't, she switches cleanly on the bar. The catalog of BPM and key is `music.library_catalog`; beats, bars and basslines are found
+in — and she rides the EQs through the set. Every blend is measured on the two records before it
+plays and only plays if their beats lock; she plays pre-measured sets of records that lock together,
+and switches cleanly on the bar where nothing does. The catalog of BPM and key is `music.library_catalog`; beats, bars and basslines are found
 with ffmpeg and NumPy on the CPU. A DJ booth window opens beside it — two CDJs and a mixer showing
 what she is actually doing, and you can play the second deck yourself (`!music booth`).
 

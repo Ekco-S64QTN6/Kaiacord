@@ -202,9 +202,10 @@ field notes, each used the way its own protocol says (`agent_boards.enabled`).
   clashing key into line); its bar one dropped on a phrase of the record playing.
 - A blend is staged per band over 32–256 beats — highs in, mids in, a long ride with both records up,
   the bass swapped on the bar where the new bassline comes in, then mids and highs out — with Kaia's
-  phrase-locked EQ and gain moves on top (`kaia_hands`). A blend is decided before it starts: steady
-  beats (tracked ticks count), bars counted on the ticks, tempos within stretch, predicted drift under
-  25 ms; anything else is a clean switch on the bar, never an overlap. Kaia picks records that blend. Every transition is journalled
+  phrase-locked EQ and gain moves on top (`kaia_hands`). A blend is planned on the tracked ticks and
+  then measured on the two records' kick envelopes bar by bar (`mixcheck`): locked, moved by the
+  offset every bar agrees on, or — no common pulse — a clean switch. `setlist` measures every
+  tempo-compatible pair once into a graph and walks it into sets she rotates through. Every transition is journalled
   (`memory/records/transitions.jsonl`: planned, then called off or done).
 - The incoming decoder is started and buffered off discord.py's voice thread; anything holding the
   GIL for tens of milliseconds is a stutter, which is why vector search runs from a cached matrix
