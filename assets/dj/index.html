@@ -26,6 +26,17 @@ body::after { /* scanlines */
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
   background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); mix-blend-mode: multiply;
 }
+/* ── FX: the stage behind the decks and the feedback in front of them ── */
+#fxbg { position: fixed; inset: 0; z-index: 0; pointer-events: none; display: none; }
+#fxtop { position: fixed; inset: 0; z-index: 45; pointer-events: none; display: none; }
+body.fx #fxbg, body.fx #fxtop { display: block; }
+body.fx::before { opacity: .35; }
+body.fx .panel { background: linear-gradient(180deg, rgba(13,19,34,.74), rgba(10,14,25,.82)); backdrop-filter: blur(1.5px); }
+body.fx.shake #app { animation: fxshake .28s linear; }
+@keyframes fxshake { 0%,100% { transform: none } 20% { transform: translate(-5px, 2px) } 40% { transform: translate(4px, -3px) }
+  60% { transform: translate(-3px, -1px) } 80% { transform: translate(3px, 2px) } }
+#fxbtn { cursor: pointer; user-select: none; }
+#fxbtn.on b { color: var(--pink); text-shadow: 0 0 8px var(--pink); }
 #app { position: relative; z-index: 1; display: grid; height: 100%; padding: 10px 12px 12px; gap: 10px;
   grid-template-rows: 44px minmax(130px, 19vh) 1fr minmax(210px, 28vh); }
 
@@ -249,6 +260,7 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 </style>
 </head>
 <body>
+<canvas id="fxbg"></canvas><canvas id="fxtop"></canvas>
 <div id="toast"></div>
 <div id="idle"><div><div class="big">KAIA · BOOTH</div><div class="sub">NO SET RUNNING — <b>!music records</b> IN DISCORD</div></div></div>
 <div id="app">
@@ -259,6 +271,7 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
     <div class="pill">TRACKS <b id="played">0</b></div>
     <div class="pill">EARS <b id="ears">0</b></div>
     <div class="pill" id="voicepill">VOICE <b id="voice">—</b></div>
+    <div class="pill" id="fxbtn" title="the stage: beat-synced visuals, Kaia's hands as reticles, an aura that builds on locked blends and red when one doesn't lock">FX <b id="fxstate">ON</b></div>
     <div class="spacer"></div>
     <div id="clock">00:00:00</div>
   </header>
@@ -1320,6 +1333,175 @@ function frame() {
 connect();
 loadCrate();
 requestAnimationFrame(frame);
+
+// ── FX ─────────────────────────────────────────────────────────────────
+// Everything here reads the mixer's real state: the beat of the record on air,
+// the master level and band gains, Kaia's own hands on the knobs, and what
+// each transition was measured to be. A locked blend builds the aura and the
+// combo; a switch because nothing locked, or a dropped voice frame, is red.
+const FX = (() => {
+  const bg = $("fxbg"), top = $("fxtop");
+  let on = true, W = 0, H = 0, dpr = 1;
+  try { const v = localStorage.getItem("kaia.fx"); on = v === null ? !matchMedia("(prefers-reduced-motion: reduce)").matches : v === "1"; } catch (_) {}
+  const parts = [], pops = [], reticles = new Map();
+  let aura = 0, combo = 0, red = 0, flash = 0, lastLate = null, lastMix = null, swapped = false, lastBeat = -1, kick = 0;
+  function size() {
+    dpr = Math.min(window.devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight;
+    for (const c of [bg, top]) { c.width = W * dpr; c.height = H * dpr; c.style.width = W + "px"; c.style.height = H + "px"; }
+  }
+  addEventListener("resize", size); size();
+  function setOn(v) {
+    on = v; document.body.classList.toggle("fx", on); $("fxbtn").classList.toggle("on", on); $("fxstate").textContent = on ? "ON" : "OFF";
+    try { localStorage.setItem("kaia.fx", on ? "1" : "0"); } catch (_) {}
+  }
+  $("fxbtn").addEventListener("click", () => setOn(!on)); setOn(on);
+  function pop(text, color, big) { pops.push({ text, color, t: performance.now() / 1000, big: !!big }); if (pops.length > 6) pops.shift(); }
+  function bad(text) {
+    red = 1; combo = 0; aura *= 0.35; pop(text, COL.red, true);
+    document.body.classList.remove("shake"); void document.body.offsetWidth; document.body.classList.add("shake");
+  }
+  // what happened in the mix, from the stream
+  function events() {
+    const m = S && S.live ? S.mix : null, late = S && S.late ? S.late.count : 0;
+    if (lastLate !== null && late > lastLate) bad("DROPOUT");
+    lastLate = late;
+    const key = m ? `${m.kind}|${m.drop}|${m.mode}` : "";
+    const was = lastMix;
+    if (m && (!was || was.key !== key)) {
+      swapped = false;
+      if (m.kind === "blend") pop(/moved/.test(m.check || "") ? "LOCKED · NUDGED" : "LOCKED", COL.cyan);
+      else if (m.fallback === "unlocked") bad("NO LOCK · SWITCH");
+      else if (m.kind === "cut") pop("SWITCH", COL.yellow);
+    }
+    if (m && m.kind === "blend" && m.started) {
+      aura = Math.min(1, aura + 0.0025);
+      const md = masterDeck();
+      const now = m.now + (S ? since() : 0);
+      if (!swapped && now >= m.drop + m.length / 2) { swapped = true; flash = 1; pop("BASS SWAP", COL.green); }
+    }
+    if (!m && was && was.kind === "blend" && was.started) { combo += 1; flash = Math.max(flash, 0.8); pop(combo > 1 ? `PERFECT BLEND ×${combo}` : "PERFECT BLEND", COL.green, true); aura = Math.min(1, aura + 0.25); }
+    lastMix = m ? { key, kind: m.kind, started: m.started } : null;
+  }
+  // the stage: a floor rushing in on the beat, a horizon that kicks, level bars up the edges
+  function stage(t) {
+    const g = bg.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const d = S && S.live ? masterDeck() : null;
+    let bt = null;
+    if (d && d.grid && d.state === "playing") bt = beatAt(d, posOf(d));
+    if (bt !== null) { const b = Math.floor(bt); if (b !== lastBeat) { lastBeat = b; kick = b % 4 === 0 ? 1 : 0.6; } }
+    kick *= 0.9; flash *= 0.94; red *= 0.95; aura = Math.max(0, aura - 0.0004);
+    const lvl = S && S.live ? Math.max(0, Math.min(1, (S.master + 42) / 42)) : 0;
+    const hue = red > 0.05 ? COL.red : aura > 0.5 ? COL.green : COL.cyan;
+    const hy = H * 0.58, frac = bt === null ? (t * 0.25) % 1 : ((bt % 1) + 1) % 1;
+    // horizon glow
+    const hg = g.createLinearGradient(0, hy - 120, 0, hy + 40);
+    hg.addColorStop(0, "rgba(0,0,0,0)"); hg.addColorStop(0.75, rgba(hue, 0.10 + 0.25 * kick * lvl + 0.15 * aura)); hg.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = hg; g.fillRect(0, hy - 120, W, 160);
+    // the floor: lines rushing toward the viewer, one spacing per beat
+    g.strokeStyle = rgba(hue, 0.30 + 0.30 * aura + 0.35 * kick * lvl); g.lineWidth = 1.3;
+    for (let i = 0; i < 14; i++) {
+      const z = (i + 1 - frac) / 14, y = hy + (H - hy) * z * z;
+      g.globalAlpha = Math.min(1, z * 1.6); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+    }
+    g.globalAlpha = 1;
+    for (let i = -12; i <= 12; i++) { g.beginPath(); g.moveTo(W / 2 + i * 26, hy); g.lineTo(W / 2 + i * W * 0.18, H); g.stroke(); }
+    // level bars up both edges, from the bands actually applied
+    const ch = (S && S.channels) || {}, a = ch[S && S.on_air] || {};
+    const bands = [a.low ?? 1, a.mid ?? 1, a.high ?? 1];
+    for (let side = 0; side < 2; side++) for (let k = 0; k < 24; k++) {
+      const band = bands[k % 3], v = lvl * band * (0.55 + 0.45 * Math.sin(t * 3 + k * 0.7 + side)) * (0.7 + 0.5 * kick);
+      const len = 6 + v * (W * 0.05) * (1 + aura), y = 60 + (k / 24) * (H - 120);
+      g.fillStyle = rgba(k % 3 === 0 ? COL.pink : hue, 0.25 + 0.5 * v);
+      g.fillRect(side ? W - len : 0, y, len, (H - 120) / 24 - 3);
+    }
+  }
+  // in front: Kaia's hands as reticles, sparks, the aura, popups, red
+  function front(t) {
+    const g = top.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const now = performance.now() / 1000;
+    // reticles on the knobs her hand is on
+    const held = new Set();
+    for (const el of document.querySelectorAll(".knob.herhand canvas")) {
+      const r = el.getBoundingClientRect(); if (!r.width) continue;
+      const id = el.closest("[id]").id + ":" + el.dataset.k; held.add(id);
+      let st = reticles.get(id); if (!st || st.off) { st = { t0: now, off: 0 }; reticles.set(id, st); }
+      st.x = r.left + r.width / 2; st.y = r.top + r.height / 2; st.r = r.width / 2;
+      const badge = el.parentElement.querySelector(".kbadge"); st.down = badge && /-/.test(badge.textContent);
+      if (Math.random() < 0.55) {                               // sparks off the way she is turning
+        const a0 = Math.random() * Math.PI * 2, sp = (st.down ? -1 : 1) * (60 + Math.random() * 90);
+        parts.push({ x: st.x + Math.cos(a0) * st.r * 1.3, y: st.y + Math.sin(a0) * st.r * 1.3,
+          vx: -Math.sin(a0) * sp, vy: Math.cos(a0) * sp, t: now, life: 0.5 + Math.random() * 0.4 });
+      }
+    }
+    for (const [id, st] of reticles) {
+      if (!held.has(id) && !st.off) st.off = now;
+      const k = st.off ? Math.min(1, (now - st.off) / 0.35) : 0;
+      if (k >= 1) { reticles.delete(id); continue; }
+      const zin = 1 + 1.8 * Math.exp(-(now - st.t0) * 7), sc = (zin + k * 1.5), alpha = 1 - k;
+      const R = st.r * 2.0 * sc, spin = (now - st.t0) * (st.down ? -2.2 : 2.2), pulse = 1 + 0.08 * Math.sin(now * 14);
+      g.save(); g.translate(st.x, st.y); g.globalAlpha = alpha;
+      g.strokeStyle = COL.pink; g.lineWidth = 2.6; g.shadowColor = COL.pink; g.shadowBlur = 16;
+      for (let q4 = 0; q4 < 4; q4++) {                         // four brackets, turning
+        const a = spin + q4 * Math.PI / 2;
+        g.beginPath(); g.arc(0, 0, R * pulse, a - 0.42, a + 0.42); g.stroke();
+      }
+      g.lineWidth = 1; g.globalAlpha = alpha * 0.6;
+      g.beginPath(); g.arc(0, 0, R * 1.32, 0, Math.PI * 2); g.setLineDash([3, 5]); g.lineDashOffset = -now * 30; g.stroke(); g.setLineDash([]);
+      for (const a of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {   // crosshair ticks
+        g.beginPath(); g.moveTo(Math.cos(a) * R * 1.12, Math.sin(a) * R * 1.12); g.lineTo(Math.cos(a) * R * 1.5, Math.sin(a) * R * 1.5); g.stroke();
+      }
+      if (now - st.t0 < 0.6 && !st.off) { g.globalAlpha = (0.6 - (now - st.t0)) / 0.6; g.font = "700 9px Orbitron, monospace"; g.fillStyle = COL.pink;
+        g.fillText("KAIA", R * 0.9, -R * 0.9); }
+      g.restore();
+    }
+    // sparks
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i], age = now - p.t; if (age > p.life) { parts.splice(i, 1); continue; }
+      const dt = 1 / 60; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.96; p.vy *= 0.96;
+      g.globalAlpha = 1 - age / p.life; g.fillStyle = COL.pink; g.shadowColor = COL.pink; g.shadowBlur = 8;
+      g.fillRect(p.x - 1.2, p.y - 1.2, 2.4, 2.4);
+    }
+    if (parts.length > 400) parts.splice(0, parts.length - 400);
+    g.shadowBlur = 0; g.globalAlpha = 1;
+    // the aura round the booth: builds through locked blends
+    const edge = 0.15 + 0.6 * aura + 0.4 * flash;
+    if (edge > 0.16) {
+      const col = aura > 0.5 || flash > 0.3 ? COL.green : COL.cyan;
+      for (const [x0, y0, x1, y1, w] of [[0, 0, 0, H, 1], [W, 0, W, H, -1]]) {
+        const gr = g.createLinearGradient(x0, 0, x0 + w * 90 * (1 + aura), 0);
+        gr.addColorStop(0, rgba(col, 0.35 * edge)); gr.addColorStop(1, "rgba(0,0,0,0)");
+        g.fillStyle = gr; g.fillRect(w > 0 ? 0 : W - 90 * (1 + aura), 0, 90 * (1 + aura), H);
+      }
+    }
+    // red: a vignette and glitch slices
+    if (red > 0.03) {
+      const vg = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+      vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, rgba(COL.red, 0.55 * red)); g.fillStyle = vg; g.fillRect(0, 0, W, H);
+      for (let i = 0; i < 6 * red; i++) { g.fillStyle = rgba(COL.red, 0.25 * red); g.fillRect(0, Math.random() * H, W, 2 + Math.random() * 6); }
+    }
+    // popups and the combo
+    for (let i = pops.length - 1; i >= 0; i--) if (now - pops[i].t > 1.8) pops.splice(i, 1);
+    pops.forEach((p, i) => {                                   // newest on top, the older ones stacked under it
+      const age = now - p.t, k = age / 1.8, sz = (p.big ? 34 : 22) * (1 + 0.25 * Math.exp(-age * 10));
+      const row = pops.length - 1 - i;
+      g.globalAlpha = 1 - k * k; g.font = `900 ${sz}px Orbitron, monospace`; g.textAlign = "center";
+      g.fillStyle = p.color; g.shadowColor = p.color; g.shadowBlur = 20; g.fillText(p.text, W / 2, H * 0.34 - age * 30 + row * 46);
+    });
+    g.shadowBlur = 0; g.globalAlpha = 1; g.textAlign = "left";
+    if (combo > 0) { g.font = "900 13px Orbitron, monospace"; g.fillStyle = COL.green; g.shadowColor = COL.green; g.shadowBlur = 10;
+      g.fillText(`COMBO ×${combo}`, W - 150, 74); g.shadowBlur = 0; }
+  }
+  function rgba(c, a) {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(c).trim());
+    return m ? `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${Math.max(0, Math.min(1, a)).toFixed(3)})` : c;
+  }
+  function loop(ts) {
+    try { if (on) { const t = ts / 1000; events(); stage(t); front(t); } else events(); } catch (e) { console.error(e); }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  return { pop, bad, state: () => ({ aura, combo, red, reticles: reticles.size, parts: parts.length }) };
+})();
 </script>
 </body>
 </html>

@@ -198,6 +198,7 @@ def snapshot(session) -> dict:
     if plan is not None and cur is not None:
         now = cur.at()
         mix = {"kind": plan.kind, "mode": plan.mode, "why": plan.why, "out_slot": out_slot, "in_slot": in_slot,
+               "fallback": plan.fallback, "check": getattr(plan, "check", ""),
                "started": src.blend_started(),
                "ramp": round(ramp(plan), 3) if plan.kind == "blend" else None,
                "start": round(plan.start, 3), "drop": round(plan.drop, 3), "length": round(plan.length, 3),

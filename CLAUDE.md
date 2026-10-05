@@ -675,6 +675,12 @@ it; the hand's own setting is the yellow dot, and a deck not sounding shows the 
 multipliers are streamed apart from the automix (`hands_now`), and a knob she is holding turns pink — a ring,
 an arc from where it would be without her, and a dB badge — or she visibly does nothing (the page has a
 `.kaia` grid class; a knob marked with it collapsed the mixer column).
+**FX** (header pill, remembered per browser, off under reduced motion) is a stage built only from the stream: a
+floor and horizon on the beat of the record on air, level bars from the applied bands, a reticle zooming onto
+each knob Kaia's hand is on with sparks the way she turns it, an aura and combo that build through locked blends
+(LOCKED on a measured blend, BASS SWAP, PERFECT BLEND when one finishes), and red — vignette, glitch, shake, combo
+broken — on a switch planned because nothing locked (`mix.fallback == "unlocked"`) or a late voice frame.
+Nothing in it is decorative state of its own: if the mix did not do it, the screen does not show it.
 Knobs drag with pointer capture, never pointer lock (the browser announced "press Esc" on every turn),
 and neither page can be zoomed: a pinch cut the mixer in half. No grid column may be widened by its
 contents (`min-width: 0`, long labels ellipsised).
