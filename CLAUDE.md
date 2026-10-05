@@ -680,7 +680,15 @@ floor and horizon on the beat of the record on air, level bars from the applied 
 each knob Kaia's hand is on with sparks the way she turns it, an aura and combo that build through locked blends
 (LOCKED on a measured blend, BASS SWAP, PERFECT BLEND when one finishes), and red — vignette, glitch, shake, combo
 broken — on a switch planned because nothing locked (`mix.fallback == "unlocked"`) or a late voice frame.
-Nothing in it is decorative state of its own: if the mix did not do it, the screen does not show it.
+Nothing in it is decorative state of its own: if the mix did not do it, the screen does not show it. It builds over a set: a heat that eases toward 1 − e^(−combo/5) — the combo being the set's own trailing
+run of blends, rebuilt from its history when the page opens — brightens and speeds the floor, lengthens the bars and
+sparks, adds embers off the floor on the beat (from a few blends in), a horizon ring and a colour drift (past half);
+a clash breaks the combo and the heat falls faster than it rose. **KAIA ON THE DECKS** is her running feed: the
+session's `chatter` (`dj_voice`: why the next record — key move, measured bars — the plan and any nudge, a switch
+and why, set progress, a hand load), plus the page's timeline lines (blend under way, bass swap, her hands, a
+stutter). Templated from real decisions; the music engine still calls no model. The page draws at 30 fps from
+cached canvas sizes (`ResizeObserver`): a `getBoundingClientRect` per canvas per frame after DOM writes forced a
+layout each and was over half the booth's CPU.
 Knobs drag with pointer capture, never pointer lock (the browser announced "press Esc" on every turn),
 and neither page can be zoomed: a pinch cut the mixer in half. No grid column may be widened by its
 contents (`min-width: 0`, long labels ellipsised).

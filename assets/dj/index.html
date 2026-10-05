@@ -169,7 +169,16 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .chip { font-size: 11px; padding: 4px 8px; border: 1px solid var(--faint); border-radius: 2px; color: var(--text); }
 .chip i { font-style: normal; color: var(--dim); margin-right: 5px; font-size: 9px; letter-spacing: 1.5px; }
 .chip.good { border-color: var(--green); } .chip.ok { border-color: var(--yellow); } .chip.bad { border-color: var(--red); }
-.kaia { --accent: var(--pink); padding: 26px 14px 12px; display: grid; grid-template-rows: auto 1fr auto; gap: 8px; }
+.kaia { --accent: var(--pink); padding: 26px 14px 12px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 8px; min-height: 0; }
+/* What she says about the set: newest at the bottom, older lines fading. */
+.feed { min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 5px;
+  font-size: 11px; line-height: 1.4; mask-image: linear-gradient(to bottom, transparent, #000 35%); }
+.feed .ln { display: grid; grid-template-columns: 38px 1fr; gap: 6px; color: var(--text); }
+.feed .ln b { color: var(--dim); font-weight: 400; font-size: 9px; letter-spacing: 1px; padding-top: 2px; }
+.feed .ln.pick span { color: var(--cyan); } .feed .ln.plan span { color: var(--green); }
+.feed .ln.switch span { color: var(--yellow); } .feed .ln.set span { color: var(--purple); }
+.feed .ln.hands span, .feed .ln.hand span { color: var(--pink); } .feed .ln.bad span { color: var(--red); }
+.feed .ln.fresh span { text-shadow: 0 0 8px currentColor; }
 .mood { display: grid; grid-template-columns: 70px 1fr 38px; gap: 6px 8px; align-items: center; font-size: 10px; letter-spacing: 1.5px; color: var(--dim); }
 .bar { height: 8px; background: var(--faint); border-radius: 1px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; transition: width .6s; }
@@ -312,6 +321,7 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
     <div class="panel kaia"><div class="ptitle">KAIA ON THE DECKS</div>
       <div class="mood" id="mood"></div>
       <div class="say" id="say">—</div>
+      <div class="feed" id="feed"></div>
       <div class="ears" id="earlist"></div>
     </div>
   </div>
@@ -1107,6 +1117,23 @@ function updateBottom() {
     : last ? `last move: ${last.kind} into ${last.to}${last.why ? " (" + last.why + ")" : ""}.` : `opened the set for ${S.by || "the room"}.`;
   if (S.gesture) $("say").textContent = S.gesture + (mix ? " · " + $("say").textContent : "");
   $("earlist").textContent = (S.listeners || []).length ? "in the room: " + S.listeners.join(", ") : "nobody in the room";
+  renderFeed();
+}
+// ── her feed: the server's lines (her decisions) and the page's (the timeline) ──
+const localFeed = [];
+let feedSig = "";
+function feedSay(text, kind) { localFeed.push({ ts: Date.now() / 1000, text, kind, local: true }); if (localFeed.length > 30) localFeed.shift(); }
+function renderFeed() {
+  const lines = [...(S.chatter || []).map((l) => ({ ...l, kind: l.kind === "plan" && /switch|cut/.test(l.text) ? "switch" : l.kind })), ...localFeed]
+    .sort((a, b) => a.ts - b.ts).slice(-12);
+  const now = Date.now() / 1000;
+  const sig = lines.map((l) => l.ts + l.text).join("|") + Math.floor(now / 10);
+  if (sig === feedSig) return;
+  feedSig = sig;
+  $("feed").innerHTML = lines.map((l) => {
+    const d = new Date(l.ts * 1000), hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    return `<div class="ln ${l.kind || ""}${now - l.ts < 8 ? " fresh" : ""}"><b>${hm}</b><span>${esc(l.text)}</span></div>`;
+  }).join("");
 }
 // ── the crate ────────────────────────────────────────────────────
 let crateData = null, crateShut = new Set(), crateSig = "", crateStatusSig = "", crateMode = "crate";
@@ -1366,7 +1393,13 @@ const FX = (() => {
   let on = true, W = 0, H = 0, dpr = 1;
   try { const v = localStorage.getItem("kaia.fx"); on = v === null ? !matchMedia("(prefers-reduced-motion: reduce)").matches : v === "1"; } catch (_) {}
   const parts = [], pops = [], reticles = new Map(), knobPos = new WeakMap();
-  let lastDrop = -99;
+  let lastDrop = -99, seeded = false, heat = 0, lastGesture = "", lastGestureSay = -99, started = false;
+  const embers = [];
+  // How far the set has built: 0 at the start, rising with each locked blend
+  // in a row and easing toward it, so the stage grows over a set and a clash
+  // takes it back down.
+  const tierOf = (c) => 1 - Math.exp(-c / 5);
+  const pickOne = (a) => a[Math.floor(Math.random() * a.length)];
   let aura = 0, combo = 0, red = 0, flash = 0, lastLate = null, lastMix = null, swapped = false, lastBeat = -1, kick = 0;
   function size() {
     dpr = Math.min(window.devicePixelRatio || 1, 1.5); W = innerWidth; H = innerHeight;
@@ -1388,9 +1421,22 @@ const FX = (() => {
     const m = S && S.live ? S.mix : null, late = S && S.late ? S.late.count : 0;
     if (lastLate !== null && late > lastLate) {                // a late voice frame: once in 8 s, then just a pulse
       const now = performance.now() / 1000;
-      if (now - lastDrop > 8) { lastDrop = now; bad("DROPOUT"); } else red = Math.max(red, 0.35);
+      if (now - lastDrop > 8) { lastDrop = now; bad("DROPOUT"); feedSay(pickOne(["something stuttered — that was the machine, not the mix.", "a frame came late. i heard it too.", "hiccup in the audio. the busywork waits till we're done."]), "bad"); }
+      else red = Math.max(red, 0.35);
     }
     lastLate = late;
+    // The combo is the set's own: rebuilt once from its history (a reopened
+    // page keeps it), the trailing run of blends with no switch among them.
+    if (!seeded && S && S.live && S.history) {
+      seeded = true; let n = 0;
+      const hist = S.history.slice(0, m ? -1 : undefined);
+      for (let i = hist.length - 1; i >= 0 && hist[i].kind === "blend"; i--) n++;
+      combo = n; heat = tierOf(combo);
+    }
+    if (S && S.gesture && S.gesture !== lastGesture) {
+      lastGesture = S.gesture; const now = performance.now() / 1000;
+      if (now - lastGestureSay > 25) { lastGestureSay = now; feedSay(S.gesture + ".", "hands"); }
+    }
     const key = m ? `${m.kind}|${m.drop}|${m.mode}` : "";
     const was = lastMix;
     if (m && (!was || was.key !== key)) {
@@ -1403,9 +1449,15 @@ const FX = (() => {
       aura = Math.min(1, aura + 0.0025);
       const md = masterDeck();
       const now = m.now + (S ? since() : 0);
-      if (!swapped && now >= m.drop + m.length / 2) { swapped = true; flash = 1; pop("BASS SWAP", COL.green); }
+      if (!started) { started = true; feedSay(pickOne(["both records up now. riding it.", "the new one's in on top. holding them together.", "two grooves, one pulse. this is the good part."]), "plan"); }
+      if (!swapped && now >= m.drop + m.length / 2) { swapped = true; flash = 1; pop("BASS SWAP", COL.green);
+        feedSay(pickOne(["bass handed over.", "swapped the low end on the bar.", "new bassline in, old one out."]), "plan"); }
     }
-    if (!m && was && was.kind === "blend" && was.started) { combo += 1; flash = Math.max(flash, 0.8); pop(combo > 1 ? `PERFECT BLEND ×${combo}` : "PERFECT BLEND", COL.green, true); aura = Math.min(1, aura + 0.25); }
+    if (!m && was && was.kind === "blend" && was.started) {
+      combo += 1; flash = Math.max(flash, 0.8); pop(combo > 1 ? `PERFECT BLEND ×${combo}` : "PERFECT BLEND", COL.green, true); aura = Math.min(1, aura + 0.25);
+      if (combo > 1 && combo % 3 === 0) feedSay(pickOne([`${combo} locked in a row.`, `that's ${combo} without a seam.`, `${combo} straight. the room's warming up.`]), "set");
+    }
+    if (m && (!was || was.key !== key)) started = false;
     lastMix = m ? { key, kind: m.kind, started: m.started } : null;
   }
   // the stage: a floor rushing in on the beat, a horizon that kicks, level bars up the edges
@@ -1415,18 +1467,22 @@ const FX = (() => {
     let bt = null;
     if (d && d.grid && d.state === "playing") bt = beatAt(d, posOf(d));
     if (bt !== null) { const b = Math.floor(bt); if (b !== lastBeat) { lastBeat = b; kick = b % 4 === 0 ? 1 : 0.6; } }
-    kick *= 0.9; flash *= 0.94; red *= 0.95; aura = Math.max(0, aura - 0.0004);
+    kick *= 0.9; flash *= 0.94; red *= 0.95; aura = Math.max(aura - 0.0004, 0.3 * heat);
+    heat += (tierOf(combo) - heat) * (tierOf(combo) > heat ? 0.004 : 0.02);   // builds slowly, falls faster
     const lvl = S && S.live ? Math.max(0, Math.min(1, (S.master + 42) / 42)) : 0;
-    const hue = red > 0.05 ? COL.red : aura > 0.5 ? COL.green : COL.cyan;
+    // Past half heat the stage drifts through the booth's colours.
+    const drift = heat > 0.55 ? [COL.cyan, COL.green, COL.pink, COL.purple][Math.floor(t / 8) % 4] : null;
+    const hue = red > 0.05 ? COL.red : drift || (aura > 0.5 ? COL.green : COL.cyan);
     const hy = H * 0.58, frac = bt === null ? (t * 0.25) % 1 : ((bt % 1) + 1) % 1;
     // horizon glow
     const hg = g.createLinearGradient(0, hy - 120, 0, hy + 40);
     hg.addColorStop(0, "rgba(0,0,0,0)"); hg.addColorStop(0.75, rgba(hue, 0.10 + 0.25 * kick * lvl + 0.15 * aura)); hg.addColorStop(1, "rgba(0,0,0,0)");
     g.fillStyle = hg; g.fillRect(0, hy - 120, W, 160);
     // the floor: lines rushing toward the viewer, one spacing per beat
-    g.strokeStyle = rgba(hue, 0.30 + 0.30 * aura + 0.35 * kick * lvl); g.lineWidth = 1.3;
-    for (let i = 0; i < 14; i++) {
-      const z = (i + 1 - frac) / 14, y = hy + (H - hy) * z * z;
+    g.strokeStyle = rgba(hue, 0.30 + 0.30 * aura + 0.35 * kick * lvl + 0.25 * heat); g.lineWidth = 1.3 + heat;
+    const rows = 14 + Math.round(10 * heat);
+    for (let i = 0; i < rows; i++) {
+      const z = (i + 1 - frac) / rows, y = hy + (H - hy) * z * z;
       g.globalAlpha = Math.min(1, z * 1.6); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
     }
     g.globalAlpha = 1;
@@ -1436,9 +1492,29 @@ const FX = (() => {
     const bands = [a.low ?? 1, a.mid ?? 1, a.high ?? 1];
     for (let side = 0; side < 2; side++) for (let k = 0; k < 24; k++) {
       const band = bands[k % 3], v = lvl * band * (0.55 + 0.45 * Math.sin(t * 3 + k * 0.7 + side)) * (0.7 + 0.5 * kick);
-      const len = 6 + v * (W * 0.05) * (1 + aura), y = 60 + (k / 24) * (H - 120);
+      const len = 6 + v * (W * 0.05) * (1 + aura + 1.5 * heat), y = 60 + (k / 24) * (H - 120);
       g.fillStyle = rgba(k % 3 === 0 ? COL.pink : hue, 0.25 + 0.5 * v);
       g.fillRect(side ? W - len : 0, y, len, (H - 120) / 24 - 3);
+    }
+    // From a few locked blends in: embers off the floor on the beat.
+    if (heat > 0.25 && kick > 0.55 && Math.random() < 0.8) {
+      for (let i = 0; i < Math.round(3 + 10 * heat); i++)
+        embers.push({ x: Math.random() * W, y: H - Math.random() * (H - hy) * 0.3, vy: -(40 + Math.random() * 90) * (0.6 + heat), t: t, life: 1.2 + Math.random() * 1.4, r: 1 + 2.2 * heat * Math.random() });
+      kick *= 0.98;
+    }
+    for (let i = embers.length - 1; i >= 0; i--) {
+      const e = embers[i], age = t - e.t; if (age > e.life || age < 0) { embers.splice(i, 1); continue; }
+      e.y += e.vy / 30; e.x += Math.sin(t * 2 + i) * 0.4;
+      g.globalAlpha = (1 - age / e.life) * 0.8; g.fillStyle = i % 3 ? hue : COL.pink;
+      g.beginPath(); g.arc(e.x, e.y, e.r, 0, Math.PI * 2); g.fill();
+    }
+    if (embers.length > 500) embers.splice(0, embers.length - 500);
+    g.globalAlpha = 1;
+    // Past half heat: a ring on the horizon that swells on the downbeat.
+    if (heat > 0.5) {
+      const rr = (60 + 140 * heat) * (1 + 0.12 * kick);
+      g.strokeStyle = rgba(hue, 0.25 + 0.35 * kick * heat); g.lineWidth = 2 + 3 * heat;
+      g.beginPath(); g.arc(W / 2, hy, rr, Math.PI, Math.PI * 2); g.stroke();
     }
   }
   // in front: Kaia's hands as reticles, sparks, the aura, popups, red
@@ -1457,7 +1533,7 @@ const FX = (() => {
       let st = reticles.get(id); if (!st || st.off) { st = { t0: now, off: 0 }; reticles.set(id, st); }
       st.x = r.left + r.width / 2; st.y = r.top + r.height / 2; st.r = r.width / 2;
       const badge = el.parentElement.querySelector(".kbadge"); st.down = badge && /-/.test(badge.textContent);
-      if (Math.random() < 0.55) {                               // sparks off the way she is turning
+      if (Math.random() < 0.55 + 0.4 * heat) {                  // sparks off the way she is turning, more as the set builds
         const a0 = Math.random() * Math.PI * 2, sp = (st.down ? -1 : 1) * (60 + Math.random() * 90);
         parts.push({ x: st.x + Math.cos(a0) * st.r * 1.3, y: st.y + Math.sin(a0) * st.r * 1.3,
           vx: -Math.sin(a0) * sp, vy: Math.cos(a0) * sp, t: now, life: 0.5 + Math.random() * 0.4 });
@@ -1489,7 +1565,7 @@ const FX = (() => {
       const p = parts[i], age = now - p.t; if (age > p.life) { parts.splice(i, 1); continue; }
       const dt = 1 / 60; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.96; p.vy *= 0.96;
       g.globalAlpha = 1 - age / p.life; g.fillStyle = COL.pink; g.shadowColor = COL.pink; g.shadowBlur = 8;
-      g.fillRect(p.x - 1.2, p.y - 1.2, 2.4, 2.4);
+      const ps = 2.4 + 2.6 * heat; g.fillRect(p.x - ps / 2, p.y - ps / 2, ps, ps);
     }
     if (parts.length > 400) parts.splice(0, parts.length - 400);
     g.shadowBlur = 0; g.globalAlpha = 1;
@@ -1518,8 +1594,12 @@ const FX = (() => {
       g.fillStyle = p.color; g.shadowColor = p.color; g.shadowBlur = 20; g.fillText(p.text, W / 2, H * 0.34 - age * 30 + row * 46);
     });
     g.shadowBlur = 0; g.globalAlpha = 1; g.textAlign = "left";
-    if (combo > 0) { g.font = "900 13px Orbitron, monospace"; g.fillStyle = COL.green; g.shadowColor = COL.green; g.shadowBlur = 10;
-      g.fillText(`COMBO ×${combo}`, W - 150, 74); g.shadowBlur = 0; }
+    if (combo > 0) {
+      g.font = `900 ${13 + Math.round(7 * heat)}px Orbitron, monospace`; g.fillStyle = COL.green; g.shadowColor = COL.green; g.shadowBlur = 10 + 10 * heat;
+      g.fillText(`COMBO ×${combo}`, W - 170, 74); g.shadowBlur = 0;
+      g.fillStyle = "rgba(42,53,84,.9)"; g.fillRect(W - 170, 82, 140, 3);                    // the heat bar
+      g.fillStyle = COL.green; g.fillRect(W - 170, 82, 140 * heat, 3);
+    }
   }
   function rgba(c, a) {
     const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(String(c).trim());
@@ -1534,7 +1614,7 @@ const FX = (() => {
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  return { pop, bad, state: () => ({ aura, combo, red, reticles: reticles.size, parts: parts.length }) };
+  return { pop, bad, setCombo: (c) => { combo = c; }, state: () => ({ aura, combo, heat: +heat.toFixed(3), red, reticles: reticles.size, parts: parts.length, embers: embers.length }) };
 })();
 </script>
 </body>

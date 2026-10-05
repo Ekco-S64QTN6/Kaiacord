@@ -760,6 +760,7 @@ class CrossfadeSource(_AudioSource):
         self._mix_beats = mix_beats
         self._grid_at = grid_at or _default_grid_at
         self._verify = verify
+        self.say: Optional[Callable[[str, str], None]] = None     # the session's feed (`dj_voice`)
         self._queued: Optional[Next] = None
         self._picking = False
         self._exhausted = False             # the last pick found nothing to play
@@ -1270,6 +1271,12 @@ class CrossfadeSource(_AudioSource):
                 del self.history[:-50]
                 shift = (f", key sync {incoming.semitones:+d} ({nxt.record.key} → {incoming.key} against {deck.key})"
                          if incoming.semitones else "")
+                if self.say:
+                    try:
+                        from utils.audio import dj_voice
+                        self.say(dj_voice.planned(plan, nxt.record.title), "plan")
+                    except Exception as e:
+                        log_debug(f"[records] chatter: {e}")
                 log_action(f"[records] planned: {plan.kind} into {nxt.record.name} at {plan.drop:.2f}s "
                            f"(stretch {plan.ratio:.4f}, {mode}{why}{shift})")
             except Exception as e:
@@ -1605,6 +1612,9 @@ class RecordsSession:
         self._task: Optional[asyncio.Task] = None
         self._rng = random.Random()
         self.requests: list[str] = []             # paths asked for at the booth, in order
+        # What she says about the set, for the booth (`dj_voice`), newest last.
+        self.chatter: deque = deque(maxlen=40)
+        self._why: dict = {}                      # path -> (edge, in_set) for the record picked next
         # Which records lock with which, measured (`setlist`), and the set being
         # played through it. Measured again in the background for anything new.
         from utils.audio import setlist
@@ -1648,6 +1658,11 @@ class RecordsSession:
         """Put `rec` on the free deck, now if it can be (`CrossfadeSource.load`),
         else next after the blend under way."""
         self.loading = rec.name
+        try:
+            from utils.audio import dj_voice
+            self.say(dj_voice.hand_load(self.requested_by, rec.title), "hand")
+        except Exception:
+            pass
 
         def run():
             try:
@@ -1724,6 +1739,11 @@ class RecordsSession:
         if fallback is not None:
             log_info(f"[records] nothing in {self.BLEND_TRIES} candidates blends with {deck.record.name}; "
                      f"{fallback.record.name} will be switched to on the bar")
+            try:
+                from utils.audio import dj_voice
+                self.say(dj_voice.chose_next(deck.record, fallback.record, None, False), "pick")
+            except Exception:
+                pass
             fallback.gain = gain_db(fallback.record.path)
         return fallback
 
@@ -1759,6 +1779,12 @@ class RecordsSession:
                     src._exhausted = False
             src._prefetch()
         log_action(f"[records] set {index + 1} chosen at the booth; {self._by_path[first].name} comes next")
+        try:
+            from utils.audio import dj_voice
+            bpms = [self._by_path[p].bpm for p in self.set_list if self._by_path[p].bpm]
+            self.say(dj_voice.set_started(index + 1, len(self.set_list), min(bpms), max(bpms)), "set")
+        except Exception:
+            pass
         return self._by_path[first].name, False
 
     def _partner(self, deck: Deck) -> Optional[Next]:
@@ -1792,13 +1818,31 @@ class RecordsSession:
             beatgrid.ensure_ticks(rec.path, rec.bpm)
             _envelope(rec.path)
             log_info(f"[records] next: {rec.name} — measured to lock with {deck.record.name}")
+            try:
+                from utils.audio import dj_voice
+                self.say(dj_voice.chose_next(deck.record, rec, nbrs.get(path),
+                                             bool(self.set_list and path in self.set_list)), "pick")
+            except Exception as e:
+                log_debug(f"[records] chatter: {e}")
             return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
                         beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm))
         return None
 
+    def say(self, text: str, kind: str = "") -> None:
+        if text:
+            self.chatter.append({"ts": time.time(), "text": text, "kind": kind})
+
     def _changed(self, record: library.Record) -> None:
         self.played.append(record.path)
         self.names.append(record.name)
+        try:
+            from utils.audio import dj_voice
+            pos = None
+            if self.set_list and record.path in self.set_list:
+                pos = (self.set_list.index(record.path) + 1, len(self.set_list))
+            self.say(dj_voice.now_playing(record, set_pos=pos), "now")
+        except Exception as e:
+            log_debug(f"[records] chatter: {e}")
         log_action(f"[records] now playing {record.name} ({record.bpm or '?'} bpm, {record.key or '?'})")
 
     def _humans(self) -> list[str]:
@@ -1943,9 +1987,17 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
     from utils.audio import beatgrid
     await asyncio.to_thread(beatgrid.ensure_ticks, first.path, first.bpm)
     deck.grid = await asyncio.to_thread(beatgrid.grid_for, first.path, first.bpm)
+    if set_list and first.path == set_list[0]:
+        try:
+            from utils.audio import dj_voice
+            bpms = [r.bpm for r in crate if r.path in set_list and r.bpm]
+            session.say(dj_voice.set_started(None, len(set_list), min(bpms), max(bpms)), "set")
+        except Exception as e:
+            log_debug(f"[records] chatter: {e}")
     session._changed(first)
     session.source = CrossfadeSource(deck, session._choose, on_change=session._changed,
                                      mix_beats=int(mix_beats))
+    session.source.say = session.say
     try:
         from utils.infrastructure.system.yaml_config import config
         session.source.rides = bool(config.get("music.records_kaia_hands", True))

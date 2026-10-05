@@ -211,6 +211,7 @@ def snapshot(session) -> dict:
         "decks": decks, "channels": channels, "master": src.levels["master"], "mix": mix,
         "planning": src.planning_mode, "late": {"count": len(late), "worst_ms": round(max(late) * 1000) if late else 0},
         "history": src.history[-12:], "names": session.names[-30:], "mood": _mood(),
+        "chatter": list(getattr(session, "chatter", []))[-14:],
         "mix_beats": src._mix_beats, "blend_choices": list(src.BLEND_CHOICES), "controls": src.controls.state(), "paused": sorted(src.paused),
         "requests": [_name_of(session, p) for p in session.requests],
         "on_air": cur.slot if cur else None, "free": free, "loading": getattr(session, "loading", None),
