@@ -38,3 +38,41 @@ def test_remember_marks_the_line_as_an_event(monkeypatch):
     kaia_expression.remember("music", SET, channel_id=5)
     turn = list(bot_state.channel_memory[5])[-1]
     assert turn["event"] is True and turn["role"] == "assistant"
+
+
+# ── Machine-status lines ─────────────────────────────────────────────
+
+_COFFEE = ("the inquiry is… direct.\n\nthe request for an update on coffee levels and consumption is "
+           "acknowledged.\n\n[evaluating_current_operational_parameters]\n\nthe pro-grade coffee machine is "
+           "currently operating at 67% capacity.")
+
+
+def test_a_status_line_is_dropped_from_a_reply_and_the_rest_kept():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    out = P.strip_status_lines(_COFFEE)
+    assert "[evaluating" not in out and "67% capacity" in out and "\n\n\n" not in out
+    out = P.strip_status_lines("[retrieving document]\n\nokay, ekco. here's a summary of the transcript.")
+    assert out == "okay, ekco. here's a summary of the transcript."
+    assert P.strip_status_lines("[processing.]\n\n[generating response.]\n\nthe first assumption is that my "
+                                "responses are coherent.").startswith("the first assumption")
+
+
+def test_other_bracketed_lines_are_kept():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    for text in ("[lyrics begin]\nhere comes the sun\n[lyrics end]",
+                 "[disclaimer]\n\nthis assessment is based solely on the image.",
+                 "a reply that mentions [processing] inline is not a status line at all."):
+        assert P.strip_status_lines(text) == text
+
+
+def test_a_reply_that_is_only_status_is_left_alone():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    assert P.strip_status_lines("[processing.]") == "[processing.]"
+
+
+def test_her_history_is_shown_without_status_lines():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    hist = [{"role": "user", "content": "how's the coffee"}, {"role": "assistant", "content": _COFFEE}]
+    shown = P.events_as_notes(hist)
+    assert "[evaluating" not in shown[1]["content"] and "67% capacity" in shown[1]["content"]
+    assert shown[0] == hist[0]

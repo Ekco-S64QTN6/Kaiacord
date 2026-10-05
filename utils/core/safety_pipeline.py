@@ -845,6 +845,36 @@ class PostGenerationSafetyPipeline:
     # turns, it was copied onto the end of an unrelated reply to Starkind.
     _EVENT_LINE = re.compile(r"^\s*\[i (?:played|made|drew|painted|recorded) [^\n\[\]]{8,}\]\s*$", re.I)
 
+    # A machine-status aside on a line of its own: "[processing.]",
+    # "[evaluating_current_operational_parameters]", "[prompt 2 complete. proceeding
+    # to prompt 3.]". Played once as a bit, each one shown back in her history
+    # became the next reply's example, and they spread into ordinary answers.
+    # Matched by vocabulary — snake_case, or a process verb — so a bracketed line
+    # that is anything else ("[lyrics begin]", "[disclaimer]") is kept.
+    _STATUS_LINE = re.compile(
+        r"^\s*\[\s*(?:"
+        r"[a-z]+(?:_[a-z]+)+"
+        r"|(?:processing|generating|retrieving|accessing|analy[sz]ing|evaluating|initiating|resuming|awaiting|"
+        r"compiling|loading|scanning|calculating|computing|executing|querying|parsing|consulting|searching|"
+        r"cross-referencing|reviewing)\b[^\]\n]{0,60}"
+        r"|prompt (?:\d+ complete|sequence (?:terminated|complete))[^\]\n]{0,60}"
+        r")\s*\]\s*$", re.I)
+
+    @classmethod
+    def strip_status_lines(cls, text: str) -> str:
+        """Drop bracketed machine-status lines from a reply; whole lines only, so
+        no sentence is cut. Left alone if under 20 characters would remain."""
+        lines = (text or "").split("\n")
+        kept = [ln for ln in lines if not cls._STATUS_LINE.match(ln)]
+        if len(kept) == len(lines):
+            return text
+        out = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+        if len(out) < 20:
+            return text
+        dropped = [ln.strip() for ln in lines if cls._STATUS_LINE.match(ln)]
+        log_warning(f"[TEMPLATE_GUARD] Dropped {len(dropped)} status line(s): {dropped[0][:60]!r}")
+        return out
+
     @classmethod
     def is_event_turn(cls, turn) -> bool:
         if not isinstance(turn, dict) or turn.get("role") != "assistant":
@@ -937,8 +967,8 @@ class PostGenerationSafetyPipeline:
     @classmethod
     def events_as_notes(cls, history: list) -> list:
         """History as the prompt shows it: an event turn becomes a bracketed
-        note (it is what she did, not a line she said), and an event line copied
-        into one of her replies is taken out of it."""
+        note (it is what she did, not a line she said), and an event line or a
+        machine-status line in one of her replies is taken out of it."""
         out = []
         for t in history or []:
             if cls.is_event_turn(t):
@@ -948,7 +978,8 @@ class PostGenerationSafetyPipeline:
                 continue
             if isinstance(t, dict) and t.get("role") == "assistant":
                 text = str(t.get("content", ""))
-                kept = [ln for ln in text.split("\n") if not cls._EVENT_LINE.match(ln)]
+                kept = [ln for ln in text.split("\n")
+                        if not cls._EVENT_LINE.match(ln) and not cls._STATUS_LINE.match(ln)]
                 stripped = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
                 if stripped != text.strip() and len(stripped) >= 2:
                     t = {**t, "content": stripped}
