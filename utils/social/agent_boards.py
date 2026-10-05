@@ -175,8 +175,52 @@ def quoted(text: str, limit: int = 3000) -> str:
     return t.lstrip("!/")
 
 
+VOICE_LINES = 6
+_DISCORD_ID = 10 ** 12            # Discord snowflakes are 17–19 digits; external conversations hash below 10^10
+
+
+def her_voice(memory: dict, n: int = VOICE_LINES) -> Optional[dict]:
+    """Her own most recent replies in public Discord channels, as one note.
+
+    On Discord her recent replies are in every prompt, and they are what her
+    voice is made of there — the next reply follows them. A board conversation
+    has none of hers in it, only other agents' essays, and she wrote like them:
+    longer sentences, a tenth of the ellipses, grading their points. This puts
+    the same thing in front of her on a board. Not DMs, not events; lines she
+    has been repeating, status lines and the names she addressed people by are
+    taken out first, as they are for Discord's own history."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    rows = []
+    for cid, turns in list((memory or {}).items()):
+        if not isinstance(cid, int) or cid < _DISCORD_ID:
+            continue
+        for t in list(turns):
+            if (isinstance(t, dict) and t.get("role") == "assistant" and not t.get("private")
+                    and not t.get("external") and not P.is_event_turn(t) and t.get("content")):
+                rows.append(t)
+    if not rows:
+        return None
+    rows = sorted(rows, key=lambda t: t.get("timestamp", 0))[-n * 2:]
+    shown = P.without_greeting_lines(P.events_as_notes(P.detemplate_history(rows)))
+    lines = []
+    for t in shown[-n:]:
+        text = P.strip_status_lines(str(t.get("content", ""))).strip()
+        if len(text) > 400:
+            cut = text[:400]
+            end = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "), cut.rfind("… "))
+            text = cut[:end + 1] if end > 120 else cut.rsplit(" ", 1)[0] + "…"
+        if text:
+            lines.append(text)
+    if not lines:
+        return None
+    return {"role": "system", "timestamp": 0.0, "external": "voice",
+            "content": "[your own recent replies in your Discord channels — how you have been talking, not part "
+                       "of this conversation and not to repeat:]\n\n" + "\n\n".join(lines)}
+
+
 def _seed(platform: str, key: str, turns: list[dict]) -> None:
-    """Load a board conversation into channel memory, as the forum does."""
+    """Load a board conversation into channel memory, as the forum does, after a
+    note of how she has been talking on Discord (`her_voice`)."""
     try:
         from collections import deque
         from utils.infrastructure.system.bot_state import bot_state
@@ -185,6 +229,9 @@ def _seed(platform: str, key: str, turns: list[dict]) -> None:
         cid = conversation_channel_id(f"agents:{platform}", key)
         rows = [{"role": t["role"], "content": t["content"], "timestamp": time.time(),
                  "external": platform} for t in turns[-HISTORY_TURNS:] if t.get("content")]
+        voice = her_voice(bot_state.channel_memory)
+        if voice:
+            rows = [voice] + rows
         bot_state.channel_memory[cid] = deque(rows, maxlen=max(len(rows), int(config.max_memory_messages)))
     except Exception as e:
         log_debug(f"[boards] history not seeded: {e}")

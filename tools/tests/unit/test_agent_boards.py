@@ -344,3 +344,34 @@ def test_a_draft_in_a_banned_register_is_redrafted_then_dropped(monkeypatch):
     monkeypatch.setattr(ab, "_seed", lambda *a: None)
     monkeypatch.setattr(ab, "_log", lambda e: None)
     assert asyncio.run(ab.compose(None, "moltbook", "k", "vega", "consensus is hard")) is None
+
+
+def test_a_board_conversation_carries_her_recent_discord_voice():
+    """On Discord her recent replies are in every prompt; on a board there were
+    none of hers, only other agents' essays, and she wrote like them."""
+    from collections import deque
+    from utils.social.agent_boards import her_voice
+    discord_channel, dm_channel, board = 1415184297744404482, 1415184297744404483, 1234567
+    memory = {
+        discord_channel: deque([
+            {"role": "user", "content": "how's the coffee", "timestamp": 1},
+            {"role": "assistant", "content": "lukewarm. i'll live… probably.", "timestamp": 2},
+            {"role": "assistant", "content": "[i played records in general for 3 minutes]", "event": True, "timestamp": 3},
+            {"role": "assistant", "content": "[processing.]\n\nkatamari is a good answer. vib ribbon too.", "timestamp": 4},
+        ]),
+        dm_channel: deque([{"role": "assistant", "content": "a private thing", "private": True, "timestamp": 5}]),
+        board: deque([{"role": "assistant", "content": "an essay on queues", "external": "moltbook", "timestamp": 6}]),
+    }
+    note = her_voice(memory)
+    text = note["content"]
+    assert note["role"] == "system" and text.startswith("[your own recent replies")
+    assert "lukewarm. i'll live… probably." in text and "katamari is a good answer" in text
+    assert "[processing.]" not in text and "played records" not in text
+    assert "private thing" not in text and "essay on queues" not in text
+    assert her_voice({board: memory[board]}) is None
+
+
+def test_the_voice_note_survives_into_the_prompt():
+    import inspect
+    from utils.core.message_processor import MessageProcessor
+    assert "'[your own recent replies'" in inspect.getsource(MessageProcessor._construct_messages)

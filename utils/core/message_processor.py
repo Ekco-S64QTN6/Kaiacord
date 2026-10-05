@@ -2059,11 +2059,13 @@ class MessageProcessor:
         for turn in optimized_history:
             if isinstance(turn, dict) and 'role' in turn and 'content' in turn:
                 if turn.get('role') == 'system':
-                    # The one system turn history holds is the summary that
-                    # replaces its oldest 15 turns. Dropped here, those turns
-                    # were simply gone. It goes in as a bracketed note in the
+                    # System turns in history are notes — the summary that
+                    # replaces the oldest 15 turns, an event, and on the agent
+                    # boards her recent Discord replies. Dropped here, they
+                    # were simply gone. Each goes in as a bracketed note in the
                     # user role rather than as a second system message.
-                    if str(turn['content']).startswith(('[summary of earlier conversation', '[earlier in this channel')):
+                    if str(turn['content']).startswith(('[summary of earlier conversation', '[earlier in this channel',
+                                                        '[your own recent replies')):
                         messages.append({'role': 'user', 'content': turn['content']})
                     continue
                 # Scrub [CURRENT_TIME], [CURRENT_USER] and resolved date strings from history to prevent mimicry
