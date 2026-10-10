@@ -310,6 +310,13 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps(crate(_session())).encode(), "application/json")
             elif path == "/sets":
                 self._send(200, json.dumps(sets(_session())).encode(), "application/json")
+            elif path.startswith("/kaia/"):                    # the shared Kaia avatar
+                from utils.infrastructure.system import kaia_avatar
+                hit = kaia_avatar.resolve(path[len("/kaia/"):])
+                if hit is None:
+                    self._send(404, b"", "text/plain")
+                else:
+                    self._send(200, hit[0].read_bytes(), hit[1])
             elif path.startswith("/audio/"):
                 self._audio(path.rsplit("/", 1)[-1])
             elif path.startswith("/wave/"):
