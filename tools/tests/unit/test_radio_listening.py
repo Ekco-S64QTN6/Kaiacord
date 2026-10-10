@@ -263,7 +263,7 @@ def test_a_number_station_is_kept_as_a_recording_without_a_transcript(tmp_path):
         entry = asyncio.run(watch.process(job, p, rec, datetime.now(timezone.utc)))
     tr.assert_not_awaited()
     assert entry["transcript"] == "" and (radio_log.clips_dir() / entry["clip"]).is_file()
-    assert "minutes of E11 — the clip is attached" in rh.entry_embed(entry).description
+    assert "40 seconds of E11 — the clip is attached" in rh.entry_embed(entry).description
     assert "recorded" in rh._entry_line(1, entry)
     old = {**entry, "transcript": "Thank you. 8-1-4-0-8-0-0 8-1-4-0-8-0-0"}
     assert "8-1-4" not in rh._entry_line(1, old) and "8-1-4" not in rh.entry_embed(old).description

@@ -268,12 +268,25 @@ def read_cache_safe(name):
     return read_cache(name)
 
 
+def duration(seconds: float) -> str:
+    """A clip's length in words: "13 seconds", "1 minute", "1m 30s", "7 minutes"
+    — never "0 minutes" for a short one."""
+    s = int(round(seconds or 0))
+    if s < 60:
+        return f"{s} second{'s' if s != 1 else ''}"
+    m, r = divmod(s, 60)
+    if r < 5 or m >= 5:
+        m += r >= 30 and m >= 5
+        return f"{m} minute{'s' if m != 1 else ''}"
+    return f"{m}m {r}s"
+
+
 def entry_embed(e: dict):
     parsed = e.get("parsed") or {}
     title = f"📡  {e['station']} · {e['khz']:g} kHz {e['mode'].upper()}"
     desc = f"`{parsed['message']}`" if parsed.get("message") else clean(_transcript(e), 1500)
     if not desc:
-        desc = (f"I recorded {e['seconds'] / 60:.0f} minutes of {e['station']} — the clip is attached. "
+        desc = (f"I recorded {duration(e['seconds'])} of {e['station']} — the clip is attached. "
                 "Number stations read digit groups through HF fading, and I can't transcribe that "
                 "reliably, so I don't try." if e.get("kind") == "numbers" else "(no transcript)")
     embed = box(title, desc, COLOR_RADIO,

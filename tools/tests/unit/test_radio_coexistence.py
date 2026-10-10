@@ -81,3 +81,9 @@ def test_a_listed_net_is_due_only_in_its_window(monkeypatch):
     assert scanner.due_net(datetime(2026, 10, 1, 19, 45))["freq_hz"] == 145_330_000      # a Thursday
     assert scanner.due_net(datetime(2026, 10, 1, 20, 31)) is None
     assert scanner.due_net(datetime(2026, 10, 2, 19, 45)) is None                         # Friday
+
+
+def test_a_short_clip_is_not_called_zero_minutes():
+    from utils.commands.radio_handler import duration
+    assert duration(12.6) == "13 seconds" and duration(60) == "1 minute"
+    assert duration(90) == "1m 30s" and duration(420) == "7 minutes"
