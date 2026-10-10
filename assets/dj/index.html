@@ -139,6 +139,7 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .fx .kind { font-family: var(--disp); font-weight: 900; font-size: 18px; letter-spacing: 3px; color: var(--dim); }
 .fx .kind.blend { color: var(--green); text-shadow: 0 0 12px rgba(61,255,138,.7); }
 .fx .kind.cut { color: var(--yellow); text-shadow: 0 0 12px rgba(255,228,92,.7); }
+.fx .kind.echo { color: var(--purple); text-shadow: 0 0 12px rgba(162,89,255,.7); }
 .fx .kind.fade { color: var(--purple); text-shadow: 0 0 12px rgba(162,89,255,.7); }
 .fx .kind.plan { color: var(--cyan); animation: blink .8s infinite; }
 .fx .count { margin-left: auto; font-size: 12px; color: var(--text); letter-spacing: 1px; }
@@ -162,6 +163,7 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .tk { font-size: 9px; letter-spacing: 1.5px; padding: 1px 6px; border-radius: 2px; border: 1px solid; }
 .tk.blend { color: var(--green); border-color: var(--green); }
 .tk.cut { color: var(--yellow); border-color: var(--yellow); }
+.tk.echo { color: var(--purple); border-color: var(--purple); }
 .tk.fade { color: var(--purple); border-color: var(--purple); }
 .tk.hand, .tk.out { color: var(--pink); border-color: var(--pink); }
 .next { --accent: var(--purple); padding: 26px 14px 12px; display: grid; grid-template-rows: auto auto 1fr; gap: 6px; }
@@ -1075,12 +1077,12 @@ function updateMixer() {
   const [pg, PW, PH] = fit($("prog")); pg.clearRect(0, 0, PW, PH);
   if (mix) {
     const t = mixNow(), bar = 4 * mix.beat;
-    kind.textContent = mix.kind === "cut" ? "SWITCH" : mix.kind.toUpperCase(); kind.className = "kind " + mix.kind;
+    kind.textContent = mix.kind === "cut" ? "SWITCH" : mix.kind === "echo" ? "ECHO-OUT" : mix.kind.toUpperCase(); kind.className = "kind " + mix.kind;
     const r = mix.ramp || mix.length / 4, swap = mix.drop + mix.length / 2;
     const rideAt = mix.drop + 2 * r, outAt = mix.done - 2 * r, highsOut = mix.done - r;
     const bars = (x) => `${((x - t) / bar).toFixed(1)} BARS`;
     if (mix.kind === "out") count.textContent = t < mix.drop ? `FADE-OUT IN ${bars(mix.drop)}` : `FINISHING · ${bars(mix.done)}`;
-    else if (t < mix.drop) count.textContent = `${mix.kind === "blend" ? "DROP" : mix.kind === "fade" ? "FADE" : "SWITCH"} IN ${bars(mix.drop)}`;
+    else if (t < mix.drop) count.textContent = `${mix.kind === "blend" ? "DROP" : mix.kind === "fade" ? "FADE" : mix.kind === "echo" ? "ECHO-OUT" : "SWITCH"} IN ${bars(mix.drop)}`;
     else if (mix.kind === "fade" && t < mix.done) count.textContent = `CROSSFADING · ${bars(mix.done)}`;
     else if (mix.kind === "blend" && t < rideAt) count.textContent = `COMING IN · RIDE IN ${bars(rideAt)}`;
     else if (mix.kind === "blend" && t < swap) count.textContent = `RIDING · BASS SWAP IN ${bars(swap)}`;
@@ -1089,6 +1091,8 @@ function updateMixer() {
     else count.textContent = "HANDING OVER";
     why.textContent = mix.kind === "blend"
       ? `${mix.mode === "skip" ? "skip" : "end of record"} · ${Math.round(mix.length / mix.beat)} beats · stretch ×${mix.ratio.toFixed(4)} · ch ${mix.out_slot} → ch ${mix.in_slot}`
+      : mix.kind === "echo"
+      ? `${mix.mode === "skip" ? "skip" : "end of record"} · echo-out on the bar · ${mix.why || "no common beat"}`
       : `${mix.mode === "skip" ? "skip" : "end of record"} · ${Math.round(mix.length / mix.beat)} beats · ${mix.why || "clean cut on the bar"}`;
     const t0 = mix.start, t3 = mix.done, span = Math.max(0.01, t3 - t0), X = (v) => (v - t0) / span * PW;
     const segs = mix.kind === "blend"
@@ -1098,6 +1102,8 @@ function updateMixer() {
       ? [[t0, mix.drop, COL.faint, ""], [mix.drop, mix.drop + mix.length / 2, COL.purple, "CROSSFADE"], [mix.drop + mix.length / 2, mix.done, COL.pink, "BASS · OUT"]]
       : mix.kind === "out"
       ? [[t0, mix.drop + 0.001, COL.faint, ""], [mix.drop, mix.done, COL.pink, `KAIA FADES CH ${mix.out_slot} OUT`]]
+      : mix.kind === "echo"
+      ? [[t0, mix.drop, COL.faint, ""], [mix.drop, mix.done + 0.001, COL.purple, "ECHO-OUT"]]
       : [[t0, mix.drop, COL.yellow, "CUT"]];
     pg.font = "600 8px JetBrains Mono";
     for (const [a, b, col, lbl] of segs) {
@@ -1173,7 +1179,7 @@ function updateBottom() {
   const rows = [["AROUSAL", m.arousal, COL.pink], ["ENERGY", m.energy, COL.green], ["VALENCE", m.valence != null ? (m.valence + 1) / 2 : null, COL.cyan]];
   $("mood").innerHTML = rows.map(([k, v, c]) => `<span>${k}</span><div class="bar"><i style="width:${v == null ? 0 : Math.round(Math.max(0, Math.min(1, v)) * 100)}%;background:${c};box-shadow:0 0 8px ${c}"></i></div><span class="val">${v == null ? "—" : v.toFixed(2)}</span>`).join("");
   const last = hist[hist.length - 1];
-  $("say").textContent = mix ? (mix.kind === "blend" ? `bringing ${S.decks[mix.in_slot] ? (S.decks[mix.in_slot].title || "the next one") : "the next one"} in on the bar, bass swap halfway.` : mix.kind === "fade" ? `fading the next one in over ${Math.round(mix.length / mix.beat / 4)} bars — ${mix.why || "the beats won't lock"}.` : `switching to the next one on the bar, no overlap — ${mix.why || "the beats won't lock"}.`)
+  $("say").textContent = mix ? (mix.kind === "blend" ? `bringing ${S.decks[mix.in_slot] ? (S.decks[mix.in_slot].title || "the next one") : "the next one"} in on the bar, bass swap halfway.` : mix.kind === "fade" ? `fading the next one in over ${Math.round(mix.length / mix.beat / 4)} bars — ${mix.why || "the beats won't lock"}.` : mix.kind === "echo" ? `echoing this one out on the bar, the next one in under the repeats — ${mix.why || "the beats won't lock"}.` : `switching to the next one on the bar, no overlap — ${mix.why || "the beats won't lock"}.`)
     : last ? `last move: ${last.kind} into ${last.to}${last.why ? " (" + last.why + ")" : ""}.` : `opened the set for ${S.by || "the room"}.`;
   if (S.gesture) $("say").textContent = S.gesture + (mix ? " · " + $("say").textContent : "");
   $("earlist").textContent = (S.listeners || []).length ? "in the room: " + S.listeners.join(", ") : "nobody in the room";
@@ -1498,7 +1504,8 @@ const FX = (() => {
     if (!seeded && S && S.live && S.history) {
       seeded = true; let n = 0;
       const hist = S.history.slice(0, m ? -1 : undefined);
-      for (let i = hist.length - 1; i >= 0 && hist[i].kind === "blend"; i--) n++;
+      // An echo-out neither adds to the run nor breaks it: it is a clean move, not a blend.
+      for (let i = hist.length - 1; i >= 0 && (hist[i].kind === "blend" || hist[i].kind === "echo"); i--) if (hist[i].kind === "blend") n++;
       combo = n; heat = tierOf(combo);
     }
     if (S && S.gesture && S.gesture !== lastGesture) {
@@ -1510,6 +1517,7 @@ const FX = (() => {
     if (m && (!was || was.key !== key)) {
       swapped = false;
       if (m.kind === "blend") pop(/moved/.test(m.check || "") ? "LOCKED · NUDGED" : "LOCKED", COL.cyan);
+      else if (m.kind === "echo") pop("ECHO OUT", COL.purple);
       else if (m.fallback === "unlocked") bad("NO LOCK · SWITCH");
       else if (m.kind === "cut") pop("SWITCH", COL.yellow);
     }

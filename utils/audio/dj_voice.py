@@ -57,8 +57,14 @@ def chose_next(prev, rec, edge: Optional[dict], in_set: bool) -> str:
         if move:
             line += f"; {move}"
         return line + "." + (" " + _pick(["staying with the set.", "next in the set."]) if in_set else "")
-    return _pick([f"next is {rec.title}. nothing left in the crate locks with this one, so it'll be a clean switch on the bar.",
-                  f"{rec.title} after this — no measured partner, so i'll cut on the bar rather than lay two grooves over each other."])
+    return _pick([f"next is {rec.title}. nothing i measured locks with this one, so i'll echo it out on the bar and bring the new one in under the tail.",
+                  f"{rec.title} after this — no measured partner, so an echo-out on the bar rather than two grooves fighting."])
+
+
+def swapped(rejected: str, rec: str) -> str:
+    return _pick([f"{rejected} wouldn't lock anywhere i tried — every phrase, every cue. {rec} does, so that's next instead.",
+                  f"tried {rejected} at every spot; the kicks never agreed. switching the pick to {rec}, which locks.",
+                  f"not {rejected} — no common beat. found {rec} instead, measured to lock."])
 
 
 def planned(plan, nxt_title: str) -> str:
@@ -78,6 +84,13 @@ def planned(plan, nxt_title: str) -> str:
                               f"moved it {ms} ms {way} — the ticks said one thing, the kicks another.",
                               f"{ms} ms {way} than the grid said. measured, not guessed."])
         return s
+    if plan.kind == "echo":
+        if plan.fallback == "unlocked":
+            return _pick([f"{nxt_title} doesn't lock with this anywhere i looked. echoing this one out on the bar, {nxt_title} in under the tail.",
+                          f"no common pulse with {nxt_title}, so no blend — an echo-out on the bar instead, the last beat ringing into it."])
+        if plan.fallback == "tempo":
+            return f"{nxt_title} is too far off in tempo to beatmatch. echo-out on the bar, it comes in under the repeats."
+        return _pick([f"echo-out into {nxt_title} on the bar.", f"letting this one echo away; {nxt_title} on the one."])
     if plan.fallback == "unlocked":
         return _pick([f"{nxt_title} doesn't lock with this — no common pulse. clean switch on the bar, no overlap.",
                       f"measured {nxt_title} against this and the kicks never agree. switching on the bar instead of forcing it."])

@@ -290,6 +290,7 @@ async def _records(msg, query: str) -> None:
         f"🎧  Records in {channel.name}",
         f"starting with **{clean(first.name, 200)}**{' (' + meta + ')' if meta else ''}, {why}. "
         f"{len(crate)} in the crate; each next one is a record measured to lock with the last, "
-        f"and anything that doesn't lock is switched on the bar, never laid over.",
+        f"tried at every phrase it could be mixed; anything that locks nowhere is echoed out on the bar, "
+        f"never laid over.",
         COLOR_MUSIC, footer="!music skip · !music status · !music off"))
     log_action(f"[records] {msg.author.display_name} started records in {channel.name}: {first.name}")

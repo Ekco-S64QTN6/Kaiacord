@@ -13,9 +13,10 @@ def test_a_pick_says_what_was_measured_and_the_key_move():
     assert "two" in line and ("14" in line and "16" in line) and "8A" in line and "9A" in line
 
 
-def test_a_pick_with_no_partner_says_it_will_switch():
-    line = dj_voice.chose_next(rec("one"), rec("two"), None, False)
-    assert "switch" in line or "cut" in line
+def test_a_pick_with_no_partner_says_it_will_echo_out():
+    for _ in range(10):
+        line = dj_voice.chose_next(rec("one"), rec("two"), None, False)
+        assert "echo" in line and "cut" not in line
 
 
 def test_a_nudged_blend_says_which_way():
@@ -24,10 +25,17 @@ def test_a_nudged_blend_says_which_way():
     assert "16" in line and "54 ms earlier" in line and "-54" not in line
 
 
-def test_an_unlocked_plan_says_why_it_switches():
-    plan = types.SimpleNamespace(kind="cut", length=0.5, beat=0.5, check="NOT locked", fallback="unlocked")
-    line = dj_voice.planned(plan, "two")
-    assert "two" in line and ("pulse" in line or "agree" in line)
+def test_an_unlocked_plan_says_it_echoes_out_and_why():
+    plan = types.SimpleNamespace(kind="echo", length=0.06, beat=0.5, check="NOT locked", fallback="unlocked")
+    for _ in range(10):
+        line = dj_voice.planned(plan, "two")
+        assert "two" in line and "echo" in line and ("pulse" in line or "lock" in line)
+
+
+def test_a_swapped_pick_names_both_records():
+    for _ in range(10):
+        line = dj_voice.swapped("one", "two")
+        assert "one" in line and "two" in line
 
 
 def test_the_session_feed_records_what_plays():

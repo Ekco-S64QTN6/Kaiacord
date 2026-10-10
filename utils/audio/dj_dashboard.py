@@ -273,7 +273,7 @@ def sets(session) -> dict:
                                 "key": r.key, "played": r.path in played, "on_air": r.path == on_air}
                                for r in recs]})
     return {"live": True, "sets": out, "next": setlist.peek_rotation(len(live)),
-            "building": setlist._building.is_set()}
+            "building": setlist.building()}
 
 
 def _session():

@@ -28,7 +28,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Iterable, Optional
 
 import numpy as np
 from pathlib import Path
@@ -128,6 +128,19 @@ BLEND_CONTRAST = 3.5
 #: record from its first sound, the two crossfaded equal-power, the basslines
 #: handed over halfway. Halved where the outgoing has no room for it.
 FADE_BARS = 8
+#: When no blend locks anywhere, the transition is an echo-out, never a bare
+#: cut: the outgoing stops on its bar and its last beat (mids and highs — no
+#: low end to clash with the new kick) repeats on the beat, each repeat this
+#: much quieter, under the incoming record's bar one.
+ECHO_FEEDBACK = 0.55
+ECHO_REPEATS = 6
+#: The outgoing's own fade at the drop of an echo-out: an eighth of a beat.
+ECHO_FADE_BEATS = 0.125
+#: How long the planner looks for a place a blend locks (`setlist.find_blend`),
+#: and then for another record that does (her own picks only), by mode: a
+#: skip should land in seconds, the end of a record has minutes.
+SEARCH_S = {"skip": 3.0, "end": 10.0}
+ALTERNATIVE_S = {"skip": 6.0, "end": 30.0}
 #: The kick cross-correlation may move the incoming record by at most this
 #: much. The counted grids land within a few ms (click tracks; a 2 ms comb at
 #: a real mix point agreed to 1 ms); larger corrections came from sparse
@@ -286,6 +299,11 @@ class Next:
     #: The bar (from bar one) its bassline comes in on, if found: a blend
     #: starts it so that bar lands on the bass swap.
     bass_in: Optional[int] = None
+    #: Who chose it: "hand" (loaded at the booth) and "request" (asked for, or
+    #: the next of a set picked at the booth) are mixed in however they can be;
+    #: her own picks ("set", "partner", "search", "pick") may be swapped for a
+    #: record that locks when they do not.
+    source: str = ""
 
 
 @dataclass
@@ -317,13 +335,15 @@ class Plan:
 
     @property
     def done(self) -> float:
-        return self.drop + (self.length if self.kind in ("blend", "fade", "out") else 0.0)
+        return self.drop + (self.length if self.kind in ("blend", "fade", "out", "echo") else 0.0)
 
 
 def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt: Next,
                     mode: str = "skip", mix_beats: int = MIX_BEATS, lead: float = 0.4,
-                    allow_blend: bool = True) -> Plan:
+                    allow_blend: bool = True, in_bars: Optional[int] = None) -> Plan:
     """Plan the next transition from where the outgoing record is (`now`).
+    `in_bars` cues the incoming that many bars past its bar one instead of where
+    its bassline and steady beat put it (the search in `transition` tries several).
 
     A blend needs both beats clear (BLEND_CONTRAST) and a common tempo within
     stretching range; otherwise it is a cut, which never overlaps two grooves."""
@@ -371,6 +391,8 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
         late = (nxt.bass_in - swap_bars) if nxt.bass_in is not None and nxt.bass_in > swap_bars else 0
         if in_phrase:
             late = max(late, in_phrase)
+        if in_bars is not None:
+            late = max(0, int(in_bars))
         if tracked and in_grid.bar_tick + 4 * late < len(in_grid.ticks):
             bar_in = float(in_grid.ticks[in_grid.bar_tick + 4 * late])
         else:
@@ -515,6 +537,12 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
         out = np.clip((plan.drop - t) / plan.length, 0.0, 1.0)
         inc = (t >= plan.drop).astype(np.float32)
         return out, out, out, inc, inc, inc
+    if plan.kind == "echo":
+        # Full to the bar, out over `length` after it; the incoming from the bar.
+        # Its last beat goes on repeating (`echo_tail`).
+        out = np.clip((plan.drop + plan.length - t) / plan.length, 0.0, 1.0)
+        inc = np.clip((t - plan.drop) / 0.005, 0.0, 1.0)
+        return out, out, out, inc, inc, inc
     if plan.kind == "out":
         # The incoming is already playing (started by hand): only the outgoing
         # moves — its bass gone on the bar, the rest fading out equal-power.
@@ -538,6 +566,39 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
     out_mid = (1 - (1 - MID_SHARE) * _ease((t - (d + r)) / r)) * (1 - _ease((t - (d + L - 2 * r)) / r))
     out_high = 1.0 - _ease((t - (d + L - r)) / r)
     return 1.0 - bass, out_mid, out_high, bass, in_mid, in_high
+
+
+def as_echo(plan: Plan) -> Plan:
+    """A planned cut made an echo-out on the same bar (see ECHO_FEEDBACK)."""
+    if plan.kind == "cut":
+        plan.kind = "echo"
+        plan.length = max(0.02, ECHO_FADE_BEATS * plan.beat)
+    return plan
+
+
+def echo_tail(last_beat: np.ndarray, beat_s: float) -> np.ndarray:
+    """The repeats of the outgoing's last beat (float stereo, mids and highs),
+    from the drop on: one every beat, each ECHO_FEEDBACK quieter than the last
+    and a little darker (a one-pole low-pass per repeat, as tape echo dulls)."""
+    d = max(1, int(round(beat_s * RATE)))
+    n = len(last_beat)
+    if n == 0:
+        return np.zeros((0, 2), dtype=np.float32)
+    out = np.zeros((d * (ECHO_REPEATS - 1) + n, 2), dtype=np.float32)
+    x = last_beat.astype(np.float32)
+    # Each repeat fades in and out over a few ms so its edges do not click.
+    edge = min(n // 4, int(0.004 * RATE))
+    win = np.ones(n, dtype=np.float32)
+    if edge > 0:
+        win[:edge] = np.linspace(0, 1, edge)
+        win[-edge:] = np.linspace(1, 0, edge)
+    from scipy.signal import lfilter
+    g = 1.0
+    for k in range(ECHO_REPEATS):
+        g *= ECHO_FEEDBACK
+        x = lfilter([0.35], [1, -0.65], x, axis=0).astype(np.float32) if k else x
+        out[k * d:k * d + n] += g * x * win[:, None]
+    return out
 
 
 def ramp(plan: Plan) -> float:
@@ -761,6 +822,9 @@ class CrossfadeSource(_AudioSource):
         self._grid_at = grid_at or _default_grid_at
         self._verify = verify
         self.say: Optional[Callable[[str, str], None]] = None     # the session's feed (`dj_voice`)
+        #: Other records to try, readied, when her pick will not lock with the
+        #: record on air (`RecordsSession._alternatives`).
+        self.alternatives: Optional[Callable[[Deck, Next], Iterable[Next]]] = None
         self._queued: Optional[Next] = None
         self._picking = False
         self._exhausted = False             # the last pick found nothing to play
@@ -815,6 +879,13 @@ class CrossfadeSource(_AudioSource):
         self._glide_next = int(GLIDE_AFTER_BARS * 2 * FRAMES_PER_S)
         self.energy = 0.5
         self.gesture = ""
+        # An echo-out: the outgoing's last beat as it is captured (`_echo_cap`,
+        # for the plan `_echo_for`), then its repeats playing out from the drop
+        # (`_echo_tail` from sample `_echo_pos`), across the change of record.
+        self._echo_for: Optional[Plan] = None
+        self._echo_cap: list = []
+        self._echo_tail: Optional[np.ndarray] = None
+        self._echo_pos = 0
         self._lock = threading.RLock()
         self._prefetch()
 
@@ -1186,42 +1257,49 @@ class CrossfadeSource(_AudioSource):
                     _SOS = _bands()
                 # Where the outgoing's music ends: its last strong beat, a bar
                 # on, not the end of the file. A blend is fitted before it.
-                music_end = deck.end
-                try:
-                    from utils.audio import beatgrid as _bg
-                    last = _bg.last_strong_beat(deck.record.path, deck.record.bpm, round(deck.end * deck.ratio, 1))
-                    if last:
-                        music_end = min(deck.end, (last + 240.0 / max(1.0, deck.record.bpm)) / deck.ratio)
-                except Exception as e:
-                    log_debug(f"[records] last beat not found: {e}")
+                music_end = _music_end(deck)
                 here = (music_end - 60.0 if mode == "end" else deck.at()) * deck.ratio
                 out_grid = self._grid_at(deck.record, max(0.0, here - 8.0), 45.0)
                 if out_grid is not None:
                     deck.grid = out_grid                     # measured here, where it is mixed out
+                from utils.audio import setlist
+                verify = self._verify or _default_verify
+                swapped_from = None
                 for attempt in range(4):
                     lead = 2.0 + attempt                     # room to check the kicks, start ffmpeg, fill
-                    # The chosen length, halved (not below 16 beats) where the
-                    # record has no room left for it, before giving up to a cut.
-                    beats = self._mix_beats
-                    plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode, beats, lead=lead)
-                    while plan.kind != "blend" and plan.fallback == "room" and beats > MIN_BLEND_BEATS:
-                        beats //= 2
-                        plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode, beats, lead=lead)
-                    if plan.kind == "blend":
-                        # The ticks put the bars together, to within tens of ms;
-                        # the two records themselves decide. Measured bar by bar
-                        # through the whole overlap: a blend whose bars agree it
-                        # is off by one amount is moved by it, and one whose bars
-                        # do not agree has no common beat and is not a blend.
-                        verdict, shift = (self._verify or _default_verify)(deck.record.path, deck.ratio,
-                                                                           nxt.record.path, plan)
-                        if verdict.locked:
-                            plan.start += shift
-                            plan.check = verdict.summary() + (f"; moved {shift * 1000:+.0f} ms" if shift else "")
-                        else:
-                            plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode, beats,
-                                                   lead=lead, allow_blend=False)
-                            plan.check = verdict.summary()
+                    # Every place it could lock, measured: the planned spot, the
+                    # incoming cued at another phrase, the outgoing mixed out
+                    # earlier (a skip: later), a shorter blend.
+                    found = setlist.find_blend(deck.at(), deck.record.path, deck.ratio, out_grid,
+                                               music_end, nxt, mode, self._mix_beats, lead=lead,
+                                               verify_fn=verify, budget_s=SEARCH_S.get(mode, 3.0))
+                    if found is None and attempt == 0 and nxt.source not in ("hand", "request") and self.alternatives:
+                        # Her own pick does not lock anywhere: another record that does.
+                        until = time.time() + ALTERNATIVE_S.get(mode, 6.0)
+                        try:
+                            for alt in self.alternatives(deck, nxt):
+                                if time.time() > until or deck is not self.current or gen != self._gen:
+                                    break
+                                f = setlist.find_blend(deck.at(), deck.record.path, deck.ratio, out_grid, music_end,
+                                                       alt, mode, self._mix_beats, lead=lead, verify_fn=verify,
+                                                       budget_s=max(0.5, until - time.time()))
+                                if f is not None:
+                                    swapped_from, nxt, found = nxt, alt, f
+                                    break
+                        except Exception as e:
+                            log_debug(f"[records] no other record tried: {e}")
+                    if found is not None:
+                        plan = found[0]
+                    else:
+                        # Nothing locks: an echo-out on the bar, never two grooves
+                        # laid over each other and never a bare cut.
+                        plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode,
+                                               self._mix_beats, lead=lead)
+                        if plan.kind == "blend":             # it fits, but locks nowhere
+                            plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode,
+                                                   self._mix_beats, lead=lead, allow_blend=False)
+                            plan.check = "no common beat anywhere it could be mixed"
+                        plan = as_echo(plan)
                     # A stretch that moves onsets early is started that much
                     # later (only the atempo fallback does; rubberband does not).
                     from utils.audio.beatgrid import stretch_latency
@@ -1258,7 +1336,7 @@ class CrossfadeSource(_AudioSource):
 
                 why = ""
                 if plan.kind != "blend":
-                    why = ("; the beats don't lock — " + plan.check.split(" — ", 1)[-1] if plan.fallback == "unlocked" else
+                    why = ("; the beats don't lock — " + plan.check if plan.fallback == "unlocked" else
                            "; no clear beat" if not (out_grid and nxt.grid) else
                            f"; beat not steady enough to blend (contrast {out_grid.contrast:.1f} / "
                            f"{nxt.grid.contrast:.1f})" if min(out_grid.contrast, nxt.grid.contrast) < BLEND_CONTRAST
@@ -1266,6 +1344,8 @@ class CrossfadeSource(_AudioSource):
                            else "; tempos too far apart" if plan.fallback == "tempo"
                            else "; the beats would drift apart over the blend" if plan.fallback == "drift"
                            else "; no room left to blend")
+                if swapped_from is not None:
+                    why += f"; {swapped_from.record.name} locked nowhere, so {nxt.record.name} instead"
                 plan.why = why.lstrip("; ")
                 self._journal(deck, nxt, plan, out_grid, music_end, mode)
                 self.history.append({"ts": time.time(), "kind": plan.kind, "mode": mode,
@@ -1278,6 +1358,8 @@ class CrossfadeSource(_AudioSource):
                 if self.say:
                     try:
                         from utils.audio import dj_voice
+                        if swapped_from is not None:
+                            self.say(dj_voice.swapped(swapped_from.record.title, nxt.record.title), "pick")
                         self.say(dj_voice.planned(plan, nxt.record.title), "plan")
                     except Exception as e:
                         log_debug(f"[records] chatter: {e}")
@@ -1316,7 +1398,8 @@ class CrossfadeSource(_AudioSource):
                    "offset": round(plan.offset, 3), "music_end": round(music_end, 2), "file_end": round(deck.end, 2),
                    "out_grid": g(out_grid), "in_grid": g(nxt.grid), "controls_flat": self.controls.flat(),
                    "bass_in": nxt.bass_in, "keys": [deck.key, nxt.record.key], "rides": self.rides,
-                   "semitones": self.incoming.semitones if self.incoming else 0, "check": plan.check}
+                   "semitones": self.incoming.semitones if self.incoming else 0, "check": plan.check,
+                   "source": nxt.source}
             self._journal_row(row)
         except Exception as e:
             log_debug(f"[records] transition not journalled: {e}")
@@ -1418,6 +1501,8 @@ class CrossfadeSource(_AudioSource):
             in_parts = incoming.split(inc) if inc is not None else None
             frame = mix_frames(out_parts, in_parts, g, hands.channel(cur.slot),
                                hands.channel(incoming.slot), hands.master)
+            if plan.kind == "echo":
+                self._echo_capture(plan, times, out_parts, hands.channel(cur.slot)[3] * hands.master)
             self.applied = tuple(round(float(x[-1]), 3) for x in g)
             self.hands_now = hands_now
             self.levels["b"] = self._db(inc)
@@ -1425,11 +1510,44 @@ class CrossfadeSource(_AudioSource):
                 with self._lock:
                     if self.incoming is incoming and self.plan is plan:
                         self._advance()
+        if self._echo_tail is not None and frame:
+            frame = self._echo_play(frame)
         self.levels["a"] = self._db(out)
         self.levels["master"] = self._db(frame)
         self.meter.append((self.frames_sent, cur.slot, self.levels["a"], self.levels["b"], self.levels["master"]))
         self.frames_sent += 1
         return frame or SILENCE
+
+    # ── the echo-out ────────────────────────────────────────────────
+
+    def _echo_capture(self, plan: Plan, times: np.ndarray, out_parts, level: float) -> None:
+        """Keep the outgoing's last beat before the drop (mids and highs, at the
+        level it was heard); on the frame of the drop, start its repeats."""
+        if self._echo_for is not plan:
+            self._echo_for, self._echo_cap = plan, []
+        if out_parts is not None:
+            keep = (times >= plan.drop - plan.beat) & (times < plan.drop)
+            if keep.any():
+                self._echo_cap.append(((out_parts[1] + out_parts[2]) * level)[keep])
+        if self._echo_cap and float(times[-1]) >= plan.drop and self._echo_tail is None:
+            tail = echo_tail(np.concatenate(self._echo_cap), plan.beat)
+            self._echo_cap = []
+            first = int(np.searchsorted(times, plan.drop))
+            # Index 0 of the tail is the drop: in this frame, `first` samples in.
+            self._echo_tail = np.concatenate([np.zeros((first, 2), dtype=np.float32), tail])
+            self._echo_pos = 0
+
+    def _echo_play(self, frame: bytes) -> bytes:
+        tail, i = self._echo_tail, self._echo_pos
+        chunk = tail[i:i + FRAME_SAMPLES]
+        self._echo_pos = i + FRAME_SAMPLES
+        if self._echo_pos >= len(tail):
+            self._echo_tail = None
+        if not len(chunk):
+            return frame
+        y = np.frombuffer(frame, dtype=np.int16).astype(np.float32).reshape(-1, 2)
+        y[:len(chunk)] += chunk
+        return np.rint(_soft_limit(y)).astype(np.int16).tobytes()
 
     # ── the tempo glide ─────────────────────────────────────────────
 
@@ -1569,6 +1687,25 @@ class CrossfadeSource(_AudioSource):
         self.current = self.incoming = self.hand = None
 
 
+def _music_end(deck: Deck) -> float:
+    """Where the record's music ends, as played: its last strong beat a bar on,
+    not the end of the file. A blend is fitted before it."""
+    try:
+        from utils.audio import beatgrid as _bg
+        last = _bg.last_strong_beat(deck.record.path, deck.record.bpm, round(deck.end * deck.ratio, 1))
+        if last:
+            return min(deck.end, (last + 240.0 / max(1.0, deck.record.bpm)) / deck.ratio)
+    except Exception as e:
+        log_debug(f"[records] last beat not found: {e}")
+    return deck.end
+
+
+def _out_side(deck: Deck, grid_at: Callable) -> tuple:
+    """(where its music ends, its grid there) — what a blend at its end is planned from."""
+    music_end = _music_end(deck)
+    return music_end, grid_at(deck.record, max(0.0, (music_end - 60.0) * deck.ratio - 8.0), 45.0)
+
+
 def _default_verify(out_path: str, out_ratio: float, in_path: str, plan):
     from utils.audio import setlist
     return setlist.verify(out_path, out_ratio, in_path, plan)
@@ -1626,7 +1763,7 @@ class RecordsSession:
         self._by_path = {r.path: r for r in crate}
         self.graph = setlist.load()
         self.set_list: Optional[list] = None
-        if any(r.path not in self.graph.get("records", {}) for r in crate if r.bpm):
+        if setlist.needs_build(self.graph, crate):
             setlist.build_in_background(crate, on_done=self._graph_built)
         self.loading: Optional[str] = None        # a record being readied for the free deck
         self.last_load: Optional[dict] = None
@@ -1673,6 +1810,8 @@ class RecordsSession:
             try:
                 nxt = self._prepare(rec)
                 src = self.source
+                if nxt is not None:
+                    nxt.source = "hand"
                 if nxt is None or src is None:
                     log_warning(f"[records] {rec.name} could not be read; not loaded")
                     self.last_load = {"name": rec.name, "result": "unreadable", "ts": time.time()}
@@ -1693,6 +1832,7 @@ class RecordsSession:
             rec = next((r for r in self.crate if r.path == path), None)
             nxt = self._prepare(rec) if rec else None
             if nxt:
+                nxt.source = "request"
                 return nxt
         # Her own pick is a record that will blend with the one on air: a steady
         # beat, bar one counted, its tempo within stretch of the tempo actually
@@ -1700,6 +1840,12 @@ class RecordsSession:
         # pedestrian transitions (167 bpm DnB into an 80 bpm pop song).
         playing = (deck.grid.bpm * deck.ratio) if deck.grid else ((deck.record.bpm or 0) * deck.ratio or None)
         picked = self._partner(deck)
+        if picked is not None:
+            return picked
+        # Nothing measured from this record: measure candidates against its end
+        # now, as the graph would have, preferring ones with partners of their
+        # own — the way back into the measured sets after a record with none.
+        picked = self._measured_pick(deck)
         if picked is not None:
             return picked
         passed_over: list[str] = []
@@ -1719,9 +1865,10 @@ class RecordsSession:
                 if blends:
                     beatgrid.ensure_ticks(rec.path, rec.bpm)
                     return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
-                                beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm))
+                                beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm),
+                                source="pick")
                 fallback = fallback or Next(rec, seconds, None, grid, beatgrid.first_sound(rec.path),
-                                            beatgrid.bass_entry(rec.path, rec.bpm))
+                                            beatgrid.bass_entry(rec.path, rec.bpm), source="pick")
                 passed_over.append(rec.path)
             rec = library.next_record(deck.record, self.crate, self.played + passed_over, self._rng)
         # Second pass, over the whole crate: what can be stretched to the tempo
@@ -1740,7 +1887,8 @@ class RecordsSession:
                          or (grid.tracked and grid.tick_steady(float(grid.ticks[grid.bar_tick])))):
                 beatgrid.ensure_ticks(rec.path, rec.bpm)
                 return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
-                            beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm))
+                            beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm),
+                            source="pick")
         if fallback is not None:
             log_info(f"[records] nothing in {self.BLEND_TRIES} candidates blends with {deck.record.name}; "
                      f"{fallback.record.name} will be switched to on the bar")
@@ -1802,7 +1950,9 @@ class RecordsSession:
         except Exception:
             return None
         played = set(self.played)
-        options = [p for p in nbrs if p not in played and p in self._by_path]
+        heard = [self._by_path[p] for p in played if p in self._by_path] + [deck.record]
+        options = [p for p in nbrs if p not in played and p in self._by_path
+                   and not any(library.same_song(self._by_path[p], h) for h in heard)]
         if not options:
             return None
         if self.set_list and deck.record.path in self.set_list:
@@ -1830,7 +1980,82 @@ class RecordsSession:
             except Exception as e:
                 log_debug(f"[records] chatter: {e}")
             return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
-                        beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm))
+                        beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm),
+                        source="set" if self.set_list and path in self.set_list else "partner")
+        return None
+
+    #: Records measured against the one on air when the graph has nothing for
+    #: it (`_measured_pick`), and how long that may take (it runs while the
+    #: record plays, minutes before it ends).
+    SEARCH_TRIES = 16
+    SEARCH_BUDGET_S = 40.0
+
+    def _candidates(self, deck: Deck, exclude: Optional[library.Record] = None) -> list:
+        """Records that could follow `deck`, best first: its measured partners,
+        then anything within stretch of the tempo playing, by key and genre —
+        each not played (nor another file of a song played), and those with
+        measured partners of their own ahead of those without."""
+        from utils.audio import beatgrid, setlist
+        played = set(self.played)
+        heard = [self._by_path[p] for p in played if p in self._by_path] + [deck.record]
+        playing = (deck.grid.bpm * deck.ratio) if deck.grid else ((deck.record.bpm or 0) * deck.ratio or None)
+
+        def fresh(r):
+            return (r.path not in played and r.bpm and (exclude is None or not library.same_song(r, exclude))
+                    and not any(library.same_song(r, h) for h in heard))
+        nbrs = setlist.partners(self.graph, deck.record.path)
+        first = [self._by_path[p] for p in sorted(nbrs, key=lambda p: -nbrs[p].get("agree", 0))
+                 if p in self._by_path and fresh(self._by_path[p])]
+        onward = lambda r: len(setlist.partners(self.graph, r.path))
+        rest = [r for r in self.crate if fresh(r) and r not in first and library.tempo_ratio(playing, r.bpm)
+                and beatgrid.ticks_for(r.path) is not None]
+        rest.sort(key=lambda r: (onward(r) == 0, -library.score(deck.record, r), self._rng.random()))
+        return first + rest
+
+    def _alternatives(self, deck: Deck, rejected: Next):
+        """Readied records to try when `rejected` will not lock with `deck`."""
+        nbrs = None
+        for rec in self._candidates(deck, exclude=rejected.record)[:self.SEARCH_TRIES]:
+            nxt = self._prepare(rec)
+            if nxt is None:
+                continue
+            if nbrs is None:
+                from utils.audio import setlist
+                nbrs = setlist.partners(self.graph, deck.record.path)
+            nxt.source = "partner" if rec.path in nbrs else "search"
+            yield nxt
+
+    def _measured_pick(self, deck: Deck) -> Optional[Next]:
+        """A record measured to lock with `deck` where it ends, found now."""
+        from utils.audio import beatgrid, setlist
+        started = time.time()
+        try:
+            music_end, out_grid = _out_side(deck, self.source._grid_at if self.source else _default_grid_at)
+        except Exception as e:
+            log_debug(f"[records] the end of {deck.record.name} not read: {e}")
+            return None
+        if out_grid is None:
+            return None
+        for nxt in self._alternatives(deck, Next(deck.record, 0.0)):
+            if time.time() - started > self.SEARCH_BUDGET_S:
+                break
+            found = setlist.find_blend(max(deck.at(), music_end - 180.0), deck.record.path, deck.ratio, out_grid,
+                                       music_end, nxt, "end", self.source._mix_beats if self.source else MIX_BEATS,
+                                       budget_s=max(1.0, self.SEARCH_BUDGET_S - (time.time() - started)))
+            if found is None:
+                continue
+            plan, verdict, shift, how = found
+            edge = {"ms": round(shift * 1000, 1), "agree": verdict.agree, "bars": verdict.bars,
+                    "ratio": round(plan.ratio, 5), **how}
+            self.graph.setdefault("edges", {}).setdefault(deck.record.path, {})[nxt.record.path] = edge
+            log_info(f"[records] next: {nxt.record.name} — measured just now to lock with {deck.record.name}")
+            try:
+                from utils.audio import dj_voice
+                self.say(dj_voice.chose_next(deck.record, nxt.record, edge, False), "pick")
+            except Exception as e:
+                log_debug(f"[records] chatter: {e}")
+            nxt.source = "search"
+            return nxt
         return None
 
     def say(self, text: str, kind: str = "") -> None:
@@ -1999,6 +2224,7 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
     session.source = CrossfadeSource(deck, session._choose, on_change=session._changed,
                                      mix_beats=int(mix_beats))
     session.source.say = session.say
+    session.source.alternatives = session._alternatives
     try:
         from utils.infrastructure.system.yaml_config import config
         session.source.rides = bool(config.get("music.records_kaia_hands", True))

@@ -12,6 +12,7 @@ something she played in the last while.
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import random
@@ -71,6 +72,71 @@ def load(path: str | os.PathLike) -> list[Record]:
                           key=row.get("key") if _camelot(row.get("key")) else None,
                           genre=str(row.get("genre") or "").strip()))
     return out
+
+
+_VERSION = re.compile(r"\s+-\s+.*\b(?:remix|mix|edit|version|rework|remaster(?:ed)?|vip|dub|bootleg|flip|cover)\b.*$")
+_ARTIST_FILLER = {"feat", "ft", "vs", "and", "the", "with", "official", "music", "x"}
+
+
+def audio_signature(path: str) -> Optional[str]:
+    """A fingerprint of the file's audio, not its tags: the ID3v2 block in front
+    (tags, embedded cover art) and an ID3v1 tag at the end are skipped, and the
+    first and last 256 KB of what is left hashed with its length. Retagging a
+    library leaves it unchanged, so nothing measured from the audio is redone."""
+    import hashlib
+    try:
+        with open(path, "rb") as f:
+            head = f.read(10)
+            start = 0
+            if len(head) == 10 and head[:3] == b"ID3":
+                size = ((head[6] & 0x7F) << 21) | ((head[7] & 0x7F) << 14) | ((head[8] & 0x7F) << 7) | (head[9] & 0x7F)
+                start = 10 + size + (10 if head[5] & 0x10 else 0)
+            f.seek(0, 2)
+            end = f.tell()
+            if end - 128 >= start:
+                f.seek(end - 128)
+                if f.read(3) == b"TAG":
+                    end -= 128
+            if end <= start:
+                return None
+            span = 262144
+            f.seek(start)
+            a = f.read(min(span, end - start))
+            f.seek(max(start, end - span))
+            b = f.read(end - max(start, end - span))
+    except OSError:
+        return None
+    return hashlib.sha1(a + b + str(end - start).encode()).hexdigest()[:20]
+
+
+@functools.lru_cache(maxsize=4096)
+def title_key(rec: Record) -> str:
+    """The song a record is, by title: without its version in brackets (a
+    remix, an extended mix, a remastered video), a "- … remix" tail or a
+    featured artist."""
+    t = rec.title.lower()
+    t = re.sub(r"\s*[\(\[\{].*?[\)\]\}]", "", t)
+    t = _VERSION.sub("", t)
+    t = re.sub(r"\b(?:feat|ft)\.?\s.*$", "", t)
+    return re.sub(r"[^\w]+", " ", t).strip()
+
+
+@functools.lru_cache(maxsize=4096)
+def _artist_words(rec: Record) -> frozenset:
+    return frozenset(w for w in re.findall(r"\w+", rec.artist.lower()) if len(w) > 2 and w not in _ARTIST_FILLER)
+
+
+def same_song(a: Record, b: Record) -> bool:
+    """Two files of one song — a copy, a remaster, another mix of it: the same
+    title once its version is stripped, by an artist they share (or one of them
+    has none on file). Same title by two artists ("Bad Blood") is two songs."""
+    if a.path == b.path:
+        return True
+    ka, kb = title_key(a), title_key(b)
+    if not ka or ka != kb:
+        return False
+    wa, wb = _artist_words(a), _artist_words(b)
+    return not wa or not wb or bool(wa & wb)
 
 
 def key_step(a: Optional[str], b: Optional[str]) -> Optional[int]:
@@ -136,13 +202,11 @@ def next_record(current: Optional[Record], crate: list[Record], played: Iterable
     """The record to play after `current`: among the best few that fit, one at random."""
     rng = rng or random.Random()
     recent = set(list(played)[-RECENT:])
-    # The same song in two files (a 128 kbps copy beside the original) is the
-    # same record: compare by name as well as path.
-    recent_names = {r.name.lower() for r in crate if r.path in recent}
-    if current is not None:
-        recent_names.add(current.name.lower())
-    pool = ([r for r in crate if r.path not in recent and r.name.lower() not in recent_names]
-            or [r for r in crate if not current or r.name.lower() != current.name.lower()])
+    # The same song in another file (a copy, a remaster, another mix of it)
+    # is the same record (`same_song`).
+    heard = [r for r in crate if r.path in recent] + ([current] if current is not None else [])
+    pool = ([r for r in crate if r.path not in recent and not any(same_song(r, h) for h in heard)]
+            or [r for r in crate if not current or not same_song(r, current)])
     if not pool:
         return None
     if current is None:

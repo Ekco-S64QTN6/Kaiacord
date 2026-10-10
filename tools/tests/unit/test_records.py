@@ -230,7 +230,7 @@ def test_a_blend_hands_over_to_the_next_record():
 def test_a_blend_is_measured_before_it_plays():
     """Ticks put the bars within tens of ms; the records decide. A blend whose
     bars all agree it is 54 ms late is started 54 ms earlier, whatever the size;
-    one with no common beat is a clean switch, never laid over."""
+    one with no common beat anywhere is an echo-out, never laid over."""
     from utils.audio import mixcheck
     locked = mixcheck.Verdict(True, 16, 16, agree=14)
     unlocked = mixcheck.Verdict(False, 16, 5, why="no common beat — only 5 of 16 bars line up clearly")
@@ -247,7 +247,7 @@ def test_a_blend_is_measured_before_it_plays():
     pa, pb, pc = _plan(a), _plan(b), _plan(c)
     assert pa.kind == pb.kind == "blend" and pa.start == pytest.approx(pb.start - 0.054)
     assert "moved -54 ms" in pa.check
-    assert pc.kind == "cut" and pc.fallback == "unlocked" and "no common beat" in pc.why
+    assert pc.kind == "echo" and pc.fallback == "unlocked" and "no common beat" in pc.why
     assert seen[0][0].endswith("one.mp3") and seen[0][1].endswith("two.mp3")
 
 
@@ -731,3 +731,39 @@ def test_a_blend_called_off_mid_frame_does_not_stop_playback():
     for _ in range(5):
         assert src.read()                            # no exception, frames keep coming
     assert fired and src.current is not None
+
+
+def sine(freq: float, amp: float, seconds: float):
+    """A fake decoded record: a steady tone (stereo), in the mids/highs."""
+    n = int(seconds * FRAMES_PER_S) * R.FRAME_SAMPLES
+    x = (amp * np.sin(2 * np.pi * freq * np.arange(n) / RATE)).astype(np.int16)
+    data = np.repeat(x, 2).tobytes()
+    return lambda path, ratio, gain=0.0, offset=0.0, **kw: io.BytesIO(data)
+
+
+def test_an_unlocked_transition_echoes_out_under_the_next_record():
+    """No common beat anywhere: not a bare cut — the outgoing stops on its bar
+    and its last beat repeats, quieter each beat, under the incoming."""
+    from utils.audio import mixcheck
+    unlocked = lambda *a: (mixcheck.Verdict(False, 16, 3, why="no common beat"), 0.0)
+    first = Deck(rec("one", 120, "8A"), 1.0, 20.0, sine(3000, 8000, 20.0))
+    queue = [nxt(STEADY)]
+    src = CrossfadeSource(first, lambda deck: queue.pop() if queue else None, stream_factory=tone(0, 20.0),
+                          grid_at=lambda record, start, seconds: STEADY, mix_beats=16, verify=unlocked)
+    wait_for(first, 100)
+    wait_until(lambda: src._queued is not None)
+    plan = _plan(src)
+    assert plan.kind == "echo" and plan.fallback == "unlocked"
+    rms = []
+    for _ in range(int((plan.drop + 4.0) * FRAMES_PER_S)):
+        f = src.read()
+        x = np.frombuffer(f, dtype=np.int16).astype(np.float32) if f else np.zeros(1)
+        rms.append(float(np.sqrt(np.mean(x * x))))
+        if len(rms) % 10 == 0:
+            time.sleep(0.005)                    # let the incoming deck's reader keep up
+    at = lambda t: rms[int(t * FRAMES_PER_S)]
+    beat = plan.beat
+    assert at(plan.drop - 0.3) > 4000                                # the outgoing, full
+    first_repeat, third_repeat = at(plan.drop + 0.2 * beat), at(plan.drop + 2.2 * beat)
+    assert first_repeat > 1000 and third_repeat < first_repeat       # it rings on, and dies away
+    assert at(plan.drop + (R.ECHO_REPEATS + 1) * beat) < 50          # gone after the repeats

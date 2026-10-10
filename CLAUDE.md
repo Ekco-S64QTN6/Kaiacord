@@ -602,26 +602,49 @@ a mix that sounded wrong:
   and moves between sections — so a plan is only a proposal. Every planned blend is laid out on the
   played timeline exactly as the mixer will play it and measured bar by bar through the whole overlap on
   each record's kick envelope: locked if most bars agree on one lag inside `LOCK_S`; moved by that lag if
-  they agree on a larger one (a 109 ms flam, fixed); a clean switch if they agree on nothing — no common
-  pulse, which was 34 of 40 planned blends on the real crate before this (pop, hip-hop and synthwave
-  pairs laid over each other for 64 beats because their ticks ran straight). The search reaches a
-  quarter beat only, so an off-beat bassline can never be chosen as the alignment. A pair the judge
-  cannot read (no envelope) is a switch. The kick envelope is low-band power smoothed below the bass's own
-  frequencies (zero-phase) before it is differentiated: per 2 ms hop without that it followed each cycle
-  of a 50 Hz kick, and every alignment measured on it — the old 20 ms `fine_offset` nudge included — was
-  ripple. Check a judge change on click tracks *and* by plotting both records' envelopes after the shift:
-  identical copies prove only the time mapping. It cannot always tell a kick from a heavy rolling
-  bassline on the beat; that needs ears.
+  they agree on a larger one (a 109 ms flam, fixed). The search reaches a quarter beat only, so an
+  off-beat bassline can never be chosen as the alignment. The kick envelope is low-band power smoothed
+  below the bass's own frequencies (zero-phase) before it is differentiated: per 2 ms hop without that it
+  followed each cycle of a 50 Hz kick, and every alignment measured on it was ripple. Three rules, each
+  from a measurement:
+  - **Only bars where both records have a kick can flam on it** (`NO_KICK`: under 0.4 of the record's own
+    kick level is no kick). Hibernation's last 30 bars are pads at a third of its kick level, and the
+    judge "measured" lags there out to the ±125 ms edge of its search and refused every pair. But a bar
+    with no shared kick still has **claps and hats** (2–5 kHz, `hits_envelope`), and those clashed in 38
+    of 58 such bars on real locks: where no kick holds them, the hits must agree (`HITS_CLASH`).
+  - **A short overlap must agree in more of its bars** (`needed`: all of 4, 6 of 8). A blend is searched
+    for in dozens of places, and a random lag lands inside `AGREE_S` about one time in twelve.
+  - **Search before giving up** (`setlist.find_blend`): the planned spot, the incoming cued at another
+    phrase (bar 0/8/16/32), the outgoing mixed out up to five 8-bar phrases earlier (a skip: up to three
+    4-bar phrases later), then 32 and 16 beats. The planner gives it `SEARCH_S`.
+  Check a judge change on click tracks *and* on real pairs in the band you did not measure: a lock is
+  only as good as what plays in the bars the judge left out. It cannot always tell a kick from a heavy
+  rolling bassline on the beat; that needs ears.
+- **Nothing locks: an echo-out, never a bare cut** (`as_echo`, `echo_tail`). Her own pick that locks
+  nowhere is swapped for one that does (`RecordsSession._alternatives`: its measured partners, then
+  records in stretch of the tempo, those with partners of their own first, `ALTERNATIVE_S`); a record
+  loaded at the booth or asked for (`Next.source` "hand"/"request") is never swapped. What still locks
+  nowhere goes out on the bar with its last beat (mids and highs) repeating, `ECHO_FEEDBACK` quieter
+  each beat, under the incoming's bar one. On 9 Oct, 40 of 71 planned transitions were cuts — 36 of
+  them pairs the graph had never measured (skips and hand loads), which nothing tried to rescue.
 - **She picks partners that lock** (`setlist`). `memory/records/graph.json` holds every tempo-compatible
-  pair measured the way the mixer would plan it; it is extended, never rebuilt — a new or changed record
-  costs its own pairs, in the background when a session starts. Sets are walks through the graph (every
-  transition measured), rotated per session (`set_rotation.json`) — the booth's SETS tab lists them, marks the one playing and the one
-  the rotation starts next, and ▶ PLAY follows a set from there (`play_set`: its first unplayed record is the
-  next pick; a plan not yet begun is called off and the pick in flight dropped by generation); `_choose` follows the set, else the
-  partner that sits best in key, else the old picker — and the live check still runs on everything,
-  skips and hand loads included. On the real crate: 2,319 locking transitions, 170 of 319 records with
-  a partner, all 103 transitions of the first six sets planned as blends and measured locked (63 of them
-  needing a 12–122 ms shift the old code would have played as a flam).
+  pair measured with `find_blend` at the outgoing's end; it is extended, never rebuilt — a new or changed
+  record costs its own pairs (a file only retagged keeps them: `library.audio_signature` hashes the
+  audio, not the ID3 block). The measuring runs in a niced separate process
+  (`tools/maintenance/records_graph.py`, cross-process lock), never in the bot: it is numpy-heavy and in
+  the bot's process it held the GIL against the voice thread. A change to how pairs are judged bumps
+  `METHOD`, which re-measures everything. When the graph has nothing from the record on air, `_choose`
+  measures candidates against its end itself (`_measured_pick`) — the way back into the sets after a
+  record with no partners, which is how one cut used to lead to the next.
+- **Sets run about an hour** (`make_sets`): depth-first walks through the graph until `SET_TARGET_S` of
+  played time (record lengths less each transition's overlap), dropped under `SET_MIN_S`; no song twice
+  (`library.same_song`: the title without its version, by an artist they share — "Bad Blood" by two
+  artists is two songs); held to one genre family (`FAMILIES`) where the graph allows; whole mixes over
+  `MAX_SET_RECORD_S` left out; a record in at most `MAX_USES` sets; starts spread over families and
+  tempo bands. Rotated per session (`set_rotation.json`) — the booth's SETS tab lists them, marks the one
+  playing and the one the rotation starts next, and ▶ PLAY follows a set from there (`play_set`: its
+  first unplayed record is the next pick; a plan not yet begun is called off and the pick in flight
+  dropped by generation). `records_graph.py --md FILE` writes the listing.
 - **The audio thread works from one snapshot per frame.** A skip, a load or a cue from the booth calls a
   plan off on another thread; a frame that read the plan before it and the incoming deck after it raised
   `'NoneType' object has no attribute 'slot'`, and discord.py stopped the set. `read()` takes plan,
@@ -647,8 +670,8 @@ a mix that sounded wrong:
   the mids traded every 8 bars, no bass for the beat before the swap; alone, one EQ gesture into the end
   of a 16-bar phrase, released on the one. Which gesture is a hash of record and phrase, never random.
 - **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
-  mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is a cut on the
-  bar. Steadiness only proposes a blend; `mixcheck` decides it.
+  mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is not proposed as a
+  blend (it goes out as an echo). Steadiness only proposes a blend; `mixcheck` decides it.
 - **Check a change on click tracks** through the real `CrossfadeSource` (the incoming first kick must
   land on the planned bar, kicks within a few ms) — a beat detector on real music is not a reliable
   judge of another beat detector.
@@ -678,13 +701,18 @@ an arc from where it would be without her, and a dB badge — or she visibly doe
 **FX** (header pill, remembered per browser, off under reduced motion) is a stage built only from the stream: a
 floor and horizon on the beat of the record on air, level bars from the applied bands, a reticle zooming onto
 each knob Kaia's hand is on with sparks the way she turns it, an aura and combo that build through locked blends
-(LOCKED on a measured blend, BASS SWAP, PERFECT BLEND when one finishes), and red — vignette, glitch, shake, combo
-broken — on a switch planned because nothing locked (`mix.fallback == "unlocked"`) or a late voice frame.
+(LOCKED on a measured blend, BASS SWAP, PERFECT BLEND when one finishes), ECHO OUT in purple on an echo-out (it
+neither adds to the combo nor breaks it), and red — vignette, glitch, shake, combo broken — on a late voice frame.
+The floor is one of five scenes (mountains, pyramids, city, ocean, tunnel) travelling toward the horizon at the
+beat, picked at load and crossfaded to another on each new record. The mixer's meters are drawn every animation
+frame from per-frame levels streamed with the frame counter, mapped to the page's clock (METERS +N ms trims it).
+`!music records` and `!music booth` use a booth window already open (`dj_dashboard.viewers`), and the window
+stays on its idle screen after `!music stop`.
 Nothing in it is decorative state of its own: if the mix did not do it, the screen does not show it. It builds over a set: a heat that eases toward 1 − e^(−combo/5) — the combo being the set's own trailing
 run of blends, rebuilt from its history when the page opens — brightens and speeds the floor, lengthens the bars and
 sparks, adds embers off the floor on the beat (from a few blends in), a horizon ring and a colour drift (past half);
 a clash breaks the combo and the heat falls faster than it rose. **KAIA ON THE DECKS** is her running feed: the
-session's `chatter` (`dj_voice`: why the next record — key move, measured bars — the plan and any nudge, a switch
+session's `chatter` (`dj_voice`: why the next record — key move, measured bars — the plan and any nudge, an echo-out or a swapped pick
 and why, set progress, a hand load), plus the page's timeline lines (blend under way, bass swap, her hands, a
 stutter). Templated from real decisions; the music engine still calls no model. The page draws at 30 fps from
 cached canvas sizes (`ResizeObserver`): a `getBoundingClientRect` per canvas per frame after DOM writes forced a
