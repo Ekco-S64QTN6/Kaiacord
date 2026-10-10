@@ -10,7 +10,9 @@ that channel for a while (`scanner.tune`); ▶ SCAN runs the scan outside the
 nightly hours while the page is open (`scanner.start_scan`).
 
 Served from 127.0.0.1 only: `assets/rx/index.html`, `/events` (state, ten a
-second), `/waterfall/<band>`, `/ledger`, `/catches`, `/clip/<name>`,
+second), `/waterfall/<band>`, `/overview` (every band side by side, a row a
+pass), `/kaia/...` (the shared Kaia avatar engine and portraits in
+`assets/kaia-avatar/`), `/ledger`, `/catches`, `/clip/<name>`,
 `/spec/<name>`, `/night/<name>`, `/log` (every catch but noise), `/audio`
 (the monitor: raw 12 kHz s16le, silent while hopping), and POST `/tune`,
 `/scan` (leave a tuned channel), `/start`, `/stop`. `!scanner dash` opens the window; nothing opens it
@@ -103,7 +105,7 @@ def status() -> dict:
             "audio_level": _last_audio["level"] if time.time() - _last_audio["t"] < 1.5 else -90.0,
             "along": scanner.listening_along(), "kaia": _kaia_line(mode, freq, lv, tuned),
             "asked": scanner.asked(), "nightly": scanner.within_hours(), "cols": scope.cols,
-            "bands": scope.bands_info(), "t": time.time()}
+            "bands": scope.bands_info(), "overview": scope.overview_info(), "t": time.time()}
 
 
 def _kaia_line(mode: str, freq: int, lv, tuned) -> str:
@@ -239,6 +241,11 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(nights())
             elif path == "/log":
                 self._json(log_rows())
+            elif path == "/overview":
+                n, data, seq = scope.overview_since(0)
+                self._json({"rows": n, "data": data, "seq": seq})
+            elif path.startswith("/kaia/"):
+                return self._avatar(path[len("/kaia/"):])
             elif path.startswith("/waterfall/"):
                 i = int(path.rsplit("/", 1)[-1])
                 n, data, seq = scope.rows_since(i, 0)
@@ -260,6 +267,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 seen = {}
+                ov_seen = None
                 while _server is not None:
                     scanner.seen_by_dashboard()
                     st = status()
@@ -270,6 +278,11 @@ class _Handler(BaseHTTPRequestHandler):
                         if n:
                             rows[b["i"]] = {"n": n, "data": data}
                     st["rows"] = rows
+                    if ov_seen is None:
+                        ov_seen = st["overview"]["seq"]          # the page loads history from /overview
+                    n, data, ov_seen = scope.overview_since(ov_seen, limit=40)
+                    if n:
+                        st["ov"] = {"n": n, "data": data}
                     self.wfile.write(b"data: " + json.dumps(st).encode() + b"\n\n")
                     self.wfile.flush()
                     time.sleep(1.0 / STREAM_HZ)
@@ -301,6 +314,14 @@ class _Handler(BaseHTTPRequestHandler):
             pass
         except Exception as e:
             log_debug(f"[rx] {path}: {e}")
+
+    def _avatar(self, rel: str) -> None:
+        """A file of the shared Kaia avatar (`kaia_avatar.resolve` checks the path)."""
+        from utils.infrastructure.system import kaia_avatar
+        hit = kaia_avatar.resolve(rel)
+        if hit is None:
+            return self._send(404, b"", "text/plain")
+        return self._file(*hit)
 
     def _monitor_wav(self) -> None:
         """The monitor as an endless 12 kHz WAV for an <audio> element: the

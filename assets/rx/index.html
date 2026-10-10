@@ -4,138 +4,126 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KAIA // RX</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #04060c; --panel: #0a0e19; --panel2: #0d1322; --line: #18223a;
+  --bg: #04060c; --panel: #0a0e19; --panel2: #0d1322; --line: #18223a; --line2: #25365d;
   --cyan: #00f0ff; --pink: #ff2fd1; --green: #3dff8a; --yellow: #ffe45c; --red: #ff3860;
-  --purple: #a259ff; --text: #d6e2ff; --dim: #5d6b8f; --faint: #2a3554;
-  --mono: "JetBrains Mono", ui-monospace, "DejaVu Sans Mono", monospace;
-  --disp: "Orbitron", "JetBrains Mono", sans-serif;
+  --purple: #a259ff; --text: #d6e2ff; --mid: #8fa0c4; --dim: #5d6b8f; --faint: #2a3554;
+  --mono: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+  --disp: "Orbitron", "JetBrains Mono", "DejaVu Sans Mono", monospace;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); overflow: hidden; }
-body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  background-image: linear-gradient(rgba(0,240,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(0,240,255,.035) 1px, transparent 1px);
-  background-size: 32px 32px; }
-body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 50;
-  background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); mix-blend-mode: multiply; }
-#app { position: relative; z-index: 1; display: grid; height: 100%; padding: 10px 12px 12px; gap: 10px;
-  grid-template-rows: 44px 128px minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) 400px; }
-/* The top row has a fixed height and its text is clamped: Kaia's line growing a
-   line resized the row and squeezed the waterfall below it, every few seconds. */
+#app { display: grid; height: 100%; padding: 8px 10px 10px; gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 440px; grid-template-rows: 38px 112px minmax(0, 1fr) 96px; }
 #app > * { min-width: 0; min-height: 0; }
-header { grid-column: 1 / span 2; display: flex; align-items: center; gap: 14px; padding: 0 6px; }
-.logo { font-family: var(--disp); font-weight: 900; font-size: 22px; letter-spacing: 4px; color: var(--cyan);
-  text-shadow: 0 0 8px rgba(0,240,255,.8), 2px 0 0 rgba(255,47,209,.7), -2px 0 0 rgba(61,255,138,.35); }
-.logo span { color: var(--pink); text-shadow: 0 0 8px rgba(255,47,209,.9); }
-.pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 3px; padding: 4px 10px;
-  font-size: 12px; color: var(--dim); letter-spacing: 1px; background: rgba(10,14,25,.7); white-space: nowrap; }
+header { grid-column: 1 / span 2; display: flex; align-items: center; gap: 10px; padding: 0 4px; }
+.logo { font-family: var(--disp); font-weight: 900; font-size: 20px; letter-spacing: 4px; color: var(--cyan); }
+.logo span { color: var(--pink); }
+.pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line2); border-radius: 3px; padding: 3px 9px;
+  font-size: 11px; color: var(--dim); letter-spacing: 1px; background: var(--panel); white-space: nowrap; }
 .pill b { color: var(--text); font-weight: 600; }
-.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
-.dot.on { background: var(--green); box-shadow: 0 0 10px var(--green); animation: pulse 1.2s infinite; }
-.dot.hold { background: var(--pink); box-shadow: 0 0 10px var(--pink); animation: pulse .6s infinite; }
-@keyframes pulse { 50% { opacity: .35; } }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.dot.hold { background: var(--pink); box-shadow: 0 0 8px var(--pink); }
 .spacer { flex: 1; }
-#clock { font-family: var(--disp); font-size: 18px; color: var(--green); text-shadow: 0 0 8px rgba(61,255,138,.6); letter-spacing: 2px; }
-.panel { position: relative; background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--line);
-  border-radius: 4px; box-shadow: inset 0 0 40px rgba(0,0,0,.6); overflow: hidden; }
-.panel::before, .panel::after { content: ""; position: absolute; width: 14px; height: 14px; border-color: var(--accent, var(--cyan)); opacity: .8; z-index: 3; }
-.panel::before { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; }
-.panel::after { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; }
-.ptitle { font-family: var(--disp); font-size: 10px; letter-spacing: 3px; color: var(--dim); }
+#clock { font-size: 17px; font-weight: 600; color: var(--green); letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+.panel { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.ptitle { font-family: var(--disp); font-size: 10px; letter-spacing: 2.5px; color: var(--dim); white-space: nowrap; }
 
 /* VFO */
-#vfo > * { min-width: 0; } #vsub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#vfo { grid-column: 1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 10px 16px; --accent: var(--pink); }
-#freq { font-family: var(--disp); font-weight: 700; font-size: 52px; letter-spacing: 3px; color: var(--cyan); text-shadow: 0 0 16px rgba(0,240,255,.6); line-height: 1; }
-#freq small { font-size: 18px; color: var(--dim); margin-left: 8px; letter-spacing: 2px; }
-#freq.hold { color: var(--pink); text-shadow: 0 0 16px rgba(255,47,209,.7); }
-.vsub { font-size: 12px; color: var(--dim); letter-spacing: 1.5px; margin-top: 6px; }
-.vsub b { color: var(--text); }
-.meters { display: grid; gap: 6px; min-width: 260px; }
-.meter { display: grid; grid-template-columns: 54px 1fr 64px; gap: 8px; align-items: center; font-size: 10px; letter-spacing: 1.5px; color: var(--dim); }
-.meter canvas { width: 100%; height: 14px; display: block; }
-.meter .v { color: var(--text); text-align: right; }
+#vfo { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 8px 14px; }
+#vfo > * { min-width: 0; }
+#freq { font-family: var(--disp); font-weight: 700; font-size: 46px; letter-spacing: 2px; color: var(--cyan); line-height: 1; font-variant-numeric: tabular-nums; }
+#freq small { font-size: 16px; color: var(--dim); margin-left: 8px; letter-spacing: 2px; }
+#freq.hold { color: var(--pink); }
+#vsub { font-size: 12px; color: var(--dim); letter-spacing: 1px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#vsub b { color: var(--text); }
+.meters { display: grid; gap: 6px; }
+.meter { display: grid; grid-template-columns: 58px 1fr 70px; gap: 8px; align-items: center; font-size: 10px; letter-spacing: 1.5px; color: var(--dim); }
+.meter canvas { width: 100%; height: 12px; display: block; }
+.meter .v { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
 .ctl { display: grid; gap: 6px; justify-items: end; }
-.btn { font-family: var(--disp); font-size: 11px; letter-spacing: 2px; color: var(--dim); background: rgba(0,0,0,.4); cursor: pointer;
-  border: 1px solid var(--faint); border-radius: 3px; padding: 7px 12px; user-select: none; white-space: nowrap; }
-.btn:hover { color: var(--text); border-color: var(--cyan); }
-.btn.lit { color: #031; background: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 12px rgba(0,240,255,.6); }
-.btn.pink.lit { background: var(--pink); border-color: var(--pink); box-shadow: 0 0 12px rgba(255,47,209,.6); color: #200; }
 .row { display: flex; gap: 6px; align-items: center; }
-select { background: rgba(0,0,0,.5); color: var(--text); border: 1px solid var(--faint); font-family: var(--mono); font-size: 11px; padding: 5px; border-radius: 3px; }
-
-/* Kaia */
-#kaia { grid-column: 2; padding: 10px 14px; --accent: var(--purple); display: grid; grid-template-rows: auto 1fr; gap: 6px; overflow: hidden; }
-#say { font-size: 12px; line-height: 1.5; border-left: 2px solid var(--pink); padding-left: 9px;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; height: 4.5em; }
-#locks { font-size: 10px; color: var(--dim); letter-spacing: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* scope */
-#scope { grid-column: 1; display: grid; grid-template-rows: auto auto minmax(120px, 30%) 22px 1fr; min-height: 0; --accent: var(--cyan); }
-#strip { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; padding: 0 10px 8px; }
-.card { border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px 3px; cursor: pointer; background: rgba(0,0,0,.25); min-width: 0; }
-.card:hover { border-color: var(--faint); }
-.card.on { border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,240,255,.3); }
-.card.hot { border-color: var(--pink); box-shadow: 0 0 10px rgba(255,47,209,.45); }
-.card .nm { font-family: var(--disp); font-size: 9px; letter-spacing: 1.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card.on .nm { color: var(--cyan); } .card.hot .nm { color: var(--pink); }
-.card .nm .n { color: var(--green); margin-left: 4px; }
-.card canvas { width: 100%; height: 22px; display: block; margin-top: 3px; }
-.zoom { margin-left: auto; display: flex; gap: 4px; align-items: center; }
-.zoom .btn { padding: 3px 9px; font-size: 12px; }
-#zoomlbl { font-size: 10px; color: var(--dim); letter-spacing: 1px; min-width: 120px; text-align: right; }
-#idle { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-30%); z-index: 5; display: none; justify-items: center; gap: 12px; text-align: center; pointer-events: none; }
-#idle .msg { font-family: var(--disp); font-size: 13px; letter-spacing: 4px; color: var(--dim); }
-#idle .sub { font-size: 12px; color: var(--dim); max-width: 520px; line-height: 1.5; }
-#idle .btn { pointer-events: auto; font-size: 16px; padding: 14px 28px; color: var(--green); border-color: var(--green); box-shadow: 0 0 18px rgba(61,255,138,.35); background: rgba(4,6,12,.85); }
-#idle .btn:hover { background: var(--green); color: #031; }
+.btn { font-family: var(--disp); font-size: 10px; letter-spacing: 1.5px; color: var(--dim); background: rgba(0,0,0,.35); cursor: pointer;
+  border: 1px solid var(--faint); border-radius: 3px; padding: 6px 10px; user-select: none; white-space: nowrap; }
+.btn:hover { color: var(--text); border-color: var(--cyan); }
+.btn.lit { color: #031; background: var(--cyan); border-color: var(--cyan); }
+.btn.pink.lit { background: var(--pink); border-color: var(--pink); color: #200; }
 .btn.go { color: var(--green); border-color: var(--green); }
-.btn.go.lit { background: var(--green); border-color: var(--green); color: #031; box-shadow: 0 0 12px rgba(61,255,138,.6); }
-.lg { display: grid; grid-template-columns: 44px 70px 62px 1fr; gap: 6px; padding: 4px; border-bottom: 1px dashed var(--line); font-size: 11px; cursor: pointer; align-items: baseline; }
-.lg:hover { background: rgba(0,240,255,.07); }
-.lg .t { color: var(--dim); } .lg .f { font-family: var(--disp); color: var(--cyan); font-size: 11px; }
-.lg .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); }
-.lg .l q { color: var(--text); font-style: italic; }
-.tabs { display: flex; gap: 4px; padding: 8px 10px 6px; align-items: center; flex-wrap: wrap; }
-.tab { font-family: var(--disp); font-size: 10px; letter-spacing: 2px; color: var(--dim); padding: 4px 9px; border: 1px solid transparent; border-radius: 2px; cursor: pointer; user-select: none; }
-.tab.on { color: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,240,255,.35); }
-.tab .n { color: var(--pink); margin-left: 4px; }
-canvas.fill { width: 100%; height: 100%; display: block; }
-#spec, #fall { cursor: crosshair; }
-#hover { position: absolute; pointer-events: none; z-index: 4; font-size: 11px; color: var(--text); background: rgba(4,6,12,.9);
-  border: 1px solid var(--cyan); padding: 3px 7px; border-radius: 2px; display: none; white-space: nowrap; }
+.btn.go.lit { background: var(--green); border-color: var(--green); color: #031; }
+.btn.small { padding: 3px 8px; font-size: 11px; }
+select, input[type=range] { accent-color: var(--cyan); }
+select { background: rgba(0,0,0,.5); color: var(--text); border: 1px solid var(--faint); font-family: var(--mono); font-size: 11px; padding: 3px 4px; border-radius: 3px; }
 
-/* side */
-#side { grid-column: 2; display: grid; grid-template-rows: auto 1fr; min-height: 0; --accent: var(--green); }
-.scroll { overflow-y: auto; min-height: 0; padding: 0 8px 8px; }
-.scroll::-webkit-scrollbar { width: 8px; }
-.scroll::-webkit-scrollbar-thumb { background: linear-gradient(var(--cyan), var(--pink)); border-radius: 4px; }
-.bm { display: grid; grid-template-columns: 78px 1fr auto; gap: 8px; padding: 5px 4px; border-bottom: 1px dashed var(--line); font-size: 12px; cursor: pointer; }
-.bm:hover { background: rgba(0,240,255,.07); }
-.bm .f { font-family: var(--disp); font-size: 12px; color: var(--cyan); }
+/* the dial */
+#dial { display: grid; grid-template-rows: 30px minmax(110px, 32%) 20px minmax(0, 1fr) 20px; }
+.bar { display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line); background: var(--panel2); }
+.bar .lbl { font-size: 10px; color: var(--dim); letter-spacing: 1px; white-space: nowrap; }
+.bar input[type=range] { width: 80px; }
+#viewlbl { font-size: 11px; color: var(--mid); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stack { position: relative; min-height: 0; }
+.stack canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#spec, #fallOver { cursor: crosshair; }
+#axis { width: 100%; height: 100%; display: block; background: var(--panel2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+#foot { display: flex; align-items: center; gap: 14px; padding: 0 10px; font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; background: var(--panel2); border-top: 1px solid var(--line); }
+#hover { position: absolute; pointer-events: none; z-index: 6; font-size: 11px; color: var(--text); background: rgba(4,6,12,.94);
+  border: 1px solid var(--cyan); padding: 3px 7px; border-radius: 2px; display: none; white-space: nowrap; }
+#idle { position: absolute; inset: 30px 0 0 0; z-index: 5; display: none; place-content: center; justify-items: center; gap: 12px; text-align: center; pointer-events: none; background: rgba(4,6,12,.55); }
+#idle .msg { font-family: var(--disp); font-size: 13px; letter-spacing: 4px; color: var(--mid); }
+#idle .sub { font-size: 12px; color: var(--dim); max-width: 520px; line-height: 1.5; }
+#idle .btn { pointer-events: auto; font-size: 15px; padding: 12px 26px; color: var(--green); border-color: var(--green); background: rgba(4,6,12,.9); }
+#idle .btn:hover { background: var(--green); color: #031; }
+
+/* the band map */
+#map { display: grid; grid-template-rows: 16px minmax(0, 1fr); cursor: pointer; }
+#map .bar { border-bottom: none; background: transparent; padding: 0 8px; }
+
+/* right column */
+#right { grid-column: 2; grid-row: 2 / span 3; display: grid; grid-template-rows: 300px minmax(0, 1fr); gap: 8px; min-height: 0; }
+#kaia { background: #010402; }
+#kaia-stage { position: absolute; inset: 0; }
+.kaia-codec-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.kaia-codec-fallback { width: 100%; height: 100%; object-fit: contain; object-position: center bottom;
+  filter: grayscale(1) sepia(1) hue-rotate(75deg) saturate(3) brightness(.85) contrast(1.2); }
+.kcorner { position: absolute; top: 8px; z-index: 3; font-size: 10px; letter-spacing: 1px; color: var(--green); text-shadow: 0 0 6px rgba(61,255,138,.5); pointer-events: none; }
+#kc-l { left: 10px; } #kc-r { right: 10px; }
+/* MGS-codec subtitle: her line, typed as she says it. Fixed height, clamped:
+   a box sized by its text grew a line and squeezed what is below it. */
+#say { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: 66px; padding: 18px 12px 8px;
+  background: linear-gradient(transparent, rgba(0,6,2,.88) 32%); font-size: 12px; line-height: 1.4; color: #c8ffd9;
+  text-shadow: 0 0 6px rgba(61,255,138,.55); pointer-events: none; overflow: hidden; }
+#say b { color: var(--green); margin-right: 6px; }
+#saytext { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+#side { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.tabs { display: flex; gap: 4px; padding: 7px 8px 5px; align-items: center; border-bottom: 1px solid var(--line); }
+.tab { font-family: var(--disp); font-size: 10px; letter-spacing: 1.5px; color: var(--dim); padding: 4px 8px; border: 1px solid transparent; border-radius: 2px; cursor: pointer; user-select: none; }
+.tab.on { color: var(--cyan); border-color: var(--cyan); }
+.scroll { overflow-y: auto; min-height: 0; padding: 0 8px 8px; scrollbar-width: thin; scrollbar-color: var(--faint) transparent; }
+.scroll::-webkit-scrollbar { width: 6px; } .scroll::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 3px; }
+.bm { display: grid; grid-template-columns: 78px 1fr auto; gap: 8px; padding: 5px 4px; border-bottom: 1px solid var(--line); font-size: 12px; cursor: pointer; }
+.bm:hover, .lg:hover { background: rgba(0,240,255,.06); }
+.f { font-family: var(--disp); font-size: 11.5px; color: var(--cyan); font-variant-numeric: tabular-nums; }
 .bm .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bm .l i { font-style: normal; color: var(--dim); font-size: 10px; display: block; overflow: hidden; text-overflow: ellipsis; }
-.bm .c { font-size: 10px; color: var(--dim); text-align: right; }
-.bm .c b { color: var(--pink); }
-.catch { border-bottom: 1px dashed var(--line); padding: 7px 4px; font-size: 12px; }
+.bm .c { font-size: 10px; color: var(--dim); text-align: right; } .bm .c b { color: var(--pink); }
+.lg { display: grid; grid-template-columns: 42px 76px 62px 1fr; gap: 6px; padding: 4px; border-bottom: 1px solid var(--line); font-size: 11px; cursor: pointer; align-items: baseline; }
+.lg .t { color: var(--dim); } .lg .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); } .lg .l q { color: var(--text); font-style: italic; }
+.kind { font-size: 9px; letter-spacing: 1.5px; padding: 1px 6px; border-radius: 2px; border: 1px solid; text-align: center; }
+.kind.voice { color: var(--green); } .kind.data { color: var(--yellow); } .kind.carrier { color: var(--purple); } .kind.noise { color: var(--dim); }
+.catch { border-bottom: 1px solid var(--line); padding: 7px 4px; font-size: 12px; }
 .catch .top { display: flex; gap: 8px; align-items: baseline; }
-.catch .f { font-family: var(--disp); font-size: 12px; color: var(--cyan); }
-.kind { font-size: 9px; letter-spacing: 1.5px; padding: 1px 6px; border-radius: 2px; border: 1px solid; }
-.kind { text-align: center; } .kind.voice { color: var(--green); } .kind.data { color: var(--yellow); } .kind.carrier { color: var(--purple); }
 .catch .when { margin-left: auto; color: var(--dim); font-size: 10px; }
 .catch .tr { color: var(--text); margin: 4px 0; font-style: italic; }
-.catch img { width: 100%; display: block; border: 1px solid var(--line); border-radius: 2px; margin-top: 4px; cursor: pointer; }
-.catch .play { font-size: 10px; margin-top: 4px; }
-.nights { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.nights img { width: 100%; border: 1px solid var(--line); cursor: pointer; }
+.catch img { width: 100%; display: block; border: 1px solid var(--line); border-radius: 2px; margin-top: 4px; cursor: zoom-in; }
+.empty { color: var(--dim); padding: 10px 4px; font-size: 12px; }
+.nights { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding-top: 6px; } .nights img { width: 100%; border: 1px solid var(--line); cursor: zoom-in; }
 #big { position: fixed; inset: 0; z-index: 70; background: rgba(4,6,12,.94); display: none; place-items: center; cursor: zoom-out; }
-#big img { max-width: 96vw; max-height: 94vh; border: 1px solid var(--cyan); box-shadow: 0 0 30px rgba(0,240,255,.3); }
-#toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 60; background: rgba(10,14,25,.95);
-  border: 1px solid var(--cyan); color: var(--text); padding: 9px 18px; border-radius: 3px; font-size: 12px; letter-spacing: 1px;
-  box-shadow: 0 0 18px rgba(0,240,255,.35); opacity: 0; transition: opacity .25s; pointer-events: none; }
+#big img { max-width: 96vw; max-height: 94vh; border: 1px solid var(--cyan); }
+#toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 60; background: rgba(10,14,25,.96);
+  border: 1px solid var(--cyan); color: var(--text); padding: 8px 16px; border-radius: 3px; font-size: 12px;
+  opacity: 0; transition: opacity .25s; pointer-events: none; }
 #toast.show { opacity: 1; }
 </style>
 </head>
@@ -158,7 +146,7 @@ canvas.fill { width: 100%; height: 100%; display: block; }
     <div>
       <div class="ptitle">VFO · NBFM 12.5 kHz</div>
       <div id="freq">---.---.---<small>MHz</small></div>
-      <div class="vsub" id="vsub">—</div>
+      <div id="vsub">—</div>
     </div>
     <div class="meters">
       <div class="meter"><span>SIGNAL</span><canvas id="sm"></canvas><span class="v" id="smv">—</span></div>
@@ -171,55 +159,65 @@ canvas.fill { width: 100%; height: 100%; display: block; }
         <select id="mins"><option>5</option><option selected>15</option><option>30</option><option>60</option><option>120</option></select>
         <span class="ptitle">MIN</span></div>
       <div class="row"><div class="btn" id="scan" style="display:none" title="leave the tuned channel and go back to the scan">◀ BACK TO SCAN</div>
-        <div class="btn pink" id="mon" title="hear the scanner in this window — silent while it sweeps">🎧 MONITOR</div>
+        <div class="btn pink" id="mon" title="hear the scanner in this window — silent while it sweeps">MONITOR</div>
         <div class="btn" id="sql" title="squelch: AUTO plays a channel when something keys up; OPEN plays a tuned channel all the time, hiss and all">SQL AUTO</div></div>
       <div class="row"><span class="ptitle">VOL</span><input type="range" id="vol" min="0" max="1" step="0.05" value="0.7"></div>
     </div>
   </div>
 
-  <div class="panel" id="kaia">
-    <div class="ptitle">KAIA ON THE DIAL</div>
-    <div><div id="say">—</div><div id="locks"></div></div>
-  </div>
-
-  <div class="panel" id="scope">
-    <div class="tabs"><span class="ptitle">BANDS · CLICK ONE · WHEEL TO ZOOM · DRAG TO PAN · CLICK TO TUNE</span>
-      <div class="zoom"><span id="zoomlbl"></span><div class="btn" id="zout" title="zoom out (−)">−</div><div class="btn" id="zin" title="zoom in (+)">+</div><div class="btn" id="zfit" title="whole band (0)">FIT</div></div></div>
-    <div id="strip"></div>
-    <canvas class="fill" id="spec"></canvas>
-    <canvas class="fill" id="axis"></canvas>
-    <canvas class="fill" id="fall"></canvas>
+  <div class="panel" id="dial">
+    <div class="bar">
+      <span class="ptitle">DIAL</span>
+      <div class="btn small lit" id="follow" title="follow Kaia: the whole dial while she sweeps, her channel while she listens (F)">FOLLOW KAIA</div>
+      <span id="viewlbl"></span>
+      <div class="spacer"></div>
+      <span class="lbl">FLOOR</span><input type="range" id="floor" min="0" max="160" step="2" value="22" title="the level shown as black">
+      <span class="lbl">RANGE</span><input type="range" id="range" min="40" max="255" step="5" value="170" title="levels from black to the top of the palette">
+      <select id="palette" title="waterfall colours"><option value="kaia">KAIA</option><option value="gqrx">GQRX</option></select>
+      <div class="btn small" id="zout" title="zoom out (−)">−</div><div class="btn small" id="zin" title="zoom in (+)">+</div><div class="btn small" id="zfit" title="the whole dial (0)">FIT</div>
+    </div>
+    <div class="stack"><canvas id="spec"></canvas></div>
+    <canvas id="axis"></canvas>
+    <div class="stack"><canvas id="fall"></canvas><canvas id="fallOver"></canvas></div>
+    <div id="foot"><span id="locks">no lockouts</span></div>
     <div id="hover"></div>
     <div id="idle"><div class="msg" id="idlemsg">THE SCANNER IS IDLE</div><div class="btn" id="idlego">▶ START SCAN</div>
       <div class="sub">sweeps 2 m, VHF, 70 cm and UHF a pass every few seconds, holds on whatever keys up, and plays it here — only what holds a carrier, never the sweep.</div></div>
   </div>
 
-  <div class="panel" id="side">
-    <div class="tabs"><span class="tab on" data-t="catches">CATCHES</span><span class="tab" data-t="log">LOG</span><span class="tab" data-t="bm">BOOKMARKS</span><span class="tab" data-t="nights">NIGHTS</span></div>
-    <div class="scroll" id="sidepane"></div>
+  <div class="panel" id="map" title="the whole dial: click a band to look at it">
+    <div class="bar"><span class="ptitle">BAND MAP</span><span class="lbl" id="maplbl"></span></div>
+    <div class="stack"><canvas id="mapfall"></canvas><canvas id="mapover"></canvas></div>
+  </div>
+
+  <div id="right">
+    <div class="panel" id="kaia">
+      <div id="kaia-stage"></div>
+      <div class="kcorner" id="kc-l">KAIA ON THE DIAL</div>
+      <div class="kcorner" id="kc-r"></div>
+      <div id="say"><div id="saytext"><b>KAIA</b><span id="sayline">—</span></div></div>
+    </div>
+    <div class="panel" id="side">
+      <div class="tabs"><span class="tab on" data-t="catches">CATCHES</span><span class="tab" data-t="log">LOG</span><span class="tab" data-t="bm">BOOKMARKS</span><span class="tab" data-t="nights">NIGHTS</span></div>
+      <div class="scroll" id="sidepane"></div>
+    </div>
   </div>
 </div>
 
+<script src="/kaia/js/kaia-shaders.js"></script>
+<script src="/kaia/js/kaia-renderer.js"></script>
+<script src="/kaia/js/kaia-animator.js"></script>
+<script src="/kaia/js/kaia-codec.js"></script>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const MHZ = 1e6;
-const LOW_DB = -6, SPAN_DB = 40;                 // rx_scope's colour scale
-const STOPS = [[0, [4, 6, 12]], [0.25, [20, 28, 90]], [0.45, [110, 40, 190]], [0.62, [255, 47, 209]], [0.82, [0, 240, 255]], [1, [235, 250, 255]]];
-const LUT = new Uint8ClampedArray(256 * 3);
-for (let i = 0; i < 256; i++) {
-  const x = i / 255; let k = 0; while (k < STOPS.length - 2 && x > STOPS[k + 1][0]) k++;
-  const [a, ca] = STOPS[k], [b, cb] = STOPS[k + 1], t = (x - a) / (b - a);
-  for (let c = 0; c < 3; c++) LUT[i * 3 + c] = ca[c] + (cb[c] - ca[c]) * t;
-}
-const ROWS = 360;
-let COLS = 0;                                    // the server's panorama width, from the first state
-let S = null, bands = [], band = 0, ledger = [], catches = [], logRows = [], nightsList = [];
-const falls = {};          // band -> {canvas, ctx, latest: Uint8Array}
-const views = {};          // band -> {lo, hi}: the zoomed span
-let peak = null;
+const MHZ = 1e6, FS = 2.4e6;
+const LOW_DB = -6, SPAN_DB = 40;                 // rx_scope's colour scale: 0..255 covers LOW_DB..LOW_DB+SPAN_DB relative dB
+const ROWS = 360;                                // band and span history (rx_scope.ROWS)
+const store = { get(k, d) { try { const v = localStorage.getItem("rx." + k); return v === null ? d : JSON.parse(v); } catch (_) { return d; } },
+  set(k, v) { try { localStorage.setItem("rx." + k, JSON.stringify(v)); } catch (_) {} } };
 function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), Math.max(2200, m.length * 45)); }
-function esc(s) { return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 const fmtF = (hz) => { const s = Math.round(hz).toString().padStart(9, "0"); return `${+s.slice(0, s.length - 6)}.${s.slice(-6, -3)}.${s.slice(-3)}`; };
 function fit(cv) {
   const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
@@ -230,199 +228,398 @@ function fit(cv) {
 function b64(s) { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
 const post = (path, body) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).then((r) => r.json());
 
-// ── waterfalls: one offscreen canvas per band, newest row on top ──
-function fallOf(i) {
-  if (!falls[i]) {
-    const c = document.createElement("canvas"); c.width = COLS; c.height = ROWS;
-    const ctx = c.getContext("2d"); ctx.fillStyle = "#04060c"; ctx.fillRect(0, 0, COLS, ROWS);
-    falls[i] = { canvas: c, ctx, latest: new Uint8Array(COLS) };
+// ── palettes ──
+const PALETTES = {
+  kaia: [[0, [4, 6, 12]], [0.25, [20, 28, 90]], [0.45, [110, 40, 190]], [0.62, [255, 47, 209]], [0.82, [0, 240, 255]], [1, [235, 250, 255]]],
+  gqrx: [[0, [0, 0, 0]], [0.2, [0, 0, 110]], [0.4, [0, 120, 255]], [0.58, [0, 220, 160]], [0.74, [250, 240, 0]], [0.9, [255, 90, 0]], [1, [255, 20, 20]]],
+};
+function lut(name) {
+  const stops = PALETTES[name] || PALETTES.kaia, out = new Uint8Array(256 * 4);
+  for (let i = 0; i < 256; i++) {
+    const x = i / 255; let k = 0; while (k < stops.length - 2 && x > stops[k + 1][0]) k++;
+    const [a, ca] = stops[k], [b, cb] = stops[k + 1], t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    for (let c = 0; c < 3; c++) out[i * 4 + c] = ca[c] + (cb[c] - ca[c]) * t;
+    out[i * 4 + 3] = 255;
   }
-  return falls[i];
+  return out;
 }
-function addRows(i, data, n) {
-  const f = fallOf(i);
-  f.ctx.drawImage(f.canvas, 0, n);                       // scroll down by n
-  const img = f.ctx.createImageData(COLS, n);
-  for (let r = 0; r < n; r++) {
-    const src = (n - 1 - r) * COLS;                      // newest at the top
-    for (let x = 0; x < COLS; x++) {
-      const v = data[src + x], o = (r * COLS + x) * 4;
-      img.data[o] = LUT[v * 3]; img.data[o + 1] = LUT[v * 3 + 1]; img.data[o + 2] = LUT[v * 3 + 2]; img.data[o + 3] = 255;
-    }
-  }
-  f.ctx.putImageData(img, 0, 0);
-  f.latest = data.slice((n - 1) * COLS, n * COLS);
-}
-function loadFall(i) { fetch("/waterfall/" + i).then((r) => r.json()).then((w) => { if (w.rows) addRows(i, b64(w.data), w.rows); }).catch(() => {}); }
 
-// ── stream ──
+// ── GPU waterfalls: a ring-buffer texture per source, sampled with smooth interpolation ──
+class Falls {
+  constructor(canvas) {
+    this.cv = canvas;
+    const gl = canvas.getContext("webgl2", { antialias: false, premultipliedAlpha: false });
+    if (!gl) throw new Error("WebGL2 unavailable");
+    this.gl = gl; this.src = {};
+    const vs = `#version 300 es
+in vec2 p; out vec2 v; void main() { v = vec2(p.x * .5 + .5, .5 - p.y * .5); gl_Position = vec4(p, 0., 1.); }`;
+    const fs = `#version 300 es
+precision highp float; precision highp usampler2D;
+uniform sampler2D uTex; uniform sampler2D uLut; uniform vec2 uU; uniform float uHead, uRows, uShow, uCount;
+uniform vec2 uRange; uniform float uAlpha; uniform vec2 uSize; in vec2 v; out vec4 o;
+float px(int x, int y) { return texelFetch(uTex, ivec2(x, y), 0).r; }
+void main() {
+  float cols = uSize.x, rows = uRows;
+  float u = mix(uU.x, uU.y, v.x) * cols - .5;
+  float age = v.y * uShow;                          // 0 newest (top) .. uShow oldest
+  if (age > uCount) { o = vec4(0.016, 0.024, 0.047, uAlpha); return; }
+  float r = uHead - age;                            // ring position, fractional
+  int x0 = int(clamp(floor(u), 0., cols - 1.)), x1 = int(clamp(floor(u) + 1., 0., cols - 1.));
+  int y0 = int(mod(floor(r), rows)), y1 = int(mod(floor(r) + 1., rows));
+  float fx = fract(u), fy = fract(r);
+  float a = mix(px(x0, y0), px(x1, y0), fx), b = mix(px(x0, y1), px(x1, y1), fx);
+  float val = (fy > 0. && age >= 1.) ? mix(a, b, fy) : a;
+  float k = clamp((val - uRange.x) / max(uRange.y, 1e-3), 0., 1.);
+  o = vec4(texture(uLut, vec2(k, .5)).rgb, uAlpha);
+}`;
+    const sh = (t, s) => { const x = gl.createShader(t); gl.shaderSource(x, s); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
+    const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+    gl.bindAttribLocation(p, 0, "p"); gl.linkProgram(p); this.p = p; gl.useProgram(p);
+    this.u = {}; for (const n of ["uTex", "uLut", "uU", "uHead", "uRows", "uShow", "uCount", "uRange", "uAlpha", "uSize"]) this.u[n] = gl.getUniformLocation(p, n);
+    const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    this.lutTex = gl.createTexture(); this.setPalette("kaia");
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  }
+  setPalette(name) {
+    const gl = this.gl; gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.lutTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, lut(name));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  }
+  ensure(key, cols, rows) {
+    let s = this.src[key];
+    if (s && s.cols === cols && s.rows === rows) return s;
+    const gl = this.gl;
+    if (s) gl.deleteTexture(s.tex);
+    const tex = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, cols, rows, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array(cols * rows));
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    s = this.src[key] = { tex, cols, rows, head: -1, count: 0, latest: new Uint8Array(cols) };
+    return s;
+  }
+  reset(key) { const s = this.src[key]; if (s) { this.gl.deleteTexture(s.tex); delete this.src[key]; } }
+  /** rows: Uint8Array of n rows, oldest first. */
+  push(key, cols, rows, data, n) {
+    const s = this.ensure(key, cols, rows), gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, s.tex); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    for (let r = Math.max(0, n - rows); r < n; r++) {
+      s.head = (s.head + 1) % rows;
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, s.head, cols, 1, gl.RED, gl.UNSIGNED_BYTE, data.subarray(r * cols, (r + 1) * cols));
+    }
+    s.count = Math.min(rows, s.count + n);
+    s.latest = data.slice((n - 1) * cols, n * cols);
+  }
+  begin() {
+    const gl = this.gl, r = this.cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    if (this.cv.width !== w || this.cv.height !== h) { this.cv.width = w; this.cv.height = h; }
+    gl.viewport(0, 0, w, h); gl.clearColor(0.016, 0.024, 0.047, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  draw(key, u0, u1, show, range, alpha = 1) {
+    const s = this.src[key]; if (!s || s.head < 0) return;
+    const gl = this.gl, u = this.u; gl.useProgram(this.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, s.tex); gl.uniform1i(u.uTex, 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.lutTex); gl.uniform1i(u.uLut, 1);
+    gl.uniform2f(u.uU, u0, u1); gl.uniform1f(u.uHead, s.head); gl.uniform1f(u.uRows, s.rows);
+    gl.uniform1f(u.uShow, show); gl.uniform1f(u.uCount, s.count); gl.uniform2f(u.uRange, range[0], range[1]);
+    gl.uniform1f(u.uAlpha, alpha); gl.uniform2f(u.uSize, s.cols, s.rows);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+}
+
+// ── state ──
+let S = null, bands = [], segs = [], OV = null, ledger = [], catches = [], logRows = [], nightsList = [];
+let fall, mapFall;
+try { fall = new Falls($("fall")); mapFall = new Falls($("mapfall")); } catch (e) { console.error(e); toast("this window has no WebGL2: the waterfall can't be drawn"); }
+const OVKEY = "ov", spanBand = () => bands.find((b) => b.span);
+const bandKey = (i) => "b" + i;
+
+// The dial: every band side by side, low to high (rx_scope's overview layout).
+// d in [0, 1) is a position on it; within a band it is linear in frequency.
+function buildSegs() {
+  segs = OV.segments.map((s) => { const b = bands.find((x) => x.i === s.i); return { ...s, d0: s.x0 / OV.cols, d1: s.x1 / OV.cols, lo: b.lo, hi: b.hi, name: b.name }; })
+    .sort((a, b) => a.d0 - b.d0);
+}
+function segAtD(d) { for (const s of segs) if (d >= s.d0 && d < s.d1) return s; return d < 0.5 ? segs[0] : segs[segs.length - 1]; }
+function dToF(d) { const s = segAtD(d); return s.lo + Math.min(1, Math.max(0, (d - s.d0) / (s.d1 - s.d0))) * (s.hi - s.lo); }
+function fToD(f) { for (const s of segs) if (f >= s.lo && f <= s.hi) return s.d0 + (f - s.lo) / (s.hi - s.lo) * (s.d1 - s.d0); return null; }
+function segOfBand(i) { return segs.find((s) => s.i === i); }
+
+// ── the stream ──
 function connect() {
   const es = new EventSource("/events");
   es.onmessage = (e) => {
     S = JSON.parse(e.data);
     if (!bands.length && S.bands.length) {
-      COLS = S.cols; peak = new Float32Array(COLS);
-      bands = S.bands; buildStrip(); bands.forEach((b) => loadFall(b.i));
+      bands = S.bands; OV = S.overview; buildSegs();
+      fetch("/overview").then((r) => r.json()).then((w) => { if (w.rows) pushOv(b64(w.data), w.rows); }).catch(() => {});
+      bands.forEach((b) => fetch("/waterfall/" + b.i).then((r) => r.json()).then((w) => { if (w.rows) pushBand(b, b64(w.data), w.rows); }).catch(() => {}));
     }
-    // The TUNED span moves with the dongle: a new range is a new waterfall.
-    for (const nb of S.bands) {
+    for (const nb of S.bands) {                   // the TUNED span moves with the dongle: a new range is a new waterfall
       const b = bands.find((x) => x.i === nb.i);
-      if (b && (b.lo !== nb.lo || b.hi !== nb.hi)) { Object.assign(b, nb); delete falls[b.i]; delete views[b.i]; renameCard(b); }
+      if (b && (b.lo !== nb.lo || b.hi !== nb.hi)) { Object.assign(b, nb); if (fall) fall.reset(bandKey(b.i)); }
     }
-    for (const [i, r] of Object.entries(S.rows || {})) addRows(+i, b64(r.data), r.n);
-    // On one channel (tuned, a net, a hold) the page shows that slice full width;
-    // sweeping again, it goes back to the band being swept.
-    const sp = bands.find((x) => x.span);
-    if (S.live && followBand) {
-      if (S.live.state !== "hop" && sp && sp.lo) { if (band !== sp.i) { band = sp.i; markStrip(); } }
-      else if (sp && band === sp.i) { const bi = bandOf(S.live.center); if (bi !== null) { band = bi; markStrip(); } }
-    }
+    for (const [i, r] of Object.entries(S.rows || {})) { const b = bands.find((x) => x.i === +i); if (b) pushBand(b, b64(r.data), r.n); }
+    if (S.ov) pushOv(b64(S.ov.data), S.ov.n);
+    onState();
   };
   es.onerror = () => { es.close(); setTimeout(connect, 1500); };
 }
-let followBand = true;
-function bandOf(f) { for (const b of bands) if (!b.span && f >= b.lo && f < b.hi) return b.i; return null; }
-function renameCard(b) {
-  const card = document.querySelector(`.card[data-b="${b.i}"]`); if (!card) return;
-  card.style.display = b.span && !b.lo ? "none" : "";
-  const nm = card.querySelector(".nm"); if (nm && nm.firstChild) nm.firstChild.textContent = b.name.toUpperCase();
+function pushBand(b, data, n) { if (fall) fall.push(bandKey(b.i), b.cols, ROWS, data, n); }
+function pushOv(data, n) { if (fall) fall.push(OVKEY, OV.cols, 600, data, n); if (mapFall) mapFall.push(OVKEY, OV.cols, 600, data, n); }
+
+// ── the camera: what part of the dial is shown, eased toward a target ──
+const cam = { d0: 0, d1: 1, t0: 0, t1: 1 };
+let follow = true, srcKey = OVKEY, prevKey = null, fadeT = 1;
+function setFollow(on) { follow = on; $("follow").classList.toggle("lit", on); }
+function userView(d0, d1) {
+  const w = Math.min(1, Math.max(0.0015, d1 - d0)); d0 = Math.max(0, Math.min(d0, 1 - w));
+  cam.t0 = d0; cam.t1 = d0 + w; setFollow(false);
+}
+// The TUNED span on the dial, clamped to the band her channel is in (a span near
+// a band edge reaches past it), and centred on her channel so it isn't at an edge.
+function spanD() {
+  const sp = spanBand(); if (!sp || !sp.lo) return null;
+  const L = S && S.live, f = (L && (L.freq || L.center)) || (sp.lo + sp.hi) / 2;
+  const seg = segs.find((s) => f >= s.lo && f <= s.hi); if (!seg) return null;
+  const half = Math.min(f - Math.max(sp.lo, seg.lo), Math.min(sp.hi, seg.hi) - f);
+  return [fToD(f - half), fToD(f + half)];
+}
+const onChannel = () => !!(S && S.live && S.live.state !== "hop");
+function followTarget() {
+  if (onChannel()) { const r = spanD(); if (r) return r; }
+  return [0, 1];
+}
+// Which picture to draw for the view: the TUNED span on her channel, a band's
+// own (sharper) panorama when the view sits inside one band, else the overview.
+function pickSource(d0, d1) {
+  const sp = spanBand(), r = spanD();
+  if (sp && r && onChannel() && d0 >= r[0] - (r[1] - r[0]) * 0.6 && d1 <= r[1] + (r[1] - r[0]) * 0.6) return { key: bandKey(sp.i), band: sp };
+  const s0 = segAtD(d0), s1 = segAtD(Math.max(d0, d1 - 1e-6));
+  if (s0 === s1 && d1 - d0 < (s0.d1 - s0.d0) * 0.95) { const b = bands.find((x) => x.i === s0.i); return { key: bandKey(b.i), band: b }; }
+  return { key: OVKEY, band: null };
+}
+function uOf(src, d) {
+  if (!src.band) return d;                         // the overview texture is the dial itself
+  const b = src.band; return (dToF(d) - b.lo) / (b.hi - b.lo);
 }
 
-// ── the band strip: every band at a glance, the sweep moving across them ──
-function buildStrip() {
-  $("strip").innerHTML = bands.map((b) => `<div class="card" data-b="${b.i}" title="${esc(b.name)} · ${(b.lo / MHZ).toFixed(1)}–${(b.hi / MHZ).toFixed(1)} MHz">` +
-    `<div class="nm">${esc(b.name.toUpperCase())}<span class="n" data-n="${b.i}"></span></div><canvas data-c="${b.i}"></canvas></div>`).join("");
-  $("strip").querySelectorAll(".card").forEach((t) => t.onclick = () => { band = +t.dataset.b; followBand = false; markStrip(); });
-  bands.forEach(renameCard);
-  markStrip();
-}
-function markStrip() { $("strip").querySelectorAll(".card").forEach((t) => t.classList.toggle("on", +t.dataset.b === band)); }
-function drawStrip() {
-  const L = S && S.live;
-  for (const b of bands) {
-    const cv = document.querySelector(`canvas[data-c="${b.i}"]`); if (!cv) continue;
-    const [g, W, H] = fit(cv); g.clearRect(0, 0, W, H);
-    const f = fallOf(b.i), step = Math.max(1, Math.floor(COLS / W));
-    g.beginPath(); g.moveTo(0, H);
-    for (let x = 0; x < COLS; x += step) { let m = 0; for (let k = x; k < x + step && k < COLS; k++) m = Math.max(m, f.latest[k]); g.lineTo(x / COLS * W, H - m / 255 * H); }
-    g.lineTo(W, H); g.closePath(); g.fillStyle = "rgba(0,240,255,.35)"; g.fill();
-    const inBand = L && L.center >= b.lo - 1.2e6 && L.center <= b.hi + 1.2e6;
-    const card = cv.parentElement; card.classList.toggle("hot", !!(inBand && L.state !== "hop" && L.freq >= b.lo && L.freq < b.hi));
-    if (inBand) {
-      const x0 = Math.max(0, (L.lo - b.lo) / (b.hi - b.lo) * W), x1 = Math.min(W, (L.hi - b.lo) / (b.hi - b.lo) * W);
-      g.fillStyle = L.state === "hop" ? "rgba(61,255,138,.25)" : "rgba(255,47,209,.35)"; g.fillRect(x0, 0, x1 - x0, H);
-      g.fillStyle = L.state === "hop" ? "#3dff8a" : "#ff2fd1"; g.fillRect(x1 - 2, 0, 2, H);
-    }
-    if (+band === b.i && views[b.i]) {                // the zoomed window
-      const v = views[b.i]; g.strokeStyle = "rgba(255,228,92,.9)"; g.lineWidth = 1;
-      g.strokeRect((v.lo - b.lo) / (b.hi - b.lo) * W + .5, .5, (v.hi - v.lo) / (b.hi - b.lo) * W, H - 1);
-    }
+// ── Kaia ──
+let codec = null, lastLine = "", lastCatchId = null;
+const bpm = (n) => n / 60;
+const RX_STATES = {
+  RxIdle: { lid: 0.6, gazeY: 0.25, pitch: 0.35, roll: 0.05, glow: 0.2, flowSpeed: 0.3, brightness: 0.72, conduit: 0.18, glyph: 0.4, breathRate: 0.12, breathAmp: 1.5, pulseRate: bpm(35), blinkSpeed: 0.4, saccade: 0.25, energy: 0.35 },
+  RxNoDongle: { browInner: 0.7, lid: 0.25, gazeY: 0.4, smile: -0.35, pitch: 0.4, glow: 0.4, flowSpeed: 0.4, tears: 0.6, conduit: 0.2, tintR: 0.3, tintG: 0.86, tintB: 0.95, energy: 0.5 },
+  RxStarting: { wide: 0.35, browRaise: 0.35, glow: 1.15, flowSpeed: 1.3, glyph: 0.7, reticle: 0.6 },
+  RxScanning: { glow: 1.1, flowSpeed: 1.6, reticle: 0.55, reticleScale: 1.1, saccade: 0.3, energy: 0.8, pulseRate: bpm(70) },
+  RxRising: { wide: 0.6, browRaise: 0.5, browAsym: 0.18, lid: 0, pitch: 0.08, glow: 1.2, flowSpeed: 2.0, reticle: 0.85, reticleScale: 1.45, saccade: 0.4, pulseRate: bpm(85) },
+  RxListening: { roll: 0.09, lid: 0.1, smile: 0.18, browRaise: 0.15, gazeY: 0.12, glow: 1.3, flowSpeed: 1.8, reticle: 0.8, reticleDouble: 1, saccade: 0.25, energy: 0.7, pulseRate: bpm(75) },
+  RxTuned: { smile: 0.25, smileAsym: 0.2, lid: 0.1, glow: 1.2, flowSpeed: 1.2, reticle: 0.7, saccade: 0.4, energy: 0.7 },
+  RxLive: { smile: 0.8, squint: 0.45, browRaise: 0.25, roll: 0.035, glow: 1.35, flowSpeed: 1.7, conduit: 0.85, bloom: 0.8, energy: 1.1 },
+};
+for (const [n, p] of Object.entries(RX_STATES)) KaiaAnimator.registerMood(n, p);
+function kaiaState() {
+  if (!S) return "RxIdle";
+  const L = S.live;
+  switch (S.mode) {
+    case "no dongle": return "RxNoDongle";
+    case "starting": return "RxStarting";
+    case "scanning": return "RxScanning";
+    case "holding": return L && L.open ? "RxListening" : "RxRising";
+    case "following": return "RxListening";
+    case "tuned": case "net": return L && L.open ? "RxListening" : "RxTuned";
+    case "live": return "RxLive";
+    default: return "RxIdle";
   }
 }
+KaiaCodec.mount($("kaia-stage"), { assets: "/kaia/portraits", maxFps: 30 }).then((c) => { codec = c; }).catch((e) => console.error("[rx] Kaia:", e));
+let typed = null;
+function sayLine(line) {
+  if (line === lastLine) return;
+  lastLine = line;
+  if (codec) codec.speak(line);
+  const el = $("sayline"); let i = 0; clearInterval(typed);
+  typed = setInterval(() => { i = Math.min(line.length, i + 2); el.textContent = line.slice(0, i); if (i >= line.length) clearInterval(typed); }, 33);
+}
 
-// ── zoom ──
-const MIN_SPAN = 50e3;
-function viewOf(b) { return views[b.i] || { lo: b.lo, hi: b.hi }; }
-function setView(b, lo, hi) {
-  let span = Math.min(b.hi - b.lo, Math.max(MIN_SPAN, hi - lo));
-  lo = Math.max(b.lo, Math.min(lo, b.hi - span));
-  if (span >= b.hi - b.lo - 1) delete views[b.i]; else views[b.i] = { lo, hi: lo + span };
+// ── per state ──
+const SCANNING = ["scanning", "holding", "following", "starting"];
+let needleD = null;
+function onState() {
+  if (!S) return;
+  if (codec) codec.setMood(kaiaState());
+  sayLine(S.kaia || "");
+  if (follow) { const [a, b] = followTarget(); cam.t0 = a; cam.t1 = b; }
 }
-function zoomAt(f, k) {
-  const b = bands.find((x) => x.i === band); if (!b) return;
-  const v = viewOf(b), lo = f - (f - v.lo) * k, hi = f + (v.hi - f) * k; setView(b, lo, hi);
-}
-function zoomMid(k) { const b = bands.find((x) => x.i === band); if (!b) return; const v = viewOf(b); zoomAt((v.lo + v.hi) / 2, k); }
-$("zin").onclick = () => zoomMid(0.5); $("zout").onclick = () => zoomMid(2);
-$("zfit").onclick = () => { delete views[band]; };
-document.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
-  if (e.key === "+" || e.key === "=") zoomMid(0.5); else if (e.key === "-") zoomMid(2); else if (e.key === "0") delete views[band];
-});
 
 // ── drawing ──
-function drawScope() {
-  const b = bands.find((x) => x.i === band); if (!b) return;
-  const f = fallOf(band), v = viewOf(b), span = v.hi - v.lo;
-  const c0 = (v.lo - b.lo) / (b.hi - b.lo) * COLS, cw = span / (b.hi - b.lo) * COLS;    // the view, in columns
-  const X = (fq, W) => (fq - v.lo) / span * W;
-  const colX = (c, W) => (c + 0.5 - c0) / cw * W;
-  $("zoomlbl").textContent = views[band] ? `${(v.lo / MHZ).toFixed(3)}–${(v.hi / MHZ).toFixed(3)} · ${span >= 1e6 ? (span / MHZ).toFixed(2) + " MHz" : Math.round(span / 1e3) + " kHz"}` : "whole band";
-  // spectrum: the band's latest row, a peak hold, the live slice brighter
-  const [g, W, H] = fit($("spec")); g.clearRect(0, 0, W, H);
-  g.strokeStyle = "rgba(24,34,58,.9)"; g.lineWidth = 1;
-  for (let db = 0; db <= SPAN_DB; db += 10) { const y = H - (db / SPAN_DB) * (H - 8); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); g.fillStyle = "#5d6b8f"; g.font = "9px JetBrains Mono"; g.fillText(`+${db + LOW_DB} dB`, 4, y - 2); }
-  const yOf = (val) => H - val / 255 * (H - 8);
-  for (let x = 0; x < COLS; x++) peak[x] = Math.max(f.latest[x], peak[x] - 0.6);
-  const a = Math.max(0, Math.floor(c0) - 1), z = Math.min(COLS, Math.ceil(c0 + cw) + 1);
-  const every = Math.max(1, Math.floor((z - a) / (W * 1.5)));
-  const trace = (arr) => { g.beginPath(); let first = true; for (let x = a; x < z; x += every) { let m = 0; for (let k = x; k < x + every && k < z; k++) m = Math.max(m, arr[k]); const px = colX(x, W), py = yOf(m); first ? g.moveTo(px, py) : g.lineTo(px, py); first = false; } };
-  const grad = g.createLinearGradient(0, 0, 0, H); grad.addColorStop(0, "rgba(0,240,255,.45)"); grad.addColorStop(1, "rgba(0,240,255,0)");
-  trace(f.latest); g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fillStyle = grad; g.fill();
-  trace(f.latest); g.strokeStyle = "#00f0ff"; g.lineWidth = 1.2; g.shadowColor = "#00f0ff"; g.shadowBlur = 6; g.stroke(); g.shadowBlur = 0;
-  trace(peak); g.strokeStyle = "rgba(255,47,209,.5)"; g.lineWidth = 1; g.stroke();
-  const L = S && S.live;
-  if (L && L.center >= b.lo - 1.2e6 && L.center <= b.hi + 1.2e6) {
-    const sp = b64(L.spec), x0 = X(L.lo, W), x1 = X(L.hi, W), hop = L.state === "hop";
-    // the sweep: a beam over the slice being measured, its leading edge bright
-    const beam = g.createLinearGradient(x0, 0, x1, 0);
-    beam.addColorStop(0, hop ? "rgba(61,255,138,0)" : "rgba(255,47,209,.05)"); beam.addColorStop(1, hop ? "rgba(61,255,138,.12)" : "rgba(255,47,209,.10)");
-    g.fillStyle = beam; g.fillRect(x0, 0, x1 - x0, H);
-    if (hop) { g.fillStyle = "rgba(61,255,138,.8)"; g.fillRect(x1 - 1, 0, 2, H); }
-    g.beginPath(); for (let k = 0; k < sp.length; k++) { const px = x0 + k / sp.length * (x1 - x0), py = yOf(sp[k]); k ? g.lineTo(px, py) : g.moveTo(px, py); }
-    g.strokeStyle = hop ? "rgba(235,250,255,.75)" : "#ff2fd1"; g.lineWidth = 1.4; g.stroke();
-  }
-  drawMarks(g, b, v, W, H, true);
-  // waterfall: the view's columns of the band's picture
-  const [wg, WW, WH] = fit($("fall"));
-  wg.imageSmoothingEnabled = cw > WW;              // zoomed in past a column a pixel: keep channels crisp
-  wg.drawImage(f.canvas, c0, 0, Math.max(1, cw), ROWS, 0, 0, WW, WH);
-  drawMarks(wg, b, v, WW, WH, false);
-  if (L && L.state === "hop" && L.center >= b.lo - 1.2e6 && L.center <= b.hi + 1.2e6) {
-    const x0 = X(L.lo, WW), x1 = X(L.hi, WW); wg.fillStyle = "rgba(61,255,138,.9)"; wg.fillRect(x0, 0, x1 - x0, 2);
-  }
-  // axis
-  const [ag, AW, AH] = fit($("axis")); ag.clearRect(0, 0, AW, AH); ag.fillStyle = "rgba(4,6,12,.9)"; ag.fillRect(0, 0, AW, AH);
-  const step = [5e3, 12.5e3, 25e3, 50e3, 100e3, 250e3, 500e3, 1e6, 2e6, 5e6].find((st) => span / st <= Math.max(6, AW / 90)) || 5e6;
-  const dec = step < 10e3 ? 4 : step < 100e3 ? 3 : step < 1e6 ? 2 : 0;
-  ag.font = "10px JetBrains Mono"; ag.fillStyle = "#5d6b8f"; ag.strokeStyle = "#2a3554";
-  for (let fq = Math.ceil(v.lo / step) * step; fq <= v.hi; fq += step) { const px = X(fq, AW); ag.beginPath(); ag.moveTo(px, 0); ag.lineTo(px, 6); ag.stroke(); ag.fillText((fq / MHZ).toFixed(dec), px + 3, 15); }
+let tPrev = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - tPrev) / 1000); tPrev = now;
+  try {
+    $("clock").textContent = new Date().toTimeString().slice(0, 8);
+    if (S && segs.length) { ease(dt); updateVfo(); drawDial(dt); drawMap(); kaiaGaze(); }
+  } catch (e) { console.error(e); }
+  requestAnimationFrame(frame);
 }
-function drawMarks(g, b, v, W, H, labels) {
-  const span = v.hi - v.lo, X = (fq) => (fq - v.lo) / span * W;
-  // lockouts: the carriers being ignored
-  for (const [fq] of (S && S.lockouts) || []) {
-    if (fq < v.lo - 75e3 || fq > v.hi + 75e3) continue;
-    const w = Math.max(3, 25e3 / span * W);
-    g.fillStyle = "rgba(255,56,96,.10)"; g.fillRect(X(fq) - w / 2, 0, w, H);
+function ease(dt) {
+  const k = 1 - Math.exp(-dt * 5);
+  cam.d0 += (cam.t0 - cam.d0) * k; cam.d1 += (cam.t1 - cam.d1) * k;
+  // Kaia's needle glides between slices; a new pass (back to the low end) snaps.
+  const L = S.live, f = L ? (L.state === "hop" ? L.center : (L.freq || L.center)) : null, t = f ? fToD(f) : null;
+  if (t === null) needleD = null;
+  else if (needleD === null || Math.abs(t - needleD) > 0.25) needleD = t;
+  else needleD += (t - needleD) * (1 - Math.exp(-dt * 8));
+}
+function kaiaGaze() {
+  if (!codec || needleD === null) return;
+  const viewX = (needleD - cam.d0) / Math.max(1e-6, cam.d1 - cam.d0);   // where the needle is on screen
+  codec.animator.lookAt((Math.max(0, Math.min(1, viewX)) - 0.5) * 1.1, 0.12, 0.6);
+}
+const rangeVals = () => { const lo = +$("floor").value / 255, span = +$("range").value / 255; return [lo, span]; };
+function drawDial(dt) {
+  const d0 = cam.d0, d1 = cam.d1, W = $("fall").getBoundingClientRect().width;
+  const src = pickSource(d0, d1);
+  if (src.key !== srcKey) { prevKey = srcKey; srcKey = src.key; fadeT = 0; }
+  fadeT = Math.min(1, fadeT + dt / 0.35);
+  // waterfall
+  if (fall) {
+    fall.begin();
+    const range = rangeVals();
+    // A fixed pace (rows don't resize as history fills): passes for the dial and
+    // bands (~12 min), spectra for the TUNED span (~14 s).
+    const sp = spanBand(), show = (key) => (sp && key === bandKey(sp.i) ? ROWS : 240);
+    if (prevKey && fadeT < 1) {
+      const p = prevKey === OVKEY ? { key: OVKEY, band: null } : { key: prevKey, band: bands.find((b) => bandKey(b.i) === prevKey) };
+      fall.draw(p.key, uOf(p, d0), uOf(p, d1), show(p.key), range, 1);
+    }
+    fall.draw(src.key, uOf(src, d0), uOf(src, d1), show(src.key), range, prevKey && fadeT < 1 ? fadeT : 1);
   }
-  // bookmarks; named once zoomed in far enough to read them
-  if (labels) {
-    g.font = "9px JetBrains Mono"; let lastX = -1e9;
-    for (const c of ledger) {
-      if (c.freq < v.lo || c.freq > v.hi || !(c.voice || c.label)) continue;
-      const px = X(c.freq);
-      g.fillStyle = c.voice ? "#3dff8a" : "#5d6b8f"; g.beginPath(); g.moveTo(px - 3, 0); g.lineTo(px + 3, 0); g.lineTo(px, 5); g.fill();
-      if (span <= 2e6 && px - lastX > 70) { g.fillText((c.label || c.service || "").slice(0, 18), px + 4, 14); lastX = px; }
+  const span = dToF(d1) - dToF(d0);
+  const inOne = segAtD(d0) === segAtD(Math.max(d0, d1 - 1e-6));
+  $("viewlbl").textContent = d1 - d0 > 0.97 ? "whole dial · every band" :
+    `${(dToF(d0) / MHZ).toFixed(3)}–${(dToF(d1) / MHZ).toFixed(3)} MHz${inOne ? ` · ${span >= 1e6 ? (span / MHZ).toFixed(2) + " MHz" : Math.round(span / 1e3) + " kHz"}` : ""}` +
+    (src.band && src.band.span ? " · TUNED span, every bin" : src.band ? " · band, full resolution" : "");
+  drawSpectrum(src, d0, d1);
+  drawAxis(d0, d1);
+  drawFallOverlay(d0, d1);
+}
+const X = (d, d0, d1, W) => (d - d0) / (d1 - d0) * W;
+let peak = { key: null, arr: null };
+function drawSpectrum(src, d0, d1) {
+  const [g, W, H] = fit($("spec")); g.clearRect(0, 0, W, H);
+  const range = rangeVals(), yOf = (v) => H - 4 - Math.min(1, Math.max(0, (v / 255 - range[0]) / range[1])) * (H - 12);
+  g.strokeStyle = "rgba(24,34,58,.9)"; g.lineWidth = 1; g.font = "9px DejaVu Sans Mono, monospace"; g.fillStyle = "#5d6b8f";
+  for (let k = 0; k <= 4; k++) { const v = (range[0] + range[1] * k / 4) * 255, y = yOf(v); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); g.fillText(`${(LOW_DB + v / 255 * SPAN_DB).toFixed(0)} dB`, 4, y - 2); }
+  const s = fall && fall.src[src.key]; if (!s || s.head < 0) return;
+  const row = s.latest, n = row.length, u0 = uOf(src, d0), u1 = uOf(src, d1);
+  if (peak.key !== src.key || !peak.arr || peak.arr.length !== n) peak = { key: src.key, arr: new Float32Array(n) };
+  for (let i = 0; i < n; i++) peak.arr[i] = Math.max(row[i], peak.arr[i] - 0.5);
+  // one point per pixel: max of the columns under it (or interpolated when zoomed past a column a pixel)
+  const trace = (arr) => {
+    g.beginPath();
+    for (let x = 0; x <= W; x += 1) {
+      const ua = u0 + (u1 - u0) * (x / W), ub = u0 + (u1 - u0) * ((x + 1) / W);
+      const ca = ua * n - 0.5, cb = ub * n - 0.5; let v;
+      if (cb - ca >= 1) { v = 0; for (let c = Math.max(0, Math.floor(ca)); c <= Math.min(n - 1, Math.ceil(cb)); c++) v = Math.max(v, arr[c]); }
+      else { const c = Math.max(0, Math.min(n - 2, Math.floor(ca))), f = Math.min(1, Math.max(0, ca - c)); v = arr[c] * (1 - f) + arr[c + 1] * f; }
+      x ? g.lineTo(x, yOf(v)) : g.moveTo(x, yOf(v));
+    }
+  };
+  trace(row); g.lineTo(W, H); g.lineTo(0, H); g.closePath();
+  const grad = g.createLinearGradient(0, 0, 0, H); grad.addColorStop(0, "rgba(0,240,255,.32)"); grad.addColorStop(1, "rgba(0,240,255,0)"); g.fillStyle = grad; g.fill();
+  trace(row); g.strokeStyle = "#00f0ff"; g.lineWidth = 1.2; g.stroke();
+  trace(peak.arr); g.strokeStyle = "rgba(255,47,209,.45)"; g.lineWidth = 1; g.stroke();
+  // the slice being measured right now, while sweeping
+  const L = S.live;
+  if (L && L.state === "hop") {
+    const a = fToD(L.lo), b = fToD(L.hi);
+    if (a !== null && b !== null && b > d0 && a < d1) {
+      const x0 = X(a, d0, d1, W), x1 = X(b, d0, d1, W), sp = b64(L.spec);
+      g.fillStyle = "rgba(61,255,138,.08)"; g.fillRect(x0, 0, x1 - x0, H);
+      if (x1 - x0 > 40) { g.beginPath(); for (let k = 0; k < sp.length; k++) { const px = x0 + k / sp.length * (x1 - x0), py = yOf(sp[k]); k ? g.lineTo(px, py) : g.moveTo(px, py); } g.strokeStyle = "rgba(235,250,255,.7)"; g.lineWidth = 1; g.stroke(); }
     }
   }
-  // what the watch is on
-  const L = S && S.live, fq = L && L.state !== "hop" ? (L.freq || L.center) : null;
-  if (fq && fq >= v.lo && fq <= v.hi) {
-    const px = X(fq); g.strokeStyle = L.open ? "#ff2fd1" : "rgba(255,228,92,.8)"; g.lineWidth = 2; g.shadowColor = g.strokeStyle; g.shadowBlur = 10;
-    g.beginPath(); g.moveTo(px, 0); g.lineTo(px, H); g.stroke(); g.shadowBlur = 0; g.lineWidth = 1;
+  drawMarks(g, d0, d1, W, H, true);
+}
+function drawAxis(d0, d1) {
+  const [g, W, H] = fit($("axis")); g.clearRect(0, 0, W, H);
+  g.font = "10px DejaVu Sans Mono, monospace"; g.textBaseline = "middle";
+  const inOne = segAtD(d0) === segAtD(Math.max(d0, d1 - 1e-6));
+  if (!inOne) {                                    // band names across the dial
+    for (const s of segs) {
+      const x0 = X(s.d0, d0, d1, W), x1 = X(s.d1, d0, d1, W); if (x1 < 0 || x0 > W) continue;
+      g.strokeStyle = "#25365d"; g.beginPath(); g.moveTo(x0 + .5, 0); g.lineTo(x0 + .5, H); g.stroke();
+      const label = `${s.name.toUpperCase()} ${(s.lo / MHZ).toFixed(0)}–${(s.hi / MHZ).toFixed(0)}`;
+      g.fillStyle = "#8fa0c4"; const tw = g.measureText(label).width;
+      g.fillText(x1 - x0 > tw + 8 ? label : (x1 - x0 > 30 ? s.name.split(" ")[0] : ""), Math.max(x0, 0) + 4, H / 2);
+    }
+    return;
   }
+  const lo = dToF(d0), hi = dToF(d1), span = hi - lo;
+  const step = [5e3, 12.5e3, 25e3, 50e3, 100e3, 250e3, 500e3, 1e6, 2e6, 5e6].find((st) => span / st <= Math.max(6, W / 90)) || 5e6;
+  const dec = step < 10e3 ? 4 : step < 100e3 ? 3 : step < 1e6 ? 2 : 1;
+  g.fillStyle = "#8fa0c4"; g.strokeStyle = "#2a3554";
+  for (let f = Math.ceil(lo / step) * step; f <= hi; f += step) { const px = (f - lo) / span * W; g.beginPath(); g.moveTo(px + .5, 0); g.lineTo(px + .5, 5); g.stroke(); g.fillText((f / MHZ).toFixed(dec), px + 3, H / 2 + 1); }
+}
+function drawFallOverlay(d0, d1) {
+  const [g, W, H] = fit($("fallOver")); g.clearRect(0, 0, W, H);
+  for (const s of segs) { const x = X(s.d0, d0, d1, W); if (x > 1 && x < W) { g.fillStyle = "rgba(37,54,93,.9)"; g.fillRect(x, 0, 1, H); } }
+  drawMarks(g, d0, d1, W, H, false);
+}
+function drawMarks(g, d0, d1, W, H, labels) {
+  const wide = segAtD(d0) !== segAtD(Math.max(d0, d1 - 1e-6));
+  for (const [fq] of (S && S.lockouts) || []) {                     // carriers being left alone
+    const d = fToD(fq); if (d === null || d < d0 || d > d1) continue;
+    const w = Math.max(2, (fToD(fq + 25e3) - d) / (d1 - d0) * W);
+    g.fillStyle = "rgba(255,56,96,.12)"; g.fillRect(X(d, d0, d1, W) - w / 2, 0, w, H);
+  }
+  if (labels) {                                                       // bookmarks, named when zoomed in
+    g.font = "9px DejaVu Sans Mono, monospace"; let lastX = -1e9;
+    for (const c of ledger) {
+      const d = fToD(c.freq); if (d === null || d < d0 || d > d1 || !(c.voice || c.label)) continue;
+      const px = X(d, d0, d1, W);
+      g.fillStyle = c.voice ? "#3dff8a" : "#5d6b8f"; g.beginPath(); g.moveTo(px - 3, 0); g.lineTo(px + 3, 0); g.lineTo(px, 5); g.fill();
+      if (!wide && dToF(d1) - dToF(d0) <= 2e6 && px - lastX > 70) { g.fillText((c.label || c.service || "").slice(0, 18), px + 4, 14); lastX = px; }
+    }
+  }
+  if (needleD !== null && needleD >= d0 && needleD <= d1) {          // Kaia on the dial
+    const L = S.live, px = X(needleD, d0, d1, W), hop = !L || L.state === "hop";
+    const col = hop ? "#3dff8a" : (L.open ? "#ff2fd1" : "#ffe45c");
+    g.strokeStyle = col; g.lineWidth = hop ? 1.5 : 2; g.beginPath(); g.moveTo(px, 0); g.lineTo(px, H); g.stroke(); g.lineWidth = 1;
+    if (labels) {
+      const t = `KAIA ${((hop ? L.center : (L.freq || L.center)) / MHZ).toFixed(hop ? 3 : 4)}`;
+      g.font = "10px DejaVu Sans Mono, monospace"; const tw = g.measureText(t).width + 10, bx = Math.min(W - tw - 2, Math.max(2, px - tw / 2));
+      g.fillStyle = "rgba(4,6,12,.9)"; g.fillRect(bx, H - 18, tw, 15); g.strokeStyle = col; g.strokeRect(bx + .5, H - 17.5, tw - 1, 14);
+      g.fillStyle = col; g.fillText(t, bx + 5, H - 7);
+    }
+  }
+}
+function drawMap() {
+  // The map stretches what history there is (at least ~2 minutes' worth) over its height.
+  if (mapFall) { const s = mapFall.src[OVKEY]; mapFall.begin(); mapFall.draw(OVKEY, 0, 1, Math.max(40, s ? s.count : 0), rangeVals(), 1); }
+  const [g, W, H] = fit($("mapover")); g.clearRect(0, 0, W, H);
+  g.font = "9px DejaVu Sans Mono, monospace";
+  for (const s of segs) {
+    const x0 = s.d0 * W, x1 = s.d1 * W;
+    g.fillStyle = "rgba(4,6,12,.75)"; g.fillRect(x0, 0, 1, H);
+    const name = s.name.split(" ·")[0].toUpperCase(); if (x1 - x0 > g.measureText(name).width + 6) { g.fillStyle = "rgba(4,6,12,.7)"; g.fillRect(x0 + 1, 0, g.measureText(name).width + 6, 12); g.fillStyle = "#8fa0c4"; g.fillText(name, x0 + 4, 9); }
+  }
+  g.strokeStyle = "rgba(255,228,92,.9)"; g.strokeRect(cam.d0 * W + .5, .5, Math.max(2, (cam.d1 - cam.d0) * W - 1), H - 1);   // the dial's view
+  if (needleD !== null) { const L = S.live, hop = !L || L.state === "hop"; g.fillStyle = hop ? "#3dff8a" : "#ff2fd1"; g.fillRect(needleD * W - 1, 0, 2, H); }
+  $("maplbl").textContent = `${segs.length} bands · a row a pass · ${OV ? OV.seq : 0} passes kept`;
 }
 function bar(cv, frac, color) {
   const [g, W, H] = fit(cv); g.clearRect(0, 0, W, H);
   const n = 24, gap = 2, w = (W - gap * (n - 1)) / n;
   for (let i = 0; i < n; i++) { const on = i / n < frac; g.fillStyle = on ? (i > n * 0.8 ? "#ff3860" : i > n * 0.6 ? "#ffe45c" : color) : "rgba(42,53,84,.55)"; g.fillRect(i * (w + gap), 0, w, H); }
 }
-const SCANNING = ["scanning", "holding", "following", "starting"];
 $("sql").onclick = () => post("/squelch", { open: !(S && S.squelch_open) }).then((j) => toast(j.say)).catch(() => {});
 function updateVfo() {
-  if (S) { const o = !!S.squelch_open, b = $("sql"); b.classList.toggle("lit", o); const t = o ? "SQL OPEN" : "SQL AUTO"; if (b.textContent !== t) b.textContent = t; }
-  if (!S) return;
+  const o = !!S.squelch_open, sb = $("sql"); sb.classList.toggle("lit", o); const st = o ? "SQL OPEN" : "SQL AUTO"; if (sb.textContent !== st) sb.textContent = st;
   const L = S.live, holding = L && L.state !== "hop";
   const f = S.freq || (L && L.center) || 0;
   $("freq").innerHTML = (f ? fmtF(f) : "---.---.---") + "<small>MHz</small>"; $("freq").classList.toggle("hold", !!holding);
@@ -431,7 +628,7 @@ function updateVfo() {
   $("vsub").innerHTML = holding ? `<b>${esc(ch ? (ch.label || ch.service) : "unlisted")}</b> · ${state}${ch ? ` · heard ${ch.hits}× · voice ${ch.voice}×` : ""}`
     : S.mode === "scanning" ? `sweeping · slice centre ${(f / MHZ).toFixed(3)} MHz · pass ${S.passes}` : esc(S.mode);
   const lvl = holding ? L.level : 0;
-  bar($("sm"), Math.max(0, Math.min(1, lvl / 40)), "#3dff8a"); $("smv").textContent = holding ? `${lvl >= 0 ? "+" : "−"}${Math.abs(lvl).toFixed(0)} dB` : "—";
+  bar($("sm"), Math.max(0, Math.min(1, lvl / 40)), "#3dff8a"); const r = Math.round(lvl); $("smv").textContent = holding ? `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)} dB` : "—";
   bar($("am"), Math.max(0, Math.min(1, (S.audio_level + 60) / 60)), "#00f0ff"); $("amv").textContent = S.audio_level > -89 ? `${S.audio_level.toFixed(0)} dBFS` : "—";
   const open = holding && L.open;
   bar($("sq"), open ? 1 : 0, "#ff2fd1"); $("sqv").textContent = holding ? (open ? "OPEN" : "CLOSED") : "—";
@@ -448,14 +645,14 @@ function updateVfo() {
   $("idle").style.display = idle ? "grid" : "none";
   $("idlemsg").textContent = S.mode === "no dongle" ? "THE RTL-SDR ISN'T CONNECTED" : "THE SCANNER IS IDLE";
   $("idlego").style.display = S.mode === "no dongle" ? "none" : "";
-  $("say").textContent = S.kaia;
+  $("kc-r").textContent = holding ? `${(f / MHZ).toFixed(4)} MHz` : S.mode.toUpperCase();
   const locks = S.lockouts || [];
-  $("locks").textContent = locks.length ? "left alone (constant carriers and pulse trains): " + locks.slice(0, 6).map(([fq, s]) => `${(fq / MHZ).toFixed(4)} · ${Math.round(s / 60)}m`).join("  ·  ") : "";
+  $("locks").textContent = locks.length ? "left alone (constant carriers, pulse trains): " + locks.slice(0, 8).map(([fq, s]) => `${(fq / MHZ).toFixed(4)} · ${Math.round(s / 60)}m`).join("  ·  ") : "no lockouts";
 }
 
 // ── scan / stop ──
 function startScan() {
-  if (!mon) startMon();                       // a click is the gesture the audio needs
+  if (!mon) startMon();                            // a click is the gesture the audio needs
   toast("starting the scan…");
   post("/start", { minutes: +$("mins").value }).then((j) => toast(j.say)).catch(() => toast("the scan didn't start"));
 }
@@ -463,46 +660,63 @@ function stopScan() { post("/stop").then((j) => toast(j.say)).catch(() => {}); }
 $("go").onclick = () => (S && SCANNING.includes(S.mode) ? stopScan() : startScan());
 $("idlego").onclick = startScan;
 
-// ── tuning, zooming and panning on the spectrum and waterfall ──
-function freqAt(e, cv) {
-  const b = bands.find((x) => x.i === band); if (!b) return null;
-  const v = viewOf(b), r = cv.getBoundingClientRect();
-  return { b, f: v.lo + (e.clientX - r.left) / r.width * (v.hi - v.lo), r };
-}
+// ── view controls: wheel zooms, drag pans, click tunes ──
+$("follow").onclick = () => { setFollow(!follow); if (follow) onState(); };
+function zoomAt(d, k) { const a = d - (d - cam.t0) * k, b = d + (cam.t1 - d) * k; userView(a, b); }
+const zoomMid = (k) => zoomAt((cam.t0 + cam.t1) / 2, k);
+$("zin").onclick = () => zoomMid(0.5); $("zout").onclick = () => zoomMid(2);
+$("zfit").onclick = () => userView(0, 1);
+document.addEventListener("keydown", (e) => {
+  if (["SELECT", "INPUT"].includes(e.target.tagName) || e.ctrlKey || e.metaKey) return;
+  if (e.key === "+" || e.key === "=") zoomMid(0.5); else if (e.key === "-") zoomMid(2); else if (e.key === "0") userView(0, 1);
+  else if (e.key === "f" || e.key === "F") $("follow").onclick();
+});
+function dAt(e, cv) { const r = cv.getBoundingClientRect(); return { d: cam.d0 + (e.clientX - r.left) / r.width * (cam.d1 - cam.d0), r }; }
 let drag = null;
-for (const id of ["spec", "fall"]) {
+for (const id of ["spec", "fallOver"]) {
   const cv = $(id);
-  cv.addEventListener("wheel", (e) => { e.preventDefault(); const h = freqAt(e, cv); if (h) zoomAt(h.f, e.deltaY < 0 ? 0.8 : 1.25); }, { passive: false });
-  cv.addEventListener("mousedown", (e) => { const h = freqAt(e, cv); if (h) drag = { x: e.clientX, v: viewOf(h.b), moved: false, w: h.r.width }; });
+  cv.addEventListener("wheel", (e) => { e.preventDefault(); const h = dAt(e, cv); cam.t0 = cam.d0; cam.t1 = cam.d1; zoomAt(h.d, e.deltaY < 0 ? 0.8 : 1.25); }, { passive: false });
+  cv.addEventListener("mousedown", (e) => { const h = dAt(e, cv); drag = { x: e.clientX, d0: cam.d0, d1: cam.d1, moved: false, w: h.r.width }; });
   cv.addEventListener("mousemove", (e) => {
-    const h = freqAt(e, cv); if (!h) return;
+    const h = dAt(e, cv);
     if (drag && (drag.moved || Math.abs(e.clientX - drag.x) > 4)) {
-      drag.moved = true; const df = (e.clientX - drag.x) / drag.w * (drag.v.hi - drag.v.lo);
-      setView(h.b, drag.v.lo - df, drag.v.hi - df); $("hover").style.display = "none"; return;
+      drag.moved = true; const dd = (e.clientX - drag.x) / drag.w * (drag.d1 - drag.d0);
+      userView(drag.d0 - dd, drag.d1 - dd); cam.d0 = cam.t0; cam.d1 = cam.t1; $("hover").style.display = "none"; return;
     }
-    const fq = Math.round(h.f / 2500) * 2500;
-    const ch = ledger.find((c) => Math.abs(c.freq - fq) < 6250);
-    const hv = $("hover"), pr = $("scope").getBoundingClientRect();
-    hv.style.display = "block"; hv.style.left = (e.clientX - pr.left + 12) + "px"; hv.style.top = (e.clientY - pr.top + 12) + "px";
-    hv.textContent = `${(fq / MHZ).toFixed(4)} MHz` + (ch ? ` · ${ch.label || ch.service} · voice ${ch.voice}×` : "") + " — click to tune";
+    const fq = Math.round(dToF(h.d) / 2500) * 2500, ch = ledger.find((c) => Math.abs(c.freq - fq) < 6250);
+    const hv = $("hover"), pr = $("dial").getBoundingClientRect();
+    hv.style.display = "block"; hv.style.left = Math.min(pr.width - 260, e.clientX - pr.left + 12) + "px"; hv.style.top = (e.clientY - pr.top + 12) + "px";
+    hv.textContent = `${(fq / MHZ).toFixed(4)} MHz · ${segAtD(h.d).name}` + (ch ? ` · ${ch.label || ch.service} · voice ${ch.voice}×` : "") + " — click to tune";
   });
   cv.addEventListener("mouseleave", () => { $("hover").style.display = "none"; });
-  cv.addEventListener("mouseup", (e) => { const d = drag; drag = null; if (d && !d.moved) { const h = freqAt(e, cv); if (h) tune(Math.round(h.f / 2500) * 2500); } });
+  cv.addEventListener("mouseup", (e) => { const d = drag; drag = null; if (d && !d.moved) tune(Math.round(dToF(dAt(e, cv).d) / 2500) * 2500); });
 }
 window.addEventListener("mouseup", () => { drag = null; });
+$("mapover").addEventListener("click", (e) => {                       // the band map: look at a band
+  const r = $("mapover").getBoundingClientRect(), s = segAtD((e.clientX - r.left) / r.width);
+  userView(s.d0, s.d1);
+});
 function tune(f) {
   if (!mon) startMon();
   toast(`tuning to ${(f / MHZ).toFixed(4)} MHz…`);
   post("/tune", { freq: f, minutes: Math.min(60, +$("mins").value) }).then((j) => toast(j.say)).catch(() => toast("the tune didn't go through"));
+  setFollow(true);                                  // follow her onto the channel
 }
-$("scan").onclick = () => post("/scan").then((j) => toast(j.say)).catch(() => {});
+$("scan").onclick = () => { setFollow(true); post("/scan").then((j) => toast(j.say)).catch(() => {}); };
+function showFreq(f) { const d = fToD(f); if (d === null) return; userView(d - 0.004, d + 0.004); }
+
+// contrast & palette, remembered per window
+for (const id of ["floor", "range"]) { $(id).value = store.get(id, +$(id).value); $(id).oninput = () => store.set(id, +$(id).value); }
+$("palette").value = store.get("palette", "kaia");
+const applyPalette = () => { store.set("palette", $("palette").value); if (fall) fall.setPalette($("palette").value); if (mapFall) mapFall.setPalette($("palette").value); };
+$("palette").onchange = applyPalette; applyPalette();
 
 // ── the monitor: the scanner's audio in this window ──
 let mon = null;
 $("mon").onclick = () => { mon ? stopMon() : startMon(); };
 async function startMon() {
   // Web Audio first (raw PCM, the lowest latency); if its context will not
-  // run, an endless WAV through an <audio> element.
+  // run (WebKitGTK), an endless WAV through an <audio> element.
   $("mon").classList.add("lit");
   try {
     const ctx = new AudioContext({ sampleRate: 12000 }), gain = ctx.createGain();
@@ -541,42 +755,43 @@ function stopMon() {
 $("vol").oninput = () => { if (!mon) return; if (mon.gain) mon.gain.gain.value = +$("vol").value; if (mon.el) mon.el.volume = +$("vol").value; };
 
 // ── the side panel ──
-let side = "catches";
+let side = "catches", sidePending = false;
 document.querySelectorAll("#side .tab").forEach((t) => t.onclick = () => {
-  side = t.dataset.t; document.querySelectorAll("#side .tab").forEach((x) => x.classList.toggle("on", x === t)); renderSide();
+  side = t.dataset.t; document.querySelectorAll("#side .tab").forEach((x) => x.classList.toggle("on", x === t)); renderSide(true);
 });
 const when = (ts) => new Date(ts * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
-function showFreq(f) { const bi = bandOf(f); if (bi === null) return; band = bi; followBand = false; markStrip(); const b = bands.find((x) => x.i === bi); setView(b, f - 250e3, f + 250e3); }
-function renderSide() {
-  const p = $("sidepane");
+const playing = () => [...$("sidepane").querySelectorAll("audio")].some((a) => !a.paused && !a.ended);
+function renderSide(force) {
+  // Re-rendering replaces the clips' <audio> elements: don't cut off one being played.
+  if (!force && playing()) { sidePending = true; return; }
+  sidePending = false;
+  const p = $("sidepane"), st = p.scrollTop;
   if (side === "bm") {
     p.innerHTML = ledger.map((c) => `<div class="bm" data-f="${c.freq}"><span class="f">${(c.freq / MHZ).toFixed(4)}</span>` +
       `<span class="l">${esc(c.label || c.service || "found")}<i>${esc(c.service)}${c.hours ? " · " + esc(c.hours) : ""}${c.transcript ? " · “" + esc(c.transcript.slice(0, 60)) + "”" : ""}</i></span>` +
-      `<span class="c"><b>${c.voice}</b> voice<br>${c.hits} heard</span></div>`).join("") || `<div style="color:var(--dim);padding:8px">the ledger is empty</div>`;
-    p.querySelectorAll(".bm").forEach((el) => {
-      el.onclick = () => showFreq(+el.dataset.f);
-      el.ondblclick = () => tune(+el.dataset.f);
-      el.title = "click: zoom to it · double-click: tune to it";
-    });
+      `<span class="c"><b>${c.voice}</b> voice<br>${c.hits} heard</span></div>`).join("") || `<div class="empty">the ledger is empty</div>`;
+    p.querySelectorAll(".bm").forEach((el) => { el.onclick = () => showFreq(+el.dataset.f); el.ondblclick = () => tune(+el.dataset.f); el.title = "click: look at it · double-click: tune to it"; });
   } else if (side === "log") {
     p.innerHTML = logRows.map((c) => `<div class="lg" data-f="${c.freq}" title="${esc(c.label)} · ${Math.round(c.seconds || 0)}s"><span class="t">${new Date(c.ts * 1000).toTimeString().slice(0, 5)}</span>` +
-      `<span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${c.kind}">${c.kind.toUpperCase()}</span>` +
+      `<span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${esc(c.kind)}">${esc(c.kind.toUpperCase())}</span>` +
       `<span class="l">${c.transcript ? `<q>“${esc(c.transcript)}”</q>` : `${esc(c.label)} · ${Math.round(c.seconds || 0)}s`}</span></div>`).join("")
-      || `<div style="color:var(--dim);padding:8px;font-size:12px">nothing logged yet</div>`;
+      || `<div class="empty">nothing logged yet</div>`;
     p.querySelectorAll(".lg").forEach((el) => { el.onclick = () => showFreq(+el.dataset.f); });
   } else if (side === "nights") {
-    p.innerHTML = nightsList.length ? `<div class="nights">${nightsList.map((n) => `<img src="/night/${n}" data-n="${n}" title="${n}" loading="lazy">`).join("")}</div>`
-      : `<div style="color:var(--dim);padding:8px;font-size:12px">no nights saved yet — the first night's waterfall is saved when the scan ends</div>`;
-    p.querySelectorAll("img").forEach((im) => im.onclick = () => big("/night/" + im.dataset.n));
+    p.innerHTML = nightsList.length ? `<div class="nights">${nightsList.map((n) => `<img src="/night/${encodeURIComponent(n)}" data-n="${esc(n)}" title="${esc(n)}" loading="lazy">`).join("")}</div>`
+      : `<div class="empty">no nights saved yet — the first night's waterfall is saved when the scan ends</div>`;
+    p.querySelectorAll("img").forEach((im) => im.onclick = () => big("/night/" + encodeURIComponent(im.dataset.n)));
   } else {
-    p.innerHTML = catches.map((c) => `<div class="catch"><div class="top"><span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${c.kind}">${c.kind.toUpperCase()}</span>` +
+    p.innerHTML = catches.map((c) => `<div class="catch"><div class="top"><span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${esc(c.kind)}">${esc(c.kind.toUpperCase())}</span>` +
       `<span style="font-size:11px;color:var(--dim)">${esc(c.label)}</span><span class="when">${when(c.ts)} · ${Math.round(c.seconds || 0)}s</span></div>` +
       (c.transcript ? `<div class="tr">“${esc(c.transcript)}”</div>` : "") +
-      `<img src="/spec/${c.clip}" loading="lazy" data-c="${c.clip}" alt="">` +
-      `<audio class="play" controls preload="none" src="/clip/${c.clip}" style="width:100%;height:28px"></audio></div>`).join("")
-      || `<div style="color:var(--dim);padding:8px;font-size:12px">nothing kept yet</div>`;
-    p.querySelectorAll("img").forEach((im) => im.onclick = () => big("/spec/" + im.dataset.c));
+      `<img src="/spec/${encodeURIComponent(c.clip)}" loading="lazy" data-c="${esc(c.clip)}" alt="">` +
+      `<audio controls preload="none" src="/clip/${encodeURIComponent(c.clip)}" style="width:100%;height:28px;margin-top:4px"></audio></div>`).join("")
+      || `<div class="empty">nothing kept yet</div>`;
+    p.querySelectorAll("img").forEach((im) => im.onclick = () => big("/spec/" + encodeURIComponent(im.dataset.c)));
+    p.querySelectorAll("audio").forEach((a) => a.addEventListener("ended", () => { if (sidePending) renderSide(); }));
   }
+  p.scrollTop = st;
 }
 function big(src) { $("big").querySelector("img").src = src; $("big").style.display = "grid"; }
 $("big").onclick = () => { $("big").style.display = "none"; };
@@ -585,17 +800,15 @@ function loadSide() {
     .then(([l, c, n, g]) => {
       const sig = (xs) => JSON.stringify(xs.map((x) => x.id || x.ts));
       const changed = sig(c) !== sig(catches) || l.length !== ledger.length || n.length !== nightsList.length || sig(g) !== sig(logRows);
+      const newest = c[0] && c[0].id;
+      if (codec && lastCatchId !== null && newest && newest !== lastCatchId && c[0].kind === "voice") codec.react("capture");
+      lastCatchId = newest || lastCatchId || 0;
       ledger = l; catches = c; nightsList = n; logRows = g;
-      if (changed) { const st = $("sidepane").scrollTop; renderSide(); $("sidepane").scrollTop = st; }
-      for (const b of bands) { const k = l.filter((x) => x.freq >= b.lo && x.freq < b.hi && x.voice).length; const el = document.querySelector(`[data-n="${b.i}"]`); if (el) el.textContent = k ? `·${k}` : ""; }
+      if (changed) renderSide();
     }).catch(() => {});
 }
 setInterval(loadSide, 10000);
 
-function frame() {
-  try { $("clock").textContent = new Date().toTimeString().slice(0, 8); if (S && COLS) { updateVfo(); drawStrip(); drawScope(); } } catch (e) { console.error(e); }
-  requestAnimationFrame(frame);
-}
 connect(); loadSide(); requestAnimationFrame(frame);
 window.addEventListener("wheel", (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
 window.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && ["+", "-", "=", "0"].includes(e.key)) e.preventDefault(); });

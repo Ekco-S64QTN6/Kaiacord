@@ -714,7 +714,13 @@ sparks, adds embers off the floor on the beat (from a few blends in), a horizon 
 a clash breaks the combo and the heat falls faster than it rose. **KAIA ON THE DECKS** is her running feed: the
 session's `chatter` (`dj_voice`: why the next record — key move, measured bars — the plan and any nudge, an echo-out or a swapped pick
 and why, set progress, a hand load), plus the page's timeline lines (blend under way, bass swap, her hands, a
-stutter). Templated from real decisions; the music engine still calls no model. The page draws at 30 fps from
+stutter). Templated from real decisions; the music engine still calls no model. The panel itself is Kaia's
+codec avatar (the shared engine in `assets/kaia-avatar/`, served at `/kaia/`, see §7 KAIA//RX): the line under her
+is the codec subtitle she lip-syncs, the feed and the arousal/energy/valence bars sit behind its LOG toggle, the
+readings drive her face (`setOffsets`: valence the smile, arousal eyes and brows, energy the data flow), her
+pulse follows the on-air tempo (`setBehavior`), she looks toward the deck a blend brings in, and the FX stage's
+PERFECT BLEND and red moments reach her through `window.KaiaBooth.react`. Write-up of the change:
+`docs/reports/investigations/2026-10-10-kaia-avatar-rx-and-booth.md` (local, git-ignored). The page draws at 30 fps from
 cached canvas sizes (`ResizeObserver`): a `getBoundingClientRect` per canvas per frame after DOM writes forced a
 layout each and was over half the booth's CPU.
 Knobs drag with pointer capture, never pointer lock (the browser announced "press Esc" on every turn),
@@ -852,8 +858,22 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   first ignored every stop for its whole tune. ▶ SCAN (`scanner.start_scan`) runs the sweep outside the
   nightly hours for as long as asked and only while a page is open (`DASH_GONE_S`): the page's stream
   calls `seen_by_dashboard`. `!scanner dash` opens it; nothing opens it at night unasked. The top
-  row has a fixed height and Kaia's line is clamped to three lines: a row sized by its text grew a
-  line and squeezed the waterfall every few seconds.
+  row has a fixed height and Kaia's line is clamped: a row sized by its text grew a line and
+  squeezed the waterfall every few seconds.
+  Each band's panorama is `span / COL_HZ` columns (the ~2.3 kHz the watcher sends while hopping,
+  capped at `MAX_COLS`): a fixed 2048 squeezed 20 MHz of 70 cm into ~10 kHz a column and zoomed to
+  blocks. **Band waterfalls advance once a pass and only then**; a hold scrolls the TUNED span. A hold
+  used to push band rows five times a second, so the band picture lurched between paces, and the page
+  flipped between band and span views — it blinked. Each pass also lays every band side by side, low to
+  high, into one overview row (`OV_COLS`, max-pooled so a carrier survives): while sweeping, the page's
+  dial shows that whole picture with Kaia's needle gliding across it, and on a channel it eases into
+  the TUNED span (FOLLOW KAIA; a zoom or drag hands the view to you). Zoomed inside one band it draws
+  that band's own panorama. Waterfalls are WebGL2 ring textures (`Falls` in the page), which WebKitGTK
+  runs. Kaia herself is the shared codec avatar in `assets/kaia-avatar/` (served at `/kaia/`; the
+  same engine as Kaia's and Kaiagotchi's dashboards — keep the copies identical, put states in the
+  page via `KaiaAnimator.registerMood`). `tools/maintenance/rx_preview.py` runs the real `Watcher`
+  against a simulated sky in real time and serves the page — use it to look at a change, not the bot.
+  Write-up: `docs/reports/investigations/2026-10-10-kaia-avatar-rx-and-booth.md` (local, git-ignored).
   `!scanner history` lists voice and data and folds bare carriers into one line; every catch is in
   the page's LOG tab.
   SQL OPEN (`scanner.set_squelch_open`, a shared flag the child reads) plays a tuned channel continuously,

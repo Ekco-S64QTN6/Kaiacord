@@ -28,24 +28,26 @@ def test_a_signal_lands_in_its_bands_panorama_at_its_frequency():
     n, data, seq = s.rows_since(0, 0)
     import base64
     row = np.frombuffer(base64.b64decode(data), np.uint8)
+    cols = s.bands[0].cols
     col = int(np.argmax(row))
-    hz = 144_000_000 + (col + 0.5) / rx_scope.COLS * 4_000_000
-    assert n == 1 and abs(hz - 146_520_000) < 8_000
-    assert row[int((146_000_000 - 144_000_000) / 4e6 * rx_scope.COLS)] > 0          # the DC guard drawn across
+    hz = 144_000_000 + (col + 0.5) / cols * 4_000_000
+    assert n == 1 and len(row) == cols and abs(hz - 146_520_000) < 5_000
+    assert row[int((146_000_000 - 144_000_000) / 4e6 * cols)] > 0                   # the DC guard drawn across
     assert s.lockouts == [(146_940_000, 1200)] and s.passes == 1
 
 
-def test_a_held_channel_scrolls_and_a_night_is_saved(tmp_path, monkeypatch):
+def test_a_hold_scrolls_the_tuned_span_not_the_band_and_a_night_is_saved(tmp_path, monkeypatch):
+    """Band waterfalls keep one pace — a row a pass; a hold scrolls the TUNED span."""
     s = rx_scope.Scope(bands=[(144_000_000, 148_000_000)])
     monkeypatch.setattr(rx_scope, "NIGHT_EVERY", 1)
     for i in range(12):
         s.feed({"kind": "spec", "center": 146_000_000, "state": "hop", "spec": _spec(146_000_000, 146_520_000)})
         s.feed({"kind": "pass", "pass": i})
-    before = s.bands[0].seq
-    s._last_hold_row = 0
+    before, ov_before = s.bands[0].seq, s.ov_seq
     s.feed({"kind": "spec", "center": 146_000_000, "state": "hold", "freq": 146_520_000, "level": 22.0,
             "spec": _spec(146_000_000, 146_520_000)})
-    assert s.bands[0].seq == before + 1 and s.live_info()["state"] == "hold"
+    assert s.bands[0].seq == before and s.ov_seq == ov_before         # the band and the overview don't jump
+    assert s.span.seq == 1 and s.live_info()["state"] == "hold"
     saved = s.save_night(tmp_path)
     assert len(saved) == 1 and saved[0].is_file() and not s.bands[0].night
 
@@ -86,6 +88,13 @@ def test_the_dashboard_serves_state_and_refuses_a_path(monkeypatch):
             assert b"KAIA" in r.read()
         with pytest.raises(urllib.error.HTTPError):
             urllib.request.urlopen(base + "clip/..%2F..%2F.env", timeout=5)
+        with urllib.request.urlopen(base + "kaia/js/kaia-codec.js", timeout=5) as r:     # the avatar engine
+            assert b"KaiaCodec" in r.read()
+        for bad in ("kaia/js/..%2F..%2F..%2F.env", "kaia/../rx/index.html", "kaia/js/x.py", "kaia/js"):
+            with pytest.raises(urllib.error.HTTPError):
+                urllib.request.urlopen(base + bad, timeout=5)
+        with urllib.request.urlopen(base + "overview", timeout=5) as r:
+            assert {"rows", "data", "seq"} <= set(json.loads(r.read()))
     finally:
         srv, rx_dashboard._server = rx_dashboard._server, None
         srv.shutdown()
@@ -137,3 +146,40 @@ def test_the_squelch_setting_reaches_the_running_watch():
         assert not scanner.set_squelch_open(False) and v.value == 0
     finally:
         scanner._squelch_value = None
+
+
+def test_a_wide_band_keeps_the_watchers_resolution():
+    """20 MHz at the watcher's ~2.3 kHz a column, not squeezed into 2048: two
+    channels 12.5 kHz apart stay two peaks."""
+    s = rx_scope.Scope(bands=[(420_000_000, 440_000_000)])
+    b = s.bands[0]
+    assert b.cols >= 4 * 2048 * 0.9 or b.cols == rx_scope.MAX_COLS
+    spec = _spec(430_000_000)
+    spec = spec.astype(np.float32)
+    step = w.FS / w.NFFT * w.Watcher.SCOPE_STEP
+    for f in (430_300_000, 430_312_500):
+        k = int(round((f - 430_000_000) / step + len(spec) / 2))
+        spec[k - 1:k + 2] += 30                              # a narrowband signal: a few bins wide
+    s.feed({"kind": "spec", "center": 430_000_000, "state": "hop", "spec": spec.astype(np.float16)})
+    row = rx_scope.quantize(b.row)
+    c1, c2 = (int(round(b.col(f))) for f in (430_300_000, 430_312_500))
+    mid = row[(c1 + c2) // 2]
+    assert row[c1] > 200 and row[c2] > 200 and mid < min(row[c1], row[c2])     # two peaks, a dip between
+
+
+def test_the_overview_lays_every_band_low_to_high_a_row_a_pass():
+    s = rx_scope.Scope(bands=[(440_000_000, 450_000_000), (144_000_000, 148_000_000)])
+    info = s.overview_info()
+    seg = {g["i"]: (g["x0"], g["x1"]) for g in info["segments"]}
+    assert seg[1][0] == 0 and seg[1][1] == seg[0][0] and seg[0][1] == rx_scope.OV_COLS     # 2 m first: by frequency
+    s.feed({"kind": "spec", "center": 146_000_000, "state": "hop", "spec": _spec(146_000_000, 146_520_000)})
+    assert s.ov_seq == 0                                     # nothing until the pass ends
+    s.feed({"kind": "pass", "pass": 1})
+    n, data, seq = s.overview_since(0)
+    import base64
+    row = np.frombuffer(base64.b64decode(data), np.uint8)
+    x0, x1 = seg[1]
+    peak = x0 + int(np.argmax(row[x0:x1]))
+    hz = 144_000_000 + (peak + 0.5 - x0) / (x1 - x0) * 4_000_000
+    assert n == 1 and seq == 1 and len(row) == rx_scope.OV_COLS and abs(hz - 146_520_000) < 30_000
+    assert row[seg[0][0]:seg[0][1]].max() == 0               # a band not yet visited stays dark

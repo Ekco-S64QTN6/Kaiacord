@@ -4,11 +4,15 @@ The watcher (in its child process) measures one 2.4 MHz slice at a time — a
 whole pass of the voice bands every two or three seconds — and, while it holds
 a channel, that slice every 0.2 s. Each spectrum arrives here and is laid into
 the panorama of the band it falls in, at that band's own resolution, so a band
-is one row across however many slices tile it. A row is pushed to the band's
-waterfall each pass (and five times a second while holding, so the held
-channel scrolls the way a receiver's does). Levels are shown relative to the
-slice's median: slices differ by several dB at the tuner and would otherwise
-stripe the picture.
+is one row across however many slices tile it, at the resolution the watcher
+sends (`COL_HZ`, ~2.3 kHz a column, so zooming in separates channels on the
+widest band too). A row is pushed to every band's waterfall once per pass and
+only then: a hold scrolls the TUNED span instead, a row per spectrum, so the
+band waterfalls keep one steady pace. Each pass also lays every band side by
+side into one overview row (`OV_COLS` wide, max-pooled so a narrow carrier
+survives) — the whole dial at a glance, which never jumps. Levels are shown
+relative to the slice's median: slices differ by several dB at the tuner and
+would otherwise stripe the picture.
 
 A night's waterfall is kept at a coarser time step and saved as a picture per
 band when the watch ends (`save_night`), so the day has something to look at.
@@ -26,12 +30,16 @@ import numpy as np
 
 from utils.radio import waterfall as wf
 
-COLS = 2048                       # panorama width, whatever the band's span: ~5 kHz a column on 10 MHz
+COLS = 2048                       # the TUNED span's width (every bin) and a night picture's
+COL_HZ = wf.FS / wf.NFFT * wf.Watcher.SCOPE_STEP   # a band column: the resolution the watcher sends while hopping
+MAX_COLS = 8192                   # a band's panorama width is its span / COL_HZ, up to this
 ROWS = 360                        # live waterfall history, per band
+OV_COLS = 2400                    # the overview: every band side by side
+OV_ROWS = 600
+OV_MIN_SHARE = 0.06               # a narrow band still gets this much of the overview's width
 NIGHT_EVERY = 6                   # passes folded into one row of a night's picture
 NIGHT_ROWS = 2400
 LOW_DB, SPAN_DB = -6.0, 40.0      # relative dB shown, bottom of the colour scale and its span
-HOLD_ROW_S = 0.2
 
 NAMES = {
     (144_000_000, 148_000_000): "2 m",
@@ -69,10 +77,15 @@ def quantize(rel: np.ndarray) -> np.ndarray:
     return (np.clip(v, 0.0, 1.0) * 255).astype(np.uint8)
 
 
+def band_cols(lo: int, hi: int) -> int:
+    return int(min(MAX_COLS, max(256, np.ceil((hi - lo) / COL_HZ))))
+
+
 class _Band:
-    def __init__(self, lo: int, hi: int, name: str):
+    def __init__(self, lo: int, hi: int, name: str, cols: int = 0):
         self.lo, self.hi, self.name = lo, hi, name
-        self.row = np.full(COLS, np.nan, dtype=np.float32)
+        self.cols = cols or band_cols(lo, hi)
+        self.row = np.full(self.cols, np.nan, dtype=np.float32)
         self.rows: deque = deque(maxlen=ROWS)
         self.night: list = []
         self._acc: Optional[np.ndarray] = None
@@ -81,7 +94,7 @@ class _Band:
         self.seq = 0
 
     def col(self, f):
-        return (np.asarray(f, dtype=np.float64) - self.lo) / (self.hi - self.lo) * COLS
+        return (np.asarray(f, dtype=np.float64) - self.lo) / (self.hi - self.lo) * self.cols
 
 
 class Scope:
@@ -91,7 +104,7 @@ class Scope:
         # The slice the watch is sitting on (a hold, a tune, a net), every bin of
         # it, a row per spectrum: the receiver's own span. Kept last in `bands`
         # so the page draws it like any band; its range moves with the dongle.
-        self.span = _Band(0, wf.FS, "TUNED")
+        self.span = _Band(0, wf.FS, "TUNED", cols=COLS)
         self.span.is_span = True
         self.bands.append(self.span)
         self.lock = threading.Lock()
@@ -100,7 +113,30 @@ class Scope:
         self.passes = 0
         self.updated = 0.0
         self.cols = COLS
-        self._last_hold_row = 0.0
+        self._layout_overview()
+
+    def _layout_overview(self) -> None:
+        """Each band's share of the overview: by span, with a floor so the 2 MHz
+        33 cm band is still a visible strip beside the 20 MHz 70 cm one."""
+        bands = self.bands[:-1]
+        order = sorted(range(len(bands)), key=lambda k: bands[k].lo)      # low to high, like a dial
+        spans = np.array([bands[k].hi - bands[k].lo for k in order], dtype=np.float64)
+        share = np.maximum(spans / spans.sum(), OV_MIN_SHARE) if len(bands) else spans
+        share = share / share.sum() if len(bands) else share
+        edges = np.round(np.concatenate([[0], np.cumsum(share)]) * OV_COLS).astype(int)
+        self.ov_segments = [(0, 0)] * len(bands)                           # indexed by band, placed by frequency
+        for slot, k in enumerate(order):
+            self.ov_segments[k] = (int(edges[slot]), int(edges[slot + 1]))
+        self.ov_rows: deque = deque(maxlen=OV_ROWS)
+        self.ov_seq = 0
+
+    @staticmethod
+    def _pool(row: np.ndarray, width: int) -> np.ndarray:
+        """A quantized row max-pooled to `width` columns (a narrow carrier survives)."""
+        if width <= 0:
+            return np.zeros(0, np.uint8)
+        idx = np.linspace(0, len(row), width + 1).astype(int)[:-1]
+        return np.maximum.reduceat(row, np.minimum(idx, len(row) - 1)).astype(np.uint8)
 
     # ── feeding ──────────────────────────────────────────────────────
 
@@ -132,7 +168,7 @@ class Scope:
                     if side.sum() < 2:
                         continue
                     c0, c1 = int(np.ceil(pos[side].min())), int(np.floor(pos[side].max())) + 1
-                    c0, c1 = max(0, c0), min(COLS, c1)
+                    c0, c1 = max(0, c0), min(b.cols, c1)
                     if c1 > c0:
                         b.row[c0:c1] = np.interp(np.arange(c0, c1), pos[side], rel[m][side])
                 b.touched = True
@@ -140,9 +176,6 @@ class Scope:
                          "freq": int(msg.get("freq") or 0), "level": float(msg.get("level") or 0.0),
                          "open": bool(msg.get("open")), "lo": float(freqs[0]), "hi": float(freqs[-1]),
                          "spec": quantize(rel)}
-            if msg.get("state") in ("hold", "follow", "pinned") and time.time() - self._last_hold_row >= HOLD_ROW_S:
-                self._last_hold_row = time.time()
-                self._push(all_touched=False, center=center)
 
     def _feed_span(self, center: int, spec: np.ndarray) -> None:
         """The watch's own slice, full width: every bin as measured (the tuner's
@@ -162,11 +195,13 @@ class Scope:
         sp.rows.append(quantize(sp.row))
         sp.seq += 1
 
-    def _push(self, all_touched: bool, center: Optional[int] = None) -> None:
-        for b in self.bands[:-1]:
-            if not b.touched or (center is not None and not (b.lo - wf.FS / 2 <= center <= b.hi + wf.FS / 2)):
+    def _push(self, all_touched: bool) -> None:
+        ov = np.zeros(OV_COLS, np.uint8)
+        for b, (x0, x1) in zip(self.bands[:-1], self.ov_segments):
+            if not b.touched:
                 continue
             q = quantize(b.row)
+            ov[x0:x1] = self._pool(q, x1 - x0)
             b.rows.append(q)
             b.seq += 1
             if all_touched:
@@ -176,13 +211,31 @@ class Scope:
                     b.night.append(b._acc)
                     del b.night[:-NIGHT_ROWS]
                     b._acc, b._acc_n = None, 0
+        self.ov_rows.append(ov)
+        self.ov_seq += 1
 
     # ── reading ──────────────────────────────────────────────────────
 
     def bands_info(self) -> list:
         with self.lock:
-            return [{"i": i, "name": b.name, "lo": b.lo, "hi": b.hi, "seq": b.seq, "span": getattr(b, "is_span", False)}
+            return [{"i": i, "name": b.name, "lo": b.lo, "hi": b.hi, "seq": b.seq, "cols": b.cols,
+                     "span": getattr(b, "is_span", False)}
                     for i, b in enumerate(self.bands)]
+
+    def overview_info(self) -> dict:
+        """The overview's layout: its width and where each band sits in it."""
+        with self.lock:
+            return {"cols": OV_COLS, "seq": self.ov_seq,
+                    "segments": [{"i": i, "x0": x0, "x1": x1} for i, (x0, x1) in enumerate(self.ov_segments)]}
+
+    def overview_since(self, seq: int, limit: int = OV_ROWS) -> tuple[int, str, int]:
+        """(rows, base64 of them oldest first, the overview's seq now)."""
+        with self.lock:
+            n = min(limit, self.ov_seq - seq, len(self.ov_rows))
+            if n <= 0:
+                return 0, "", self.ov_seq
+            data = b"".join(r.tobytes() for r in list(self.ov_rows)[-n:])
+            return n, base64.b64encode(data).decode("ascii"), self.ov_seq
 
     def rows_since(self, i: int, seq: int, limit: int = ROWS) -> tuple[int, str, int]:
         """(rows, base64 of them oldest first, the band's seq now)."""
