@@ -201,7 +201,18 @@ class BotState:
                 # thread let json.dump iterate them while the loop changed them
                 # ("dictionary changed size during iteration"), and that save
                 # was dropped. The text is ~25 KB and serialises in 0.1 ms.
-                payload = json.dumps(state, indent=2)
+                # Writers on other threads change these containers without this
+                # lock, so a dump can still meet one mid-change; it raises rather
+                # than tearing, and the next try almost always fits in one GIL
+                # slice.
+                for attempt in range(20):
+                    try:
+                        payload = json.dumps(state, indent=2)
+                        break
+                    except RuntimeError:
+                        if attempt == 19:
+                            raise
+                        time.sleep(0)
 
             # Only the disk write goes to the background thread. One worker, so
             # writes land in the order save() was called.
