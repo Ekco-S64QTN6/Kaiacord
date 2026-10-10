@@ -76,7 +76,7 @@ async def handle_music_command(ctx, msg, send_kaia_response):
         return await _records(msg, " ".join(parts[2:]))
     from utils.audio.records import get_records
     crate_session = get_records(msg.guild.id)
-    if crate_session and len(parts) > 1 and parts[1].lower() in _BOOTH:
+    if len(parts) > 1 and parts[1].lower() in _BOOTH:                 # with or without a set running
         from utils.audio import dj_dashboard
         import asyncio
         await asyncio.to_thread(dj_dashboard.open_window)

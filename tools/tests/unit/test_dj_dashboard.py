@@ -316,3 +316,45 @@ def test_the_sets_tab_lists_kaias_sets_and_plays_one(session, monkeypatch):
     assert session.set_list == session.graph["sets"][1] and session.requests[0] == a.path
     assert session.play_set(0) == ("A — one", True)         # on air already: carry on along it
     assert session.play_set(9) is None
+
+
+def test_an_open_booth_window_is_used_again_not_a_second_one(monkeypatch):
+    """Flatpak Chrome's launcher exits after handing the window over, so the
+    process we started reads as closed while the window is on screen. An open
+    booth page is one connected to the stream; while there is one, nothing new
+    is launched."""
+    import threading, urllib.request
+    from utils.infrastructure.system import app_window
+    launched = []
+    monkeypatch.setattr(app_window, "launch", lambda *a, **k: launched.append(a) or types.SimpleNamespace(poll=lambda: 0))
+    monkeypatch.setattr(D, "_browser", lambda: None)
+    monkeypatch.setattr(D, "_cfg", lambda key, default=None: 0 if key == "dj_dashboard_port" else default)
+    monkeypatch.setattr(D, "_window", None)
+    D.serve()
+    try:
+        monkeypatch.setattr(D, "_served_at", 0.0)             # no reconnect grace in a test
+        stop = threading.Event()
+
+        def page():
+            with urllib.request.urlopen(D.url() + "events", timeout=5) as r:
+                while not stop.is_set():
+                    r.readline()
+        t = threading.Thread(target=page, daemon=True)
+        t.start()
+        deadline = time.time() + 3
+        while D.viewers() == 0 and time.time() < deadline:
+            time.sleep(0.02)
+        assert D.viewers() == 1
+        D.open_window()
+        assert launched == []                                  # the open window shows the set
+        stop.set()
+        t.join(3)
+        deadline = time.time() + 3
+        while D.viewers() and time.time() < deadline:
+            time.sleep(0.05)
+        D.open_window()
+        assert len(launched) == 1                              # nothing open: one window
+    finally:
+        srv, D._server = D._server, None
+        if srv:
+            srv.shutdown()

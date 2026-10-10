@@ -44,6 +44,13 @@ FRAMES_PER_S = 50
 _server: Optional[ThreadingHTTPServer] = None
 _port = 0
 _window: Optional[subprocess.Popen] = None
+#: Booth pages connected to the stream right now. An open booth window is one
+#: of these whatever process opened it: Flatpak Chrome's launcher exits once it
+#: has handed the window over, so the process we started says "closed" while
+#: the window is still on screen — and a new set opened a second one.
+_viewers = 0
+_viewers_lock = threading.Lock()
+_served_at = 0.0
 _profile_dir: Optional[str] = None
 _waves: dict[str, Optional[dict]] = {}          # id -> waveform, None while computing
 _paths: dict[str, str] = {}                     # id -> file
@@ -212,6 +219,10 @@ def snapshot(session) -> dict:
         "planning": src.planning_mode, "late": {"count": len(late), "worst_ms": round(max(late) * 1000) if late else 0},
         "history": src.history[-12:], "names": session.names[-30:], "mood": _mood(),
         "chatter": list(getattr(session, "chatter", []))[-14:],
+        # The last half second of per-frame levels (20 ms each): the meters play
+        # them back on the page's own clock instead of jumping to one sample.
+        "meter": [list(r) for r in list(getattr(src, "meter", []))[-25:]],
+        "frame": src.frames_sent,
         "mix_beats": src._mix_beats, "blend_choices": list(src.BLEND_CHOICES), "controls": src.controls.state(), "paused": sorted(src.paused),
         "requests": [_name_of(session, p) for p in session.requests],
         "on_air": cur.slot if cur else None, "free": free, "loading": getattr(session, "loading", None),
@@ -312,14 +323,21 @@ class _Handler(BaseHTTPRequestHandler):
                 else:
                     self._send(200, json.dumps(w).encode(), "application/json")
             elif path == "/events":
+                global _viewers
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
-                while _server is not None:
-                    self.wfile.write(b"data: " + json.dumps(snapshot(_session())).encode() + b"\n\n")
-                    self.wfile.flush()
-                    time.sleep(1.0 / STREAM_HZ)
+                with _viewers_lock:
+                    _viewers += 1
+                try:
+                    while _server is not None:
+                        self.wfile.write(b"data: " + json.dumps(snapshot(_session())).encode() + b"\n\n")
+                        self.wfile.flush()
+                        time.sleep(1.0 / STREAM_HZ)
+                finally:
+                    with _viewers_lock:
+                        _viewers -= 1
             else:
                 self._send(404, b"not here", "text/plain")
         except (BrokenPipeError, ConnectionResetError):
@@ -448,7 +466,7 @@ def url() -> str:
 
 def serve() -> str:
     """Start the booth's server if it isn't running; returns its address."""
-    global _server, _port
+    global _server, _port, _served_at
     if _server is not None:
         return url()
     want = int(_cfg("dj_dashboard_port", 47431) or 0)
@@ -463,6 +481,7 @@ def serve() -> str:
     _server.daemon_threads = True
     _port = _server.server_address[1]
     threading.Thread(target=_server.serve_forever, daemon=True, name="kaia-dj-http").start()
+    _served_at = time.time()
     log_info(f"[records] DJ booth at {url()}")
     return url()
 
@@ -493,10 +512,24 @@ def _browser() -> Optional[str]:
     return _chromium or None
 
 
+def viewers() -> int:
+    with _viewers_lock:
+        return _viewers
+
+
 def open_window() -> None:
-    """Pop the booth out as an app window (blocking: run it off the loop)."""
+    """Pop the booth out as an app window (blocking: run it off the loop) —
+    unless a booth page is already connected, which then simply shows the set."""
     global _window, _profile_dir
     if not _cfg("dj_dashboard", True) or not serve():
+        return
+    # Just after the server (re)starts, an open booth page is still
+    # reconnecting (EventSource retries every few seconds): give it the chance.
+    deadline = _served_at + 6.0
+    while viewers() == 0 and time.time() < deadline:
+        time.sleep(0.25)
+    if viewers() > 0:
+        log_info("[records] the DJ booth is already open; using that window")
         return
     if _window is not None and _window.poll() is None:
         return

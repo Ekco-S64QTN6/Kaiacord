@@ -775,6 +775,10 @@ class CrossfadeSource(_AudioSource):
         # each deck and the mix (dBFS), the band gains applied this frame, and
         # every transition planned.
         self.levels = {"a": -90.0, "b": -90.0, "master": -90.0}
+        #: Every frame's levels, (frame number, slot on air, on-air dB, other dB,
+        #: master dB): the booth's meters play these back frame by frame. One
+        #: sample every 40 ms, polled at 20 Hz, missed most kicks.
+        self.meter: deque = deque(maxlen=64)
         self.applied = SOLO
         #: Kaia's own hands this frame — her multipliers on (outgoing low, mid,
         #: high, incoming low, mid, high), apart from the automix — so the booth
@@ -1353,6 +1357,7 @@ class CrossfadeSource(_AudioSource):
         if cur.slot in self.paused:
             self.frames_sent += 1
             self.levels["a"] = self.levels["master"] = -90.0
+            self.meter.append((self.frames_sent, cur.slot, -90.0, -90.0, -90.0))
             return SILENCE
         k = cur.played
         t0 = cur.at(k)
@@ -1420,9 +1425,9 @@ class CrossfadeSource(_AudioSource):
                 with self._lock:
                     if self.incoming is incoming and self.plan is plan:
                         self._advance()
-        if self.frames_sent % 2 == 0:                       # every 40 ms is plenty for meters
-            self.levels["a"] = self._db(out)
-            self.levels["master"] = self._db(frame)
+        self.levels["a"] = self._db(out)
+        self.levels["master"] = self._db(frame)
+        self.meter.append((self.frames_sent, cur.slot, self.levels["a"], self.levels["b"], self.levels["master"]))
         self.frames_sent += 1
         return frame or SILENCE
 
@@ -1524,10 +1529,10 @@ class CrossfadeSource(_AudioSource):
         frame = mix_frames(cur.split(out) if out is not None else None,
                            hand.split(hf) if hf is not None else None, BOTH, co, ch, hands.master)
         self.applied = BOTH if hf is not None else SOLO
-        if self.frames_sent % 2 == 0:
-            self.levels["a"] = self._db(out)
-            self.levels["b"] = self._db(hf)
-            self.levels["master"] = self._db(frame)
+        self.levels["a"] = self._db(out)
+        self.levels["b"] = self._db(hf)
+        self.levels["master"] = self._db(frame)
+        self.meter.append((self.frames_sent, cur.slot, self.levels["a"], self.levels["b"], self.levels["master"]))
         if self._hand_on:
             quiet = ended or cur_paused or co[3] <= 1e-3
             self._hand_quiet = self._hand_quiet + 1 if quiet else 0
@@ -1904,12 +1909,8 @@ class RecordsSession:
                 log_debug(f"[records] disconnect: {e}")
         if self._task and not self._task.done() and self._task is not asyncio.current_task():
             self._task.cancel()
-        try:
-            from utils.audio import dj_dashboard
-            if not _sessions:
-                await asyncio.to_thread(dj_dashboard.close_window)
-        except Exception as e:
-            log_debug(f"[records] DJ booth not closed: {e}")
+        # The booth window stays open when the set ends: it shows "no set
+        # running" until the next !music records, which uses it again.
         minutes = (time.time() - self.started_at) / 60
         late = self.source.late if self.source else []
         log_action(f"[records] set ended after {minutes:.1f} min, {len(self.names)} records; "

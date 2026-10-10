@@ -31,7 +31,9 @@ body::after { /* scanlines */
 #fxtop { position: fixed; inset: 0; z-index: 45; pointer-events: none; display: none; }
 body.fx #fxbg, body.fx #fxtop { display: block; }
 body.fx::before { opacity: .35; }
-body.fx .panel { background: linear-gradient(180deg, rgba(13,19,34,.74), rgba(10,14,25,.82)); backdrop-filter: blur(1.5px); }
+body.fx .panel { background: linear-gradient(180deg, rgba(13,19,34,.62), rgba(10,14,25,.72)); }
+body.fx #app { padding: 18px 26px 22px; gap: 16px; }
+body.fx #bottom, body.fx #mid { gap: 16px; }
 body.fx.shake #app { animation: fxshake .28s linear; }
 @keyframes fxshake { 0%,100% { transform: none } 20% { transform: translate(-5px, 2px) } 40% { transform: translate(4px, -3px) }
   60% { transform: translate(-3px, -1px) } 80% { transform: translate(3px, 2px) } }
@@ -238,6 +240,8 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .trk.req .st { color: var(--yellow); }
 .trk.now { background: rgba(61,255,138,.1); } .trk.now .st { color: var(--green); }
 #setpane, #setspane { display: none; }
+#mdelay { margin-left: 10px; font-size: 8px; letter-spacing: 1px; color: var(--dim); border: 1px solid var(--faint); border-radius: 2px; padding: 0 5px; cursor: pointer; user-select: none; }
+#mdelay:hover { color: var(--text); border-color: var(--cyan); }
 .mset .gh .tag { font-size: 8px; letter-spacing: 1.5px; padding: 1px 5px; border-radius: 2px; }
 .mset .gh .tag.now { color: #04060c; background: var(--green); box-shadow: 0 0 8px rgba(61,255,138,.5); }
 .mset .gh .tag.up { color: var(--yellow); border: 1px solid var(--yellow); }
@@ -290,7 +294,7 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
   <div id="mid">
     <div class="panel deck" data-slot="1" id="deck1"></div>
     <div class="panel mixer">
-      <div class="ptitle">MIXER · DJM</div>
+      <div class="ptitle">MIXER · DJM <span id="mdelay" title="meter delay — match the meters to what you hear in Discord, which plays the mix a little after the mixer makes it">METERS +0 ms</span></div>
       <div class="strips">
         <div class="strip" id="strip1"></div>
         <div class="mastercol"><div class="lbl">MASTER</div><div class="mvu"><canvas class="vu" id="mvuL"></canvas><canvas class="vu" id="mvuR"></canvas></div><div class="mk"><div class="knob"><canvas id="mknob" title="master volume — drag, double-click to reset"></canvas>MST</div><div class="knob"><canvas id="phknob" title="headphones (CUE) volume — this window only"></canvas>PH</div></div></div>
@@ -340,12 +344,60 @@ const RGB = { 1: [0, 240, 255], 2: [255, 47, 209] };
 let S = null, recvAt = 0;
 const waves = {};          // id -> {cps, n, data: Uint8Array} | "pending"
 const peaks = { 1: -90, 2: -90, mL: -90, mR: -90 };
+// ── the meters: every 20 ms frame's level, played back on the page's clock ──
+// The stream carries each frame's levels (frame number, slot on air, on-air,
+// other, master dB). The page maps frame numbers to its own clock by the
+// steadiest arrival seen (stream jitter only ever makes a frame late), shows
+// the frame METER_BUF behind that, plus the delay chosen to line up with what
+// Discord plays — and takes the loudest frame since the last draw, so a kick
+// between two draws is never skipped.
+const METER_BUF = 0.06, FRAME_S = 0.02, METER_DELAYS = [0, 80, 160, 240, 320, 400];
+const meterRows = new Map();
+let meterOffset = null, meterOffsetAt = 0, meterShown = -1;
+let meterDelay = 0;
+try { meterDelay = +(localStorage.getItem("kaia.meterDelay") || 0); } catch (_) {}
+const vu = { 1: -90, 2: -90, m: -90 }, vuAt = { t: 0 };
+let meterLastFrame = -1;
+function meterIngest() {
+  // A new set (or none) restarts the mixer's frame count: start the clock
+  // mapping over, or a reused booth window shows frozen meters.
+  if (!S || !S.live || S.frame == null || S.frame < meterLastFrame) {
+    meterOffset = null; meterRows.clear(); meterShown = -1;
+  }
+  meterLastFrame = S && S.live && S.frame != null ? S.frame : -1;
+  if (!S || !S.meter) return;
+  for (const r of S.meter) meterRows.set(r[0], r);
+  if (S.frame != null) {
+    const est = recvAt - S.frame * FRAME_S, now = performance.now() / 1000;
+    // the lowest estimate is the least delayed delivery; let it drift up slowly
+    if (meterOffset === null || est < meterOffset || now - meterOffsetAt > 5) { meterOffset = meterOffset === null || est < meterOffset ? est : meterOffset + 0.004; meterOffsetAt = now; }
+  }
+  if (meterRows.size > 200) for (const k of [...meterRows.keys()].sort((a, b) => a - b).slice(0, meterRows.size - 200)) meterRows.delete(k);
+}
+function meterLevels() {
+  // {1, 2, m}: the loudest of the frames since the last draw, VU ballistics on top
+  const now = performance.now() / 1000;
+  const peak = { 1: -90, 2: -90, m: -90 };
+  if (meterOffset !== null) {
+    const target = Math.floor((now - meterOffset - METER_BUF - meterDelay / 1000) / FRAME_S);
+    const from = meterShown < 0 || target - meterShown > 10 ? target - 1 : meterShown;
+    for (let f = from + 1; f <= target; f++) {
+      const r = meterRows.get(f); if (!r) continue;
+      const on = r[1], other = 3 - on;
+      peak[on] = Math.max(peak[on], r[2]); peak[other] = Math.max(peak[other], r[3]); peak.m = Math.max(peak.m, r[4]);
+    }
+    meterShown = Math.max(meterShown, target);
+  }
+  const dt = Math.min(0.1, now - (vuAt.t || now)); vuAt.t = now;
+  for (const k of [1, 2, "m"]) vu[k] = Math.max(peak[k], vu[k] - 45 * dt);     // instant attack, 45 dB/s release
+  return vu;
+}
 const shown = { 1: { low: 0, high: 0, level: -90 }, 2: { low: 0, high: 0, level: -90 }, master: -90 };
 
 // ── stream ───────────────────────────────────────────────────────
 function connect() {
   const es = new EventSource("/events");
-  es.onmessage = (e) => { S = JSON.parse(e.data); recvAt = performance.now() / 1000; wantWaves(); };
+  es.onmessage = (e) => { S = JSON.parse(e.data); recvAt = performance.now() / 1000; meterIngest(); wantWaves(); };
   es.onerror = () => { es.close(); setTimeout(connect, 1500); };
 }
 function wantWaves() {
@@ -964,6 +1016,17 @@ function kaiaBadge(slot, band, k) {
   if (el) { el.classList.toggle("on", on); if (on) el.textContent = k < 0.02 ? "K·KILL" : `K${(20 * Math.log10(k)).toFixed(1)}`; }
   if (knobEl) knobEl.classList.toggle("herhand", on);
 }
+// The meters draw every animation frame (60 fps) on their own: they are four
+// small canvases, and at the booth's 30 fps a kick landed up to 33 ms late.
+function meterTick() {
+  if (!S || !S.live) return;
+  const m = meterLevels();
+  for (const slot of [1, 2]) {
+    const d = S.decks && S.decks[slot];
+    drawVU(qs(slot, '[data-k="vu"]'), d && d.state === "playing" ? m[slot] : -90, slot);
+  }
+  drawVU($("mvuL"), m.m, "mL"); drawVU($("mvuR"), m.m - 0.4, "mR");
+}
 function updateMixer() {
   const ch = S.channels || {};
   [1, 2].forEach((slot) => {
@@ -971,7 +1034,7 @@ function updateMixer() {
     // A deck that is not sounding shows the hand's setting: the mix applies
     // nothing to it, and its knobs read as cut to nothing otherwise.
     const c = sounding ? (ch[slot] || { low: 1, mid: 1, high: 1, level: -90 }) : { low: 1, mid: 1, high: 1, level: -90 }, sh = shown[slot];
-    sh.low = smooth(sh.low, c.low, 0.35); sh.high = smooth(sh.high, c.high, 0.35); sh.level = smooth(sh.level, c.level, 0.5);
+    sh.low = smooth(sh.low, c.low, 0.35); sh.high = smooth(sh.high, c.high, 0.35);
     const col = DECK[slot];
     const trim = ctl(slot, "trim"), hi = ctl(slot, "high"), mid = ctl(slot, "mid"), lo = ctl(slot, "low"), fd = ctl(slot, "fader");
     drawKnobV(qs(slot, '[data-k="trim"]'), (trim + 12) / 24, COL.purple, 0.5, null);
@@ -985,11 +1048,8 @@ function updateMixer() {
     drawKnobV(qs(slot, '[data-k="low"]'), lo * sh.low / 1.5, kill ? COL.red : col, 2 / 3, lo / 1.5, sh.kl);
     const ll = qs(slot, '[data-k="lowlbl"]'); ll.textContent = kill ? "KILL" : "LOW"; ll.style.color = kill ? COL.red : "";
     for (const n of ["trim", "high", "mid", "low"]) qs(slot, `[data-n="${n}"]`).classList.toggle("touched", ctl(slot, n) !== FLAT[n]);
-    drawVU(qs(slot, '[data-k="vu"]'), d && d.state === "playing" ? sh.level : -90, slot);
     drawFader(qs(slot, '[data-k="fader"]'), fd, fd < 1 ? COL.yellow : col);
   });
-  shown.master = smooth(shown.master, S.master, 0.5);
-  drawVU($("mvuL"), shown.master, "mL"); drawVU($("mvuR"), shown.master - 0.4, "mR");
   const mv = ctl(0, "master");
   drawKnobV($("mknob"), mv / 1.5, mv !== 1 ? COL.yellow : COL.green, 2 / 3, null);
   drawKnobV($("phknob"), phonesVol, COL.cyan, 0, null);
@@ -1369,7 +1429,15 @@ function updateHeader() {
 // redraws some thirty canvases — at 60 the compositor alone took a core.
 const FRAME_MS = 1000 / 30;
 let lastFrame = 0;
+function showDelay() { $("mdelay").textContent = `METERS +${meterDelay} ms`; }
+$("mdelay").addEventListener("click", () => {
+  meterDelay = METER_DELAYS[(METER_DELAYS.indexOf(meterDelay) + 1) % METER_DELAYS.length];
+  try { localStorage.setItem("kaia.meterDelay", String(meterDelay)); } catch (_) {}
+  showDelay(); toast(`meters ${meterDelay} ms behind the mixer — to match what you hear in Discord`);
+});
+showDelay();
 function frame(ts) {
+  try { meterTick(); } catch (e) { console.error(e); }
   if (ts - lastFrame < FRAME_MS - 2) { requestAnimationFrame(frame); return; }
   lastFrame = ts;
   try {
@@ -1460,6 +1528,185 @@ const FX = (() => {
     if (m && (!was || was.key !== key)) started = false;
     lastMix = m ? { key, kind: m.kind, started: m.started } : null;
   }
+  // ── scenes: synthwave vectors in real perspective ─────────────────────
+  // A camera a little above a ground plane, looking at the horizon. Depth z
+  // shrinks as the camera travels, so everything comes *toward* the viewer.
+  let travel = 0, lastStageT = 0, scene = null, prevScene = null, sceneMix = 1, sceneAt = 0, sceneTrack = null;
+  const CAM = 1.0;                                    // camera height in ground units
+  const proj = (sc, x, y, z) => {                      // world → screen; null behind the camera
+    if (z <= 0.05) return null;
+    const f = (sc.H - sc.hy) / CAM;
+    return [sc.W / 2 + (x / z) * f, sc.hy + ((CAM - y) / z) * f];
+  };
+  const rng = (seed) => () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  function sky(g, sc, top, mid, low) {
+    const gr = g.createLinearGradient(0, 0, 0, sc.hy);
+    gr.addColorStop(0, top); gr.addColorStop(0.65, mid); gr.addColorStop(1, low);
+    g.fillStyle = gr; g.fillRect(0, 0, sc.W, sc.hy);
+  }
+  const STARS = (() => { const r = rng(7); return Array.from({ length: 140 }, () => [r(), r() * 0.8, r()]); })();
+  function stars(g, sc, a) {
+    for (const [x, y, s] of STARS) {
+      g.globalAlpha = a * (0.3 + 0.7 * Math.abs(Math.sin(sc.t * (0.5 + s) + s * 9)));
+      g.fillStyle = "#fff"; g.fillRect(x * sc.W, y * sc.hy, 1.2 + s, 1.2 + s);
+    }
+    g.globalAlpha = sceneAlpha;
+  }
+  let sceneAlpha = 1;
+  const sunCv = document.createElement("canvas");
+  function sun(g, sc, cx, cy, r, c0, c1, bands) {
+    // The striped synthwave sun: a gradient disc with bands cut out of its lower half.
+    const size = Math.ceil(r * 2 + 4);
+    if (sunCv.width !== size) { sunCv.width = size; sunCv.height = size; }
+    const s2 = sunCv.getContext("2d"); s2.clearRect(0, 0, size, size);
+    const gr = s2.createLinearGradient(0, 0, 0, size); gr.addColorStop(0, c0); gr.addColorStop(1, c1);
+    s2.fillStyle = gr; s2.beginPath(); s2.arc(size / 2, size / 2, r, 0, Math.PI * 2); s2.fill();
+    if (bands) {
+      s2.globalCompositeOperation = "destination-out";
+      const drift = (sc.t * 6) % 14;
+      for (let y = size * 0.5 + drift; y < size; y += 14) {
+        const k = (y - size * 0.5) / (size * 0.5);
+        s2.fillRect(0, y, size, 1 + 6 * k);
+      }
+      s2.globalCompositeOperation = "source-over";
+    }
+    g.save(); g.shadowColor = c1; g.shadowBlur = 40 + 40 * sc.kick;
+    g.drawImage(sunCv, cx - size / 2, cy - size / 2); g.restore();
+    g.globalAlpha = sceneAlpha;
+  }
+  function grid(g, sc, color, cols, rows) {
+    // the floor, rushing in: a line per unit of depth, travelling toward the viewer
+    g.strokeStyle = color; g.lineWidth = 1.2 + sc.heat;
+    const frac = sc.travel % 1;
+    for (let i = 0; i < rows; i++) {
+      const z = i + 1 - frac;
+      const p = proj(sc, 0, 0, z); if (!p || p[1] > sc.H) continue;
+      g.globalAlpha = sceneAlpha * Math.min(1, 2.2 / Math.sqrt(z));
+      g.beginPath(); g.moveTo(0, p[1]); g.lineTo(sc.W, p[1]); g.stroke();
+    }
+    g.globalAlpha = sceneAlpha;
+    for (let i = -cols; i <= cols; i++) {
+      const a = proj(sc, i * 0.9, 0, 0.4), b = proj(sc, i * 0.9, 0, 60);
+      g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+    }
+  }
+  // Pieces that travel: mountains and pyramids at a depth, re-spawned far away.
+  function travellers(seed, n, make) {
+    const r = rng(seed);
+    return Array.from({ length: n }, (_, i) => make(r, (i / n) * 40));
+  }
+  const PEAKS = travellers(11, 46, (r, z0) => ({ side: r() < 0.5 ? -1 : 1, x: 3.6 + r() * 9, z0, h: 0.6 + r() * 2.6 * (0.4 + r()), w: 0.8 + r() * 1.6, sk: r() - 0.5 }));
+  const PYRS = travellers(23, 12, (r, z0) => ({ side: r() < 0.5 ? -1 : 1, x: 4 + r() * 8, z0, h: 1.2 + r() * 2.2, w: 1.2 + r() * 1.8 }));
+  const depthOf = (z0, sc) => { const z = ((z0 - sc.travel) % 40 + 40) % 40; return z + 0.6; };
+  function mountains(g, sc, edge, fill) {
+    const list = PEAKS.map((m) => ({ m, z: depthOf(m.z0, sc) })).sort((a, b) => b.z - a.z);
+    for (const { m, z } of list) {
+      const x = m.side * m.x;
+      const L = proj(sc, x - m.w, 0, z), R = proj(sc, x + m.w, 0, z), T = proj(sc, x + m.sk * m.w, m.h * (1 + 0.15 * sc.kick * sc.lvl), z + 0.3);
+      const B = proj(sc, x, 0, z - 0.5);
+      if (!L || !R || !T || !B) continue;
+      const near = Math.min(1, 6 / z);
+      // fade in from the haze, out as they pass close, so they line the edges
+      g.globalAlpha = sceneAlpha * Math.min(1, 1.6 / Math.sqrt(z / 3)) * Math.max(0, Math.min(1, (z - 1.5) / 2.5));
+      g.fillStyle = fill; g.beginPath(); g.moveTo(L[0], L[1]); g.lineTo(T[0], T[1]); g.lineTo(R[0], R[1]); g.lineTo(B[0], B[1]); g.closePath(); g.fill();
+      g.strokeStyle = edge; g.lineWidth = 0.8 + 1.4 * near;
+      g.stroke(); g.beginPath(); g.moveTo(T[0], T[1]); g.lineTo(B[0], B[1]); g.stroke();
+    }
+    g.globalAlpha = sceneAlpha;
+  }
+  function pyramids(g, sc, edge, fill) {
+    const list = PYRS.map((m) => ({ m, z: depthOf(m.z0, sc) })).sort((a, b) => b.z - a.z);
+    for (const { m, z } of list) {
+      const x = m.side * m.x, w = m.w;
+      const A = proj(sc, x - w, 0, z - w), Bp = proj(sc, x + w, 0, z - w), C = proj(sc, x + w, 0, z + w), T = proj(sc, x, m.h, z);
+      if (!A || !Bp || !C || !T) continue;
+      g.globalAlpha = sceneAlpha * Math.min(1, 1.8 / Math.sqrt(z / 3)) * Math.max(0, Math.min(1, (z - 2) / 3));
+      g.fillStyle = fill;
+      g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(Bp[0], Bp[1]); g.lineTo(T[0], T[1]); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(Bp[0], Bp[1]); g.lineTo(C[0], C[1]); g.lineTo(T[0], T[1]); g.closePath(); g.fill();
+      g.strokeStyle = edge; g.lineWidth = 1 + Math.min(2, 4 / z);
+      g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(Bp[0], Bp[1]); g.lineTo(C[0], C[1]); g.moveTo(A[0], A[1]); g.lineTo(T[0], T[1]);
+      g.lineTo(Bp[0], Bp[1]); g.moveTo(T[0], T[1]); g.lineTo(C[0], C[1]); g.stroke();
+    }
+    g.globalAlpha = sceneAlpha;
+  }
+  const CITY = (() => { const r = rng(5); const out = []; let x = 0; while (x < 1) { const w = 0.012 + r() * 0.03; out.push([x, w, 0.25 + r() * r() * 0.95, r()]); x += w + 0.002; } return out; })();
+  const SCENES = {
+    outrun(g, sc) {
+      sceneAlpha = g.globalAlpha;
+      sky(g, sc, "#120624", "#5a0f5c", "#ff2f9a"); stars(g, sc, 0.7);
+      sun(g, sc, sc.W / 2, sc.hy - sc.H * 0.08, sc.H * (0.16 + 0.015 * sc.kick), "#ffe45c", "#ff2fd1", true);
+      g.fillStyle = "#14062a"; g.fillRect(0, sc.hy, sc.W, sc.H - sc.hy);
+      grid(g, sc, rgba(sc.hue === COL.cyan ? COL.pink : sc.hue, 0.55 + 0.3 * sc.kick * sc.lvl), 22, 30);
+      mountains(g, sc, rgba(COL.cyan, 0.9), "rgba(28,12,70,.92)");
+    },
+    pyramids(g, sc) {
+      sceneAlpha = g.globalAlpha;
+      sky(g, sc, "#05060f", "#1b1240", "#ff7a3d"); stars(g, sc, 0.9);
+      sun(g, sc, sc.W * 0.62, sc.hy - sc.H * 0.2, sc.H * (0.09 + 0.008 * sc.kick), "#fff3c4", "#ff9a5c", false);
+      g.fillStyle = "#1a0d14"; g.fillRect(0, sc.hy, sc.W, sc.H - sc.hy);
+      grid(g, sc, rgba(COL.yellow, 0.35 + 0.3 * sc.kick * sc.lvl), 18, 26);
+      pyramids(g, sc, rgba("#ffb86b", 0.95), "rgba(60,20,40,.9)");
+    },
+    city(g, sc) {
+      sceneAlpha = g.globalAlpha;
+      sky(g, sc, "#060818", "#2a0e5a", "#d8237f"); stars(g, sc, 0.5);
+      sun(g, sc, sc.W / 2, sc.hy - sc.H * 0.03, sc.H * (0.2 + 0.012 * sc.kick), "#ffd36b", "#ff2fd1", true);
+      for (const [x, w, h, s] of CITY) {                      // the skyline, windows flickering on the beat
+        const bx = x * sc.W, bw = w * sc.W, bh = h * sc.H * 0.22, by = sc.hy - bh;
+        g.fillStyle = "#0b0720"; g.fillRect(bx, by, bw, bh);
+        g.fillStyle = rgba(s > 0.5 ? COL.cyan : COL.pink, 0.55 + 0.4 * sc.kick * (s > 0.7 ? 1 : 0));
+        for (let wy = by + 4; wy < sc.hy - 4; wy += 7) for (let wx = bx + 3; wx < bx + bw - 3; wx += 6)
+          if (((wx * 13 + wy * 7) ^ Math.floor(sc.t * 0.5 + s * 10)) % 5 === 0) g.fillRect(wx, wy, 2, 3);
+      }
+      g.fillStyle = "#07051a"; g.fillRect(0, sc.hy, sc.W, sc.H - sc.hy);
+      grid(g, sc, rgba(COL.cyan, 0.55 + 0.3 * sc.kick * sc.lvl), 22, 30);
+    },
+    ocean(g, sc) {
+      sceneAlpha = g.globalAlpha;
+      sky(g, sc, "#040b1f", "#173a8a", "#ff5fb8"); stars(g, sc, 0.6);
+      const sy = sc.hy - sc.H * 0.05, sr = sc.H * (0.15 + 0.012 * sc.kick);
+      sun(g, sc, sc.W / 2, sy, sr, "#ffe7a0", "#ff3fae", true);
+      g.fillStyle = "#06143a"; g.fillRect(0, sc.hy, sc.W, sc.H - sc.hy);
+      const frac = sc.travel % 1;
+      for (let i = 0; i < 34; i++) {                        // wave lines rolling in, and the sun's reflection on them
+        const z = (i + 1 - frac) * 0.7, p = proj(sc, 0, 0, z); if (!p || p[1] > sc.H) continue;
+        const y = p[1], amp = 2 + 6 / z;
+        g.strokeStyle = rgba(COL.cyan, 0.15 + 0.5 / Math.sqrt(z)); g.lineWidth = 1 + 1.5 / z;
+        g.beginPath();
+        for (let x = 0; x <= sc.W; x += 24) { const yy = y + Math.sin(x * 0.012 + sc.t * 1.6 + i) * amp; x ? g.lineTo(x, yy) : g.moveTo(x, yy); }
+        g.stroke();
+        const rw = sr * (1.3 - 0.3 / z) * (0.6 + 0.4 * Math.sin(sc.t * 3 + i * 1.7));
+        g.fillStyle = rgba(i % 2 ? "#ffd36b" : "#ff3fae", 0.55 * Math.min(1, 3 / z)); g.fillRect(sc.W / 2 - rw / 2 + Math.sin(sc.t + i) * 6, y - 1, rw, 2 + 2 / z);
+      }
+    },
+    tunnel(g, sc) {
+      sceneAlpha = g.globalAlpha;
+      g.fillStyle = "#04030c"; g.fillRect(0, 0, sc.W, sc.H);
+      const cx = sc.W / 2, cy = sc.H * 0.48, frac = (sc.travel * 0.5) % 1;
+      for (let i = 14; i >= 0; i--) {                       // rings rushing at the viewer, turning with the beat
+        const z = i + 1 - frac, s = (sc.H * 0.9) / z, rot = sc.t * 0.3 + i * 0.12 + sc.kick * 0.2;
+        const c = [COL.cyan, COL.pink, COL.purple, COL.green][(i + Math.floor(sc.travel * 0.5)) % 4];
+        g.strokeStyle = rgba(c, Math.min(1, 2.5 / z) * (0.6 + 0.4 * sc.lvl)); g.lineWidth = 1 + 6 / z;
+        g.beginPath();
+        for (let k = 0; k <= 6; k++) { const a = rot + (k / 6) * Math.PI * 2; const x = cx + Math.cos(a) * s * 1.4, y = cy + Math.sin(a) * s; k ? g.lineTo(x, y) : g.moveTo(x, y); }
+        g.stroke();
+      }
+    },
+  };
+  const SCENE_NAMES = Object.keys(SCENES);
+  function sceneTick(t, d) {
+    // One at random when the booth opens; a different one, crossfaded, each
+    // time a new record takes over.
+    if (!scene) { scene = SCENE_NAMES[Math.floor(Math.random() * SCENE_NAMES.length)]; sceneMix = 1; }
+    const id = d ? d.id : null;
+    if (id && sceneTrack && id !== sceneTrack) {
+      prevScene = scene; const others = SCENE_NAMES.filter((n) => n !== scene);
+      scene = others[Math.floor(Math.random() * others.length)]; sceneMix = 0; sceneAt = t;
+    }
+    if (id) sceneTrack = id;
+    if (sceneMix < 1) sceneMix = Math.min(1, (t - sceneAt) / 3);
+  }
   // the stage: a floor rushing in on the beat, a horizon that kicks, level bars up the edges
   function stage(t) {
     const g = bg.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
@@ -1473,20 +1720,15 @@ const FX = (() => {
     // Past half heat the stage drifts through the booth's colours.
     const drift = heat > 0.55 ? [COL.cyan, COL.green, COL.pink, COL.purple][Math.floor(t / 8) % 4] : null;
     const hue = red > 0.05 ? COL.red : drift || (aura > 0.5 ? COL.green : COL.cyan);
-    const hy = H * 0.58, frac = bt === null ? (t * 0.25) % 1 : ((bt % 1) + 1) % 1;
-    // horizon glow
-    const hg = g.createLinearGradient(0, hy - 120, 0, hy + 40);
-    hg.addColorStop(0, "rgba(0,0,0,0)"); hg.addColorStop(0.75, rgba(hue, 0.10 + 0.25 * kick * lvl + 0.15 * aura)); hg.addColorStop(1, "rgba(0,0,0,0)");
-    g.fillStyle = hg; g.fillRect(0, hy - 120, W, 160);
-    // the floor: lines rushing toward the viewer, one spacing per beat
-    g.strokeStyle = rgba(hue, 0.30 + 0.30 * aura + 0.35 * kick * lvl + 0.25 * heat); g.lineWidth = 1.3 + heat;
-    const rows = 14 + Math.round(10 * heat);
-    for (let i = 0; i < rows; i++) {
-      const z = (i + 1 - frac) / rows, y = hy + (H - hy) * z * z;
-      g.globalAlpha = Math.min(1, z * 1.6); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
-    }
-    g.globalAlpha = 1;
-    for (let i = -12; i <= 12; i++) { g.beginPath(); g.moveTo(W / 2 + i * 26, hy); g.lineTo(W / 2 + i * W * 0.18, H); g.stroke(); }
+    const hy = H * 0.56;
+    // The scene: forward motion one grid row per beat of the record on air.
+    const dt = Math.min(0.1, t - (lastStageT || t)); lastStageT = t;
+    const bps = d && d.tempo ? d.tempo / 60 : 2;
+    travel += dt * (S && S.live && d && d.state === "playing" ? bps : 0.6) * (1 + 0.5 * heat);
+    sceneTick(t, d);
+    const sc = { t, kick, lvl, heat, hue, aura, hy, travel, W, H };
+    if (sceneMix < 1 && prevScene) { g.globalAlpha = 1 - sceneMix; SCENES[prevScene](g, sc); }
+    g.globalAlpha = sceneMix < 1 ? sceneMix : 1; SCENES[scene](g, sc); g.globalAlpha = 1;
     // level bars up both edges, from the bands actually applied
     const ch = (S && S.channels) || {}, a = ch[S && S.on_air] || {};
     const bands = [a.low ?? 1, a.mid ?? 1, a.high ?? 1];
@@ -1614,7 +1856,7 @@ const FX = (() => {
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  return { pop, bad, setCombo: (c) => { combo = c; }, state: () => ({ aura, combo, heat: +heat.toFixed(3), red, reticles: reticles.size, parts: parts.length, embers: embers.length }) };
+  return { pop, bad, setCombo: (c) => { combo = c; }, scene: (n) => { if (SCENES[n]) { prevScene = scene; scene = n; sceneMix = 1; } return scene; }, state: () => ({ aura, combo, heat: +heat.toFixed(3), red, reticles: reticles.size, parts: parts.length, embers: embers.length }) };
 })();
 </script>
 </body>
