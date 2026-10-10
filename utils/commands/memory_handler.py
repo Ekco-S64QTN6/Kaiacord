@@ -144,7 +144,7 @@ async def handle_memory_cmd(ctx, msg, send_kaia_response):
         await msg.channel.send(embed=embed)
 
     elif subcommand == "self":
-        from utils.commands.embed_style import add_field, box, clean
+        from utils.commands.embed_style import add_field, box
         from utils.core import self_claims
         claims = await asyncio.to_thread(self_claims.load)
         if not claims:
