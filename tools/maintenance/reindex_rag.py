@@ -111,6 +111,9 @@ async def rebuild_rag(clear_storage: bool = False, file_path: str = None,
     log_info("Initializing KaiaRAG engine...")
     try:
         rag = KaiaRAG()
+        # As the bot does first: NLTK's lazy corpus loader is not thread-safe,
+        # and the parallel indexer raced it and skipped documents.
+        await asyncio.to_thread(rag._preload_nltk)
         await asyncio.to_thread(rag._load_indexed_files)
         await asyncio.to_thread(rag._initialize_indices)
         

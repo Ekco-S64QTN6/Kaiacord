@@ -6,7 +6,7 @@ shown as history, so a tic that shipped teaches the next reply. From 7 Oct the
 "(speaking exclusively to …)" note copied out of the prompt and the name-less
 grading opener ("a quiet affirmation. a measured assessment.") spread that way.
 This applies the same filters the bot now applies before sending —
-`strip_address_tag`, `strip_repeated_lines` (against her previous six turns in
+`repair_cut_ellipsis`, `strip_address_tag`, `strip_repeated_lines` (against her previous six turns in
 the same conversation), `strip_grading_opener` and `reflow_paragraphs` (short
 lines joined back into paragraphs, no word changed) — to:
 
@@ -16,6 +16,7 @@ lines joined back into paragraphs, no word changed) — to:
   - her own posts in memory/agent_boards/state.json
   - memory/anchors.json: global anchors about an unnamed person
   - memory/beliefs.json: "beliefs" that report a source's view
+  - memory/relationships/*.json: dream insights that diagnose a person
 
 A person's turns are never touched: the rewrite is refused for a file if any
 non-Kaia turn would differ. Dry run by default; --apply writes, after copying
@@ -53,8 +54,9 @@ def bot_running() -> bool:
 
 
 def clean(text: str, previous: list) -> str:
+    from utils.core.response_filter import EmergencyContaminationFilter as E
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
-    out = P.strip_address_tag(text)
+    out = E.repair_cut_ellipsis(P.strip_address_tag(text))
     out = P.strip_repeated_lines(out, previous, window=WINDOW)
     out = P.strip_grading_opener(out)
     out = P.reflow_paragraphs(out)
@@ -196,6 +198,21 @@ def main() -> int:
                 keep(boards)
                 write_atomic(boards, json.dumps(s, ensure_ascii=False, indent=2))
 
+    # Her self-model and identity stream are injected whole; the old ellipsis
+    # fallback left "guardngnowm is. persistent" and "a certain. respect" in them.
+    from utils.core.response_filter import EmergencyContaminationFilter as E
+    for doc in (ROOT / "memory" / "kaia_self_model.md", ROOT / "memory" / "identity_stream.md"):
+        if doc.exists():
+            raw = doc.read_text(encoding="utf-8")
+            new = E.repair_cut_ellipsis(raw)
+            if new != raw:
+                show(doc.relative_to(ROOT), [(raw[:300], new[:300])])
+                totals["turns"] += 1
+                totals["files"] += 1
+                if args.apply:
+                    keep(doc)
+                    write_atomic(doc, new)
+
     # Memory the dream engine wrote under rules since tightened: a global anchor
     # about an unnamed "he", and a "belief" that is a source's view.
     from utils.core.kaia_dream import DreamEngine
@@ -227,6 +244,32 @@ def main() -> int:
             if args.apply:
                 keep(beliefs)
                 write_atomic(beliefs, json.dumps(keep_rows, indent=2))
+
+    # Dream "insights" that diagnose a person: an analyst's file, not hers.
+    # (Third-person ones are kept: many are fair, only in the wrong voice.)
+    for rel in sorted((ROOT / "memory" / "relationships").glob("*.json")):
+        if rel.name.endswith(".impression.json"):
+            continue
+        try:
+            data = json.loads(rel.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        events = data if isinstance(data, list) else data.get("events", [])
+        drop = [e for e in events if isinstance(e, dict) and e.get("event_type") == "insight"
+                and DreamEngine.DIAGNOSIS.search(e.get("summary", ""))]
+        if not drop:
+            continue
+        for e in drop:
+            if shown < args.show:
+                shown += 1
+                print(f"\n── insight dropped ({rel.name}): {e.get('summary', '')[:200]!r}")
+        kept = [e for e in events if e not in drop]
+        out = kept if isinstance(data, list) else {**data, "events": kept}
+        totals["turns"] += len(drop)
+        totals["files"] += 1
+        if args.apply:
+            keep(rel)
+            write_atomic(rel, json.dumps(out, indent=2))
 
     verb = "cleaned" if args.apply else "would clean"
     print(f"\n{verb} {totals['turns']} of her turns in {totals['files']} files"

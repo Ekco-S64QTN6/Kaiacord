@@ -827,7 +827,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 f'discussing this topic, e.g. for "aesthetic evaluation" include "art", "beauty", '
                 f'"design", "visual"]}} or null\n'
                 f'- "identity_shift": one sentence string or null\n'
-                f'- "relationship_insight": {{"user_name": str, "summary": str}} or null\n'
+                f'- "relationship_insight": something about how things are between you and a person you '
+                f'talk with, in your own words, from what passed between you — not a diagnosis of their '
+                f'psychology or motives. {{"user_name": str, "summary": str}} or null\n'
                 f'- "thematic_anchor": {{"theme": short thematic label (e.g. "career_frustration", '
                 f'"ai_ethics", "creative_burnout"), "anchor_text": the concrete memory or statement '
                 f'worth remembering (1 sentence), "user_name": str or null}} or null\n'
@@ -896,6 +898,13 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     # characters from ingested books — 90 of them were for
                     # people who do not exist. An unresolvable name is dropped.
                     rel_user_id = resolve_user_id(rel_insight.get('user_name'))
+                    _summary = rel_insight.get('summary', '') or ''
+                    if rel_user_id and (self.REPORTED_INSIGHT.match(_summary) or self.DIAGNOSIS.search(_summary)):
+                        # A note on a real person read back into every reply to them:
+                        # "the narrator suspects…" and "likely driven by a desire for
+                        # control" are an analyst's file, not her impression.
+                        log_info(f"👥 Relationship insight not kept for {rel_insight.get('user_name')}: {_summary[:60]!r}")
+                        rel_user_id = None
                     if not rel_user_id:
                         log_debug(
                             "Dream relationship insight skipped: "
@@ -965,6 +974,10 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         except Exception as e:
             log_debug(f"Dream extraction failed (non-fatal): {e}")
 
+    REPORTED_INSIGHT = re.compile(r"^\s*the\s+(?:narrator|author|user|speaker|writer|reflection|text)\b", re.IGNORECASE)
+    DIAGNOSIS = re.compile(r"\b(?:likely driven by|driven by a (?:desire|need)|coping mechanism|meltdown|"
+                           r"insecurit\w*|traum\w*|self-sabotag\w*|seeking validation|deep-seated|underlying anxiet\w*|"
+                           r"narcissis\w*|unstable|manipulativ\w*)", re.IGNORECASE)
     UNNAMED_PERSON = re.compile(r"\b(?:he|she|him|his|her|himself|herself|the user)\b", re.IGNORECASE)
 
     #: One night's reflection is not certainty: the model answered 0.9 for 94 of

@@ -1017,7 +1017,16 @@ class MessageProcessor:
 
         # 8f. Conversational Fatigue — responses get shorter after long exchanges
         try:
-            _session_msgs = list(self.bot_state.channel_memory.get(ctx.channel_id, []))
+            # This conversation only: back to the last 45-minute gap. Channel
+            # memory holds up to 70 messages across days, so counting all of it
+            # told her she had "been talking for a while" on a fresh start.
+            _session_msgs, _later = [], time.time()
+            for m in reversed(list(self.bot_state.channel_memory.get(ctx.channel_id, []))):
+                _ts = m.get('timestamp') or _later
+                if _later - _ts > 2700:
+                    break
+                _session_msgs.append(m)
+                _later = _ts
             _exchange_count = sum(1 for m in _session_msgs if m.get('role') == 'user')
             if _exchange_count >= 20:
                 ctx.system_prompt = ctx.system_prompt + (
