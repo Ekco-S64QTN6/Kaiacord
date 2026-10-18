@@ -214,77 +214,42 @@ def _cyclic(t, cycles: float):
     frac = np.modf(np.clip(t, 0.0, 1.0) * max(cycles, 1e-6))[0]
     return 1.0 - np.abs(2.0 * frac - 1.0)
 
-# Electric Sheep-style multi-hue palettes — each traverses 3+ distinct hues
-_LUT_ELECTRIC = _build_lut([
-    (0.0,  0.02, 0.00, 0.10), (0.10, 0.10, 0.02, 0.35),
-    (0.22, 0.30, 0.05, 0.65), (0.35, 0.15, 0.20, 0.85),
-    (0.48, 0.05, 0.50, 0.90), (0.60, 0.10, 0.75, 0.80),
-    (0.72, 0.40, 0.90, 0.60), (0.85, 0.80, 0.95, 0.40),
-    (1.0,  1.00, 0.95, 0.70),
-])
-_LUT_EMBER = _build_lut([
-    (0.0,  0.05, 0.00, 0.00), (0.12, 0.25, 0.02, 0.00),
-    (0.25, 0.55, 0.05, 0.00), (0.38, 0.80, 0.15, 0.02),
-    (0.50, 0.95, 0.35, 0.05), (0.62, 1.00, 0.55, 0.10),
-    (0.75, 1.00, 0.75, 0.20), (0.88, 0.95, 0.85, 0.50),
-    (1.0,  0.90, 0.80, 0.70),
-])
-_LUT_ACID = _build_lut([
-    (0.0,  0.00, 0.05, 0.02), (0.12, 0.00, 0.20, 0.05),
-    (0.25, 0.05, 0.45, 0.10), (0.38, 0.20, 0.70, 0.15),
-    (0.50, 0.50, 0.85, 0.20), (0.62, 0.80, 0.90, 0.30),
-    (0.75, 0.95, 0.80, 0.50), (0.88, 0.90, 0.60, 0.75),
-    (1.0,  0.75, 0.45, 0.90),
-])
-_LUT_VOID = _build_lut([
-    (0.0,  0.05, 0.00, 0.05), (0.12, 0.20, 0.00, 0.15),
-    (0.25, 0.45, 0.02, 0.30), (0.38, 0.65, 0.05, 0.45),
-    (0.50, 0.80, 0.10, 0.55), (0.62, 0.85, 0.25, 0.60),
-    (0.75, 0.75, 0.45, 0.70), (0.88, 0.55, 0.60, 0.85),
-    (1.0,  0.40, 0.70, 0.95),
-])
-_LUT_AURORA = _build_lut([
-    (0.0,  0.00, 0.08, 0.05), (0.12, 0.00, 0.25, 0.15),
-    (0.25, 0.05, 0.50, 0.25), (0.38, 0.15, 0.70, 0.35),
-    (0.50, 0.35, 0.80, 0.45), (0.62, 0.60, 0.75, 0.55),
-    (0.75, 0.80, 0.55, 0.65), (0.88, 0.90, 0.40, 0.80),
-    (1.0,  0.85, 0.50, 0.95),
-])
-_LUT_GHOST = _build_lut([
-    (0.0,  0.02, 0.02, 0.08), (0.12, 0.08, 0.08, 0.25),
-    (0.25, 0.15, 0.15, 0.45), (0.38, 0.25, 0.25, 0.65),
-    (0.50, 0.40, 0.35, 0.80), (0.62, 0.55, 0.50, 0.85),
-    (0.75, 0.70, 0.65, 0.88), (0.88, 0.82, 0.78, 0.90),
-    (1.0,  0.90, 0.88, 0.92),
-])
-_LUT_DEEP_OCEAN = _build_lut([
-    (0.0,  0.00, 0.00, 0.08), (0.12, 0.02, 0.05, 0.25),
-    (0.25, 0.05, 0.12, 0.50), (0.38, 0.03, 0.30, 0.70),
-    (0.50, 0.05, 0.50, 0.82), (0.62, 0.20, 0.65, 0.88),
-    (0.75, 0.45, 0.78, 0.90), (0.88, 0.70, 0.85, 0.88),
-    (1.0,  0.85, 0.90, 0.85),
-])
-_LUT_SOLAR_FLARE = _build_lut([
-    (0.0,  0.05, 0.00, 0.00), (0.10, 0.20, 0.02, 0.00),
-    (0.22, 0.50, 0.08, 0.00), (0.35, 0.80, 0.18, 0.02),
-    (0.48, 0.95, 0.40, 0.05), (0.60, 1.00, 0.60, 0.10),
-    (0.72, 0.95, 0.75, 0.25), (0.85, 0.85, 0.80, 0.55),
-    (1.0,  0.80, 0.70, 0.80),
-])
-_LUT_BIOLUME = _build_lut([
-    (0.0,  0.00, 0.05, 0.08), (0.12, 0.00, 0.15, 0.18),
-    (0.25, 0.02, 0.35, 0.25), (0.38, 0.08, 0.55, 0.35),
-    (0.50, 0.25, 0.72, 0.50), (0.62, 0.50, 0.65, 0.65),
-    (0.75, 0.72, 0.50, 0.78), (0.88, 0.88, 0.45, 0.88),
-    (1.0,  0.92, 0.55, 0.95),
-])
-_LUT_NEBULA = _build_lut([
-    (0.0,  0.03, 0.00, 0.08), (0.12, 0.12, 0.02, 0.25),
-    (0.25, 0.30, 0.05, 0.50), (0.38, 0.50, 0.12, 0.65),
-    (0.50, 0.42, 0.30, 0.78), (0.62, 0.30, 0.50, 0.85),
-    (0.75, 0.25, 0.68, 0.88), (0.88, 0.55, 0.80, 0.90),
-    (1.0,  0.80, 0.85, 0.88),
-])
+# Electric Sheep-style palettes. flam3's palettes are 256-entry ramps that
+# wander the whole colour wheel; ours were two- and three-hue gradients (ember
+# ran red to yellow, deep ocean blue to cyan), so a flame came out in two or
+# three colours whatever its transforms did. Each palette now goes all the way
+# round the hue wheel; what keeps them apart is where it starts, which way it
+# turns, how saturated it is and how dark its low end sits.
+
+def _spectrum_lut(start_deg: float, turn: int = 1, sat: float = 0.9, floor: float = 0.35,
+                  sat_wave: float = 0.0) -> np.ndarray:
+    """256 RGB entries round the full hue circle from `start_deg`, `turn` +1 or
+    -1. Brightness rises from `floor` over the first eighth and stays high;
+    `sat_wave` lets saturation breathe so the ramp is not one flat band."""
+    t = np.linspace(0.0, 1.0, 256)
+    h = ((start_deg / 360.0) + turn * t) % 1.0
+    s = np.clip(sat * (1.0 - sat_wave * 0.5 * (1.0 + np.cos(6 * np.pi * t))), 0.0, 1.0)
+    rise = np.clip(t / 0.12, 0.0, 1.0)
+    v = floor + (1.0 - floor) * (rise * rise * (3 - 2 * rise))
+    i = np.floor(h * 6.0).astype(int) % 6
+    f = h * 6.0 - np.floor(h * 6.0)
+    p_, q_, t_ = v * (1 - s), v * (1 - s * f), v * (1 - s * (1 - f))
+    r = np.choose(i, [v, q_, p_, p_, t_, v])
+    g = np.choose(i, [t_, v, v, q_, p_, p_])
+    b = np.choose(i, [p_, p_, t_, v, v, q_])
+    return np.stack([r, g, b], axis=1)
+
+
+_LUT_ELECTRIC = _spectrum_lut(270, +1, 0.90)               # violet → magenta → red → … → blue
+_LUT_EMBER = _spectrum_lut(0, +1, 0.95)                    # from red through gold and green
+_LUT_ACID = _spectrum_lut(90, +1, 1.00, sat_wave=0.15)     # from lime, hard and bright
+_LUT_VOID = _spectrum_lut(300, -1, 0.85, floor=0.22)       # from magenta, darker low end
+_LUT_AURORA = _spectrum_lut(150, +1, 0.80, sat_wave=0.25)  # from green
+_LUT_GHOST = _spectrum_lut(210, +1, 0.45, floor=0.45)      # a pastel rainbow
+_LUT_DEEP_OCEAN = _spectrum_lut(205, -1, 0.90)             # from blue, the other way round
+_LUT_SOLAR_FLARE = _spectrum_lut(30, +1, 1.00)             # from orange
+_LUT_BIOLUME = _spectrum_lut(170, -1, 0.85, sat_wave=0.2)  # from teal
+_LUT_NEBULA = _spectrum_lut(280, -1, 0.75, sat_wave=0.3)   # from purple
 
 PALETTES = {
     'electric':    lambda t: _lut_palette(t, _LUT_ELECTRIC),
@@ -462,6 +427,7 @@ class FractalFlameRenderer:
     BLOOM = ((2.0, 0.10), (9.0, 0.10), (28.0, 0.05))
 
     VIBRANCY = 0.95       # flam3 vibrancy: 1.0 = full color preservation
+    SAT_LIFT = 0.6        # saturation s -> s**SAT_LIFT after averaging (see _render)
     HIGHLIGHT_POWER = 0.5 # flam3 highlight power: controls bright area handling
 
     # Parameters are screened by a cheap probe before anything is rendered,
@@ -1075,6 +1041,17 @@ class FractalFlameRenderer:
                 x[bad] = rng.uniform(-1, 1, bad.sum())
                 y[bad] = rng.uniform(-1, 1, bad.sum())
 
+        # The colour coordinate settles on each transform's colour, so the
+        # points cluster on a few values and a palette shows only those few
+        # hues. Mapped through its own quantiles it uses the whole palette, in
+        # proportion, and the order of colours (which follows the structure) is kept.
+        if palette_fn is not None and N > 256:
+            qs = np.quantile(c, np.linspace(0.0, 1.0, 129))
+            qs = np.maximum.accumulate(qs) + np.arange(129) * 1e-9
+            lin = np.linspace(0.0, 1.0, 129)
+            base_fn = palette_fn
+            palette_fn = lambda t, _q=qs, _l=lin, _f=base_fn: _f(np.interp(t, _q, _l))
+
         # 2. Viewport bounds fitting from warmed-up points
         if final_xform is not None:
             fc, fs = final_xform['affine']
@@ -1270,6 +1247,20 @@ class FractalFlameRenderer:
         # ── Step 4: Vibrancy blend ────────────────────────────────────────────
         gray = np.mean(exposed, axis=-1, keepdims=True)
         rgb_vib = np.clip(self.VIBRANCY * exposed + (1.0 - self.VIBRANCY) * gray, 0.0, 1.0)
+
+        # ── Step 4b: Saturation lift ──────────────────────────────────────────
+        # A pixel is the mean colour of every point that landed on it, and
+        # where arcs of different hues cross, that mean is grey: a full-spectrum
+        # flame went white in its dense core. Lifting saturation (s -> s^SAT_LIFT,
+        # hue and brightness kept) brings the colour back; near-grey pixels,
+        # whose hue is noise, are lifted less.
+        mx = rgb_vib.max(axis=-1, keepdims=True)
+        mn = rgb_vib.min(axis=-1, keepdims=True)
+        sat = np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0)
+        lifted = sat ** self.SAT_LIFT
+        target = sat + (lifted - sat) * np.clip(sat / 0.08, 0.0, 1.0)
+        gain = np.where(sat > 1e-6, target / np.maximum(sat, 1e-6), 1.0)
+        rgb_vib = np.clip(mx - (mx - rgb_vib) * gain, 0.0, 1.0)
 
         # ── Step 5: Multi-scale bloom ─────────────────────────────────────────
         bloomed = rgb_vib.copy()

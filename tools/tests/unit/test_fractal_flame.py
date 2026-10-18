@@ -290,3 +290,13 @@ def test_palettes_are_all_usable():
         rgb = fn(np.linspace(0, 1, 64))
         assert rgb.shape == (64, 3), name
         assert np.isfinite(rgb).all() and (0 <= rgb).all() and (rgb <= 1).all(), name
+
+
+def test_every_palette_goes_round_the_colour_wheel():
+    """Electric Sheep's palettes wander the whole wheel; two- and three-hue
+    gradients gave flames of two or three colours."""
+    import colorsys
+    from utils.core.kaia_art import PALETTE_LUTS
+    for name, lut in PALETTE_LUTS.items():
+        bins = {int(colorsys.rgb_to_hsv(*rgb)[0] * 12) % 12 for rgb in lut[32:] if max(rgb) - min(rgb) > 0.1}
+        assert len(bins) >= 10, f"{name} covers {len(bins)} of 12 hues"
