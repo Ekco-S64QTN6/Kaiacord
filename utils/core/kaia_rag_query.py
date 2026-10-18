@@ -642,12 +642,26 @@ class RAGQueryMixin:
     def _named_user_ids(self, own_lower: str) -> Set[str]:
         """Every id of each person the user's words name, from the log folders."""
         ids: Set[str] = set()
+        discord_names: Set[str] = set()
+        forum_hits = []
         for folder in getattr(self, "_known_user_folders", ()) or ():
             name, _, uid = folder.rpartition("_")
+            forum = bool(re.match(r"^forum[_ ]", name))
             name = re.sub(r"^forum[_ ]", "", name).replace("_", " ").lower()
             if len(name) < 3 or not uid.isdigit() or name.startswith("kaia"):
                 continue
             if re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", own_lower):
+                if forum:
+                    forum_hits.append((name, uid))
+                    continue
+                discord_names.add(name)
+                ids.add(uid)
+                ids |= self._resolve_identity_mappings(uid)
+        # A forum account sharing a name with someone in the server is someone
+        # else unless the identity registry links them (and a linked account
+        # came in above): "who is cecily?" got the P1999 forum's Cecily first.
+        for name, uid in forum_hits:
+            if name not in discord_names:
                 ids.add(uid)
                 ids |= self._resolve_identity_mappings(uid)
         return ids
