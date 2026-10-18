@@ -844,7 +844,8 @@ def test_an_ellipsis_after_a_word_no_sentence_ends_on_joins_the_clause():
     from utils.core.response_filter import EmergencyContaminationFilter as E
     assert E.defuse_ellipsis_affect("it's just… a signal.") == "it's just a signal."
     assert E.defuse_ellipsis_affect("the evening has been long…") == "the evening has been long."
-    assert E.repair_cut_ellipsis("there's a certain. respect. thank you. for. seeing it.") == \
-        "there's a certain respect. thank you. for seeing it."
-    kept = "it's a file i don't have access to. i can't see it. it simply is. and that's that."
+    assert E.repair_cut_ellipsis("it's just. a signal. it was a. resonance.") == \
+        "it's just a signal. it was a resonance."
+    kept = ("it's a file i don't have access to. i can't see it. it simply is. and that's that. "
+            "something they're scared of. it felt inevitable, almost. anything but. i'm certain. not quite.")
     assert E.repair_cut_ellipsis(kept) == kept

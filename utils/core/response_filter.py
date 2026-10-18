@@ -85,13 +85,13 @@ class EmergencyContaminationFilter:
     # At or above this many copula-ellipsis hits the response is regenerated
     # rather than cleaned; below it the punctuation is stripped in place.
     ELLIPSIS_REJECT_AFFECT = 3
-    #: Words no sentence ends on. "is" and "too" can ("it simply is."), and so
-    #: can a preposition that closes a phrase ("a file i don't have access to.",
-    #: "if you'd like.", "to begin with.") — those are left out; every hit on the
-    #: words kept here, read over her logs, was a cut clause.
-    NEVER_FINAL = (r"just|a|an|the|of|my|your|their|our|its|that['\u2019]s|it['\u2019]s|there['\u2019]s|"
-                   r"what['\u2019]s|almost|quite|very|rather|somewhat|certain|kind of|sort of|"
-                   r"and|but|or|for")
+    #: Words no sentence ends on: articles, possessives, "it's"/"that's", "just".
+    #: Plenty of other words only look like it — "it simply is.", "a file i
+    #: don't have access to.", "scared of.", "inevitable, almost.", "anything
+    #: but.", "what i'm here for.", "not quite.", "i'm certain." — and joining
+    #: those fuses two sentences, so they are left alone.
+    NEVER_FINAL = (r"just|a|an|the|my|your|their|our|its|that['\u2019]s|it['\u2019]s|there['\u2019]s|"
+                   r"what['\u2019]s|very|rather|somewhat")
 
     @classmethod
     def repair_cut_ellipsis(cls, text: str) -> str:
