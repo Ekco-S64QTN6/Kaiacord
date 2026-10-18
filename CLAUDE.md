@@ -437,6 +437,13 @@ ate the `*` opening an italic span (a leading-divider strip using `[\s\*]*`) and
 markers off `**kwargs` (an "empty pair" pattern that matched any `**`). Assert the property, not
 the case: *the filter must not increase the imbalance of its input*.
 
+**A defuse must not cut a clause.** `defuse_ellipsis_affect` turned every ellipsis it did not recognise into
+a full stop, so "it's just… a signal" shipped as "it's just. a signal." — 3–8% of her replies from September,
+and her self-model ("guardngnowm is. persistent"), which is injected whole. After a word no sentence ends on
+(`NEVER_FINAL`: articles, possessives, "it's"/"that's", "just") the ellipsis is now a space;
+`repair_cut_ellipsis` undoes the old damage. Keep that list narrow: "scared of.", "what i'm here for.",
+"inevitable, almost.", "anything but.", "not quite." are real endings, and a first, wider list fused them.
+
 **Never let a filter empty a good response.** An empty return triggers a full regeneration,
 which costs a whole inference round-trip — and if every attempt is rejected she says nothing at
 all. That happened: three contemplative replies to a question about her own code were each
@@ -1343,6 +1350,13 @@ retrieval never reported:
   `kaia_continuity.md` live in the same directory and are not rebuilt from anything.
 
 ### Dreams
+
+**What a dream writes about people and beliefs is read back into replies, so it is held to her voice.** A
+belief must be a position the reflection takes, not a source's ("the author believes…" is refused,
+`REPORTED_VIEW`); one reflection sets at most `NEW_BELIEF_CONFIDENCE`, and the same view reached again firms
+it up — the model had answered 0.9 for 94 of 100. A relationship insight is what passed between them, never a
+diagnosis (`DIAGNOSIS`: "likely driven by a desire for control", "on the edge of a meltdown"). A global anchor
+(no resolvable person) about an unnamed "he"/"she" is not kept: it is recalled in anyone's conversation.
 
 `knowledge_base/kaia_dreams/` is its own RAG index, and `context_optimizer` labels what is
 retrieved from it **INTERNAL REFLECTION (DREAM)** — as something Kaia thought — except an
