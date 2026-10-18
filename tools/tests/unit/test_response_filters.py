@@ -836,3 +836,15 @@ def test_short_lines_are_joined_back_into_paragraphs_without_changing_a_word():
     kept = ("here's the plan:\n\n- one\n- two\n\n(a quiet, almost wistful observation)\n\n"
             "farewell, cecily.\n\nkaiacodeblock0\n\nthat's it.")
     assert P.reflow_paragraphs(kept) == kept
+
+
+def test_an_ellipsis_after_a_word_no_sentence_ends_on_joins_the_clause():
+    """The old fallback turned "it's just… a signal" into "it's just. a signal." —
+    a hole in the sentence, learned back from her history as a cadence."""
+    from utils.core.response_filter import EmergencyContaminationFilter as E
+    assert E.defuse_ellipsis_affect("it's just… a signal.") == "it's just a signal."
+    assert E.defuse_ellipsis_affect("the evening has been long…") == "the evening has been long."
+    assert E.repair_cut_ellipsis("there's a certain. respect. thank you. for. seeing it.") == \
+        "there's a certain respect. thank you. for seeing it."
+    kept = "it's a file i don't have access to. i can't see it. it simply is. and that's that."
+    assert E.repair_cut_ellipsis(kept) == kept

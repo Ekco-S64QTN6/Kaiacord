@@ -85,6 +85,21 @@ class EmergencyContaminationFilter:
     # At or above this many copula-ellipsis hits the response is regenerated
     # rather than cleaned; below it the punctuation is stripped in place.
     ELLIPSIS_REJECT_AFFECT = 3
+    #: Words no sentence ends on. "is" and "too" can ("it simply is."), and so
+    #: can a preposition that closes a phrase ("a file i don't have access to.",
+    #: "if you'd like.", "to begin with.") — those are left out; every hit on the
+    #: words kept here, read over her logs, was a cut clause.
+    NEVER_FINAL = (r"just|a|an|the|of|my|your|their|our|its|that['\u2019]s|it['\u2019]s|there['\u2019]s|"
+                   r"what['\u2019]s|almost|quite|very|rather|somewhat|certain|kind of|sort of|"
+                   r"and|but|or|for")
+
+    @classmethod
+    def repair_cut_ellipsis(cls, text: str) -> str:
+        """Undo the old fallback's damage in text already written: "it's just. a
+        signal." -> "it's just a signal.". Only after a word no sentence ends on,
+        and only before a lowercase word."""
+        return re.sub(r'\b(' + cls.NEVER_FINAL + r')\.[ \t]+(?=[a-z])', r'\1 ', text or "", flags=re.IGNORECASE)
+
     @classmethod
     def defuse_ellipsis_affect(cls, response: str) -> str:
         """Strip the trailing-off cadence, keep the sentence.
@@ -99,6 +114,11 @@ class EmergencyContaminationFilter:
             return response
         response = cls.RE_AFFECT_ELLIPSIS.sub(
             lambda m: re.sub(cls._ELLIPSIS, ' ', m.group(0)), response)
+        # An ellipsis after a word no sentence ends on joins the clause back up
+        # ("it's just… a signal" -> "it's just a signal"); a full stop there left
+        # "it's just. a signal." — a hole she then learned from her own history.
+        response = re.sub(r'\b(' + cls.NEVER_FINAL + r')' + cls._ELLIPSIS + r'[ \t]*(?=\S)', r'\1 ', response,
+                          flags=re.IGNORECASE)
         # Anything still trailing off becomes a full stop.
         response = re.sub(r'(\w)' + cls._ELLIPSIS, r'\1.', response)
         response = re.sub(r'\.{2,}', '.', response)
