@@ -18,6 +18,7 @@ Executive shell automation, interactive TUI, and pipeline execution wrappers for
 
 ### 1. `kaia-tools.sh` — Interactive Whiptail TUI
 The primary operational control menu for Kaiacord administrators. Provides menu-driven access to:
+- **Admin dashboard (`d`):** starts KAIA // OPS (`tools/maintenance/kaia_admin.py --detach`), the read-only browser dashboard on 127.0.0.1:47433, in its own process and window; choosing it again reopens the window. Standalone: `venv/bin/python3 tools/maintenance/kaia_admin.py` (`--no-window` to serve only).
 - **System & Bot Control:** Process state check, start / stop / restart, log tailing, channel memory clearing (`memory/bot_state.json`), startup troubleshooting. Stop waits up to 90 s for the bot to save and exit; restart will not start a second bot while the first is still running. The bot is found by its command line (a Python process running `Kaiacord.py`), so the terminal it runs in is never matched.
 - **Ollama Management:** Unload model VRAM, systemctl restart/stop/start, and journalctl log inspection.
 - **RAG Operations:** Incremental reindexing (`.trigger_reindex`), single-file reindexing, and full storage rebuilds (`reindex_rag.py --clear`).

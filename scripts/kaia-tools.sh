@@ -1005,11 +1005,25 @@ menu_dreams() {
     done
 }
 
+# KAIA // OPS runs as its own process on 127.0.0.1 (never inside the bot) and
+# keeps serving after this menu closes; choosing it again reopens the window.
+open_admin_dashboard() {
+    info "Starting KAIA // OPS (read-only admin dashboard)..."
+    mkdir -p logs
+    if "$PYTHON" tools/maintenance/kaia_admin.py --detach; then
+        ok "Open at http://127.0.0.1:47433/ — it keeps running in the background."
+    else
+        fail "It did not start; see logs/kaia_admin.log."
+    fi
+    pause
+}
+
 main_menu() {
     while true; do
         CHOICE=$(ui_dialog --title "Kaiacord Maintenance Tools" \
             --menu "$(status_line)$(ingress_hint)\n\nWhat do you need?" \
-            "$(menu_height 9)" "$(menu_width 58)" 9 \
+            "$(menu_height 10)" "$(menu_width 58)" 10 \
+            "d" "Admin dashboard  (KAIA // OPS, in a window)" \
             "1" "System & Bot Control  (start/stop/restart, logs, memory)" \
             "2" "Ollama Server  (restart, flush VRAM, model status)" \
             "3" "RAG Management  (reindex, rebuild, diagnose)" \
@@ -1022,6 +1036,7 @@ main_menu() {
             3>&1 1>&2 2>&3) || break
 
         case "$CHOICE" in
+        d|D) open_admin_dashboard ;;
         1) menu_system ;;
         2) menu_ollama ;;
         3) menu_rag ;;

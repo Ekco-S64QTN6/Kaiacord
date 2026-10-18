@@ -25,7 +25,7 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 | **Fractal art** | `utils/core/kaia_art.py` | Electric Sheep flame renderer, CPU-only NumPy/SciPy. |
 | **Music** | `utils/audio/` | Live-coded sets in a voice channel, driving Strudel in a real browser; `!music records` mixes the local library with a playable DJ booth. No LLM, no GPU — see [§7](#7-music-engine). |
 | **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X, each behind its own enable flag. |
-| **Monitoring** | `utils/infrastructure/monitoring/` | Curses dashboard (`btop_dashboard_v2.py`). |
+| **Monitoring** | `utils/infrastructure/monitoring/`, `utils/admin/` | Curses dashboard (`btop_dashboard_v2.py`); KAIA // OPS, the read-only browser dashboard in its own process — see [§9](#kaia--ops). |
 | **News** | `utils/news/` | Daily briefs filed into `knowledge_base/news/`. The generator (`tools/maintenance/update_kaia_news.py`) calls the Gemini API with Google Search grounding — the only path that sends anything *of hers* off the machine. `utils/news/` itself only reads what was filed. |
 | **Radio** | `utils/radio/` | `!skyking` (military EAMs from eam.watch), `!numbers` (number-station schedule from Priyom), `!radio` (scheduled KiwiSDR recording, CPU transcription, live listening in voice), `!scanner` (a local RTL-SDR's nightly waterfall watch and frequency ledger; `!scanner dash` is KAIA//RX, its receiver dashboard). Feeds polled every `radio.poll_hours` (6); history in `memory/radio/`. `!nightshift` is a button panel over all of it. See §7. |
 | **Sky** | `utils/sky/` | `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`. Public feeds fetched on request and cached per feed; passes and the night sky computed locally (Skyfield). Every radio/sky box ends with the theme's small print from `utils/commands/nightshift.py`. |
@@ -400,13 +400,16 @@ The six-word key cannot see a short line, and the cadence that followed was all 
 "a quiet <noun>." was in 46% of her replies (7% before), and the grading opener came back without the name
 (`_GRADING_OPENER` had required ", starkind." — names were no longer prompted for, and were taken out of her
 history, so the opener passed both filters). A short verbless line is now keyed on its first words
-(`_frag_key`: "a quiet", "it's a quiet") when it is made of her stock vocabulary (`_stock_fragment`:
+(`_frag_key`: "a quiet", "it's a quiet"; an "a …" line up to ten words) when it is made of her stock vocabulary (`_stock_fragment`:
 `_STOCK_ADJ`, `_ABSTRACT`) — "a woman, it seems." and "an m6.86 flare." describe a picture and report a reading,
 and a bracketed stage direction is hers. The same note copied out of the prompt, "(speaking exclusively to
 starkind)", headed every reply by 16 Oct; `strip_address_tag` takes it out of what she sends and what she is
 shown. Her paragraphs fragmented too — 2.3 a reply of ~32 words in early September, 5.4 of ~19 by mid-October —
-and `reflow_paragraphs` joins short prose paragraphs back together (no word changed; lists, headings, code,
-quotes and stage directions keep their lines), in what she sends and in her history. **A history-side rule is
+and `reflow_paragraphs` joins short prose paragraphs back together. From 16 Oct the cadence came back as
+litanies — "a pattern identified. a tendency observed. a habit acknowledged." — in 38% of replies (none before
+October); `collapse_litany` keeps the first two of a run of three or more "a …" fragments, leaving verse and
+lists alone. `reflow_paragraphs` changes no word (lists, headings, code,
+quotes and stage directions keep their lines) and runs in what she sends and in her history. **A history-side rule is
 not finished until the logs match it:** her logged turns are retrieved and her recent ones are the template, so
 `tools/maintenance/clean_kaia_turns.py` runs the same filters over her turns in `user_logs/`, channel memory and
 her board posts (a person's turns are never touched; it refuses while the bot runs), then reindex.
@@ -1199,6 +1202,20 @@ and telling those apart means exercising the guard directly. And pair any claime
 an independent measurement: estimated tokens against `prompt_eval_count`, a log line against the
 message actually sent, a guard's verdict against its own return value.
 
+
+### KAIA // OPS
+
+`tools/maintenance/kaia_admin.py` (`d` in `kaia-tools.sh`) serves a read-only dashboard on 127.0.0.1:47433 from
+its own process — never the bot's: a full log parse takes half a second of GIL, and the voice thread needs a frame
+every 20 ms. `utils/admin/logscan.py` parses the log into dated events (lines carry a time of day only; dates are
+walked back from the file's mtime across midnights, and the live file is followed by byte offset);
+`utils/admin/sources.py` reads `memory/`, `knowledge_base/`, Ollama, the journal and `/proc`, each reader cached on
+its files' mtimes and returning the files it read. Rules: every card names its source in its footer and has a
+TABLE of the rows behind it; nothing is drawn that was not read (desires have no history, so there is no desire
+line); a guard count is *lines tagged*, not replies. SQLite is opened `mode=ro`. The only thing it runs is the
+read-only checks in `server.CHECKS`, when clicked; `test_answering_requests_writes_nothing` holds it read-only. A new
+reader goes in `sources.py` and `server.READERS`, with a test on a synthetic tree. Check a page change by driving
+it headless (Playwright) against the real data.
 ---
 
 ## 10. Knowledge Base

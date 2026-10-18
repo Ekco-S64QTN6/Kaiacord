@@ -70,6 +70,11 @@ READERS = {
     "utils/commands/memory_handler.py",
     "utils/infrastructure/monitoring/telemetry_paths.py",
     "utils/infrastructure/logging/unified_logging.py",   # has its own resolver
+    # KAIA // OPS reads the production files on purpose; that it writes
+    # nothing is test_admin_dashboard.test_answering_requests_writes_nothing.
+    "utils/admin/logscan.py",
+    "utils/admin/server.py",
+    "utils/admin/sources.py",
 }
 
 
