@@ -819,7 +819,10 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 f"From this reflection, extract structured insights in JSON:\n\n"
                 f"{reflection[:1500]}\n\n"
                 f"Return ONLY valid JSON with these keys:\n"
-                f'- "belief_update": {{"topic": str, "position": str, "confidence": 0.0-1.0, '
+                f'- "belief_update": a position the reflection itself takes — yours, written as you '
+                f'("i think…", "i don\'t trust…") — not a summary of what an author, article or person '
+                f'argues; null if the reflection only reports someone else\'s view. '
+                f'{{"topic": str, "position": str, "confidence": 0.0-1.0, '
                 f'"aliases": [list of 3-5 related search keywords that someone might use when '
                 f'discussing this topic, e.g. for "aesthetic evaluation" include "art", "beauty", '
                 f'"design", "visual"]}} or null\n'
@@ -936,6 +939,12 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                         # A book character or a stranger: not someone she
                         # "remembers talking about" anything.
                         anchor_user = None
+                    if not anchor_user_id and self.UNNAMED_PERSON.search(anchor.get('anchor_text', '')):
+                        # A global anchor is recalled in anyone's conversation; one
+                        # about an unnamed "he" ("he seems to be sabotaging himself")
+                        # reads there as being about whoever she is talking to.
+                        log_info(f"⚓ Anchor not kept: about an unnamed person ({anchor.get('anchor_text', '')[:60]!r})")
+                        return
 
                     # Base weight is 0.7, but emotionally salient dreams scale it up to 0.9!
                     init_weight = min(0.9, 0.6 + (salience / 10.0))
@@ -956,6 +965,27 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         except Exception as e:
             log_debug(f"Dream extraction failed (non-fatal): {e}")
 
+    UNNAMED_PERSON = re.compile(r"\b(?:he|she|him|his|her|himself|herself|the user)\b", re.IGNORECASE)
+
+    #: One night's reflection is not certainty: the model answered 0.9 for 94 of
+    #: 100 beliefs, so confidence told none of them apart. A belief formed or
+    #: changed by one reflection starts at most here and firms up by
+    #: REINFORCE_STEP each time a later reflection reaches the same view.
+    NEW_BELIEF_CONFIDENCE = 0.6
+    REINFORCE_STEP = 0.08
+    MAX_CONFIDENCE = 0.95
+    REPORTED_VIEW = re.compile(
+        r"^\s*(?:the\s+(?:author|narrator|speaker|writer|article|piece|text|essay|post|user|reflection|"
+        r"document|source|video|report)s?|he|she|they|it|kaia)\b[^.]{0,40}\b(?:believes?|argues?|thinks?|"
+        r"feels?|suggests?|claims?|says?|sees?|views?|values?|considers?|is\s+(?:skeptical|concerned|critical))\b",
+        re.IGNORECASE)
+
+    @staticmethod
+    def _same_position(a: str, b: str) -> bool:
+        wa = set(re.findall(r"[a-z']{4,}", (a or "").lower()))
+        wb = set(re.findall(r"[a-z']{4,}", (b or "").lower()))
+        return bool(wa and wb) and len(wa & wb) / len(wa | wb) >= 0.5
+
     def _update_beliefs(self, belief: dict):
         """Item 9: Update or insert a belief in memory/beliefs.json.
         
@@ -964,7 +994,14 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         """
         topic = belief.get('topic', '').strip().lower()
         position = belief.get('position', '').strip()
-        confidence = float(belief.get('confidence', 0.5))
+        try:
+            confidence = float(belief.get('confidence', 0.5))
+        except (TypeError, ValueError):
+            confidence = 0.5
+        # Her position, not a source's: "the author believes…" is what she read.
+        if self.REPORTED_VIEW.match(position):
+            log_info(f"🧠 Belief not taken: '{topic}' reports someone else's view ({position[:60]!r})")
+            return
         # Aliases: related search terms for smarter matching at inference time
         aliases = [a.lower().strip() for a in belief.get('aliases', []) if isinstance(a, str) and a.strip()]
 
@@ -976,8 +1013,17 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             for b in beliefs:
                 if b.get('topic', '').lower() == topic:
                     old = b.get('position', '')
+                    try:
+                        held = float(b.get('confidence', 0.5) or 0.5)
+                    except (TypeError, ValueError):
+                        held = 0.5
+                    if self._same_position(old, position):
+                        # The same view, reached again: it firms up a step.
+                        b['confidence'] = round(min(self.MAX_CONFIDENCE, held + self.REINFORCE_STEP), 3)
+                        b['last_updated'] = time.time()
+                        return True, None
                     b['position'] = position
-                    b['confidence'] = confidence
+                    b['confidence'] = min(confidence, self.NEW_BELIEF_CONFIDENCE)
                     b['last_updated'] = time.time()
                     b['source'] = 'dream'
                     if aliases:
@@ -988,7 +1034,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             new_belief = {
                 'topic': topic,
                 'position': position,
-                'confidence': confidence,
+                'confidence': min(confidence, self.NEW_BELIEF_CONFIDENCE),
                 'last_updated': time.time(),
                 'source': 'dream'
             }

@@ -53,3 +53,26 @@ def test_an_unreadable_file_is_not_overwritten(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         beliefs_store.bump_access(["cats"])
     assert path.read_text().endswith('{"topic"')
+
+
+def test_a_dream_belief_starts_tentative_and_firms_up_when_reached_again(store):
+    """The model answered 0.9 for 94 of 100 beliefs; one reflection is a start."""
+    from utils.core.kaia_dream import DreamEngine
+    engine = DreamEngine.__new__(DreamEngine)
+    engine._log_growth_event = lambda event: None
+    engine._update_beliefs({"topic": "open source", "position": "i think small projects still matter, "
+                            "even buried by the giants", "confidence": 0.9})
+    first = {b["topic"]: b for b in beliefs_store.load()}["open source"]["confidence"]
+    engine._update_beliefs({"topic": "open source", "position": "small projects still matter, i think, "
+                            "even when the giants bury them", "confidence": 0.9})
+    second = {b["topic"]: b for b in beliefs_store.load()}["open source"]["confidence"]
+    assert first == DreamEngine.NEW_BELIEF_CONFIDENCE and second > first
+
+
+def test_a_source_s_view_is_not_taken_as_hers(store):
+    from utils.core.kaia_dream import DreamEngine
+    engine = DreamEngine.__new__(DreamEngine)
+    engine._log_growth_event = lambda event: None
+    engine._update_beliefs({"topic": "geopolitics", "position": "The author believes retaliatory strikes "
+                            "are performative.", "confidence": 0.9})
+    assert "geopolitics" not in {b["topic"] for b in beliefs_store.load()}
