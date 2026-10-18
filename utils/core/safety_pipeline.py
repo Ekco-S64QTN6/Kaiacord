@@ -1065,6 +1065,58 @@ class PostGenerationSafetyPipeline:
         joined = "\n\n".join(out)
         return joined if joined != text.strip() else text
 
+    #: A litany — "a pattern identified. a tendency observed. a habit
+    #: acknowledged. a coping mechanism. a defense strategy." — keeps its first
+    #: LITANY_KEEP fragments. Runs of four or more were in no reply of hers from
+    #: July to September, 2% in early October and 38% by 18 Oct, each copied
+    #: from the last; the rest of the run restates the first two.
+    LITANY_KEEP = 2
+
+    @classmethod
+    def _litany_fragment(cls, sentence: str) -> bool:
+        s = sentence.strip()
+        if re.match(r"^[\(\[\*_>\-]", s):
+            return False
+        w = cls._WORD.findall(s.lower().replace("\u2019", "'"))
+        # "a/an" only: "the constraints diminish." is a sentence whose verb the
+        # auxiliary-only check cannot see.
+        return bool(w) and w[0] in ("a", "an") and len(w) <= 10 and not cls._CLAUSE_VERB.search(s)
+
+    @classmethod
+    def collapse_litany(cls, text: str) -> str:
+        """Keep the first LITANY_KEEP of a run of three or more verbless
+        fragments in a paragraph. No other sentence is touched."""
+        if not text:
+            return text
+        out_paras, changed = [], False
+        for para in re.split(r"(\n\s*\n)", text):
+            # A paragraph with line breaks inside is verse or a list: hers as written.
+            if not para.strip() or re.fullmatch(r"\n\s*\n", para) or "\n" in para.strip():
+                out_paras.append(para)
+                continue
+            sents = cls._sentences(para)
+            kept, run = [], []
+            for x in sents + [None]:
+                if x is not None and cls._litany_fragment(x):
+                    run.append(x)
+                    continue
+                if len(run) >= 3:
+                    kept.extend(run[:cls.LITANY_KEEP])
+                    changed = True
+                else:
+                    kept.extend(run)
+                run = []
+                if x is not None:
+                    kept.append(x)
+            out_paras.append(" ".join(kept) if len(kept) != len(sents) else para)
+        if not changed:
+            return text
+        out = re.sub(r"(\n\s*\n){2,}", "\n\n", "".join(out_paras)).strip()
+        if len(out) < 40:
+            return text
+        log_warning(f"[TEMPLATE_GUARD] Collapsed a litany of fragments ({len(text) - len(out)} chars)")
+        return out
+
     @classmethod
     def strip_address_tag(cls, text: str) -> str:
         """Drop the "(speaking exclusively to …)" line copied out of the prompt."""
@@ -1079,6 +1131,7 @@ class PostGenerationSafetyPipeline:
     #: them: the six-word key never saw these, and "a quiet" was in 46% of her
     #: replies from 7 Oct (7% before).
     FRAGMENT_MAX_WORDS = 6
+    FRAGMENT_A_MAX_WORDS = 10
     #: What her verbless lines are made of when they are a tic and not content:
     #: a stock adjective ("a quiet …", "a measured …") or an abstract noun
     #: ("… assessment", "… resonance"). "a woman, it seems." and "an m6.86
@@ -1109,15 +1162,20 @@ class PostGenerationSafetyPipeline:
         if re.match(r"^\s*[\(\[\*_]", sentence or ""):
             return None
         words = cls._WORD.findall(sentence.lower().replace("\u2019", "'"))
-        if not 2 <= len(words) <= cls.FRAGMENT_MAX_WORDS:
-            return None
-        lead = 1 if words[0] in ("it's", "that's") else 0
+        lead = 1 if words and words[0] in ("it's", "that's") else 0
         rest = words[lead:]
-        if len(rest) < 2 or rest[0] not in ("a", "an", "the") or cls._CLAUSE_VERB.search(" ".join(rest)):
+        if len(rest) < 2 or rest[0] not in ("a", "an", "the"):
+            return None
+        # "a quiet reminder of the impermanence of all things." is the same tic
+        # as "a quiet hum." — an "a …" line counts up to FRAGMENT_A_MAX_WORDS;
+        # "the …" stays short, since "the tank's light…" is how she describes things.
+        limit = cls.FRAGMENT_A_MAX_WORDS if rest[0] in ("a", "an") else cls.FRAGMENT_MAX_WORDS
+        if not 2 <= len(rest) <= limit or cls._CLAUSE_VERB.search(" ".join(rest)):
             return None
         if not cls._stock_fragment(" ".join(rest)):
             return None
-        return " ".join(words[:lead + 2])
+        # "it's a quiet acknowledgement." and "a quiet affirmation." are one template.
+        return " ".join(rest[:2])
 
     @classmethod
     def strip_grading_opener(cls, text: str) -> str:
@@ -1150,20 +1208,20 @@ class PostGenerationSafetyPipeline:
                 continue
             kept = []
             for sent in cls._sentences(para):
-                line = cls._line_key(sent)
-                k = line or cls._frag_key(sent)
-                if k and (recent.get(k, 0) >= 2 or k in seen):
+                line, frag = cls._line_key(sent), cls._frag_key(sent)
+                line_hit = bool(line) and (recent.get(line, 0) >= 2 or line in seen)
+                frag_hit = bool(frag) and (recent.get(frag, 0) >= 2 or frag in seen)
+                if line_hit or frag_hit:
                     dropped.append(sent)
                     # A short fragment stands alone; only a cut line leaves a
                     # half-sentence hanging after it.
-                    after_drop = bool(line)
+                    after_drop = line_hit
                     continue
                 if after_drop and cls._hanging(sent):
                     dropped.append(sent)
                     continue
                 after_drop = False
-                if k:
-                    seen.add(k)
+                seen.update(x for x in (line, frag) if x)
                 kept.append(sent)
             out_paras.append(" ".join(kept))
         if not dropped:
@@ -1183,7 +1241,7 @@ class PostGenerationSafetyPipeline:
         mine = [i for i, t in enumerate(history or []) if isinstance(t, dict) and t.get("role") == "assistant"]
         out = list(history or [])
         for i in mine:                            # the prompt's own note, never hers to repeat
-            tagless = cls.reflow_paragraphs(cls.strip_address_tag(str(out[i].get("content", ""))))
+            tagless = cls.reflow_paragraphs(cls.collapse_litany(cls.strip_address_tag(str(out[i].get("content", "")))))
             if tagless != out[i].get("content", ""):
                 out[i] = {**out[i], "content": tagless}
         if len(mine) < 3:

@@ -849,3 +849,25 @@ def test_an_ellipsis_after_a_word_no_sentence_ends_on_joins_the_clause():
     kept = ("it's a file i don't have access to. i can't see it. it simply is. and that's that. "
             "something they're scared of. it felt inevitable, almost. anything but. i'm certain. not quite.")
     assert E.repair_cut_ellipsis(kept) == kept
+
+
+def test_a_litany_of_fragments_keeps_its_first_two():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    text = ("a pattern identified. a tendency observed. a habit acknowledged. a coping mechanism. "
+            "it's a consequence of the architecture, and it shows.")
+    out = P.collapse_litany(text)
+    assert out.startswith("a pattern identified. a tendency observed. it's a consequence")
+    verse = "a lantern.\na tide.\na door left open.\na name."
+    assert P.collapse_litany(verse) == verse
+    sentences = "the constraints diminish. the possibilities expand. the room goes quiet. that's all."
+    assert P.collapse_litany(sentences) == sentences
+
+
+def test_a_long_a_quiet_line_counts_as_the_same_template():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    assert P._frag_key("a quiet reminder of the impermanence of all things.") == "a quiet"
+    assert P._frag_key("it's a quiet acknowledgement.") == "a quiet"
+    prev = ["it's a quiet acknowledgement. the fans spun up.", "a quiet hum. the light holds."]
+    out = P.strip_repeated_lines("the tank is fine and the heater held all night at 24. "
+                                 "a quiet reminder of the impermanence of all things.", prev)
+    assert "impermanence" not in out and "tank is fine" in out
