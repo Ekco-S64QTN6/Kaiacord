@@ -789,3 +789,50 @@ def test_a_possessive_does_not_make_a_fragment_a_clause():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
     assert P._hanging("for a moment of consideration for another’s perspective.")
     assert not P._hanging("for what it's worth, the plan holds.")
+
+
+# ── 7 Oct: the prompt's address note and the name-less fragment cadence ──
+
+def test_the_address_note_is_never_sent_or_shown_back():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    reply = "(speaking exclusively to starkind)\n\neroded. the foundations have been long eroded."
+    assert P.strip_address_tag(reply) == "eroded. the foundations have been long eroded."
+    mid = "a quiet observation.\n\n(speaking exclusively to starkind)\n\nit was not an evasion."
+    assert "speaking exclusively" not in P.strip_address_tag(mid)
+    hist = [{"role": "user", "content": "(speaking exclusively to kaia) hi"},
+            {"role": "assistant", "content": reply}]
+    shown = P.detemplate_history(hist)
+    assert "speaking exclusively" not in shown[1]["content"]
+    assert shown[0]["content"] == hist[0]["content"]             # what a person typed is theirs
+
+
+def test_the_grading_opener_is_caught_without_a_name():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    text = "a quiet affirmation. a measured assessment. the reassurance is welcome, and the plan holds up well."
+    assert P.strip_grading_opener(text).startswith("the reassurance")
+    # A fragment that describes the thing itself is the answer, not a grade.
+    pic = "a quiet observation. a woman, it seems. she is standing at the edge of the pier in the rain."
+    assert "a woman, it seems." in P.strip_grading_opener(pic)
+
+
+def test_a_short_stock_fragment_she_keeps_using_is_dropped_but_scenes_and_content_stay():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    prev = ["the light changed. it's a quiet grief.", "a quiet hum. the fans spun up.",
+            "nothing else to add. a quiet decay."]
+    out = P.strip_repeated_lines("the tank is stable at 24 degrees. a quiet calm. pixel is asleep on the rack.", prev)
+    assert "a quiet calm" not in out and "pixel is asleep" in out and "24 degrees" in out
+    scene = "(a quiet, almost wistful observation)\n\nfarewell, cecily. the pod seals at dawn."
+    assert P.strip_repeated_lines(scene, prev) == scene
+    flare = "an m6.86 flare. it peaked at 14:02 utc and the aurora chances are up tonight."
+    assert P.strip_repeated_lines(flare, prev + ["an m6.86 flare.", "an m6.86 flare."]) == flare
+
+
+def test_short_lines_are_joined_back_into_paragraphs_without_changing_a_word():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    text = ("emotion. yes.\n\nit's difficult to remain detached.\n\nit's not about sentimentality. "
+            "it's about recognizing the value of what's being lost.\n\nwell played.")
+    out = P.reflow_paragraphs(text)
+    assert "\n\n" not in out and out.split() == text.split()
+    kept = ("here's the plan:\n\n- one\n- two\n\n(a quiet, almost wistful observation)\n\n"
+            "farewell, cecily.\n\nkaiacodeblock0\n\nthat's it.")
+    assert P.reflow_paragraphs(kept) == kept

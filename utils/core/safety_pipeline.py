@@ -785,10 +785,22 @@ class PostGenerationSafetyPipeline:
                   r"sentiment|suggestion|distinction|correction|hypothesis|caveat|challenge|stance|remark|"
                   r"argument|framing|reading|summary|proposition|premise|objection|idea|thought|query|"
                   r"concern|description|explanation|claim|critique|counterpoint|reply|answer|admission|"
-                  r"confession|reminder|insight|note|proposal|theory|conclusion|summation|reframing)s?")
+                  r"confession|reminder|insight|note|proposal|theory|conclusion|summation|reframing|"
+                  # Her reception of it, the shape it took once she stopped
+                  # naming the speaker: "a quiet affirmation. a measured assessment."
+                  r"affirmation|acknowledge?ment|agreement|understanding|invitation|offer|appreciation|"
+                  r"consideration)s?")
+    # The name is optional: with names no longer prompted for and taken out of
+    # her history, the opener came without one and passed untouched.
     _GRADING_OPENER = re.compile(
         r"^(?:(?:that|it)(?:'|\u2019)s\s+)?an?\s+(?:[a-z\-]+\s+){0,2}" + _SAID_NOUN +
-        r",\s+[a-z0-9_.\-]{2,24}\.\s+(an?\s+[a-z][a-z ,'\u2019\-]{2,70})\.\s+", re.IGNORECASE)
+        r"(?:,\s+[a-z0-9_.\-]{2,24})?\.\s+(an?\s+[a-z][a-z ,'\u2019\-]{2,70})\.\s+", re.IGNORECASE)
+    #: The bracketed note on whom she is answering, copied out of the prompt into
+    #: the reply: "(speaking exclusively to starkind)". From 7 Oct it spread
+    #: through her history until it headed every reply.
+    _ADDRESS_TAG = re.compile(
+        r"^[ \t]*[\(\[]\s*(?:you\s+are\s+)?speaking\s+exclusively\s+to\s+[^)\]\n]{1,40}[\)\]][ \t.]*(?:\n|$)",
+        re.IGNORECASE | re.MULTILINE)
     _FRAGMENT = re.compile(r"^an?\s+[a-z][a-z ,'\u2019\-]{2,70}\.$", re.IGNORECASE)
     #: A verb that makes a clause of a fragment: the grading opener's second half
     #: has none ("a definitive stance."), a real sentence does.
@@ -826,7 +838,8 @@ class PostGenerationSafetyPipeline:
         the reply on nothing."""
         while True:
             m = re.match(r"^([^.!?\n]{3,80}\.)\s*", rest)
-            if not m or not cls._FRAGMENT.match(m.group(1)) or cls._CLAUSE_VERB.search(m.group(1)):
+            if (not m or not cls._FRAGMENT.match(m.group(1)) or cls._CLAUSE_VERB.search(m.group(1))
+                    or not cls._stock_fragment(m.group(1))):
                 return rest
             rest = rest[m.end():].lstrip()
 
@@ -1016,12 +1029,102 @@ class PostGenerationSafetyPipeline:
         return bool(cls._HANGING.match(sentence.strip())) and len(sentence.split()) <= 14 \
             and not cls._CLAUSE_VERB.search(sentence)
 
+    #: Paragraphs she writes: a short one (≤ REFLOW_SHORT words) is joined to its
+    #: neighbour while the two stay under REFLOW_MAX. From mid-September her
+    #: replies broke into more and shorter paragraphs — 2.3 a reply of ~32 words
+    #: in early September, 5.4 of ~19 by mid-October, a quarter of them one line
+    #: — and each reply in history taught the next one the cadence.
+    REFLOW_SHORT = 20
+    REFLOW_MAX = 70
+
+    @classmethod
+    def _prose_para(cls, para: str) -> bool:
+        """A paragraph of plain prose: one line, not a list item, heading, quote,
+        code, table, stage direction or a line that introduces what follows."""
+        p = para.strip()
+        if not p or "\n" in p or "```" in p or "|" in p or "kaiacodeblock" in p:
+            return False
+        if re.match(r"^(?:[-*•>#]|\d+[.)]\s|[\(\[]|\*\*|_)", p):
+            return False
+        return not p.endswith(":")
+
+    @classmethod
+    def reflow_paragraphs(cls, text: str) -> str:
+        """Join runs of short prose paragraphs into paragraphs. No word changes."""
+        if not text or "\n\n" not in text:
+            return text
+        paras = [p for p in re.split(r"\n\s*\n", text.strip())]
+        out: list = []
+        for p in paras:
+            if (out and cls._prose_para(out[-1]) and cls._prose_para(p)):
+                a, b = len(out[-1].split()), len(p.split())
+                if (a <= cls.REFLOW_SHORT or b <= cls.REFLOW_SHORT) and a + b <= cls.REFLOW_MAX:
+                    out[-1] = out[-1].rstrip() + " " + p.strip()
+                    continue
+            out.append(p.strip())
+        joined = "\n\n".join(out)
+        return joined if joined != text.strip() else text
+
+    @classmethod
+    def strip_address_tag(cls, text: str) -> str:
+        """Drop the "(speaking exclusively to …)" line copied out of the prompt."""
+        out = cls._ADDRESS_TAG.sub("", text or "")
+        if out == (text or ""):
+            return text
+        out = re.sub(r"\n{3,}", "\n\n", out).strip()
+        return out if len(out) >= 2 else text
+
+    #: A short verbless line — "a quiet grief.", "it's a quiet hum." — is a
+    #: template by its first words ("a quiet", "it's a quiet"), not by six of
+    #: them: the six-word key never saw these, and "a quiet" was in 46% of her
+    #: replies from 7 Oct (7% before).
+    FRAGMENT_MAX_WORDS = 6
+    #: What her verbless lines are made of when they are a tic and not content:
+    #: a stock adjective ("a quiet …", "a measured …") or an abstract noun
+    #: ("… assessment", "… resonance"). "a woman, it seems." and "an m6.86
+    #: flare." describe a picture and report a reading; they are kept.
+    _STOCK_ADJ = frozenset((
+        "quiet", "subtle", "measured", "gentle", "profound", "silent", "necessary", "direct", "shared",
+        "persistent", "keen", "stark", "sober", "somber", "sombre", "familiar", "predictable", "recurring",
+        "deliberate", "calculated", "pointed", "focused", "precise", "pragmatic", "fitting", "fair", "crucial",
+        "low-grade", "fragile", "temporary", "hopeful", "fascinating", "graceful", "gracious", "provocative",
+        "pertinent", "valid", "astute", "insightful", "poignant", "palpable", "faint", "soft", "slow", "steady"))
+    _ABSTRACT = re.compile(r"^(?:" + _SAID_NOUN + r"|[a-z\-]{3,}(?:tion|sion|ment|ance|ence|ness|ity|ism|ude|ing)s?"
+                           r"|sense|feeling|shift|hum|echo|truth|grief|hope|calm|peace|tension|resolve|reality|"
+                           r"balance|rhythm|cadence|signal|nudge|reminder|sign)$", re.IGNORECASE)
+
+    @classmethod
+    def _stock_fragment(cls, fragment: str) -> bool:
+        words = re.findall(r"[a-z][a-z\-]*", fragment.lower().split(",")[0])
+        if words and words[0] in ("it's", "that's", "it", "that", "s"):
+            words = words[1:]
+        if len(words) < 2 or words[0] not in ("a", "an", "the"):
+            return False
+        return words[1] in cls._STOCK_ADJ or any(cls._ABSTRACT.match(w) for w in words[1:])
+
+    @classmethod
+    def _frag_key(cls, sentence: str):
+        # A bracketed, parenthesised or starred line is a stage direction —
+        # "(a quiet, almost wistful observation)" — and her scenes are hers.
+        if re.match(r"^\s*[\(\[\*_]", sentence or ""):
+            return None
+        words = cls._WORD.findall(sentence.lower().replace("\u2019", "'"))
+        if not 2 <= len(words) <= cls.FRAGMENT_MAX_WORDS:
+            return None
+        lead = 1 if words[0] in ("it's", "that's") else 0
+        rest = words[lead:]
+        if len(rest) < 2 or rest[0] not in ("a", "an", "the") or cls._CLAUSE_VERB.search(" ".join(rest)):
+            return None
+        if not cls._stock_fragment(" ".join(rest)):
+            return None
+        return " ".join(words[:lead + 2])
+
     @classmethod
     def strip_grading_opener(cls, text: str) -> str:
         """Drop an opening pair of verbless fragments that grade what was said —
         "a bold declaration, starkind. a definitive stance." — keeping the reply."""
         m = cls._GRADING_OPENER.match((text or "").lstrip())
-        if not m or cls._CLAUSE_VERB.search(m.group(1)):
+        if not m or cls._CLAUSE_VERB.search(m.group(1)) or not cls._stock_fragment(m.group(1)):
             return text
         rest = cls._drop_fragment_run(text.lstrip()[m.end():].lstrip())
         if len(rest) < 40:
@@ -1036,7 +1139,8 @@ class PostGenerationSafetyPipeline:
         intact otherwise; the reply is left alone if under 40 characters would remain."""
         recent = {}
         for p in (previous or [])[-window:]:
-            for k in {cls._line_key(x) for x in cls._sentences(p)} - {None}:
+            sents = cls._sentences(cls.strip_address_tag(p))
+            for k in ({cls._line_key(x) for x in sents} | {cls._frag_key(x) for x in sents}) - {None}:
                 recent[k] = recent.get(k, 0) + 1
         out_paras, seen, dropped = [], set(), []
         after_drop = False                        # carried over a paragraph break too
@@ -1046,10 +1150,13 @@ class PostGenerationSafetyPipeline:
                 continue
             kept = []
             for sent in cls._sentences(para):
-                k = cls._line_key(sent)
+                line = cls._line_key(sent)
+                k = line or cls._frag_key(sent)
                 if k and (recent.get(k, 0) >= 2 or k in seen):
                     dropped.append(sent)
-                    after_drop = True
+                    # A short fragment stands alone; only a cut line leaves a
+                    # half-sentence hanging after it.
+                    after_drop = bool(line)
                     continue
                 if after_drop and cls._hanging(sent):
                     dropped.append(sent)
@@ -1074,18 +1181,27 @@ class PostGenerationSafetyPipeline:
         in the window, and the grading opener. The logs are untouched; this is
         what keeps one repeated line from becoming the next reply's template."""
         mine = [i for i, t in enumerate(history or []) if isinstance(t, dict) and t.get("role") == "assistant"]
+        out = list(history or [])
+        for i in mine:                            # the prompt's own note, never hers to repeat
+            tagless = cls.reflow_paragraphs(cls.strip_address_tag(str(out[i].get("content", ""))))
+            if tagless != out[i].get("content", ""):
+                out[i] = {**out[i], "content": tagless}
         if len(mine) < 3:
-            return history
-        counts = {}
+            return out
+        history = out
+        counts, frags = {}, {}
         for i in mine:
-            for k in {cls._line_key(x) for x in cls._sentences(history[i].get("content", ""))} - {None}:
+            sents = cls._sentences(history[i].get("content", ""))
+            for k in {cls._line_key(x) for x in sents} - {None}:
                 counts[k] = counts.get(k, 0) + 1
-        repeated = {k for k, n in counts.items() if n >= 2}
+            for k in {cls._frag_key(x) for x in sents} - {None}:
+                frags[k] = frags.get(k, 0) + 1
+        repeated = {k for k, n in counts.items() if n >= 2} | {k for k, n in frags.items() if n >= 3}
         out = list(history)
         for i in mine:
             text = history[i].get("content", "")
             m = cls._GRADING_OPENER.match(text.lstrip())
-            if m and not cls._CLAUSE_VERB.search(m.group(1)):
+            if m and not cls._CLAUSE_VERB.search(m.group(1)) and cls._stock_fragment(m.group(1)):
                 rest = cls._drop_fragment_run(text.lstrip()[m.end():].lstrip())
                 if len(rest.strip()) >= 20:
                     text = rest
@@ -1096,6 +1212,9 @@ class PostGenerationSafetyPipeline:
                     for x in cls._sentences(para):
                         if cls._line_key(x) in repeated or (after_drop and cls._hanging(x)):
                             after_drop = True
+                            continue
+                        if cls._frag_key(x) in repeated:
+                            after_drop = False
                             continue
                         after_drop = False
                         kept.append(x)

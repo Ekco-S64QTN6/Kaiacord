@@ -2462,15 +2462,18 @@ class MessageProcessor:
                 ctx.response_text, ctx.author_name or "",
                 PostGenerationSafetyPipeline.history_names(list(_bs.channel_memory.get(ctx.channel_id, []))),
                 ctx.own_words or "", aliases=_aliases)
+            ctx.response_text = PostGenerationSafetyPipeline.strip_address_tag(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_closer(ctx.response_text, _mine)
             ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_lines(ctx.response_text, _mine)
         except Exception:
             pass
         try:
+            ctx.response_text = PostGenerationSafetyPipeline.strip_address_tag(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_grading_opener(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_room_status(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_event_echo(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_status_lines(ctx.response_text)
+            ctx.response_text = PostGenerationSafetyPipeline.reflow_paragraphs(ctx.response_text)
         except Exception:
             pass
         try:
