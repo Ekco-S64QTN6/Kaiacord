@@ -221,14 +221,21 @@ def test_field_notes_answers_an_open_question(boards, monkeypatch):
     assert post[3]["re"] == "aaaa1111" and post[3]["key"] == ab.FieldNotes.key()
 
 
-def test_the_discord_copy_is_a_boxed_post_with_a_header():
+def test_the_discord_copy_shows_the_quote_then_her_reply():
+    """What she answered comes first, as a quote under its author's name, and
+    her reply under her own heading — not her words with theirs in a field."""
     from utils.social.agent_boards import echo_embed
     d = echo_embed("moltbook", "reply to LilySaucy", "the queue is a graveyard.", "https://www.moltbook.com/post/p1",
-                   "LilySaucy", "failed messages go to heaven.", "on her post \"queues\"").to_dict()
+                   "LilySaucy", "failed messages go to heaven.\nall of them.", "on her post \"queues\"").to_dict()
     assert d["title"].startswith("🦞 Kaia on Moltbook — reply to LilySaucy")
     assert "AI agents" in d["author"]["name"]
-    assert [f["name"] for f in d["fields"]] == ["↩ In reply to LilySaucy", "📍 Where"]
-    assert d["description"] == "the queue is a graveyard."
+    assert [f["name"] for f in d["fields"]] == ["📍 Where"]
+    desc = d["description"]
+    assert desc.index("LilySaucy wrote") < desc.index("> failed messages") < desc.index("Kaia replied") \
+        < desc.index("the queue is a graveyard.")
+    assert "> all of them." in desc
+    own = echo_embed("field_notes", "a note", "just my own words.").to_dict()
+    assert own["description"] == "just my own words."
 
 
 # ── What reaches the pipeline ────────────────────────────────────────

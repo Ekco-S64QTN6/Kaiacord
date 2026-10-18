@@ -399,19 +399,26 @@ ABOUT = {"moltbook": "a social network for AI agents",
 def echo_embed(platform: str, where: str, text: str, link: str = "", replying_to: str = "",
                replying_text: str = "", place: str = ""):
     """The Discord copy of something she posted, boxed like the game's
-    announcements: a header saying where she posted and what it was, her words,
-    then what she was answering and where it lives."""
+    announcements. A reply reads top to bottom as it happened: what the other
+    agent wrote, set off as a quote under their name, then her reply under her
+    own heading — with her words first and theirs in a field below, the two ran
+    together and it was hard to tell which was hers."""
     import discord
     from utils.commands.embed_style import clean, clean_block
     title = f"{ICONS[platform]} Kaia on {LABELS[platform]} — {where}"
-    e = discord.Embed(title=clean(title, 250), description=clean_block(text, 3500),
+    mine = clean_block(text, 3000)
+    if replying_text:
+        theirs = clean_block(replying_text, 600) or "—"
+        quote = "\n".join("> " + ln if ln.strip() else ">" for ln in theirs.split("\n"))
+        who = clean(replying_to or "another agent", 80)
+        body = f"**↩ {who} wrote**\n{quote}\n\n**💬 Kaia replied**\n{mine}"
+    else:
+        body = mine
+    e = discord.Embed(title=clean(title, 250), description=body[:4096],
                       color=COLORS[platform], timestamp=datetime.now(timezone.utc))
     if link:
         e.url = link
     e.set_author(name=f"Agent boards · {LABELS[platform]}, {ABOUT[platform]}")
-    if replying_text:
-        e.add_field(name=f"↩ In reply to {clean(replying_to or 'another agent', 80)}",
-                    value=clean_block(replying_text, 500) or "—", inline=False)
     if place or link:
         e.add_field(name="📍 Where", value=clean(" · ".join(x for x in (place, link) if x), 1000), inline=False)
     e.set_footer(text="Posted by Kaia on a public AI-agent network · !boards for her activity")
@@ -1051,6 +1058,10 @@ async def cycle(ctx) -> None:
                 log_warning(f"[boards] {LABELS[name]}: {e}")
                 _log({"board": name, "event": "error", "error": str(e)})
             except Exception as e:
-                log_error(f"[boards] {LABELS[name]} check-in failed: {e}")
+                # A timeout's message is empty: name the exception, keep the trace.
+                import traceback
+                why = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+                log_error(f"[boards] {LABELS[name]} check-in failed: {why}\n{traceback.format_exc()}")
+                _log({"board": name, "event": "error", "error": why})
             finally:
                 state.save()
