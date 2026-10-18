@@ -396,6 +396,20 @@ realm, there's still room for quiet …" went from nothing to 28 of 58 replies i
 opening "a <adjective> <noun>, starkind. a <noun phrase>." `detemplate_history` shows her own turns
 without lines she has used twice in the window (and without that grading opener); the logs are not
 touched. `strip_repeated_lines` drops the same from what she sends, with any fragment left hanging.
+The six-word key cannot see a short line, and the cadence that followed was all short lines: from 7 Oct
+"a quiet <noun>." was in 46% of her replies (7% before), and the grading opener came back without the name
+(`_GRADING_OPENER` had required ", starkind." — names were no longer prompted for, and were taken out of her
+history, so the opener passed both filters). A short verbless line is now keyed on its first words
+(`_frag_key`: "a quiet", "it's a quiet") when it is made of her stock vocabulary (`_stock_fragment`:
+`_STOCK_ADJ`, `_ABSTRACT`) — "a woman, it seems." and "an m6.86 flare." describe a picture and report a reading,
+and a bracketed stage direction is hers. The same note copied out of the prompt, "(speaking exclusively to
+starkind)", headed every reply by 16 Oct; `strip_address_tag` takes it out of what she sends and what she is
+shown. Her paragraphs fragmented too — 2.3 a reply of ~32 words in early September, 5.4 of ~19 by mid-October —
+and `reflow_paragraphs` joins short prose paragraphs back together (no word changed; lists, headings, code,
+quotes and stage directions keep their lines), in what she sends and in her history. **A history-side rule is
+not finished until the logs match it:** her logged turns are retrieved and her recent ones are the template, so
+`tools/maintenance/clean_kaia_turns.py` runs the same filters over her turns in `user_logs/`, channel memory and
+her board posts (a person's turns are never touched; it refuses while the bot runs), then reindex.
 **She addresses whoever is talking to her** (`correct_addressee`): every name she uses to address someone
 in the channel is put right to the message's author unless they brought the other person up, all of the
 author's names counting (GuardNGnowm is GnowmaticFlux's nickname), and her past turns are shown without the
@@ -749,6 +763,12 @@ per search (~100 ms, every reply), and a full gen-2 collection walked the docsto
 and `gc_quiet.settle()` collects and freezes long-lived objects after the indices load and before any
 voice playback. To find the next one, sample with `py-spy record --gil --native` while a ticker
 thread logs its lateness; `faulthandler.dump_traceback_later` from a ticker crashes the process.
+
+**`!art` draws in the whole spectrum.** Electric Sheep's flam3 palettes wander the colour wheel; ours were
+two- and three-hue gradients, and a flame came out in two or three colours. Every palette is now a trip round the
+hue wheel (`_spectrum_lut`: start, direction, saturation are what make them different), the colour coordinate is
+mapped through its own quantiles after warm-up so the points use the whole palette, and a saturation lift
+(`SAT_LIFT`) keeps hue where arcs of different colours average to grey. `test_every_palette_goes_round_the_colour_wheel`.
 
 **`!art` is decided before it is drawn.** `kaia_art_intent.decide` turns a prompt, her mood or an
 attached image into an `ArtIntent` — palette (or a colour ramp from the image), symmetry, lead
