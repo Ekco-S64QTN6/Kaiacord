@@ -382,10 +382,17 @@ def classify(catch) -> None:
     A catch on a net being watched is always transcribed and always clipped:
     the nightly budget and the quiet-channel rule are for the open scan, and a
     net is exactly what someone will want to play back."""
-    if catch.seconds < MIN_CATCH_S or len(catch.audio) < rtl.SAMPLE_RATE:
-        return                                   # a kerchunk
+    from utils.radio.waterfall import Sighting
     if not _NAMED_CACHE.get("rows"):
         _NAMED_CACHE["rows"] = [c["freq_hz"] for c in seed_channels()]
+    if isinstance(catch, Sighting):
+        # A habitual data channel keyed up and was not held: its timing and
+        # hour still count, so the channel stays in the ledger as active.
+        ledger.record(catch.freq_hz, "seen", 0.0, 0.0, 0.0, None, "", _band_of(catch.freq_hz),
+                      _service_of(catch.freq_hz), catch.started, peak_db=catch.peak_db)
+        return
+    if catch.seconds < MIN_CATCH_S or len(catch.audio) < rtl.SAMPLE_RATE:
+        return                                   # a kerchunk
     catch.freq_hz = snap_channel(catch.freq_hz)
     net = _on_net(catch.freq_hz)
     from utils.radio.waterfall import carried_audio
@@ -398,7 +405,8 @@ def classify(catch) -> None:
         # Whisper writes words onto static ("We'll be right back." on 445.51),
         # so it never gets the chance.
         ledger.record(catch.freq_hz, "noise", round(catch.seconds, 1), m.rms, m.hf_ratio, None, "",
-                      _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started)
+                      _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started,
+                      peak_db=catch.peak_db, carrier_s=0.0)
         log_debug(f"[scanner] noise on {catch.freq_hz / MHZ:.4f} MHz, {catch.seconds:.0f}s: no carrier in the audio")
         return
     known = ledger.channel(catch.freq_hz) or {}
@@ -441,7 +449,8 @@ def classify(catch) -> None:
                 _id_clips[catch.freq_hz] = catch.started
     clip = _save_clip(catch.audio, catch.freq_hz, catch.started) if keep else None
     ledger.record(catch.freq_hz, kind, round(catch.seconds, 1), m.rms, m.hf_ratio, clip, transcript,
-                  _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started)
+                  _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started,
+                  peak_db=catch.peak_db, carrier_s=round(len(signal) / rtl.SAMPLE_RATE, 1))
     label = (ledger.channel(catch.freq_hz) or {}).get("label") or _service_of(catch.freq_hz)
     # Carriers are routine and frequent: below the dashboard's live log.
     (log_debug if kind == "carrier" else log_info)(
@@ -591,17 +600,100 @@ class _PcmStream:
         return self.source.read()
 
 
-async def _watch(net: Optional[dict] = None) -> None:
+# The running watch's command queue and process: a tune, back to scan, gain
+# and the learned habits reach the child through it without restarting it.
+_control = None
+_proc = None
+# Lockouts the last watch had in force — (freq, until) — so a new watch tonight
+# doesn't spend a minute rediscovering each constant carrier.
+_lockouts_mem: list = []
+HABITS_REFRESH_S = 600
+
+
+def _child_alive() -> bool:
+    return _control is not None and _proc is not None and _proc.is_alive()
+
+
+def _send(cmd: dict) -> bool:
+    """A command for the running watch; False if no watch can take it."""
+    if not _child_alive():
+        return False
+    try:
+        _control.put_nowait(cmd)
+        return True
+    except Exception:
+        return False
+
+
+def _pin_cmd(pin: dict) -> dict:
+    return {"op": "tune", "freq": int(pin["freq_hz"]), "until": float(pin["until"]), "label": pin.get("label", "")}
+
+
+def habits() -> dict:
+    """Habitual data channels: freq -> the longest burst it usually sends (s).
+    A habitual channel's bursts are noted, not held (waterfall.Sighting) —
+    unless one runs longer than this. Never a channel with a voice catch, a
+    bookmark marked priority, or a configured one."""
+    from utils.radio import bookmarks
+    keep = {c["freq_hz"] for c in seed_channels() if c.get("source") != "found"} | set(bookmarks.marks()[0])
+    return {f: s for f, s in ledger.habitual().items() if not any(abs(f - k) <= 3000 for k in keep)}
+
+
+_gain_live: Optional[float] = None
+_habits_cache: dict = {"t": 0.0, "v": {}}
+
+
+def set_gain(db: float) -> str:
+    """Tuner gain for the running watch, live (the configured gain is untouched)."""
+    global _gain_live
+    db = max(0.0, min(49.6, float(db)))
+    if not _send({"op": "gain", "db": db}):
+        return "nothing is listening right now"
+    _gain_live = db
+    return f"gain {db:.1f} dB"
+
+
+def live_gain() -> Optional[float]:
+    return _gain_live if _child_alive() else None
+
+
+def habits_cached(ttl: float = 300.0) -> dict:
+    if time.time() - _habits_cache["t"] > ttl:
+        try:
+            _habits_cache.update(t=time.time(), v=habits())
+        except Exception:
+            _habits_cache["t"] = time.time()
+    return _habits_cache["v"]
+
+
+def habit_count() -> int:
+    return len(_habits_cache["v"])
+
+
+def push_marks() -> None:
+    """Bookmarks marked priority or ignore, to the running watch."""
+    from utils.radio import bookmarks
+    pri, ign = bookmarks.marks()
+    _send({"op": "marks", "priority": pri, "ignore": ign})
+
+
+def _scan_wanted() -> bool:
+    return within_hours() or listening_along() or bool(asked())
+
+
+async def _watch(pin: Optional[dict] = None) -> None:
     """Hold the dongle and run the waterfall until the window closes or a live
-    listen asks for it — or, with `net`, sit on that one channel until the net
-    ends. The watcher runs in a child process (waterfall.child_main) so
-    librtlsdr's C-level prints can't reach the dashboard's terminal."""
+    listen asks for it. The watcher runs in a child process
+    (waterfall.child_main) so librtlsdr's C-level prints can't reach the
+    dashboard's terminal. This coroutine supervises it: a tune, a net coming
+    due, a tune running out and back to scan are commands to the same child,
+    never a restart."""
     import multiprocessing as mp
     import threading
     from utils.radio import waterfall
-    global _running, _failed_at, _stop_event, _pinned
+    global _running, _failed_at, _stop_event, _pinned, _squelch_value, _control, _proc
     _running = True
-    _pinned = net
+    _pinned = pin
     # fork, not spawn: spawn re-imports the main module, and Kaiacord.py imports
     # the whole bot at top level. The child touches only numpy, ctypes and the
     # watcher — no logging or other lock another thread might hold.
@@ -611,15 +703,16 @@ async def _watch(net: Optional[dict] = None) -> None:
     _stops.add(stop)
     catches, audio, passes = ctx.Queue(), ctx.Queue(maxsize=600), ctx.Value("i", 0)
     spectra = ctx.Queue(maxsize=400)              # what the receiver dashboard draws (rx_scope)
-    global _squelch_value
+    control = ctx.Queue()
     _squelch_value = ctx.Value("b", 1 if _squelch_open else 0)
+    proc = None
 
     def _consume():
         while True:
             try:
                 c = catches.get(timeout=5)
             except Exception:
-                if not proc.is_alive():
+                if proc is None or not proc.is_alive():
                     return
                 continue
             if c is None:
@@ -647,46 +740,70 @@ async def _watch(net: Optional[dict] = None) -> None:
     try:
         async with rtl.DEVICE:
             rtl.YIELD.clear()
-            mode, freq, until = ("pinned", net["freq_hz"], net["until"]) if net else ("hop", 0, 0.0)
             # The hop plan keeps every seeded and configured channel out of a
             # slice's blind centre; config is read here, before the fork.
             seeded = seed_channels()
             hops = waterfall.hop_plan([c["freq_hz"] for c in seeded])
             digital = [c["freq_hz"] for c in seeded if c.get("mode") == "digital"]
+            learned = await asyncio.to_thread(habits)
+            _habits_cache.update(t=time.time(), v=learned)
+            now = time.time()
+            carried_over = [(f, until - now) for f, until in _lockouts_mem if until > now + 5]
             proc = ctx.Process(target=waterfall.child_main, name="kaia-scanner", daemon=True,
-                               args=(mode, freq, until, float(_cfg("gain", rtl.DEFAULT_GAIN)), rtl.ppm(),
-                                     stop, catches, audio, passes, hops, spectra, digital, _squelch_value))
+                               args=(_pin_cmd(pin) if pin else None, float(_cfg("gain", rtl.DEFAULT_GAIN)), rtl.ppm(),
+                                     stop, catches, audio, passes, hops, spectra, digital, _squelch_value,
+                                     control, learned, carried_over))
             proc.start()
+            _control, _proc = control, proc
+            push_marks()
             consumer = threading.Thread(target=_consume, name="scanner-classify", daemon=True)
             forwarder = threading.Thread(target=_forward, name="scanner-audio", daemon=True)
             scoper = threading.Thread(target=_scope, name="scanner-scope", daemon=True)
             consumer.start()
             forwarder.start()
             scoper.start()
-            if net:
-                log_info(f"[scanner] net watch on {net['freq_hz'] / MHZ:.4f} MHz ({net['label']}) until "
-                         f"{datetime.fromtimestamp(net['until']):%H:%M}")
+            if pin:
+                log_info(f"[scanner] watch on {pin['freq_hz'] / MHZ:.4f} MHz ({pin.get('label', '')}) until "
+                         f"{datetime.fromtimestamp(pin['until']):%H:%M}")
             else:
-                log_info("[scanner] waterfall watch started")
-            started = time.time()
+                log_info(f"[scanner] waterfall watch started ({len(learned)} habitual data channels noted, not held)")
+            started = refreshed = time.time()
             while proc.is_alive():
                 if rtl.YIELD.is_set() or not _cfg("enabled", True):
                     stop.set()
-                elif not net and (due_net() or tuned() or not (within_hours() or listening_along() or asked())):
-                    stop.set()                     # a net is starting, a tune asked for, or the night is over
-                await asyncio.sleep(1)
+                else:
+                    want = tuned() or due_net()
+                    cur = _pinned
+                    if want and (cur is None or (want["freq_hz"], want["until"]) != (cur["freq_hz"], cur["until"])):
+                        if _send(_pin_cmd(want)):
+                            _pinned = want
+                    elif not want and cur is not None:
+                        if _scan_wanted():
+                            _send({"op": "scan"})
+                            _pinned = None
+                        else:
+                            stop.set()               # the tune or the net is over, and so is the night
+                    elif not want and not _scan_wanted():
+                        stop.set()
+                if time.time() - refreshed > HABITS_REFRESH_S:
+                    refreshed = time.time()
+                    learned = await asyncio.to_thread(habits)
+                    _habits_cache.update(t=time.time(), v=learned)
+                    _send({"op": "habits", "habits": learned})
+                await asyncio.sleep(0.25)
             await asyncio.to_thread(proc.join, 5)
             if proc.exitcode not in (0, None) and time.time() - started < 30:
                 raise RuntimeError(f"the scanner process exited with code {proc.exitcode} — "
                                    "is the RTL-SDR busy or unplugged?")
+        _remember_lockouts()
         # The dongle is free: the next watch may start now. Finishing the last
         # classifications (Whisper on a catch can take a minute) and the night's
         # picture and notebook happen after, holding nothing — a tune waited on
         # all of it and gave up.
-        _release(stop, net)
-        log_info(f"[scanner] {'net' if net else 'waterfall'} watch stopped after {passes.value} passes")
+        _release(stop, pin)
+        log_info(f"[scanner] watch stopped after {passes.value} passes")
         await asyncio.to_thread(consumer.join, 120)
-        if not net:
+        if not pin:
             await asyncio.to_thread(_save_night)
             await asyncio.to_thread(refresh_notebook)
     except Exception as e:
@@ -695,17 +812,27 @@ async def _watch(net: Optional[dict] = None) -> None:
     finally:
         from utils.radio import transcribe
         transcribe.release_if_idle()
-        _release(stop, net)
+        _release(stop, pin)
+
+
+def _remember_lockouts() -> None:
+    global _lockouts_mem
+    try:
+        from utils.radio.rx_scope import scope
+        at = scope.updated or time.time()
+        _lockouts_mem = [(int(f), at + float(left)) for f, left in scope.lockouts]
+    except Exception:
+        pass
 
 
 def _release(stop, net) -> None:
     """This watch no longer holds or waits for the dongle."""
-    global _running, _stop_event, _pinned
+    global _running, _stop_event, _pinned, _control, _proc, _gain_live
     if stop not in _stops:
         return
     _stops.discard(stop)
     if _stop_event is stop:
-        _stop_event, _pinned = None, None
+        _stop_event, _pinned, _control, _proc, _gain_live = None, None, None, None, None
     _running = bool(_stops)
 
 
@@ -727,9 +854,10 @@ def _save_night() -> None:
 
 # ── Tuned from the receiver dashboard ───────────────────────────────────────
 # A click on the dashboard's waterfall sits the dongle on one channel for a
-# while, exactly as a configured net does (`_watch(net)`): each transmission
-# held, recorded and classified. Outside the scanning hours too — the dongle
-# is idle then. A live listen in voice still has the dongle first.
+# while, exactly as a configured net does: each transmission held, recorded
+# and classified. Outside the scanning hours too — the dongle is idle then. A
+# running watch takes the tune in place (`tune_now`); only an idle dongle
+# starts a watch for it. A live listen in voice still has the dongle first.
 _tuned: Optional[dict] = None
 
 
@@ -754,11 +882,37 @@ def tuned() -> Optional[dict]:
     return _tuned if _tuned and _tuned["until"] > time.time() else None
 
 
+def _local_live() -> bool:
+    from utils.radio import live
+    return any(getattr(s, "local", False) for s in live.active())
+
+
+def tune_now(freq_hz: int, minutes: float = 15.0) -> Optional[str]:
+    """Sit the running watch on `freq_hz` now, from any thread — a command to
+    the child, applied within one read. None when no watch is running to take
+    it (`tune` then starts one)."""
+    global _tuned, _pinned
+    if not _child_alive():
+        return None
+    if _local_live():
+        return "the dongle is playing live in voice — stop that first"
+    freq_hz = snap_channel(int(freq_hz))
+    t = {"freq_hz": freq_hz, "until": time.time() + minutes * 60,
+         "label": f"tuned from the dashboard · {freq_hz / MHZ:.4f} MHz"}
+    if not _send(_pin_cmd(t)):
+        return None
+    _tuned = _pinned = t
+    log_debug(f"[scanner] tuned to {freq_hz / MHZ:.4f} MHz from the receiver dashboard for {minutes:g} min")
+    return f"on {freq_hz / MHZ:.4f} MHz for {minutes:g} minutes"
+
+
 async def tune(freq_hz: int, minutes: float = 15.0) -> str:
     """Sit on `freq_hz` for `minutes`. Returns what happened, for the page."""
     global _tuned
-    from utils.radio import live
-    if any(getattr(s, "local", False) for s in live.active()):
+    said = tune_now(freq_hz, minutes)
+    if said is not None:
+        return said
+    if _local_live():
         return "the dongle is playing live in voice — stop that first"
     if not rtl.available():
         return "the RTL-SDR isn't connected"
@@ -770,8 +924,31 @@ async def tune(freq_hz: int, minutes: float = 15.0) -> str:
     return f"on {freq_hz / MHZ:.4f} MHz for {minutes:g} minutes"
 
 
+def untune_now() -> Optional[str]:
+    """Leave the tuned channel, from any thread: back to the scan, onto a net
+    that is due, or off. None when no watch is running."""
+    global _tuned, _pinned
+    _tuned = None
+    if not _child_alive():
+        return None
+    net = due_net()
+    if net:
+        _send(_pin_cmd(net))
+        _pinned = net
+        return f"back on the net, {net['freq_hz'] / MHZ:.4f}"
+    if _scan_wanted():
+        _send({"op": "scan"})
+        _pinned = None
+        return "back to the scan"
+    _stop_all()
+    return "off — the scan runs " + _hours_text()
+
+
 async def untune() -> str:
     global _tuned
+    said = untune_now()
+    if said is not None:
+        return said
     _tuned = None
     await _restart()
     return "back to the scan" if within_hours() or asked() else "off — the scan runs " + _hours_text()
@@ -811,6 +988,10 @@ async def start_scan(minutes: float = 30.0) -> str:
     if _running and not _pinned:
         return f"already scanning — kept going for {minutes:g} minutes"
     _tuned = None
+    if _child_alive() and not due_net():
+        _send({"op": "scan"})                 # off the tuned channel, in place
+        globals()["_pinned"] = None
+        return f"scanning for {minutes:g} minutes"
     if not _running and rtl.DEVICE.locked():
         return "the dongle is busy"
     ledger.seed(seed_channels())
@@ -925,7 +1106,7 @@ def tick(now: Optional[datetime] = None) -> bool:
         return False
     if time.time() - _failed_at < FAIL_BACKOFF_S:
         return False
-    net = due_net(now) or tuned()
+    net = tuned() or due_net(now)
     if not net and not within_hours(now) and not asked():
         return False
     ledger.seed(seed_channels())

@@ -311,7 +311,7 @@ def test_a_conversation_is_followed_into_one_recording(monkeypatch):
     assert first.seconds >= 63 + 4 - 40 + w.FOLLOW_IDLE_S - 3            # stayed through the replies, then waited
     kept = len(first.audio) / w.AUDIO_FS
     assert 15 - 2 <= kept <= 15 + 3 * (w.SILENCE_S + 0.5)                # three overs, gaps trimmed
-    assert w.voice_like(first.audio) and any(not c.any() for c in heard if len(c) == w.AUDIO_FS // 5)
+    assert w.voice_like(first.audio) and any(not c.any() for c in heard if len(c) == int(w.AUDIO_FS * w.HOLD_CHUNK_S))
 
 
 def test_a_data_burst_is_not_followed(monkeypatch):

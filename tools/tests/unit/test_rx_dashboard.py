@@ -65,11 +65,16 @@ def test_the_watcher_feeds_the_scope_every_visit_and_pass(monkeypatch):
                         hops=w.hop_plan([c["freq_hz"] for c in scanner.seed_channels()]))
     watcher.run()
     kinds = {m["kind"] for m in got}
-    states = {m.get("state") for m in got if m["kind"] == "spec"}
-    assert kinds == {"spec", "pass"} and "hop" in states and states & {"hold", "follow"}
-    # Hopping: every SCOPE_STEP-th bin. On one channel: every bin, for the full-width span.
-    assert all(len(m["spec"]) == w.NFFT // w.Watcher.SCOPE_STEP for m in got if m["kind"] == "spec" and m["state"] == "hop")
-    assert all(len(m["spec"]) == w.NFFT for m in got if m["kind"] == "spec" and m["state"] != "hop")
+    assert kinds == {"spec", "span", "pass"}
+    # Hopping: every SCOPE_STEP-th bin of each slice, for the band panoramas.
+    assert {m["state"] for m in got if m["kind"] == "spec"} == {"hop"}
+    assert all(len(m["spec"]) == w.NFFT // w.Watcher.SCOPE_STEP for m in got if m["kind"] == "spec")
+    # On a channel: the span as quantized SPAN_NFFT-bin rows, at SPAN_FPS.
+    spans = [m for m in got if m["kind"] == "span"]
+    assert {m["state"] for m in spans} & {"hold", "follow"}
+    assert all(len(m["row"]) == w.SPAN_NFFT and m["row"].dtype == np.uint8 for m in spans)
+    held = (spans[-1]["t"] - spans[0]["t"]) or 1
+    assert len(spans) / held >= w.SPAN_FPS * 0.8
 
 
 def test_the_dashboard_serves_state_and_refuses_a_path(monkeypatch):
@@ -164,7 +169,8 @@ def test_a_wide_band_keeps_the_watchers_resolution():
     row = rx_scope.quantize(b.row)
     c1, c2 = (int(round(b.col(f))) for f in (430_300_000, 430_312_500))
     mid = row[(c1 + c2) // 2]
-    assert row[c1] > 200 and row[c2] > 200 and mid < min(row[c1], row[c2])     # two peaks, a dip between
+    high = 0.8 * 255 * (30 - rx_scope.LOW_DB) / rx_scope.SPAN_DB                # most of a 30 dB peak, on the scale
+    assert row[c1] > high and row[c2] > high and mid < min(row[c1], row[c2])     # two peaks, a dip between
 
 
 def test_the_overview_lays_every_band_low_to_high_a_row_a_pass():

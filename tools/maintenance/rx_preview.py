@@ -6,10 +6,16 @@ time — FM voice and tone transmissions keying up on the seeded channels across
 the voice bands — and serves the real receiver dashboard on it. The sweep,
 holds, follows, lockouts, waterfalls and monitor audio are all the scanner's
 own; only the radio is pretend. Nothing is written to the ledger: catches are
-dropped, and tune/scan buttons answer that the bot's loop isn't here.
+dropped. Tuning, back to scan and gain work as in the bot (commands to the
+watcher); ▶ SCAN/STOP answer that the bot's loop isn't here.
 
     venv/bin/python3 tools/maintenance/rx_preview.py            # then open the printed address
     venv/bin/python3 tools/maintenance/rx_preview.py --busy 3   # three times the traffic
+    venv/bin/python3 tools/maintenance/rx_preview.py --real     # the real RTL-SDR, no bot
+
+--real opens the dongle itself: only while the bot's scanner isn't using it
+(outside the nightly hours, no ▶ SCAN, no tune) — the bot's watch fails
+"busy" and waits 15 minutes otherwise.
 
 For looking at the page while working on it. Never start this while the bot's
 own scanner holds the dongle — it doesn't touch the dongle, but the dashboard
@@ -90,31 +96,62 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--busy", type=float, default=1.0, help="traffic multiplier (default 1)")
     ap.add_argument("--port", type=int, default=0, help="dashboard port (default: the configured one, else free)")
+    ap.add_argument("--real", action="store_true", help="the real RTL-SDR instead of a simulated sky")
     a = ap.parse_args()
 
+    import shutil
+    import tempfile
     import utils.radio.dongle as dongle
-    from utils.radio import rtl, rx_dashboard, scanner
+    from utils.radio import bookmarks, ledger, rtl, rx_dashboard, scanner
     from utils.radio.rx_scope import scope
+
+    # A copy of the ledger and bookmarks, so the page shows real channels and
+    # nothing the preview does (a bookmark, a migration) touches the bot's files.
+    work = Path(tempfile.mkdtemp(prefix="rx-preview-"))
+    for real, name in ((ledger.path(), "ledger.sqlite3"), (bookmarks.path(), "bookmarks.json")):
+        if real.exists():
+            shutil.copy2(real, work / name)
+    ledger.telemetry_path = lambda p: str(work / "ledger.sqlite3")
+    bookmarks.telemetry_path = lambda p: str(work / "bookmarks.json")
 
     txs: list = []
     sky = PacedSky(txs)
     stop = threading.Event()
-    dongle.Dongle = lambda **k: sky                         # the Watcher opens "the dongle": this
+    if not a.real:
+        dongle.Dongle = lambda **k: sky                     # the Watcher opens "the dongle": this
     scanner.running = lambda: True                          # the dashboard shows what a running watch would
     rtl.available = lambda: True
     if a.port:
         rx_dashboard._cfg = (lambda real: (lambda k, d: a.port if k == "dashboard_port" else real(k, d)))(rx_dashboard._cfg)
 
+    import queue
     channels = [c["freq_hz"] for c in scanner.seed_channels()]
+    control: "queue.Queue" = queue.Queue()
+
+    def drain() -> list:
+        out = []
+        while True:
+            try:
+                out.append(control.get_nowait())
+            except queue.Empty:
+                return out
     watcher = w.Watcher(lambda catch: None, stop=stop, scope=scope.feed, sink=rx_dashboard.audio,
-                        hops=w.hop_plan(channels), squelch_open=scanner.squelch_open)
-    threading.Thread(target=traffic, args=(channels, a.busy, stop, txs, sky.t0), daemon=True).start()
+                        hops=w.hop_plan(channels), squelch_open=scanner.squelch_open, control=drain,
+                        gain_db=float(scanner._cfg("gain", rtl.DEFAULT_GAIN)), ppm=rtl.ppm(),
+                        habits=scanner.habits() if a.real else None)
+    # Tunes from the page reach this watcher the way they reach the bot's
+    # child: as commands, applied in place (scanner.tune_now).
+    scanner._control = control
+    scanner._proc = type("Alive", (), {"is_alive": staticmethod(lambda: True)})()
+    scanner._asked = {"until": time.time() + 10 * 86400, "seen": time.time()}     # as if ▶ SCAN: back-to-scan scans
+    if not a.real:
+        threading.Thread(target=traffic, args=(channels, a.busy, stop, txs, sky.t0), daemon=True).start()
     threading.Thread(target=watcher.run, name="rx-preview-watch", daemon=True).start()
 
     async def _serve():
         return rx_dashboard.serve()
     url = asyncio.run(_serve())
-    print(f"KAIA//RX preview (simulated sky, {len(channels)} seeded channels) at {url}  — Ctrl-C to stop")
+    print(f"KAIA//RX preview ({'the real dongle' if a.real else 'simulated sky'}, {len(channels)} seeded channels) at {url}  — Ctrl-C to stop")
     try:
         while True:
             time.sleep(1)

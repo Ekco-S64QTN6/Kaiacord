@@ -3,7 +3,12 @@ about, what is on it, and when it is active.
 
 SQLite at memory/radio/local_ledger.sqlite3 (a test file under pytest). Two
 tables: `channels`, one row per frequency with running counts and a 24-hour
-activity histogram in local time, and `events`, one row per catch.
+activity histogram in local time, and `events`, one row per catch — and one
+per burst on a habitual data channel the watch noted without holding
+(kind 'seen', no audio), so that channel's timing and hours stay measured.
+
+Connections are kept per thread (the dashboard's stream asks ten times a
+second; each call used to open the file and run the schema).
 """
 from __future__ import annotations
 
@@ -40,7 +45,7 @@ CREATE TABLE IF NOT EXISTS events (
     freq_hz     INTEGER,
     ts          REAL,
     seconds     REAL,
-    kind        TEXT,              -- 'voice' | 'data' | 'carrier' | 'noise' (hiss that tripped the trigger)
+    kind        TEXT,              -- 'voice' | 'data' | 'carrier' | 'noise' (hiss that tripped the trigger) | 'seen'
     rms         REAL,
     hf_ratio    REAL,
     clip        TEXT,
@@ -48,6 +53,10 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
 """
+#: Columns added since the first schema: (name, type). Added in place, never dropped.
+EVENT_COLUMNS = (("peak_db", "REAL"),       # dB over the slice's floor when it triggered
+                 ("carrier_s", "REAL"))     # seconds of the recording with a carrier under them
+_local = threading.local()
 
 
 def path() -> Path:
@@ -55,11 +64,23 @@ def path() -> Path:
 
 
 def _db() -> sqlite3.Connection:
-    p = path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(p)
-    con.row_factory = sqlite3.Row
-    con.executescript(SCHEMA)
+    p = str(path())
+    cons = getattr(_local, "cons", None)
+    if cons is None:
+        cons = _local.cons = {}
+    con = cons.get(p)
+    if con is None:
+        Path(p).parent.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(p, timeout=10)
+        con.row_factory = sqlite3.Row
+        con.executescript(SCHEMA)
+        have = {r[1] for r in con.execute("PRAGMA table_info(events)")}
+        for name, typ in EVENT_COLUMNS:
+            if name not in have:
+                con.execute(f"ALTER TABLE events ADD COLUMN {name} {typ}")
+        con.execute("CREATE INDEX IF NOT EXISTS events_freq_ts ON events(freq_hz, ts)")
+        con.commit()
+        cons[p] = con
     return con
 
 
@@ -82,15 +103,17 @@ def note_probe(freq_hz: int, band: str = "", service: str = "") -> None:
 
 def record(freq_hz: int, kind: str, seconds: float, rms: float, hf_ratio: float,
            clip: Optional[str] = None, transcript: str = "", band: str = "", service: str = "",
-           when: Optional[float] = None) -> None:
+           when: Optional[float] = None, peak_db: Optional[float] = None,
+           carrier_s: Optional[float] = None) -> None:
     when = when or time.time()
     hour = time.localtime(when).tm_hour
     with _lock, _db() as con:
         if kind == "noise":
             # Hiss is not a channel: it's kept as an event, for counting how
             # often the trigger trips, and never adds a row or a hit.
-            con.execute("INSERT INTO events (freq_hz, ts, seconds, kind, rms, hf_ratio, clip, transcript) "
-                        "VALUES (?, ?, ?, ?, ?, ?, NULL, '')", (int(freq_hz), when, seconds, kind, rms, hf_ratio))
+            con.execute("INSERT INTO events (freq_hz, ts, seconds, kind, rms, hf_ratio, clip, transcript, "
+                        "peak_db, carrier_s) VALUES (?, ?, ?, ?, ?, ?, NULL, '', ?, ?)",
+                        (int(freq_hz), when, seconds, kind, rms, hf_ratio, peak_db, carrier_s))
             return
         con.execute("INSERT OR IGNORE INTO channels (freq_hz, band, service, label, source, first_seen) "
                     "VALUES (?, ?, ?, '', 'found', ?)", (int(freq_hz), band, service, when))
@@ -104,9 +127,9 @@ def record(freq_hz: int, kind: str, seconds: float, rms: float, hf_ratio: float,
             "last_transcribed = CASE WHEN ? != '' THEN ? ELSE last_transcribed END WHERE freq_hz = ?",
             (1 if kind == "voice" else 0, 1 if kind == "data" else 0, json.dumps(hours), when, when,
              transcript, transcript, when, int(freq_hz)))
-        con.execute("INSERT INTO events (freq_hz, ts, seconds, kind, rms, hf_ratio, clip, transcript) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (int(freq_hz), when, seconds, kind, rms, hf_ratio, clip, transcript))
+        con.execute("INSERT INTO events (freq_hz, ts, seconds, kind, rms, hf_ratio, clip, transcript, "
+                    "peak_db, carrier_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (int(freq_hz), when, seconds, kind, rms, hf_ratio, clip, transcript, peak_db, carrier_s))
 
 
 def catches_since(ts: float) -> list[dict]:
@@ -114,7 +137,8 @@ def catches_since(ts: float) -> list[dict]:
     display and stops at its limit, which a busy night passes."""
     with _lock, _db() as con:
         return [dict(r) for r in con.execute(
-            "SELECT freq_hz, kind, ts FROM events WHERE ts >= ? AND kind != 'noise' ORDER BY ts", (float(ts),))]
+            "SELECT freq_hz, kind, ts FROM events WHERE ts >= ? AND kind NOT IN ('noise', 'seen') ORDER BY ts",
+            (float(ts),))]
 
 
 def forget_clips(names: list[str]) -> None:
@@ -186,3 +210,84 @@ def merge(src_hz: int, dst_hz: int) -> None:
         con.execute("UPDATE events SET freq_hz = ? WHERE freq_hz = ?", (int(dst_hz), int(src_hz)))
         if src["source"] != "listed":
             con.execute("DELETE FROM channels WHERE freq_hz = ?", (int(src_hz),))
+
+
+# ── What the ledger says about a channel's habits ───────────────────────────
+
+#: A channel is habitual data once it has keyed up this often in HABIT_DAYS,
+#: never with a voice catch, with at least HABIT_HELD recordings to measure its
+#: bursts from.
+HABIT_MIN_HITS = 30
+HABIT_DAYS = 7.0
+HABIT_HELD = 10
+HABIT_MIN_BURST_S = 4.0
+
+
+def habitual(now: Optional[float] = None) -> dict:
+    """{freq: longest usual burst in seconds} for channels that only ever send
+    short bursts with no voice — telemetry, polled data, trunking. The burst is
+    the 90th percentile of what was recorded (which includes the silence the
+    hold waited out), so a transmission longer than that is something else."""
+    import numpy as np
+    since = (now or time.time()) - HABIT_DAYS * 86400
+    with _lock, _db() as con:
+        counts = {r[0]: r[1] for r in con.execute(
+            "SELECT freq_hz, COUNT(*) FROM events WHERE ts >= ? AND kind IN ('carrier', 'data', 'seen') "
+            "GROUP BY freq_hz", (since,))}
+        voiced = [r[0] for r in con.execute("SELECT freq_hz FROM channels WHERE voice > 0")]
+        out = {}
+        for f, n in counts.items():
+            if n < HABIT_MIN_HITS or any(abs(f - v) <= 3000 for v in voiced):
+                continue
+            secs = [r[0] for r in con.execute(
+                "SELECT seconds FROM events WHERE freq_hz = ? AND kind IN ('carrier', 'data') "
+                "ORDER BY ts DESC LIMIT 200", (f,))]
+            if len(secs) >= HABIT_HELD:
+                out[int(f)] = round(max(HABIT_MIN_BURST_S, float(np.percentile(secs, 90))), 1)
+    return out
+
+
+def period_of(ts: list, tol_s: float = 2.6, pmin: float = 15.0, pmax: float = 900.0,
+              kmax: int = 12) -> tuple:
+    """(period in seconds, confidence 0..1) of a channel that keys up on a
+    timer, from when it was heard. Each gap between catches is tested against
+    whole multiples of a candidate period (the sweep misses most bursts, so a
+    gap is usually several periods), within `tol_s` — a pass of the sweep, the
+    jitter in when a burst is first seen. Confidence is the share of gaps that
+    fit, above what chance alone would fit at that period: 0.5 and up is a
+    timer. (None, 0.0) when there are too few gaps to say."""
+    import numpy as np
+    t = np.sort(np.asarray(ts, dtype=float))
+    gaps = np.diff(t)
+    gaps = gaps[(gaps > 3) & (gaps < pmax * kmax)]
+    if len(gaps) < 12:
+        return None, 0.0
+    P = np.exp(np.arange(np.log(pmin), np.log(pmax), 0.002))
+    k = np.round(gaps[None, :] / P[:, None])
+    ok = (k >= 1) & (k <= kmax)
+    tol = np.maximum(tol_s, 0.015 * P)[:, None]
+    fit = ((np.abs(gaps[None, :] - k * P[:, None]) <= tol) & ok).sum(axis=1) / np.maximum(ok.sum(axis=1), 1)
+    chance = np.minimum(1.0, 2 * tol[:, 0] / P)
+    score = (fit - chance) / (1 - chance + 1e-9) * (ok.sum(axis=1) / len(gaps))
+    i = int(np.argmax(score))
+    return float(P[i]), float(max(0.0, score[i]))
+
+
+def heard_at(freq_hz: int, since: float) -> list:
+    """When a channel keyed up since `since` (every kind but noise)."""
+    with _lock, _db() as con:
+        return [r[0] for r in con.execute(
+            "SELECT ts FROM events WHERE freq_hz = ? AND ts >= ? AND kind != 'noise' ORDER BY ts",
+            (int(freq_hz), float(since)))]
+
+
+def events_since(ts: float, kinds: Optional[tuple] = None) -> list:
+    """Every event since `ts` with its channel's label, oldest first."""
+    q, args = "", [float(ts)]
+    if kinds:
+        q = f" AND e.kind IN ({','.join('?' * len(kinds))})"
+        args += list(kinds)
+    with _lock, _db() as con:
+        return [dict(r) for r in con.execute(
+            "SELECT e.*, c.label, c.service, c.first_seen, c.hits AS ch_hits, c.voice AS ch_voice, c.hours "
+            f"FROM events e LEFT JOIN channels c USING (freq_hz) WHERE e.ts >= ?{q} ORDER BY e.ts", args)]

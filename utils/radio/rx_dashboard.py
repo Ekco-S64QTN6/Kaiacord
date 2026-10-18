@@ -10,13 +10,19 @@ that channel for a while (`scanner.tune`); ▶ SCAN runs the scan outside the
 nightly hours while the page is open (`scanner.start_scan`).
 
 Served from 127.0.0.1 only: `assets/rx/index.html`, `/events` (state, ten a
-second), `/waterfall/<band>`, `/overview` (every band side by side, a row a
-pass), `/kaia/...` (the shared Kaia avatar engine and portraits in
-`assets/kaia-avatar/`), `/ledger`, `/catches`, `/clip/<name>`,
-`/spec/<name>`, `/night/<name>`, `/log` (every catch but noise), `/audio`
-(the monitor: raw 12 kHz s16le, silent while hopping), and POST `/tune`,
-`/scan` (leave a tuned channel), `/start`, `/stop`. `!scanner dash` opens the window; nothing opens it
-at night unasked.
+second), `/span` (the TUNED span: binary, a row the moment the watcher makes
+one, ~30 a second), `/waterfall/<band>`, `/overview` (every band side by side,
+a row a pass), `/kaia/...` (the shared Kaia avatar engine and portraits in
+`assets/kaia-avatar/`), `/ledger`, `/channels` (each with what it does),
+`/highlights` (what is worth a look, and why), `/catches`, `/clip/<name>`,
+`/spec/<name>`, `/night/<name>`, `/log` (every catch but noise), `/bookmarks`
+and `/bookmarks.csv` (Gqrx's format), `/audio` (the monitor: raw 12 kHz s16le,
+silent while hopping), and POST `/tune`, `/scan` (leave a tuned channel),
+`/start`, `/stop`, `/squelch`, `/gain`, `/bookmarks`, `/bookmarks/delete`,
+`/bookmarks/import`. A tune or back-to-scan is applied in the request's own
+thread when a watch is running (`scanner.tune_now`): a command to the watcher,
+no trip through the bot's loop. `!scanner dash` opens the window; nothing
+opens it at night unasked.
 """
 from __future__ import annotations
 
@@ -105,10 +111,26 @@ def status() -> dict:
             "audio_level": _last_audio["level"] if time.time() - _last_audio["t"] < 1.5 else -90.0,
             "along": scanner.listening_along(), "kaia": _kaia_line(mode, freq, lv, tuned),
             "asked": scanner.asked(), "nightly": scanner.within_hours(), "cols": scope.cols,
+            "gain_live": scanner.live_gain(), "habits": scanner.habit_count(),
             "bands": scope.bands_info(), "overview": scope.overview_info(), "t": time.time()}
 
 
+_line_cache: dict = {"key": None, "t": 0.0, "line": ""}
+
+
 def _kaia_line(mode: str, freq: int, lv, tuned) -> str:
+    """Her line, worked out at most every two seconds per situation: the
+    stream asks ten times a second and the idle line counts last night."""
+    key = (mode, freq, bool((lv or {}).get("open")), int((tuned or {}).get("until", 0) // 60))
+    now = time.time()
+    if _line_cache["key"] == key and now - _line_cache["t"] < 2.0:
+        return _line_cache["line"]
+    line = _kaia_line_now(mode, freq, lv, tuned)
+    _line_cache.update(key=key, t=now, line=line)
+    return line
+
+
+def _kaia_line_now(mode: str, freq: int, lv, tuned) -> str:
     from utils.radio import ledger
     if mode in ("holding", "following", "tuned", "net") and freq:
         ch = ledger.channel(freq) or {}
@@ -149,6 +171,34 @@ def ledger_rows() -> list:
     return out[:200]
 
 
+_slow_cache: dict = {}
+
+
+def _cached(name: str, ttl: float, fn):
+    hit = _slow_cache.get(name)
+    if hit and time.time() - hit[0] < ttl:
+        return hit[1]
+    val = fn()
+    _slow_cache[name] = (time.time(), val)
+    return val
+
+
+def channel_rows() -> list:
+    from utils.radio import interest, scanner
+    return _cached("channels", 60, lambda: interest.channels(scanner.habits_cached()))
+
+
+def highlight_rows() -> dict:
+    from utils.radio import interest
+    return _cached("highlights", 20, lambda: {"top": interest.highlights(), "new": interest.new_channels()})
+
+
+def bookmark_rows() -> dict:
+    from utils.radio import bookmarks
+    d = bookmarks.load()
+    return {"tags": d["tags"], "items": d["items"], "gqrx": bookmarks.gqrx_available()}
+
+
 def catch_rows(limit: int = 40) -> list:
     from utils.radio import ledger, scanner
     folder = scanner._clips_dir()
@@ -165,13 +215,19 @@ def catch_rows(limit: int = 40) -> list:
     return rows
 
 
-def log_rows(limit: int = 150) -> list:
-    """Every catch but noise, newest first: the carriers `!scanner history`
-    folds into one line are listed here."""
+LOG_KINDS = ("voice", "data", "carrier", "seen", "noise")
+
+
+def log_rows(limit: int = 150, kinds: tuple = ("voice", "data", "carrier")) -> list:
+    """The ledger's events, newest first, of the kinds asked for: the carriers
+    `!scanner history` folds into one line are listed here, and so — when
+    asked — are the bursts noted on habitual channels and the noise triggers."""
     from utils.radio import ledger
+    kinds = tuple(k for k in kinds if k in LOG_KINDS) or ("voice", "data", "carrier")
     return [{"ts": e["ts"], "freq": e["freq_hz"], "kind": e["kind"], "seconds": e.get("seconds"),
-             "label": e.get("label") or e.get("service") or "", "transcript": e.get("transcript") or ""}
-            for e in ledger.recent(limit)]
+             "label": e.get("label") or e.get("service") or "", "transcript": e.get("transcript") or "",
+             "peak_db": e.get("peak_db")}
+            for e in ledger.recent(limit, kinds=kinds)]
 
 
 def nights() -> list:
@@ -235,12 +291,31 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(status())
             elif path == "/ledger":
                 self._json(ledger_rows())
+            elif path == "/channels":
+                self._json(channel_rows())
+            elif path == "/highlights":
+                self._json(highlight_rows())
+            elif path == "/bookmarks":
+                self._json(bookmark_rows())
+            elif path == "/bookmarks.csv":
+                from utils.radio import bookmarks
+                body = bookmarks.export_gqrx().encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition", 'attachment; filename="bookmarks.csv"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif path == "/span":
+                self._span_stream()
             elif path == "/catches":
                 self._json(catch_rows())
             elif path == "/nights":
                 self._json(nights())
             elif path == "/log":
-                self._json(log_rows())
+                from urllib.parse import parse_qs
+                q = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+                self._json(log_rows(kinds=tuple((q.get("kinds") or ["voice,data,carrier"])[0].split(","))))
             elif path == "/overview":
                 n, data, seq = scope.overview_since(0)
                 self._json({"rows": n, "data": data, "seq": seq})
@@ -273,6 +348,8 @@ class _Handler(BaseHTTPRequestHandler):
                     st = status()
                     rows = {}
                     for b in st["bands"]:
+                        if b["span"]:
+                            continue                         # the TUNED span has its own stream (/span)
                         n, data, seq = scope.rows_since(b["i"], seen.get(b["i"], b["seq"]), limit=40)
                         seen[b["i"]] = seq
                         if n:
@@ -314,6 +391,34 @@ class _Handler(BaseHTTPRequestHandler):
             pass
         except Exception as e:
             log_debug(f"[rx] {path}: {e}")
+
+    def _span_stream(self) -> None:
+        """The TUNED span as it is made: frames of [u32 header length][header
+        JSON][u32 row length][row], one per row. The page draws each the moment
+        it lands, so the waterfall runs at the watcher's pace (SPAN_FPS) with
+        no batching in between. A new connection first gets the history."""
+        import struct
+        from utils.radio import scanner
+        from utils.radio.rx_scope import scope
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        seq = max(0, scope.span.seq - len(scope.span.rows))
+        while _server is not None:
+            scanner.seen_by_dashboard()
+            rows = scope.span_since(seq, timeout=1.0)
+            if not rows:
+                self.wfile.write(struct.pack("<I", 0))              # a heartbeat: the page knows it is alive
+                self.wfile.flush()
+                continue
+            out = []
+            for sq, lo, hi, live, row in rows:
+                head = json.dumps({"seq": sq, "lo": lo, "hi": hi, **live}).encode()
+                out += [struct.pack("<I", len(head)), head, struct.pack("<I", len(row)), row]
+                seq = sq
+            self.wfile.write(b"".join(out))
+            self.wfile.flush()
 
     def _avatar(self, rel: str) -> None:
         """A file of the shared Kaia avatar (`kaia_avatar.resolve` checks the path)."""
@@ -362,7 +467,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
-        if not n or n > 2048:
+        if not n or n > 65536:
             return {}
         try:
             return json.loads(self.rfile.read(n) or b"{}")
@@ -370,16 +475,53 @@ class _Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_POST(self):
-        from utils.radio import scanner
+        from utils.radio import bookmarks, scanner
+        # Same-origin only: a page elsewhere cannot tune the dongle or edit bookmarks.
+        origin = self.headers.get("Origin")
+        if origin and origin.split("//", 1)[-1] != self.headers.get("Host", ""):
+            return self._send(403, b"", "text/plain")
         body = self._body()
+        try:
+            if self.path == "/bookmarks":
+                if not body.get("freq"):
+                    return self._json({"ok": False, "say": "a bookmark needs a frequency"})
+                b = bookmarks.upsert(body)
+                scanner.push_marks()
+                return self._json({"ok": True, "item": b, "say": f"bookmarked {b['freq'] / MHZ:.4f} · {b['name'] or b['tag']}"})
+            if self.path == "/bookmarks/delete":
+                gone = bookmarks.remove(int(body.get("freq") or 0))
+                scanner.push_marks()
+                return self._json({"ok": gone, "say": "bookmark removed" if gone else "no bookmark there"})
+            if self.path == "/bookmarks/import":
+                if body.get("text"):
+                    r = bookmarks.import_gqrx(str(body["text"]))
+                elif bookmarks.gqrx_available():
+                    r = bookmarks.import_gqrx()
+                else:
+                    return self._json({"ok": False, "say": "no Gqrx bookmarks found"})
+                scanner.push_marks()
+                return self._json({"ok": True, **r, "say": f"from Gqrx: {r['added']} added, {r['kept']} already here"})
+            if self.path == "/gain":
+                return self._json({"ok": True, "say": scanner.set_gain(float(body.get("db") or 0))})
+        except Exception as e:
+            log_warning(f"[rx] {self.path} failed: {e}")
+            return self._json({"ok": False, "say": str(e)})
+        if self.path == "/tune":
+            freq = int(float(body.get("freq") or 0))
+            if not 24 * MHZ <= freq <= 1_700 * MHZ:
+                return self._json({"ok": False, "say": "that's outside what the dongle can tune"})
+            minutes = min(60.0, max(1.0, float(body.get("minutes") or 15)))
+            said = scanner.tune_now(freq, minutes)
+            if said is not None:
+                return self._json({"ok": True, "say": said, "now": True})
+        elif self.path == "/scan":
+            said = scanner.untune_now()
+            if said is not None:
+                return self._json({"ok": True, "say": said, "now": True})
         if _loop is None:
             return self._json({"ok": False, "say": "the bot's loop isn't available"})
         try:
             if self.path == "/tune":
-                freq = int(float(body.get("freq") or 0))
-                if not 24 * MHZ <= freq <= 1_700 * MHZ:
-                    return self._json({"ok": False, "say": "that's outside what the dongle can tune"})
-                minutes = min(60.0, max(1.0, float(body.get("minutes") or 15)))
                 fut = asyncio.run_coroutine_threadsafe(scanner.tune(freq, minutes), _loop)
             elif self.path == "/scan":
                 fut = asyncio.run_coroutine_threadsafe(scanner.untune(), _loop)

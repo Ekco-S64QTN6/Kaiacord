@@ -53,8 +53,11 @@ def _rows() -> tuple[list[dict], list[dict]]:
 
 
 def _split(events: list[dict]) -> tuple[list[dict], int]:
-    """Catches, and how many trips were hiss with no carrier (kind noise)."""
-    return [e for e in events if e["kind"] != "noise"], sum(1 for e in events if e["kind"] == "noise")
+    """Catches, and how many trips were hiss with no carrier (kind noise).
+    Bursts the watch only noted on a habitual channel (kind seen) were never
+    recorded and have no length: they are not catches."""
+    return ([e for e in events if e["kind"] not in ("noise", "seen")],
+            sum(1 for e in events if e["kind"] == "noise"))
 
 
 def clip_profile(clip: Path) -> dict | None:

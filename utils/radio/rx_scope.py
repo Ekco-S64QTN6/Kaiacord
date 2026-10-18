@@ -30,7 +30,9 @@ import numpy as np
 
 from utils.radio import waterfall as wf
 
-COLS = 2048                       # the TUNED span's width (every bin) and a night picture's
+COLS = 2048                       # a night picture's width
+SPAN_COLS = wf.SPAN_NFFT          # the TUNED span: every bin of the receiver's own 2.4 MHz
+SPAN_ROWS = 900                   # ~30 s of it at SPAN_FPS
 COL_HZ = wf.FS / wf.NFFT * wf.Watcher.SCOPE_STEP   # a band column: the resolution the watcher sends while hopping
 MAX_COLS = 8192                   # a band's panorama width is its span / COL_HZ, up to this
 ROWS = 360                        # live waterfall history, per band
@@ -39,7 +41,7 @@ OV_ROWS = 600
 OV_MIN_SHARE = 0.06               # a narrow band still gets this much of the overview's width
 NIGHT_EVERY = 6                   # passes folded into one row of a night's picture
 NIGHT_ROWS = 2400
-LOW_DB, SPAN_DB = -6.0, 40.0      # relative dB shown, bottom of the colour scale and its span
+LOW_DB, SPAN_DB = wf.DISPLAY_LOW_DB, wf.DISPLAY_SPAN_DB   # relative dB shown: the colour scale's bottom and span
 
 NAMES = {
     (144_000_000, 148_000_000): "2 m",
@@ -104,10 +106,13 @@ class Scope:
         # The slice the watch is sitting on (a hold, a tune, a net), every bin of
         # it, a row per spectrum: the receiver's own span. Kept last in `bands`
         # so the page draws it like any band; its range moves with the dongle.
-        self.span = _Band(0, wf.FS, "TUNED", cols=COLS)
+        self.span = _Band(0, wf.FS, "TUNED", cols=SPAN_COLS)
         self.span.is_span = True
+        self.span.rows = deque(maxlen=SPAN_ROWS)
+        self.span_meta: deque = deque(maxlen=SPAN_ROWS)    # per span row: (seq, lo, hi, live dict)
         self.bands.append(self.span)
         self.lock = threading.Lock()
+        self.span_cv = threading.Condition(self.lock)
         self.live: Optional[dict] = None
         self.lockouts: list = []
         self.passes = 0
@@ -143,6 +148,10 @@ class Scope:
     def feed(self, msg: dict) -> None:
         with self.lock:
             self.updated = time.time()
+            if msg.get("kind") == "span":
+                self._feed_span_row(msg)
+                self.span_cv.notify_all()
+                return
             if msg.get("kind") == "pass":
                 self.passes = int(msg.get("pass", self.passes))
                 self.lockouts = list(msg.get("lockouts") or [])
@@ -177,6 +186,42 @@ class Scope:
                          "open": bool(msg.get("open")), "lo": float(freqs[0]), "hi": float(freqs[-1]),
                          "spec": quantize(rel)}
 
+    def _feed_span_row(self, msg: dict) -> None:
+        """A quantized row of the watch's own slice, as the watcher made it
+        (SPAN_NFFT bins, DC removed): nothing to compute here, in the bot."""
+        sp = self.span
+        center = int(msg["center"])
+        lo = center - wf.FS // 2
+        if sp.lo != lo:                                  # retuned: a new span
+            sp.lo, sp.hi = lo, center + wf.FS // 2
+            sp.rows.clear()
+            self.span_meta.clear()
+            sp.name = f"TUNED · {center / 1e6:.3f}"
+        row = np.asarray(msg["row"], dtype=np.uint8)
+        if len(row) != sp.cols:
+            row = np.interp(np.linspace(0, len(row) - 1, sp.cols), np.arange(len(row)), row).astype(np.uint8)
+        sp.rows.append(row)
+        sp.seq += 1
+        sp.touched = True
+        self.live = {"t": time.time(), "center": center, "state": msg.get("state", "pinned"),
+                     "freq": int(msg.get("freq") or 0), "level": float(msg.get("level") or 0.0),
+                     "open": bool(msg.get("open")), "lo": float(sp.lo), "hi": float(sp.hi), "spec": None}
+        self.span_meta.append((sp.seq, sp.lo, sp.hi, {k: self.live[k] for k in ("state", "freq", "level", "open")}))
+
+    def span_since(self, seq: int, timeout: float = 1.0) -> list:
+        """[(seq, lo, hi, live, row bytes)] newer than `seq`, waiting up to
+        `timeout` for one: the dashboard's span stream sends each row as it is
+        made, not batched into the state stream's tenths of a second."""
+        with self.span_cv:
+            if self.span.seq <= seq:
+                self.span_cv.wait(timeout)
+            n = min(self.span.seq - seq, len(self.span.rows))
+            if n <= 0:
+                return []
+            rows = list(self.span.rows)[-n:]
+            meta = list(self.span_meta)[-n:]
+            return [(m[0], m[1], m[2], m[3], r.tobytes()) for m, r in zip(meta, rows)]
+
     def _feed_span(self, center: int, spec: np.ndarray) -> None:
         """The watch's own slice, full width: every bin as measured (the tuner's
         centre spike included, as a receiver shows it), one row per spectrum."""
@@ -187,13 +232,15 @@ class Scope:
             sp.rows.clear()
             sp.name = f"TUNED · {center / 1e6:.3f}"
         n = len(spec)
-        row = np.interp(np.linspace(0, n - 1, self.cols), np.arange(n), spec) if n != self.cols else spec
+        row = np.interp(np.linspace(0, n - 1, COLS), np.arange(n), spec) if n != COLS else spec
         sp.row = (row - np.median(row)).astype(np.float32)
         sp.touched = True
-        # A row per spectrum: the watcher already holds them to its frame rate,
-        # and a hold's 0.2 s read arrives as several frames at once.
-        sp.rows.append(quantize(sp.row))
+        q = quantize(sp.row)
+        if len(q) != sp.cols:
+            q = np.interp(np.linspace(0, len(q) - 1, sp.cols), np.arange(len(q)), q).astype(np.uint8)
+        sp.rows.append(q)
         sp.seq += 1
+        self.span_meta.append((sp.seq, sp.lo, sp.hi, {}))
 
     def _push(self, all_touched: bool) -> None:
         ov = np.zeros(OV_COLS, np.uint8)
@@ -252,7 +299,7 @@ class Scope:
             if not self.live or time.time() - self.live["t"] > 5:
                 return None
             d = dict(self.live)
-            d["spec"] = base64.b64encode(d["spec"].tobytes()).decode("ascii")
+            d["spec"] = base64.b64encode(d["spec"].tobytes()).decode("ascii") if d.get("spec") is not None else ""
             return d
 
     # ── a night's picture ────────────────────────────────────────────
@@ -266,7 +313,7 @@ class Scope:
         stamp = time.strftime("%Y%m%d")
         out = []
         with self.lock:
-            nights = [(b, np.array(b.night)) for b in self.bands if len(b.night) >= 10]
+            nights = [(b, np.array(b.night)) for b in self.bands if len(b.night) >= 10 and not getattr(b, "is_span", False)]
             for b in self.bands:
                 b.night, b._acc, b._acc_n = [], None, 0
         for b, rows in nights:

@@ -879,13 +879,12 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   `rx_scope` lays slices into per-band panoramas relative to each slice's median. On one channel (a
   hold, a tune, a net) the child sends every bin, ~25 frames a second, and `rx_scope` keeps that slice
   as the TUNED span (the last of `bands`), which the page switches to: the receiver's own 2.4 MHz, full
-  width, a waterfall row per frame. A click tunes by
-  running the watch as a net (`scanner.tune` → `_watch(net)`), so a tuned channel is held, recorded and
-  classified exactly as the scan would. Restarts are one at a time (`_restart`; a request mid-restart
-  only marks it to look again, so a burst of clicks ends on the last), every watch registers its stop in
-  `_stops` and a restart stops them all, and a stopping watch frees the dongle before it finishes its
-  last transcription: two racing restarts once queued a second watch that took the stop handle while the
-  first ignored every stop for its whole tune. ▶ SCAN (`scanner.start_scan`) runs the sweep outside the
+  width, a waterfall row per frame. A click tunes the
+  running watch in place (see *A tune is a command* below), and a tuned channel is held, recorded and
+  classified exactly as the scan would. Only an idle dongle starts a watch for a tune; those starts are one at a
+  time (`_restart`; a request mid-restart only marks it to look again, so a burst of clicks ends on the last),
+  every watch registers its stop in `_stops` and a restart stops them all, and a stopping watch frees the
+  dongle before it finishes its last transcription. ▶ SCAN (`scanner.start_scan`) runs the sweep outside the
   nightly hours for as long as asked and only while a page is open (`DASH_GONE_S`): the page's stream
   calls `seen_by_dashboard`. `!scanner dash` opens it; nothing opens it at night unasked. The top
   row has a fixed height and Kaia's line is clamped: a row sized by its text grew a line and
@@ -910,6 +909,35 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   hiss and all; AUTO plays only what keys up — and a sweep is silent either way, which read as "does
   nothing" on a quiet morning.
   Spectrograms (`spectrogram.py`) are rendered once beside a clip and pruned with it.
+- **A tune is a command, never a restart.** The running child takes `{"op": "tune" | "scan" | "gain" | "habits" |
+  "marks"}` on its `control` queue (`Watcher._poll`, checked between hops and every read of a hold);
+  `scanner.tune_now` / `untune_now` send it from the HTTP thread, and the supervisor in `_watch` sends what nets,
+  expiring tunes and the hours ask for. A channel inside the current span only moves the demodulator (`IN_SPAN_HZ`).
+  Measured on the dongle: scan→tuned 104 ms, in span 34 ms, another band 180 ms — the restart it replaced waited out
+  the hold, refork and reopened the dongle.
+- **Listening reads through a `Stream`.** `rtlsdr_read_sync` buffers nothing between calls (and ctypes drops the GIL
+  inside it), so processing between inline reads was samples lost: a tuned channel kept 78% of its audio and every
+  hold's clip had the same holes. A tuned channel and a hold stream; hopping reads inline after each retune.
+- **Demodulate with state.** `Decimator` is overlap-save `resample_poly`: called per chunk it zero-padded every edge
+  (a click per read) and slipped on reads not a multiple of 50 samples. Chunked output equals one-shot output.
+- **A tuned channel plays through `LiveSquelch`** (open on the second carried frame, no look-ahead): 127 ms from
+  key-up to audio, where the scan's `Squelch` holds `OPEN_S` back to keep beacons out of a sweep (613 ms).
+- **Habitual data is noted, not held** (`ledger.habitual`, `Watcher._habit_holds`): a channel heard 30+ times in a
+  week, never with a voice, brief — 39 of them cost ~28% of the night in holds. Its bursts are ledgered as `seen`
+  (no audio; hits and hours still count; never a "catch"); one longer than its usual longest, and every tenth, is
+  held. Never a configured channel or a priority bookmark. A rejected peak's skirts are the same signal: skip
+  them, or each burst is held 7.5 kHz off.
+- **A hold records the rest of its slice** (`_sides`, two at a time): the dongle sees 1.92 MHz while it waits for a
+  reply. With the confirm read (`_visit`: a hot bin is re-read at once, not a pass later) and habits, two simulated
+  busy nights caught 102 of 179 overs against 88, losing less of each start (median 0.42 / 0.91 s against
+  0.69 / 1.18). What still limits it is the follow: up to FOLLOW_IDLE_S on one slice per conversation.
+- **Bookmarks are a person's** (`bookmarks.py`, `memory/radio/bookmarks.json`): `priority` lowers the gate there,
+  `ignore` removes it — nothing else ignores a channel on anyone's behalf. Gqrx's `bookmarks.csv` imports (yours win)
+  and exports. `interest.py` ranks catches (words, new or rare channels, unusual hours, urgent words) and sorts
+  channels into talk / data / timer (`ledger.period_of`) / carrier; it labels and orders, it hides nothing.
+- **The span streams** (`/span`, binary, a row the moment the watcher makes it): 8192 bins (293 Hz), Blackman-Harris,
+  DC removed, 30 rows/s, quantized in the child on `waterfall.DISPLAY_*` (−10…+50 dB). `tools/maintenance/rx_preview.py
+  --real` serves the page on the real dongle without the bot — only while the bot's scanner is idle.
 - **One dongle.** `rtl.DEVICE` is held by the watch; a live listen sets `rtl.YIELD` and the watch
   gives it up within a hop. A process outside the bot (a hand-run survey) holds the device where
   `rtl.DEVICE` cannot see it, and the bot's watch then fails "busy" and backs off 15 minutes — stop

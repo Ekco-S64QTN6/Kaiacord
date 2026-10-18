@@ -15,7 +15,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); overflow: hidden; }
 #app { display: grid; height: 100%; padding: 8px 10px 10px; gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 440px; grid-template-rows: 38px 112px minmax(0, 1fr) 96px; }
+  grid-template-columns: minmax(0, 1fr) 440px; grid-template-rows: 38px 132px minmax(0, 1fr) 96px; }
 #app > * { min-width: 0; min-height: 0; }
 header { grid-column: 1 / span 2; display: flex; align-items: center; gap: 10px; padding: 0 4px; }
 .logo { font-family: var(--disp); font-weight: 900; font-size: 20px; letter-spacing: 4px; color: var(--cyan); }
@@ -43,7 +43,7 @@ header { grid-column: 1 / span 2; display: flex; align-items: center; gap: 10px;
 .meter { display: grid; grid-template-columns: 58px 1fr 70px; gap: 8px; align-items: center; font-size: 10px; letter-spacing: 1.5px; color: var(--dim); }
 .meter canvas { width: 100%; height: 12px; display: block; }
 .meter .v { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
-.ctl { display: grid; gap: 6px; justify-items: end; }
+.ctl { display: grid; gap: 5px; justify-items: end; align-content: center; }
 .row { display: flex; gap: 6px; align-items: center; }
 .btn { font-family: var(--disp); font-size: 10px; letter-spacing: 1.5px; color: var(--dim); background: rgba(0,0,0,.35); cursor: pointer;
   border: 1px solid var(--faint); border-radius: 3px; padding: 6px 10px; user-select: none; white-space: nowrap; }
@@ -125,10 +125,62 @@ select { background: rgba(0,0,0,.5); color: var(--text); border: 1px solid var(-
   border: 1px solid var(--cyan); color: var(--text); padding: 8px 16px; border-radius: 3px; font-size: 12px;
   opacity: 0; transition: opacity .25s; pointer-events: none; }
 #toast.show { opacity: 1; }
+
+/* tuning */
+#freq { cursor: ns-resize; }
+#freq.pending { color: var(--yellow); }
+.gainv { font-size: 11px; color: var(--text); min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+#star.lit { color: #200; background: var(--yellow); border-color: var(--yellow); }
+.kbd { font-size: 9px; color: var(--faint); letter-spacing: 1px; }
+/* side panel */
+.grp { font-family: var(--disp); font-size: 9px; letter-spacing: 2px; color: var(--mid); padding: 9px 4px 4px; border-bottom: 1px solid var(--line2); display: flex; gap: 8px; cursor: pointer; user-select: none; }
+.grp span { color: var(--dim); letter-spacing: 0; font-family: var(--mono); font-size: 10px; }
+.ch { display: grid; grid-template-columns: 78px minmax(0, 1fr) 72px; gap: 8px; padding: 5px 4px; border-bottom: 1px solid var(--line); font-size: 12px; cursor: pointer; align-items: center; }
+.ch:hover, .hl:hover, .bk:hover { background: rgba(0,240,255,.06); }
+.ch .l { overflow: hidden; min-width: 0; } .ch .l b { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch .l i { font-style: normal; color: var(--dim); font-size: 10px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist24 { display: flex; align-items: flex-end; gap: 1px; height: 18px; }
+.hist24 i { flex: 1; background: var(--cyan); opacity: .75; min-height: 1px; border-radius: 1px 1px 0 0; }
+.hist24 i.z { background: var(--faint); opacity: .5; }
+.hl { border-bottom: 1px solid var(--line); padding: 7px 4px; font-size: 12px; }
+.hl .top { display: flex; gap: 8px; align-items: baseline; }
+.hl .sc { font-family: var(--disp); font-size: 10px; color: #200; background: var(--pink); border-radius: 2px; padding: 0 5px; }
+.hl .when { margin-left: auto; color: var(--dim); font-size: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+.chip { font-size: 9.5px; color: var(--mid); border: 1px solid var(--line2); border-radius: 2px; padding: 0 5px; }
+.chip.hot { color: var(--red); border-color: var(--red); }
+.hl .tr { color: var(--text); font-style: italic; margin: 3px 0; }
+.mini { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.mini audio { flex: 1 1 auto; width: 0; height: 26px; min-width: 0; }
+.mini .mk { flex: none; }
+q { quotes: none; }
+.bkbar { display: flex; gap: 6px; padding: 7px 4px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--line); }
+.bk { display: grid; grid-template-columns: 10px 78px minmax(0, 1fr) auto; gap: 8px; padding: 5px 4px; border-bottom: 1px solid var(--line); font-size: 12px; align-items: center; cursor: pointer; }
+.bk .tagdot { width: 10px; height: 10px; border-radius: 2px; }
+.bk .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; } .bk .l i { font-style: normal; color: var(--dim); font-size: 10px; margin-left: 6px; }
+.bk .m { display: flex; gap: 3px; }
+.mk { font-size: 9px; letter-spacing: 1px; padding: 1px 5px; border: 1px solid var(--faint); border-radius: 2px; color: var(--dim); cursor: pointer; user-select: none; }
+.mk.pri.on { color: #200; background: var(--green); border-color: var(--green); }
+.mk.ign.on { color: #200; background: var(--red); border-color: var(--red); }
+.mk.del:hover { color: var(--red); border-color: var(--red); }
+#bkform { position: absolute; z-index: 20; right: 10px; top: 118px; width: 330px; background: rgba(10,14,25,.98); border: 1px solid var(--yellow);
+  border-radius: 4px; padding: 10px 12px; display: none; gap: 8px; box-shadow: 0 0 18px rgba(255,228,92,.18); }
+#bkform.show { display: grid; }
+#bkform input[type=text] { background: var(--panel2); color: var(--text); border: 1px solid var(--faint); border-radius: 3px; padding: 5px 7px; font: 12px var(--mono); width: 100%; }
+#bkform input:focus { outline: none; border-color: var(--cyan); }
+#bkform label { font-size: 11px; color: var(--mid); display: flex; gap: 6px; align-items: center; }
 </style>
 </head>
 <body>
 <div id="toast"></div>
+<div id="bkform">
+  <div class="ptitle" id="bkftitle">BOOKMARK</div>
+  <input type="text" id="bkname" placeholder="name — e.g. county fire dispatch" maxlength="80">
+  <div class="row"><span class="ptitle">TAG</span><input type="text" id="bktag" list="bktags" placeholder="Untagged" maxlength="40" style="flex:1"><datalist id="bktags"></datalist></div>
+  <div class="row"><label><input type="checkbox" id="bkpri"> priority — weaker signals trigger here, always held</label></div>
+  <div class="row"><label><input type="checkbox" id="bkign"> ignore — never a trigger (you decided it's noise)</label></div>
+  <div class="row" style="justify-content:flex-end"><div class="btn" id="bkcancel">CANCEL</div><div class="btn go" id="bksave">SAVE</div></div>
+</div>
 <div id="big"><img alt=""></div>
 <div id="app">
   <header>
@@ -161,7 +213,10 @@ select { background: rgba(0,0,0,.5); color: var(--text); border: 1px solid var(-
       <div class="row"><div class="btn" id="scan" style="display:none" title="leave the tuned channel and go back to the scan">◀ BACK TO SCAN</div>
         <div class="btn pink" id="mon" title="hear the scanner in this window — silent while it sweeps">MONITOR</div>
         <div class="btn" id="sql" title="squelch: AUTO plays a channel when something keys up; OPEN plays a tuned channel all the time, hiss and all">SQL AUTO</div></div>
-      <div class="row"><span class="ptitle">VOL</span><input type="range" id="vol" min="0" max="1" step="0.05" value="0.7"></div>
+      <div class="row"><span class="ptitle">VOL</span><input type="range" id="vol" min="0" max="1" step="0.05" value="0.7">
+        <span class="ptitle">GAIN</span><input type="range" id="gainsl" min="0" max="28" step="1" value="22" title="tuner gain, live — the configured gain is untouched"><span class="gainv" id="gainv">—</span></div>
+      <div class="row"><span class="ptitle">STEP</span><select id="step" title="← → steps the VFO (shift: ×10); so does the wheel over the frequency"><option value="0">AUTO</option><option>2500</option><option>5000</option><option>6250</option><option>12500</option><option>25000</option></select>
+        <div class="btn" id="star" title="bookmark this frequency (B)">★ BOOKMARK</div></div>
     </div>
   </div>
 
@@ -171,8 +226,10 @@ select { background: rgba(0,0,0,.5); color: var(--text); border: 1px solid var(-
       <div class="btn small lit" id="follow" title="follow Kaia: the whole dial while she sweeps, her channel while she listens (F)">FOLLOW KAIA</div>
       <span id="viewlbl"></span>
       <div class="spacer"></div>
-      <span class="lbl">FLOOR</span><input type="range" id="floor" min="0" max="160" step="2" value="22" title="the level shown as black">
-      <span class="lbl">RANGE</span><input type="range" id="range" min="40" max="255" step="5" value="170" title="levels from black to the top of the palette">
+      <span class="lbl">FLOOR</span><input type="range" id="floor" min="0" max="160" step="2" value="36" title="the level shown as black">
+      <span class="lbl">RANGE</span><input type="range" id="range" min="30" max="255" step="5" value="140" title="levels from black to the top of the palette">
+      <span class="lbl">AVG</span><input type="range" id="avg" min="0" max="0.95" step="0.05" value="0.6" title="spectrum averaging on the tuned span (0: none)">
+      <div class="btn small lit" id="peakbtn" title="peak hold on the spectrum">PEAK</div>
       <select id="palette" title="waterfall colours"><option value="kaia">KAIA</option><option value="gqrx">GQRX</option></select>
       <div class="btn small" id="zout" title="zoom out (−)">−</div><div class="btn small" id="zin" title="zoom in (+)">+</div><div class="btn small" id="zfit" title="the whole dial (0)">FIT</div>
     </div>
@@ -198,7 +255,7 @@ select { background: rgba(0,0,0,.5); color: var(--text); border: 1px solid var(-
       <div id="say"><div id="saytext"><b>KAIA</b><span id="sayline">—</span></div></div>
     </div>
     <div class="panel" id="side">
-      <div class="tabs"><span class="tab on" data-t="catches">CATCHES</span><span class="tab" data-t="log">LOG</span><span class="tab" data-t="bm">BOOKMARKS</span><span class="tab" data-t="nights">NIGHTS</span></div>
+      <div class="tabs"><span class="tab on" data-t="hl">HIGHLIGHTS</span><span class="tab" data-t="catches">CATCHES</span><span class="tab" data-t="log">LOG</span><span class="tab" data-t="ch">CHANNELS</span><span class="tab" data-t="bk">BOOKMARKS</span><span class="tab" data-t="nights">NIGHTS</span></div>
       <div class="scroll" id="sidepane"></div>
     </div>
   </div>
@@ -212,8 +269,10 @@ select { background: rgba(0,0,0,.5); color: var(--text); border: 1px solid var(-
 "use strict";
 const $ = (id) => document.getElementById(id);
 const MHZ = 1e6, FS = 2.4e6;
-const LOW_DB = -6, SPAN_DB = 40;                 // rx_scope's colour scale: 0..255 covers LOW_DB..LOW_DB+SPAN_DB relative dB
-const ROWS = 360;                                // band and span history (rx_scope.ROWS)
+const LOW_DB = -10, SPAN_DB = 60;                // the colour scale (waterfall.DISPLAY_*): 0..255 covers LOW_DB..LOW_DB+SPAN_DB relative dB
+const ROWS = 360;                                // band history (rx_scope.ROWS)
+const SPAN_ROWS = 900, SPAN_SHOW = 600;          // the TUNED span's history (rx_scope.SPAN_ROWS) and how much is shown
+const GAINS = [0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48.0, 49.6];   // the R820T's steps
 const store = { get(k, d) { try { const v = localStorage.getItem("rx." + k); return v === null ? d : JSON.parse(v); } catch (_) { return d; } },
   set(k, v) { try { localStorage.setItem("rx." + k, JSON.stringify(v)); } catch (_) {} } };
 function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), Math.max(2200, m.length * 45)); }
@@ -356,11 +415,12 @@ function connect() {
     if (!bands.length && S.bands.length) {
       bands = S.bands; OV = S.overview; buildSegs();
       fetch("/overview").then((r) => r.json()).then((w) => { if (w.rows) pushOv(b64(w.data), w.rows); }).catch(() => {});
-      bands.forEach((b) => fetch("/waterfall/" + b.i).then((r) => r.json()).then((w) => { if (w.rows) pushBand(b, b64(w.data), w.rows); }).catch(() => {}));
+      bands.forEach((b) => { if (!b.span) fetch("/waterfall/" + b.i).then((r) => r.json()).then((w) => { if (w.rows) pushBand(b, b64(w.data), w.rows); }).catch(() => {}); });
+      spanStream();
     }
-    for (const nb of S.bands) {                   // the TUNED span moves with the dongle: a new range is a new waterfall
+    for (const nb of S.bands) {                   // the TUNED span's range comes with its rows (spanStream)
       const b = bands.find((x) => x.i === nb.i);
-      if (b && (b.lo !== nb.lo || b.hi !== nb.hi)) { Object.assign(b, nb); if (fall) fall.reset(bandKey(b.i)); }
+      if (b && !b.span && (b.lo !== nb.lo || b.hi !== nb.hi)) { Object.assign(b, nb); if (fall) fall.reset(bandKey(b.i)); }
     }
     for (const [i, r] of Object.entries(S.rows || {})) { const b = bands.find((x) => x.i === +i); if (b) pushBand(b, b64(r.data), r.n); }
     if (S.ov) pushOv(b64(S.ov.data), S.ov.n);
@@ -369,6 +429,48 @@ function connect() {
   es.onerror = () => { es.close(); setTimeout(connect, 1500); };
 }
 function pushBand(b, data, n) { if (fall) fall.push(bandKey(b.i), b.cols, ROWS, data, n); }
+
+// ── the TUNED span: its own binary stream, a row drawn the moment it lands ──
+// Frames: [u32 header length][header JSON][u32 row length][row]; a zero length is a heartbeat.
+let spanLive = null, spanAvg = null, spanPeak = null;
+const dec = new TextDecoder();
+async function spanStream() {
+  for (;;) {
+    try {
+      const r = await fetch("/span", { cache: "no-store" }), rd = r.body.getReader();
+      let buf = new Uint8Array(0);
+      for (;;) {
+        const { value, done } = await rd.read(); if (done) break;
+        const nb = new Uint8Array(buf.length + value.length); nb.set(buf); nb.set(value, buf.length); buf = nb;
+        let off = 0;
+        while (buf.length - off >= 4) {
+          const hl = new DataView(buf.buffer, buf.byteOffset + off, 4).getUint32(0, true);
+          if (!hl) { off += 4; continue; }
+          if (buf.length - off < 8 + hl) break;
+          const rl = new DataView(buf.buffer, buf.byteOffset + off + 4 + hl, 4).getUint32(0, true);
+          if (buf.length - off < 8 + hl + rl) break;
+          onSpanRow(JSON.parse(dec.decode(buf.subarray(off + 4, off + 4 + hl))), buf.slice(off + 8 + hl, off + 8 + hl + rl));
+          off += 8 + hl + rl;
+        }
+        buf = buf.slice(off);
+      }
+    } catch (_) {}
+    await new Promise((res) => setTimeout(res, 1000));
+  }
+}
+function onSpanRow(h, row) {
+  const sp = spanBand(); if (!sp || !fall) return;
+  if (sp.lo !== h.lo || sp.hi !== h.hi) { sp.lo = h.lo; sp.hi = h.hi; fall.reset(bandKey(sp.i)); spanAvg = spanPeak = null; }
+  sp.cols = row.length;
+  fall.push(bandKey(sp.i), row.length, SPAN_ROWS, row, 1);
+  // The trace: an exponential average (AVG) and a decaying peak, per bin.
+  const a = 1 - +$("avg").value;
+  if (!spanAvg || spanAvg.length !== row.length) { spanAvg = Float32Array.from(row); spanPeak = Float32Array.from(row); }
+  else for (let i = 0; i < row.length; i++) { spanAvg[i] += (row[i] - spanAvg[i]) * a; spanPeak[i] = Math.max(row[i], spanPeak[i] - 0.35); }
+  spanLive = { ...h, at: performance.now() };
+  if (vfo.pending !== null && h.freq && Math.abs(h.freq - vfo.pending) <= 3200) vfo.pending = null;   // the watch is there
+}
+const liveNow = () => (spanLive && performance.now() - spanLive.at < 400 ? spanLive : (S && S.live));
 function pushOv(data, n) { if (fall) fall.push(OVKEY, OV.cols, 600, data, n); if (mapFall) mapFall.push(OVKEY, OV.cols, 600, data, n); }
 
 // ── the camera: what part of the dial is shown, eased toward a target ──
@@ -469,7 +571,7 @@ function ease(dt) {
   const k = 1 - Math.exp(-dt * 5);
   cam.d0 += (cam.t0 - cam.d0) * k; cam.d1 += (cam.t1 - cam.d1) * k;
   // Kaia's needle glides between slices; a new pass (back to the low end) snaps.
-  const L = S.live, f = L ? (L.state === "hop" ? L.center : (L.freq || L.center)) : null, t = f ? fToD(f) : null;
+  const L = liveNow(), f = L ? (L.state === "hop" ? L.center : (L.freq || L.center)) : null, t = f ? fToD(f) : null;
   if (t === null) needleD = null;
   else if (needleD === null || Math.abs(t - needleD) > 0.25) needleD = t;
   else needleD += (t - needleD) * (1 - Math.exp(-dt * 8));
@@ -491,7 +593,7 @@ function drawDial(dt) {
     const range = rangeVals();
     // A fixed pace (rows don't resize as history fills): passes for the dial and
     // bands (~12 min), spectra for the TUNED span (~14 s).
-    const sp = spanBand(), show = (key) => (sp && key === bandKey(sp.i) ? ROWS : 240);
+    const sp = spanBand(), show = (key) => (sp && key === bandKey(sp.i) ? SPAN_SHOW : 240);
     if (prevKey && fadeT < 1) {
       const p = prevKey === OVKEY ? { key: OVKEY, band: null } : { key: prevKey, band: bands.find((b) => bandKey(b.i) === prevKey) };
       fall.draw(p.key, uOf(p, d0), uOf(p, d1), show(p.key), range, 1);
@@ -508,16 +610,21 @@ function drawDial(dt) {
   drawFallOverlay(d0, d1);
 }
 const X = (d, d0, d1, W) => (d - d0) / (d1 - d0) * W;
-let peak = { key: null, arr: null };
+let peak = { key: null, arr: null }, showPeak = true;
+$("peakbtn").onclick = () => { showPeak = !showPeak; $("peakbtn").classList.toggle("lit", showPeak); };
 function drawSpectrum(src, d0, d1) {
   const [g, W, H] = fit($("spec")); g.clearRect(0, 0, W, H);
   const range = rangeVals(), yOf = (v) => H - 4 - Math.min(1, Math.max(0, (v / 255 - range[0]) / range[1])) * (H - 12);
   g.strokeStyle = "rgba(24,34,58,.9)"; g.lineWidth = 1; g.font = "9px DejaVu Sans Mono, monospace"; g.fillStyle = "#5d6b8f";
   for (let k = 0; k <= 4; k++) { const v = (range[0] + range[1] * k / 4) * 255, y = yOf(v); g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); g.fillText(`${(LOW_DB + v / 255 * SPAN_DB).toFixed(0)} dB`, 4, y - 2); }
   const s = fall && fall.src[src.key]; if (!s || s.head < 0) return;
-  const row = s.latest, n = row.length, u0 = uOf(src, d0), u1 = uOf(src, d1);
-  if (peak.key !== src.key || !peak.arr || peak.arr.length !== n) peak = { key: src.key, arr: new Float32Array(n) };
-  for (let i = 0; i < n; i++) peak.arr[i] = Math.max(row[i], peak.arr[i] - 0.5);
+  const isSpan = src.band && src.band.span && spanAvg;
+  const row = isSpan ? spanAvg : s.latest, n = row.length, u0 = uOf(src, d0), u1 = uOf(src, d1);
+  if (isSpan) peak = { key: src.key, arr: spanPeak };
+  else {
+    if (peak.key !== src.key || !peak.arr || peak.arr.length !== n) peak = { key: src.key, arr: new Float32Array(n) };
+    for (let i = 0; i < n; i++) peak.arr[i] = Math.max(row[i], peak.arr[i] - 0.5);
+  }
   // one point per pixel: max of the columns under it (or interpolated when zoomed past a column a pixel)
   const trace = (arr) => {
     g.beginPath();
@@ -532,7 +639,7 @@ function drawSpectrum(src, d0, d1) {
   trace(row); g.lineTo(W, H); g.lineTo(0, H); g.closePath();
   const grad = g.createLinearGradient(0, 0, 0, H); grad.addColorStop(0, "rgba(0,240,255,.32)"); grad.addColorStop(1, "rgba(0,240,255,0)"); g.fillStyle = grad; g.fill();
   trace(row); g.strokeStyle = "#00f0ff"; g.lineWidth = 1.2; g.stroke();
-  trace(peak.arr); g.strokeStyle = "rgba(255,47,209,.45)"; g.lineWidth = 1; g.stroke();
+  if (showPeak) { trace(peak.arr); g.strokeStyle = "rgba(255,47,209,.45)"; g.lineWidth = 1; g.stroke(); }
   // the slice being measured right now, while sweeping
   const L = S.live;
   if (L && L.state === "hop") {
@@ -577,17 +684,34 @@ function drawMarks(g, d0, d1, W, H, labels) {
     const w = Math.max(2, (fToD(fq + 25e3) - d) / (d1 - d0) * W);
     g.fillStyle = "rgba(255,56,96,.12)"; g.fillRect(X(d, d0, d1, W) - w / 2, 0, w, H);
   }
-  if (labels) {                                                       // bookmarks, named when zoomed in
-    g.font = "9px DejaVu Sans Mono, monospace"; let lastX = -1e9;
+  const zoomed = !wide && dToF(d1) - dToF(d0) <= 2.5e6;
+  if (labels) {                                                       // talk channels from the ledger: a green tick
     for (const c of ledger) {
-      const d = fToD(c.freq); if (d === null || d < d0 || d > d1 || !(c.voice || c.label)) continue;
-      const px = X(d, d0, d1, W);
-      g.fillStyle = c.voice ? "#3dff8a" : "#5d6b8f"; g.beginPath(); g.moveTo(px - 3, 0); g.lineTo(px + 3, 0); g.lineTo(px, 5); g.fill();
-      if (!wide && dToF(d1) - dToF(d0) <= 2e6 && px - lastX > 70) { g.fillText((c.label || c.service || "").slice(0, 18), px + 4, 14); lastX = px; }
+      if (!c.voice) continue;
+      const d = fToD(c.freq); if (d === null || d < d0 || d > d1) continue;
+      const px = X(d, d0, d1, W); g.fillStyle = "#3dff8a"; g.fillRect(px - 0.5, 0, 1, 4);
+    }
+    g.font = "9px DejaVu Sans Mono, monospace"; let lastX = -1e9;   // bookmarks: their tag's colour, named when zoomed in
+    for (const b of bk.items) {
+      const d = fToD(b.freq); if (d === null || d < d0 || d > d1) continue;
+      const px = X(d, d0, d1, W), col = bk.tags[b.tag] || "#94a3b8";
+      g.fillStyle = b.ignore ? "#ff3860" : col; g.beginPath(); g.moveTo(px - 4, 0); g.lineTo(px + 4, 0); g.lineTo(px, 7); g.fill();
+      if (zoomed && px - lastX > 64) { g.fillStyle = col; g.fillText((b.priority ? "★ " : "") + (b.name || b.tag).slice(0, 20), px + 5, 15); lastX = px; }
     }
   }
-  if (needleD !== null && needleD >= d0 && needleD <= d1) {          // Kaia on the dial
-    const L = S.live, px = X(needleD, d0, d1, W), hop = !L || L.state === "hop";
+  // The receiver's passband and centre (Gqrx's red line), where the VFO is — or is going.
+  const L0 = liveNow(), onCh = L0 && L0.state !== "hop", vf = vfo.pending !== null ? vfo.pending : (onCh ? (L0.freq || L0.center) : null);
+  if (vf && zoomed) {
+    const a = fToD(vf - 6250), b = fToD(vf + 6250), c = fToD(vf);
+    if (a !== null && b !== null && b > d0 && a < d1) {
+      const xa = X(a, d0, d1, W), xb = X(b, d0, d1, W), xc = X(c, d0, d1, W);
+      g.fillStyle = vfo.pending !== null ? "rgba(255,228,92,.10)" : "rgba(255,255,255,.07)"; g.fillRect(xa, 0, Math.max(1, xb - xa), H);
+      g.strokeStyle = vfo.pending !== null ? "#ffe45c" : "#ff3860"; g.lineWidth = 1; g.setLineDash(vfo.pending !== null ? [3, 3] : []);
+      g.beginPath(); g.moveTo(xc + .5, 0); g.lineTo(xc + .5, H); g.stroke(); g.setLineDash([]);
+    }
+  }
+  if (needleD !== null && needleD >= d0 && needleD <= d1 && !(vf && zoomed)) {          // Kaia on the dial
+    const L = liveNow(), px = X(needleD, d0, d1, W), hop = !L || L.state === "hop";
     const col = hop ? "#3dff8a" : (L.open ? "#ff2fd1" : "#ffe45c");
     g.strokeStyle = col; g.lineWidth = hop ? 1.5 : 2; g.beginPath(); g.moveTo(px, 0); g.lineTo(px, H); g.stroke(); g.lineWidth = 1;
     if (labels) {
@@ -620,9 +744,13 @@ function bar(cv, frac, color) {
 $("sql").onclick = () => post("/squelch", { open: !(S && S.squelch_open) }).then((j) => toast(j.say)).catch(() => {});
 function updateVfo() {
   const o = !!S.squelch_open, sb = $("sql"); sb.classList.toggle("lit", o); const st = o ? "SQL OPEN" : "SQL AUTO"; if (sb.textContent !== st) sb.textContent = st;
-  const L = S.live, holding = L && L.state !== "hop";
-  const f = S.freq || (L && L.center) || 0;
-  $("freq").innerHTML = (f ? fmtF(f) : "---.---.---") + "<small>MHz</small>"; $("freq").classList.toggle("hold", !!holding);
+  const L = liveNow(), holding = L && L.state !== "hop";
+  const lf = holding ? (L.freq || L.center) : (S.freq || (L && L.center) || 0);
+  const f = vfo.pending !== null ? vfo.pending : lf;
+  const ft = (f ? fmtF(f) : "---.---.---") + "<small>MHz</small>";
+  if ($("freq").innerHTML !== ft) $("freq").innerHTML = ft;
+  $("freq").classList.toggle("hold", !!holding && vfo.pending === null); $("freq").classList.toggle("pending", vfo.pending !== null);
+  $("star").classList.toggle("lit", !!bkAt(f));
   const ch = ledger.find((c) => Math.abs(c.freq - f) < 3000);
   const state = holding ? (L.state === "hold" && !L.open ? "RISING · NO CARRIER YET" : L.state.toUpperCase()) : "";
   $("vsub").innerHTML = holding ? `<b>${esc(ch ? (ch.label || ch.service) : "unlisted")}</b> · ${state}${ch ? ` · heard ${ch.hits}× · voice ${ch.voice}×` : ""}`
@@ -634,7 +762,8 @@ function updateVfo() {
   bar($("sq"), open ? 1 : 0, "#ff2fd1"); $("sqv").textContent = holding ? (open ? "OPEN" : "CLOSED") : "—";
   $("mode").textContent = S.mode.toUpperCase();
   $("dot").className = "dot " + (holding ? "hold" : S.mode === "scanning" ? "on" : "");
-  $("pass").textContent = S.passes; $("gain").textContent = `${S.gain} dB`; $("hours").textContent = S.hours;
+  $("pass").textContent = S.passes; $("gain").textContent = S.gain_live != null ? `${S.gain_live} dB (live)` : `${S.gain} dB`; $("hours").textContent = S.hours;
+  if (!gainTouched) { const gv = S.gain_live != null ? S.gain_live : +S.gain; $("gainsl").value = nearestGain(gv); $("gainv").textContent = `${GAINS[nearestGain(gv)].toFixed(1)} dB`; }
   $("tunepill").style.display = S.tuned ? "" : "none";
   if (S.tuned) $("tuneleft").textContent = `${(S.tuned.freq_hz / MHZ).toFixed(4)} · ${Math.max(0, Math.round((S.tuned.until - S.t) / 60))} min`;
   $("scan").style.display = S.tuned ? "" : "none";
@@ -670,6 +799,10 @@ document.addEventListener("keydown", (e) => {
   if (["SELECT", "INPUT"].includes(e.target.tagName) || e.ctrlKey || e.metaKey) return;
   if (e.key === "+" || e.key === "=") zoomMid(0.5); else if (e.key === "-") zoomMid(2); else if (e.key === "0") userView(0, 1);
   else if (e.key === "f" || e.key === "F") $("follow").onclick();
+  else if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); nudge(e.key === "ArrowRight" ? 1 : -1, e.shiftKey); }
+  else if (e.key === "b" || e.key === "B") openBk();
+  else if (e.key === "Escape") { if ($("bkform").classList.contains("show")) closeBk(); else if (S && S.tuned) $("scan").onclick(); }
+  else if (e.key === "m" || e.key === "M") $("mon").onclick();
 });
 function dAt(e, cv) { const r = cv.getBoundingClientRect(); return { d: cam.d0 + (e.clientX - r.left) / r.width * (cam.d1 - cam.d0), r }; }
 let drag = null;
@@ -683,30 +816,67 @@ for (const id of ["spec", "fallOver"]) {
       drag.moved = true; const dd = (e.clientX - drag.x) / drag.w * (drag.d1 - drag.d0);
       userView(drag.d0 - dd, drag.d1 - dd); cam.d0 = cam.t0; cam.d1 = cam.t1; $("hover").style.display = "none"; return;
     }
-    const fq = Math.round(dToF(h.d) / 2500) * 2500, ch = ledger.find((c) => Math.abs(c.freq - fq) < 6250);
+    const fq = snapTo(dToF(h.d)), ch = ledger.find((c) => Math.abs(c.freq - fq) < 3200), bm = bkAt(fq);
     const hv = $("hover"), pr = $("dial").getBoundingClientRect();
     hv.style.display = "block"; hv.style.left = Math.min(pr.width - 260, e.clientX - pr.left + 12) + "px"; hv.style.top = (e.clientY - pr.top + 12) + "px";
-    hv.textContent = `${(fq / MHZ).toFixed(4)} MHz · ${segAtD(h.d).name}` + (ch ? ` · ${ch.label || ch.service} · voice ${ch.voice}×` : "") + " — click to tune";
+    hv.textContent = `${(fq / MHZ).toFixed(4)} MHz · ${segAtD(h.d).name}` + (bm ? ` · ★ ${bm.name || bm.tag}` : "") + (ch ? ` · ${ch.label || ch.service} · voice ${ch.voice}× of ${ch.hits}` : "") + " — click to tune";
   });
   cv.addEventListener("mouseleave", () => { $("hover").style.display = "none"; });
-  cv.addEventListener("mouseup", (e) => { const d = drag; drag = null; if (d && !d.moved) tune(Math.round(dToF(dAt(e, cv).d) / 2500) * 2500); });
+  cv.addEventListener("mouseup", (e) => { const d = drag; drag = null; if (d && !d.moved) tune(snapTo(dToF(dAt(e, cv).d))); });
 }
 window.addEventListener("mouseup", () => { drag = null; });
 $("mapover").addEventListener("click", (e) => {                       // the band map: look at a band
   const r = $("mapover").getBoundingClientRect(), s = segAtD((e.clientX - r.left) / r.width);
   userView(s.d0, s.d1);
 });
-function tune(f) {
+// ── tuning: the marker moves at once; requests are coalesced so a held arrow
+// key or a spun wheel ends on the last frequency, one request in flight ──
+const vfo = { pending: null, busy: false, next: null };
+const HAM = [[144e6, 148e6], [222e6, 225e6], [420e6, 450e6], [902e6, 928e6]];
+const stepFor = (f) => +$("step").value || (HAM.some(([a, b]) => f >= a && f < b) ? 5000 : 6250);
+const snapTo = (f) => { const st = stepFor(f); return Math.round(f / st) * st; };
+function tune(f, quiet) {
+  f = Math.round(f);
   if (!mon) startMon();
-  toast(`tuning to ${(f / MHZ).toFixed(4)} MHz…`);
-  post("/tune", { freq: f, minutes: Math.min(60, +$("mins").value) }).then((j) => toast(j.say)).catch(() => toast("the tune didn't go through"));
+  vfo.pending = f;
   setFollow(true);                                  // follow her onto the channel
+  if (vfo.busy) { vfo.next = f; return; }
+  sendTune(f, quiet);
 }
-$("scan").onclick = () => { setFollow(true); post("/scan").then((j) => toast(j.say)).catch(() => {}); };
+async function sendTune(f, quiet) {
+  vfo.busy = true;
+  try {
+    const j = await post("/tune", { freq: f, minutes: Math.min(60, +$("mins").value) });
+    if (!j.ok || !j.now) toast(j.say);               // instant tunes need no toast; starting a watch does
+    if (!j.ok) vfo.pending = null;
+  } catch (_) { toast("the tune didn't go through"); vfo.pending = null; }
+  finally {
+    vfo.busy = false;
+    if (vfo.next !== null) { const n = vfo.next; vfo.next = null; sendTune(n, true); }
+    setTimeout(() => { if (vfo.pending === f) vfo.pending = null; }, 4000);   // the stream never confirmed it: stop showing it as pending
+  }
+}
+function curFreq() { const L = liveNow(); return vfo.pending !== null ? vfo.pending : (L && L.state !== "hop" ? (L.freq || L.center) : null); }
+function nudge(dir, big) {
+  const f = curFreq(); if (!f) return toast("tune to a channel first — click the waterfall");
+  tune(snapTo(f) + dir * stepFor(f) * (big ? 10 : 1), true);
+}
+$("freq").addEventListener("wheel", (e) => { e.preventDefault(); nudge(e.deltaY < 0 ? 1 : -1, e.shiftKey); }, { passive: false });
+
+// ── gain, live ──
+let gainTouched = false, gainTimer = null;
+const nearestGain = (db) => GAINS.reduce((bi, g, i) => (Math.abs(g - db) < Math.abs(GAINS[bi] - db) ? i : bi), 0);
+$("gainsl").oninput = () => {
+  gainTouched = true; const db = GAINS[+$("gainsl").value]; $("gainv").textContent = `${db.toFixed(1)} dB`;
+  clearTimeout(gainTimer); gainTimer = setTimeout(() => post("/gain", { db }).then((j) => { toast(j.say); gainTouched = false; }).catch(() => {}), 120);
+};
+$("step").value = String(store.get("step", 0)); $("step").onchange = () => store.set("step", +$("step").value);
+$("avg").value = store.get("avg", 0.6); $("avg").oninput = () => store.set("avg", +$("avg").value);
+$("scan").onclick = () => { setFollow(true); vfo.pending = null; post("/scan").then((j) => toast(j.say)).catch(() => {}); };
 function showFreq(f) { const d = fToD(f); if (d === null) return; userView(d - 0.004, d + 0.004); }
 
 // contrast & palette, remembered per window
-for (const id of ["floor", "range"]) { $(id).value = store.get(id, +$(id).value); $(id).oninput = () => store.set(id, +$(id).value); }
+for (const id of ["floor", "range"]) { $(id).value = store.get(id + "2", +$(id).value); $(id).oninput = () => store.set(id + "2", +$(id).value); }
 $("palette").value = store.get("palette", "kaia");
 const applyPalette = () => { store.set("palette", $("palette").value); if (fall) fall.setPalette($("palette").value); if (mapFall) mapFall.setPalette($("palette").value); };
 $("palette").onchange = applyPalette; applyPalette();
@@ -715,27 +885,40 @@ $("palette").onchange = applyPalette; applyPalette();
 let mon = null;
 $("mon").onclick = () => { mon ? stopMon() : startMon(); };
 async function startMon() {
-  // Web Audio first (raw PCM, the lowest latency); if its context will not
-  // run (WebKitGTK), an endless WAV through an <audio> element.
+  // Web Audio first: raw PCM scheduled ~80 ms ahead, the lowest latency there
+  // is. The context runs at the device's own rate (WebKitGTK refused a 12 kHz
+  // one and stayed suspended), so the 12 kHz stream is resampled here. If it
+  // still won't run, an endless WAV through an <audio> element.
   $("mon").classList.add("lit");
   try {
-    const ctx = new AudioContext({ sampleRate: 12000 }), gain = ctx.createGain();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC(), gain = ctx.createGain();
     gain.gain.value = +$("vol").value; gain.connect(ctx.destination);
     try { await ctx.resume(); } catch (_) {}
     if (ctx.state === "running") {
-      const ctl = new AbortController(); mon = { ctx, gain, ctl, at: 0 };
-      toast("monitoring the scanner in this window — silent until something keys up, unless SQL is OPEN");
+      const ctl = new AbortController(); mon = { ctx, gain, ctl, at: 0, last: 0, phase: 0 };
+      toast("monitoring in this window — silent until something keys up, unless SQL is OPEN (M toggles)");
       const r = await fetch("/audio", { signal: ctl.signal }), rd = r.body.getReader(); let carry = new Uint8Array(0);
+      const ratio = 12000 / ctx.sampleRate;
       for (;;) {
         const { value, done } = await rd.read(); if (done || !mon || mon.ctx !== ctx) break;
         const buf = new Uint8Array(carry.length + value.length); buf.set(carry); buf.set(value, carry.length);
         const n = Math.floor(buf.length / 2); carry = buf.slice(n * 2);
         if (!n) continue;
-        const s16 = new Int16Array(buf.buffer, buf.byteOffset, n), ab = ctx.createBuffer(1, n, 12000), ch = ab.getChannelData(0);
-        for (let i = 0; i < n; i++) ch[i] = s16[i] / 32768;
+        const s16 = new Int16Array(buf.buffer, buf.byteOffset, n);
+        if (!s16.some((v) => v !== 0) && mon.at < ctx.currentTime) continue;       // the server's keep-alive silence
+        // Linear resample 12 kHz -> the context's rate, continuous across chunks.
+        const m = Math.floor((n - mon.phase) / ratio), ab = ctx.createBuffer(1, Math.max(1, m), ctx.sampleRate), ch = ab.getChannelData(0);
+        for (let i = 0; i < m; i++) {
+          const x = mon.phase + i * ratio, k = Math.floor(x), fr = x - k;
+          const a0 = k < 0 ? mon.last : s16[k] / 32768, a1 = k + 1 < n ? s16[k + 1] / 32768 : a0;
+          ch[i] = a0 + (a1 - a0) * fr;
+        }
+        mon.phase = mon.phase + m * ratio - n; mon.last = s16[n - 1] / 32768;
         const src = ctx.createBufferSource(); src.buffer = ab; src.connect(gain);
-        if (mon.at < ctx.currentTime + 0.05 || mon.at > ctx.currentTime + 1.0) mon.at = ctx.currentTime + 0.15;
-        src.start(mon.at); mon.at += n / 12000;
+        const now = ctx.currentTime;
+        if (mon.at < now + 0.02 || mon.at > now + 0.5) mon.at = now + 0.08;       // underrun or drift: back to ~80 ms
+        src.start(mon.at); mon.at += ab.duration;
       }
       return;
     }
@@ -743,7 +926,7 @@ async function startMon() {
   } catch (_) {}
   const el = new Audio("/monitor.wav?" + Date.now());
   el.volume = +$("vol").value; mon = { el };
-  toast("monitoring the scanner in this window");
+  toast("monitoring in this window (media fallback: higher latency)");
   try { await el.play(); } catch (e) { toast("this window can't play audio: " + e.message); stopMon(); }
 }
 function stopMon() {
@@ -754,60 +937,128 @@ function stopMon() {
 }
 $("vol").oninput = () => { if (!mon) return; if (mon.gain) mon.gain.gain.value = +$("vol").value; if (mon.el) mon.el.volume = +$("vol").value; };
 
+// ── bookmarks ──
+let bk = { tags: {}, items: [], gqrx: false };
+const bkAt = (f) => f ? bk.items.find((b) => Math.abs(b.freq - f) <= 1000) : null;
+function loadBk() { return fetch("/bookmarks").then((r) => r.json()).then((d) => { bk = d; if (side === "bk") renderSide(true); }).catch(() => {}); }
+let bkFreq = null;
+function openBk(f) {
+  f = f || curFreq() || (S && S.freq);
+  if (!f) return toast("tune to a channel first, or bookmark one from CHANNELS");
+  bkFreq = snapTo(f); const b = bkAt(bkFreq), ch = ledger.find((c) => Math.abs(c.freq - bkFreq) < 3200);
+  $("bkftitle").textContent = `${b ? "EDIT" : "NEW"} BOOKMARK · ${(bkFreq / MHZ).toFixed(4)} MHz`;
+  $("bkname").value = b ? b.name : (ch && (ch.label || "")) || "";
+  $("bktag").value = b ? b.tag : ""; $("bkpri").checked = !!(b && b.priority); $("bkign").checked = !!(b && b.ignore);
+  $("bktags").innerHTML = Object.keys(bk.tags).map((t) => `<option value="${esc(t)}">`).join("");
+  $("bkform").classList.add("show"); $("bkname").focus(); $("bkname").select();
+}
+function closeBk() { $("bkform").classList.remove("show"); }
+$("star").onclick = () => openBk(); $("bkcancel").onclick = closeBk;
+$("bkpri").onchange = () => { if ($("bkpri").checked) $("bkign").checked = false; };
+$("bkign").onchange = () => { if ($("bkign").checked) $("bkpri").checked = false; };
+$("bksave").onclick = () => {
+  post("/bookmarks", { freq: bkFreq, name: $("bkname").value, tag: $("bktag").value || "Untagged", priority: $("bkpri").checked, ignore: $("bkign").checked })
+    .then((j) => { toast(j.say); closeBk(); loadBk(); }).catch(() => toast("not saved"));
+};
+$("bkname").addEventListener("keydown", (e) => { if (e.key === "Enter") $("bksave").onclick(); });
+function bkMark(f, field) { const b = bkAt(f); if (!b) return; post("/bookmarks", { freq: b.freq, [field]: !b[field] }).then((j) => { toast(j.say); loadBk(); }); }
+
 // ── the side panel ──
-let side = "catches", sidePending = false;
-document.querySelectorAll("#side .tab").forEach((t) => t.onclick = () => {
-  side = t.dataset.t; document.querySelectorAll("#side .tab").forEach((x) => x.classList.toggle("on", x === t)); renderSide(true);
+let side = store.get("side", "hl"), sidePending = false, chans = [], hl = { top: [], new: [] }, logKinds = store.get("logkinds", ["voice", "data", "carrier"]);
+const groupOpen = store.get("groups", { talk: true, carrier: true, data: false, timer: false, quiet: false });
+document.querySelectorAll("#side .tab").forEach((t) => {
+  t.classList.toggle("on", t.dataset.t === side);
+  t.onclick = () => { side = t.dataset.t; store.set("side", side); document.querySelectorAll("#side .tab").forEach((x) => x.classList.toggle("on", x === t)); renderSide(true); };
 });
 const when = (ts) => new Date(ts * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 3600 ? `${Math.round(s / 60)}m ago` : s < 172800 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
 const playing = () => [...$("sidepane").querySelectorAll("audio")].some((a) => !a.paused && !a.ended);
+const hist24 = (h) => { const m = Math.max(1, ...h); return `<div class="hist24" title="heard by hour of day, 00–23">${h.map((v) => `<i class="${v ? "" : "z"}" style="height:${v ? Math.max(12, 100 * v / m) : 6}%"></i>`).join("")}</div>`; };
+const tuneBtn = (f) => `<span class="mk" data-tune="${f}" title="tune to it">TUNE</span>`;
+const GROUPS = { talk: "PEOPLE TALK HERE", carrier: "CARRIERS · NO VOICE YET", data: "DATA", timer: "KEYS UP ON A TIMER", quiet: "LISTED · NOT HEARD YET" };
 function renderSide(force) {
   // Re-rendering replaces the clips' <audio> elements: don't cut off one being played.
   if (!force && playing()) { sidePending = true; return; }
   sidePending = false;
   const p = $("sidepane"), st = p.scrollTop;
-  if (side === "bm") {
-    p.innerHTML = ledger.map((c) => `<div class="bm" data-f="${c.freq}"><span class="f">${(c.freq / MHZ).toFixed(4)}</span>` +
-      `<span class="l">${esc(c.label || c.service || "found")}<i>${esc(c.service)}${c.hours ? " · " + esc(c.hours) : ""}${c.transcript ? " · “" + esc(c.transcript.slice(0, 60)) + "”" : ""}</i></span>` +
-      `<span class="c"><b>${c.voice}</b> voice<br>${c.hits} heard</span></div>`).join("") || `<div class="empty">the ledger is empty</div>`;
-    p.querySelectorAll(".bm").forEach((el) => { el.onclick = () => showFreq(+el.dataset.f); el.ondblclick = () => tune(+el.dataset.f); el.title = "click: look at it · double-click: tune to it"; });
+  if (side === "hl") {
+    const top = hl.top.map((c) => `<div class="hl"><div class="top"><span class="sc" title="score">${c.score}</span><span class="f" data-f="${c.freq}">${(c.freq / MHZ).toFixed(4)}</span>` +
+      `<span class="kind ${esc(c.kind)}">${esc(c.kind.toUpperCase())}</span><span class="when">${when(c.ts)} · ${Math.round(c.seconds || 0)}s</span></div>` +
+      `<div class="chips">${c.why.map((w) => `<span class="chip${/urgent/.test(w) ? " hot" : ""}">${esc(w)}</span>`).join("")}${c.label ? `<span class="chip">${esc(c.label)}</span>` : ""}</div>` +
+      (c.transcript ? `<div class="tr">“${esc(c.transcript)}”</div>` : "") +
+      `<div class="mini">${c.clip ? `<audio controls preload="none" src="/clip/${encodeURIComponent(c.clip)}"></audio>` : `<span class="kbd">no clip kept</span>`}${tuneBtn(c.freq)}</div></div>`).join("");
+    const nw = hl.new.map((c) => `<div class="ch" data-f="${c.freq}"><span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="l"><b>${esc(c.label || "found")}</b><i>first heard ${ago(c.first)} · ${c.hits}×${c.voice ? ` · voice ${c.voice}×` : ""}</i></span>${tuneBtn(c.freq)}</div>`).join("");
+    p.innerHTML = `<div class="grp">WORTH A LOOK · LAST 48 H<span>scored: words, new or rare channels, unusual hours, urgent words</span></div>` +
+      (top || `<div class="empty">nothing scored high enough yet</div>`) + `<div class="grp">NEW CHANNELS · LAST 72 H<span>${hl.new.length}</span></div>` + (nw || `<div class="empty">no new channels</div>`);
+  } else if (side === "ch") {
+    const by = {}; for (const c of chans) (by[c.class] = by[c.class] || []).push(c);
+    p.innerHTML = Object.keys(GROUPS).filter((g) => by[g]).map((g) => `<div class="grp" data-g="${g}">${groupOpen[g] ? "▾" : "▸"} ${GROUPS[g]}<span>${by[g].length}</span></div>` +
+      (groupOpen[g] ? by[g].map((c) => `<div class="ch" data-f="${c.freq}" title="${esc(c.desc)}${c.transcript ? " · “" + esc(c.transcript.slice(0, 120)) + "”" : ""}"><span class="f">${(c.freq / MHZ).toFixed(4)}</span>` +
+        `<span class="l"><b>${bkAt(c.freq) ? "★ " : ""}${esc(c.label || c.service || "found")}</b><i>${esc(c.desc)}${c.period ? ` · every ${c.period}s` : ""}${c.last ? " · " + ago(c.last) : ""}</i></span>${hist24(c.hist)}</div>`).join("") : "")).join("")
+      || `<div class="empty">the ledger is empty</div>`;
+    p.querySelectorAll(".grp[data-g]").forEach((el) => el.onclick = () => { groupOpen[el.dataset.g] = !groupOpen[el.dataset.g]; store.set("groups", groupOpen); renderSide(true); });
+  } else if (side === "bk") {
+    const tags = Object.keys(bk.tags).sort();
+    p.innerHTML = `<div class="bkbar"><div class="btn small" id="bkadd">+ CURRENT</div>${bk.gqrx ? `<div class="btn small" id="bkimp" title="merge ~/.config/gqrx/bookmarks.csv in: new frequencies added, yours kept">IMPORT GQRX</div>` : ""}` +
+      `<a class="btn small" href="/bookmarks.csv" download="bookmarks.csv" style="text-decoration:none" title="Gqrx's bookmarks.csv format">EXPORT CSV</a><span class="kbd">${bk.items.length} · click: look · dbl: tune</span></div>` +
+      (tags.map((t) => { const items = bk.items.filter((b) => b.tag === t); if (!items.length) return "";
+        return `<div class="grp"><i class="sw" style="background:${esc(bk.tags[t])};display:inline-block;width:9px;height:9px;border-radius:2px"></i>${esc(t.toUpperCase())}<span>${items.length}</span></div>` +
+          items.map((b) => `<div class="bk" data-f="${b.freq}"><span class="tagdot" style="background:${esc(bk.tags[b.tag] || "#94a3b8")}"></span><span class="f">${(b.freq / MHZ).toFixed(4)}</span>` +
+            `<span class="l">${esc(b.name || "—")}<i>${esc(b.mode)}</i></span><span class="m"><span class="mk pri${b.priority ? " on" : ""}" data-m="priority" title="priority: weaker signals trigger here, always held">PRI</span>` +
+            `<span class="mk ign${b.ignore ? " on" : ""}" data-m="ignore" title="ignore: never a trigger">IGN</span><span class="mk" data-edit="1" title="edit">✎</span><span class="mk del" data-del="1" title="remove">×</span></span></div>`).join(""); }).join("")
+       || `<div class="empty">no bookmarks yet — ★ on the VFO or B on the keyboard${bk.gqrx ? ", or import Gqrx's" : ""}</div>`);
+    const add = $("bkadd"); if (add) add.onclick = () => openBk();
+    const imp = $("bkimp"); if (imp) imp.onclick = () => post("/bookmarks/import").then((j) => { toast(j.say); loadBk(); });
+    p.querySelectorAll(".bk .mk").forEach((m) => m.onclick = (e) => {
+      e.stopPropagation(); const f = +m.closest(".bk").dataset.f;
+      if (m.dataset.m) bkMark(f, m.dataset.m); else if (m.dataset.edit) openBk(f);
+      else if (m.dataset.del) post("/bookmarks/delete", { freq: f }).then((j) => { toast(j.say); loadBk(); });
+    });
   } else if (side === "log") {
-    p.innerHTML = logRows.map((c) => `<div class="lg" data-f="${c.freq}" title="${esc(c.label)} · ${Math.round(c.seconds || 0)}s"><span class="t">${new Date(c.ts * 1000).toTimeString().slice(0, 5)}</span>` +
-      `<span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${esc(c.kind)}">${esc(c.kind.toUpperCase())}</span>` +
-      `<span class="l">${c.transcript ? `<q>“${esc(c.transcript)}”</q>` : `${esc(c.label)} · ${Math.round(c.seconds || 0)}s`}</span></div>`).join("")
-      || `<div class="empty">nothing logged yet</div>`;
-    p.querySelectorAll(".lg").forEach((el) => { el.onclick = () => showFreq(+el.dataset.f); });
+    const all = ["voice", "data", "carrier", "seen", "noise"];
+    p.innerHTML = `<div class="bkbar">${all.map((k) => `<span class="mk${logKinds.includes(k) ? " pri on" : ""}" data-k="${k}" title="${k === "seen" ? "bursts on habitual data channels, noted and not recorded" : k === "noise" ? "triggers with no carrier under them" : k}">${k.toUpperCase()}</span>`).join("")}</div>` +
+      (logRows.map((c) => `<div class="lg" data-f="${c.freq}" title="${esc(c.label)} · ${Math.round(c.seconds || 0)}s${c.peak_db != null ? ` · +${Math.round(c.peak_db)} dB` : ""}"><span class="t">${new Date(c.ts * 1000).toTimeString().slice(0, 5)}</span>` +
+        `<span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${esc(c.kind)}">${esc(c.kind.toUpperCase())}</span>` +
+        `<span class="l">${c.transcript ? `<q>“${esc(c.transcript)}”</q>` : `${esc(c.label)} · ${c.kind === "seen" ? "not held" : Math.round(c.seconds || 0) + "s"}`}</span></div>`).join("") || `<div class="empty">nothing logged yet</div>`);
+    p.querySelectorAll(".bkbar .mk").forEach((m) => m.onclick = () => { const k = m.dataset.k; logKinds = logKinds.includes(k) ? logKinds.filter((x) => x !== k) : [...logKinds, k]; store.set("logkinds", logKinds); loadLog(); });
   } else if (side === "nights") {
     p.innerHTML = nightsList.length ? `<div class="nights">${nightsList.map((n) => `<img src="/night/${encodeURIComponent(n)}" data-n="${esc(n)}" title="${esc(n)}" loading="lazy">`).join("")}</div>`
       : `<div class="empty">no nights saved yet — the first night's waterfall is saved when the scan ends</div>`;
     p.querySelectorAll("img").forEach((im) => im.onclick = () => big("/night/" + encodeURIComponent(im.dataset.n)));
   } else {
-    p.innerHTML = catches.map((c) => `<div class="catch"><div class="top"><span class="f">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${esc(c.kind)}">${esc(c.kind.toUpperCase())}</span>` +
+    p.innerHTML = catches.map((c) => `<div class="catch"><div class="top"><span class="f" data-f="${c.freq}">${(c.freq / MHZ).toFixed(4)}</span><span class="kind ${esc(c.kind)}">${esc(c.kind.toUpperCase())}</span>` +
       `<span style="font-size:11px;color:var(--dim)">${esc(c.label)}</span><span class="when">${when(c.ts)} · ${Math.round(c.seconds || 0)}s</span></div>` +
       (c.transcript ? `<div class="tr">“${esc(c.transcript)}”</div>` : "") +
       `<img src="/spec/${encodeURIComponent(c.clip)}" loading="lazy" data-c="${esc(c.clip)}" alt="">` +
-      `<audio controls preload="none" src="/clip/${encodeURIComponent(c.clip)}" style="width:100%;height:28px;margin-top:4px"></audio></div>`).join("")
+      `<div class="mini"><audio controls preload="none" src="/clip/${encodeURIComponent(c.clip)}"></audio>${tuneBtn(c.freq)}</div></div>`).join("")
       || `<div class="empty">nothing kept yet</div>`;
     p.querySelectorAll("img").forEach((im) => im.onclick = () => big("/spec/" + encodeURIComponent(im.dataset.c)));
-    p.querySelectorAll("audio").forEach((a) => a.addEventListener("ended", () => { if (sidePending) renderSide(); }));
   }
+  // shared: rows look on click and tune on double-click; TUNE buttons tune.
+  p.querySelectorAll("[data-f]").forEach((el) => { if (el.dataset.f) { el.onclick = () => showFreq(+el.dataset.f); el.ondblclick = () => tune(+el.dataset.f); } });
+  p.querySelectorAll("[data-tune]").forEach((el) => el.onclick = (e) => { e.stopPropagation(); tune(+el.dataset.tune); });
+  p.querySelectorAll("audio").forEach((a) => a.addEventListener("ended", () => { if (sidePending) renderSide(); }));
   p.scrollTop = st;
 }
 function big(src) { $("big").querySelector("img").src = src; $("big").style.display = "grid"; }
 $("big").onclick = () => { $("big").style.display = "none"; };
+const sig = (xs) => JSON.stringify(xs.map((x) => x.id || x.ts || x.freq));
+function loadLog() { return fetch("/log?kinds=" + logKinds.join(",")).then((r) => r.json()).then((g) => { const ch = sig(g) !== sig(logRows); logRows = g; if (ch && side === "log") renderSide(); }).catch(() => {}); }
 function loadSide() {
-  Promise.all([fetch("/ledger").then((r) => r.json()), fetch("/catches").then((r) => r.json()), fetch("/nights").then((r) => r.json()), fetch("/log").then((r) => r.json())])
-    .then(([l, c, n, g]) => {
-      const sig = (xs) => JSON.stringify(xs.map((x) => x.id || x.ts));
-      const changed = sig(c) !== sig(catches) || l.length !== ledger.length || n.length !== nightsList.length || sig(g) !== sig(logRows);
+  Promise.all([fetch("/ledger").then((r) => r.json()), fetch("/catches").then((r) => r.json()), fetch("/nights").then((r) => r.json()), fetch("/highlights").then((r) => r.json())])
+    .then(([l, c, n, h]) => {
+      const changed = { catches: sig(c) !== sig(catches), nights: n.length !== nightsList.length, hl: sig(h.top) + sig(h.new) !== sig(hl.top) + sig(hl.new) };
       const newest = c[0] && c[0].id;
       if (codec && lastCatchId !== null && newest && newest !== lastCatchId && c[0].kind === "voice") codec.react("capture");
       lastCatchId = newest || lastCatchId || 0;
-      ledger = l; catches = c; nightsList = n; logRows = g;
-      if (changed) renderSide();
+      ledger = l; catches = c; nightsList = n; hl = h;
+      if ((side === "catches" && changed.catches) || (side === "nights" && changed.nights) || (side === "hl" && changed.hl)) renderSide();
     }).catch(() => {});
+  loadLog();
 }
-setInterval(loadSide, 10000);
+function loadChans() { return fetch("/channels").then((r) => r.json()).then((c) => { const ch = sig(c) !== sig(chans) || c.reduce((a, x) => a + x.hits, 0) !== chans.reduce((a, x) => a + x.hits, 0); chans = c; if (ch && side === "ch") renderSide(); }).catch(() => {}); }
+setInterval(loadSide, 10000); setInterval(loadChans, 60000);
+loadBk(); loadChans();
 
 connect(); loadSide(); requestAnimationFrame(frame);
 window.addEventListener("wheel", (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });

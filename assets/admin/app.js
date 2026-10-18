@@ -213,7 +213,7 @@ tab("ov", "OVERVIEW", (root, x) => {
   const u = ls.unprompted.filter(p => p[0] >= d0);
   x.t.unp.set(Fmt.n(u.length), "", rank(u, e => e[1]).map(k => `${esc(k)} <b>${u.filter(e => e[1] === k).length}</b>`).join(" · ") || "none"); x.t.unp.spark.set(hourly(u));
   const sc = radio.events.filter(e => e[0] >= d0);
-  x.t.scan.set(Fmt.n(sc.length), "", ["voice", "data", "carrier", "noise"].map(k => `${k} <b>${sc.filter(e => e[3] === k).length}</b>`).join(" · ")); x.t.scan.spark.set(hourly(sc));
+  x.t.scan.set(Fmt.n(sc.length), "", ["voice", "data", "carrier", "seen", "noise"].map(k => `${k} <b>${sc.filter(e => e[3] === k).length}</b>`).join(" · ")); x.t.scan.spark.set(hourly(sc));
   // mood
   const P = PAL(), t72 = now - 3 * DAY;
   const ms = mood.series.filter(r => r[0] >= t72);
@@ -654,7 +654,7 @@ tab("radio", "RADIO", (root, x) => {
   x.tx = card(root, { title: "TRANSCRIBED SHARE OF VOICE CATCHES", span: 6, noPlot: true });
 }, async x => {
   const rd = await src("radio"); const r = range(), P = PAL();
-  const kc = { voice: P[0], data: P[2], carrier: P[5], noise: OTHER() }, order = ["voice", "data", "carrier", "noise"];
+  const kc = { voice: P[0], data: P[2], carrier: P[5], seen: P[3], noise: OTHER() }, order = ["voice", "data", "carrier", "seen", "noise"];
   const db = byDay(rd.events, e => e[0], e => e[3], order, r); db.series.forEach(s => s.color = kc[s.name] || OTHER());
   x.cDay.set(db.cats, db.series); x.day.legend(db.series); x.day.source(rd, `${Fmt.n(db.n)} of ${Fmt.n(rd.events.length)} events in range`);
   const ev = rd.events.filter(e => inRange(e[0], r));

@@ -2,7 +2,7 @@
 
 pyrtlsdr 0.4/0.5 import `rtlsdr_set_dithering`, which the distribution's
 librtlsdr 2.0.x does not export, and 0.3 needs the removed pkg_resources.
-The waterfall needs eight calls, so it binds them directly: retuning in
+The waterfall needs nine calls, so it binds them directly: retuning in
 process takes milliseconds, where a new `rtl_power`/`rtl_fm` process spends
 about a second opening the device.
 """
@@ -36,6 +36,11 @@ def _lib():
 class Dongle:
     """One RTL-SDR, opened for the life of the object."""
 
+    #: rtlsdr_read_sync keeps nothing between calls: time spent between reads
+    #: is samples lost. The watcher streams (`waterfall.Stream`) when it
+    #: listens to one channel for a while; simulated dongles don't set this.
+    streams = True
+
     def __init__(self, index: int = 0, sample_rate: int = 2_400_000, gain_db: float = 40.0, ppm: int = 0):
         self.lib = _lib()
         if self.lib.rtlsdr_get_device_count() < 1:
@@ -54,6 +59,10 @@ class Dongle:
         self.lib.rtlsdr_set_tuner_gain(self.dev, int(gain_db * 10))
         self.lib.rtlsdr_reset_buffer(self.dev)
         self.center: Optional[int] = None
+
+    def set_gain(self, gain_db: float) -> None:
+        """Manual tuner gain, live: the R820T takes the nearest step it has."""
+        self.lib.rtlsdr_set_tuner_gain(self.dev, int(float(gain_db) * 10))
 
     def tune(self, freq_hz: int) -> bool:
         """Retune; False if the tuner refused twice. The R820T occasionally fails
