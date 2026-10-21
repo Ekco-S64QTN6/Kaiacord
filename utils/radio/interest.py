@@ -68,7 +68,15 @@ def score(e: dict) -> tuple[float, list[str]]:
     if (e.get("seconds") or 0) >= 30 and kind == "voice":
         s += 1
         why.append(f"{round(e['seconds'])} s")
-    return s, why
+    return s, sorted(why, key=_telling)
+
+
+_ORDER = ("urgent", "first time", "new channel", "rarely", "unusual hour", "kept", "words", " s", "voice")
+
+
+def _telling(reason: str) -> int:
+    """Reasons most worth saying first: an urgent word before a word count."""
+    return next((i for i, k in enumerate(_ORDER) if k in reason), len(_ORDER))
 
 
 def _ago(sec: float, word: str = "ago") -> str:
@@ -103,6 +111,9 @@ def classify_channel(ch: dict, habits: dict, period: Optional[tuple] = None) -> 
     if period and period[0] and period[1] >= 0.5:
         return "timer", f"keys up every {period[0]:.0f} s"
     held = any(abs(f - ch["freq_hz"]) <= 3000 for f in habits)
+    said = ch.get("last_transcript") or ""
+    if said.startswith("[") and "]" in said:
+        return "data", f"{said[1:said.index(']')]} decoded · data {ch.get('data', 0)}×"
     if ch.get("data") or held:
         return "data", ("habitual: noted, held only when it runs long" if held else f"data {ch.get('data', 0)}×")
     return "carrier", f"{ch['hits']} carriers, no voice"

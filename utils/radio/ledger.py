@@ -234,7 +234,9 @@ def habitual(now: Optional[float] = None) -> dict:
         counts = {r[0]: r[1] for r in con.execute(
             "SELECT freq_hz, COUNT(*) FROM events WHERE ts >= ? AND kind IN ('carrier', 'data', 'seen') "
             "GROUP BY freq_hz", (since,))}
-        voiced = [r[0] for r in con.execute("SELECT freq_hz FROM channels WHERE voice > 0")]
+        # A voice catch, or a decoded data catch ("[APRS] …"), means the bursts say something.
+        voiced = [r[0] for r in con.execute(
+            "SELECT freq_hz FROM channels WHERE voice > 0 OR last_transcript LIKE '[%'")]
         out = {}
         for f, n in counts.items():
             if n < HABIT_MIN_HITS or any(abs(f - v) <= 3000 for v in voiced):

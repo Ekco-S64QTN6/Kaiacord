@@ -433,6 +433,11 @@ def classify(catch) -> None:
             text = _transcribe(catch.audio, speech_only=False, freq_hz=catch.freq_hz)
         if looks_like_speech(text):
             kind, transcript = "voice", text
+    if kind == "data":
+        # APRS packets and pages, when multimon-ng is installed (utils/radio/decode.py).
+        from utils.radio import decode
+        if decode.available():
+            transcript = decode.summary(decode.decode(catch.audio))
     # Only what's worth hearing is kept: voice, a net, and a carrier that sounds
     # like speech (a spoken or Morse ID, or words Whisper missed). Data bursts
     # and bare carriers keep no clip; the ledger has their timing and hours. A
@@ -743,7 +748,9 @@ async def _watch(pin: Optional[dict] = None) -> None:
             # The hop plan keeps every seeded and configured channel out of a
             # slice's blind centre; config is read here, before the fork.
             seeded = seed_channels()
-            hops = waterfall.hop_plan([c["freq_hz"] for c in seeded])
+            from utils.radio import bookmarks
+            marked = [b["freq"] for b in bookmarks.load()["items"] if not b.get("ignore")]
+            hops = waterfall.hop_plan([c["freq_hz"] for c in seeded] + marked)   # bookmarks out of the blind centres too
             digital = [c["freq_hz"] for c in seeded if c.get("mode") == "digital"]
             learned = await asyncio.to_thread(habits)
             _habits_cache.update(t=time.time(), v=learned)

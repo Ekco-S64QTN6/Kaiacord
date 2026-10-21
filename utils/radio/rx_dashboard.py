@@ -152,8 +152,17 @@ def _kaia_line_now(mode: str, freq: int, lv, tuned) -> str:
         return f"playing {freq / MHZ:.4f} live in voice."
     tonight = ledger.catches_since(time.time() - 18 * 3600)
     voice = sum(1 for e in tonight if e["kind"] == "voice")
+    best = ""
+    try:
+        from utils.radio import interest
+        top = interest.highlights(hours=18, limit=1)
+        if top:
+            t = top[0]
+            best = f" the one to hear: {t['freq'] / MHZ:.4f}, {', '.join(t['why'][:2])} — it's first in HIGHLIGHTS."
+    except Exception:
+        pass
     return (f"the scanner sleeps until {_cfg('hours', '00:00-06:00').split('-')[0]}. "
-            f"last night: {len(tonight)} catches, {voice} with a voice. ▶ SCAN to sweep now, "
+            f"last night: {len(tonight)} catches, {voice} with a voice.{best} ▶ SCAN to sweep now, "
             "or click the waterfall to sit on one channel.")
 
 
