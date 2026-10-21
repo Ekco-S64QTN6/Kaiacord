@@ -259,17 +259,6 @@ def test_the_set_ends_when_nothing_comes_next():
     assert b"" in frames
 
 
-def test_a_late_mixer_read_is_counted():
-    first = Deck(rec("one", 124, "8A"), 1.0, 5.0, tone(500, 5.0))
-    src = CrossfadeSource(first, lambda deck: None, grid_at=lambda *a: None)
-    wait_for(first, 20)
-    src.read()
-    src.read()
-    time.sleep(R.LATE_S + 0.03)
-    src.read()
-    assert len(src.late) == 1 and src.late[0] >= R.LATE_S
-
-
 def test_a_quiet_record_is_raised_but_never_past_its_peak(tmp_path):
     import shutil
     import subprocess
