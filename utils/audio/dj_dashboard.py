@@ -211,12 +211,22 @@ def snapshot(session) -> dict:
                "start": round(plan.start, 3), "drop": round(plan.drop, 3), "length": round(plan.length, 3),
                "beat": round(plan.beat, 4), "done": round(plan.done, 3), "now": round(now, 3),
                "ratio": round(plan.ratio, 5), "out_ratio": round(cur.ratio, 5)}
-    late = src.late
+    # Callback timing moved to BufferedRecordsSource when the mixer was
+    # placed behind the non-blocking audio buffer. Prefer those lifetime
+    # diagnostics; retain the old renderer sample as a compatibility fallback.
+    voice_src = getattr(session, "voice_source", None)
+    if voice_src is not None:
+        late_count = int(getattr(voice_src, "late_count", 0))
+        worst_late = float(getattr(voice_src, "worst_late", 0.0))
+    else:
+        late = getattr(src, "late", ())
+        late_count = len(late)
+        worst_late = max(late, default=0.0)
     return {
         "live": True, "t": time.time(), "channel": session.channel_name, "by": session.requested_by,
         "started": session.started_at, "played": len(session.names), "listeners": session._humans(),
         "decks": decks, "channels": channels, "master": src.levels["master"], "mix": mix,
-        "planning": src.planning_mode, "late": {"count": len(late), "worst_ms": round(max(late) * 1000) if late else 0},
+        "planning": src.planning_mode, "late": {"count": late_count, "worst_ms": round(worst_late * 1000)},
         "history": src.history[-12:], "names": session.names[-30:], "mood": _mood(),
         "chatter": list(getattr(session, "chatter", []))[-14:],
         # The last half second of per-frame levels (20 ms each): the meters play
