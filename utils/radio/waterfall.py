@@ -486,6 +486,13 @@ SAMPLE_EVERY = 10
 #: kept as a catch only if a carrier was under SIDE_MIN_CARRIER_S of it. A
 #: followed conversation waits up to FOLLOW_IDLE_S for each reply; this is
 #: what the rest of the slice says meanwhile.
+#: While a scanned conversation waits for its reply (FOLLOW_IDLE_S at most),
+#: the watch peeks: every PEEK_EVERY_S of idle it visits PEEK_SLICES other
+#: slices (~0.1 s each) and comes back. Something keyed up there is held next;
+#: a reply that starts during a peek loses at most that much of its start.
+PEEK_AFTER_S = 0.5
+PEEK_EVERY_S = 1.5
+PEEK_SLICES = 2
 SIDE_MAX = 2
 SIDE_PERSIST = 2
 SIDE_MIN_CARRIER_S = 0.3
@@ -658,6 +665,8 @@ class Watcher:
         self._bursts: dict[int, list] = {}        # habitual channel -> [first seen, last seen, bursts so far]
         self.priority: list[int] = []
         self.ignore: list[int] = []
+        self._peek_i = 0
+        self._handoff: Optional[tuple] = None    # (center, freq, dB) a peek found, held next
 
     # ── commands ─────────────────────────────────────────────────────
 
@@ -810,6 +819,7 @@ class Watcher:
         hot_runs = np.zeros(NFFT, int)
         gate = self._gates(center)
         freqs = _bin_freqs(center)
+        last_peek = started
         try:
             while not self.stop.is_set():
                 if self._poll():
@@ -872,6 +882,16 @@ class Watcher:
                     resumed = None
                 elif quiet >= SILENCE_S + FOLLOW_IDLE_S or held >= FOLLOW_MAX_S:
                     break
+                elif (follow and own and not live and not sides and resumed is None
+                      and quiet >= SILENCE_S + PEEK_AFTER_S and time.time() - last_peek >= PEEK_EVERY_S):
+                    source.close()
+                    self._handoff = self._peek(dongle, center)
+                    dongle.tune(center)
+                    last_peek = time.time()
+                    quiet += last_peek - (started + held)        # the peek's time was idle time too
+                    if self._handoff:
+                        break
+                    source = _source(dongle, int(FS * HOLD_CHUNK_S))
         finally:
             if own:
                 source.close()
@@ -898,6 +918,18 @@ class Watcher:
         s.persist = None
         audio = np.concatenate(chunks) if chunks else np.zeros(0, np.int16)
         return Catch(freq, started, time.time() - started, peak_db, audio)
+
+    def _peek(self, dongle, center: int) -> Optional[tuple]:
+        """Visit the next PEEK_SLICES slices of the schedule (not `center`);
+        the first that has something keyed up, as (center, freq, dB)."""
+        others = [c for c in self._schedule() if c != center]
+        for _ in range(min(PEEK_SLICES, len(others))):
+            c = others[self._peek_i % len(others)]
+            self._peek_i += 1
+            hit = self._visit(dongle, c)
+            if hit:
+                return (c, *hit)
+        return None
 
     def _sides(self, sides: list, iq: np.ndarray, rel: np.ndarray, hot_runs: np.ndarray, freqs: np.ndarray,
                main: int, center: int, step: float) -> None:
@@ -1062,10 +1094,16 @@ class Watcher:
             if self._poll() and self.pin is not None:
                 return
             hit = self._visit(d, center)
-            if hit:
+            while hit:
                 self.catches.put(self._hold(d, center, *hit))
                 if self.pin is not None:
                     return
+                handoff, self._handoff = self._handoff, None
+                hit = None
+                if handoff:                              # a peek found something: hold it now
+                    center, hit = handoff[0], handoff[1:]
+                    if d.tune(center) is False:
+                        hit = None
         self.passes += 1
         self._show_pass()
 

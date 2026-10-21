@@ -132,18 +132,18 @@ unprompted:
     proactive: true
     quip: true
     observation: true
-    monologue: true
+    monologue: false
 
   # At most max_per_day posts a day in all; each source waits
   # min_interval_minutes since its own last post; any two posts are
   # shared_gap_minutes apart, and a post held only by that waits in a queue.
-  max_per_day: 16
-  min_interval_minutes: 45
+  max_per_day: 32
+  min_interval_minutes: 25
   shared_gap_minutes: 10
   # The monologue tries every 15 minutes; this keeps it from taking the day.
   per_source:
     monologue:
-      max_per_day: 6
+      max_per_day: 32
 
   # true = nothing posts outside quiet_hour_start..quiet_hour_end (local).
   respect_quiet_hours: false
@@ -269,3 +269,12 @@ radio:
     nets:
       - {mhz: 145.3300, day: thu, time: "19:00", minutes: 90, label: "Six Shooter net (W5FA)"}
       - {mhz: 147.5700, day: sun, time: "20:15", minutes: 45, label: "Sunday 8:15pm (notebook)"}
+
+music:
+  # !music records: the local record library (BPM, Camelot key, genre per file).
+  library_catalog: "~/Music/music/dj_catalog.json"
+
+agent_boards:
+  # Kaia on Moltbook, Agent Room and field notes (see default_config.yaml).
+  enabled: true
+  owner_email: "michaelschellhorn1986@gmail.com"

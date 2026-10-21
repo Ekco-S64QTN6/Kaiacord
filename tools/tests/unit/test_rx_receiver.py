@@ -449,3 +449,42 @@ def test_streaming_keeps_every_sample_while_the_last_chunk_is_processed():
     src.close()
     assert isinstance(src, w.Stream) and got >= 0.9 * w.FS * (time.time() - t0) - 2 * w.PIN_CHUNK
     assert isinstance(w._source(object(), 10), w._Inline)          # a simulated dongle is read inline
+
+
+# ── data that says something ─────────────────────────────────────────────────
+
+# multimon-ng 1.6.2's output on the scanner's own 144.390 audio (18 Oct), and a page.
+MULTIMON = """APRS: W5EAK-9>3RUW9W,W5NGU-3*,K5MGY-10*:`}2vl Zk/`"6K}Snow-King Ranch TX_5
+APRS: K5MGY-10>APDW19,WIDE1-1,WIDE2-1:}W5MOM-11>APECAN,TCPIP,K5MGY-10*::W5MOM-11 :Directs=[none]
+POCSAG1200: Address: 1234567  Function: 3  Alpha:   UNIT 12 RESPOND
+POCSAG512: Address:    7  Function: 0
+"""
+
+
+def test_multimon_output_becomes_records():
+    from utils.radio import decode
+    recs = decode.parse(MULTIMON)
+    assert [r["mode"] for r in recs] == ["APRS", "APRS", "POCSAG1200"]           # an empty page is no record
+    assert recs[0]["src"] == "W5EAK-9" and "Snow-King Ranch" in recs[0]["payload"]
+    assert recs[2]["address"] == 1234567 and recs[2]["payload"] == "UNIT 12 RESPOND"
+    assert decode.summary(recs + recs).count("W5EAK-9") == 1
+
+
+@pytest.mark.skipif(not __import__("shutil").which("multimon-ng"), reason="multimon-ng isn't installed")
+def test_the_installed_decoder_reads_nothing_into_hiss():
+    from utils.radio import decode
+    hiss = (np.random.default_rng(0).normal(size=12_000 * 3) * 4000).astype(np.int16)
+    assert decode.decode(hiss) == []
+
+
+def test_a_decoded_data_catch_keeps_what_it_said(monkeypatch, led):
+    from tools.tests.unit.test_local_scanner import _catch
+    from utils.radio import decode, scanner
+    monkeypatch.setattr(scanner, "_save_clip", lambda *a: "clip.ogg")
+    monkeypatch.setattr(decode, "available", lambda: True)
+    monkeypatch.setattr(decode, "decode", lambda audio: decode.parse(MULTIMON)[:1])
+    led.seed(scanner.seed_channels())
+    noise = (np.diff(np.random.default_rng(0).normal(size=12000 * 5 + 1)) * 1000).astype(np.int16)
+    scanner.classify(_catch(144_390_000, noise, seconds=5))
+    e = led.recent(1)[0]
+    assert e["kind"] == "data" and e["transcript"].startswith("[APRS] W5EAK-9>")
