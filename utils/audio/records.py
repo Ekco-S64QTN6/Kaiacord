@@ -832,8 +832,8 @@ class CrossfadeSource(_AudioSource):
         self._planning = False
         self._start_frame: Optional[int] = None
         self.frames_sent = 0
-        # How late discord.py's voice thread came back for a frame: every gap
-        # over LATE_S is one a listener may hear as a stutter.
+        # How late the renderer returned for a frame. The production audio
+        # source buffers these frames before discord.py's callback consumes them.
         self._last_read: Optional[float] = None
         self.late: list[float] = []
         # What the mixer is doing, for the DJ dashboard: pre-fader levels of
