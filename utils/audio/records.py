@@ -1697,7 +1697,11 @@ class BufferedRecordsSource(_AudioSource):
         self._stop = threading.Event()
         self._eof = threading.Event()
         self._last_read: Optional[float] = None
-        self.late: list[float] = []
+        # Keep a bounded sample for diagnostics and separate lifetime counts;
+        # the voice callback must not perform synchronous logging or disk I/O.
+        self.late: deque[float] = deque(maxlen=256)
+        self.late_count = 0
+        self.worst_late = 0.0
         self.underruns = 0
         self._thread = threading.Thread(
             target=self._produce, daemon=True, name="kaia-records-audio-buffer"
@@ -1740,7 +1744,8 @@ class BufferedRecordsSource(_AudioSource):
         if self._last_read is not None and now - self._last_read > LATE_S:
             gap = now - self._last_read
             self.late.append(gap)
-            log_debug(f"[records] voice callback {gap * 1000:.0f} ms between frames")
+            self.late_count += 1
+            self.worst_late = max(self.worst_late, gap)
         self._last_read = now
         try:
             return self._frames.get_nowait()
@@ -1748,8 +1753,6 @@ class BufferedRecordsSource(_AudioSource):
             if self._eof.is_set() or self._stop.is_set():
                 return b""
             self.underruns += 1
-            if self.underruns in (1, 10, 100):
-                log_warning(f"[records] PCM buffer underrun ({self.underruns} total)")
             return SILENCE
 
     def cleanup(self) -> None:
@@ -2216,11 +2219,12 @@ class RecordsSession:
         # The booth window stays open when the set ends: it shows "no set
         # running" until the next !music records, which uses it again.
         minutes = (time.time() - self.started_at) / 60
-        late = self.voice_source.late if self.voice_source else []
+        late_count = self.voice_source.late_count if self.voice_source else 0
+        worst_late = self.voice_source.worst_late if self.voice_source else 0.0
         underruns = self.voice_source.underruns if self.voice_source else 0
         details = []
-        if late:
-            details.append(f"voice callback late {len(late)} times, worst {max(late) * 1000:.0f} ms")
+        if late_count:
+            details.append(f"voice callback late {late_count} times, worst {worst_late * 1000:.0f} ms")
         if underruns:
             details.append(f"{underruns} PCM buffer underruns")
         log_action(f"[records] set ended after {minutes:.1f} min, {len(self.names)} records; "
