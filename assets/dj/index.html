@@ -926,7 +926,17 @@ const FLAT = { trim: 0, high: 1, mid: 1, low: 1, fader: 1 };
 const RANGE = { phones: [0, 1], trim: [-12, 12], high: [0, 1.5], mid: [0, 1.5], low: [0, 1.5], fader: [0, 1], master: [0, 1.5], xfader: [0, 1] };
 const local = {};            // "slot:name" -> {v, until}: what a hand just set, until the stream echoes it
 function post(path, body) {
-  return fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).catch(() => {});
+  return fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  }).then((r) => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r;
+  }).catch((err) => {
+    console.warn(`[dj] ${path} failed`, err);
+    return null;
+  });
 }
 function ctl(slot, name) {
   const key = `${slot}:${name}`, l = local[key];
@@ -1032,7 +1042,13 @@ $("blendsel").addEventListener("click", (e) => {
 });
 $("rides").onclick = () => { post("/rides"); local["0:rides"] = { v: !(S && S.rides), until: performance.now() + 1500 };
   toast(S && S.rides ? "kaia's hands off the mixer — just the blends" : "kaia's riding the mixer again"); };
-$("auto").onclick = () => { for (const k in local) delete local[k]; post("/reset"); toast("the mixer is kaia's again"); };
+$("auto").onclick = () => {
+  post("/reset").then((r) => {
+    if (!r) { toast("couldn't hand the mixer back"); return; }
+    for (const k in local) delete local[k];
+    toast("the mixer is kaia's again");
+  });
+};
 let toastT = 0;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), Math.max(2200, msg.length * 45)); }
 
@@ -1487,7 +1503,11 @@ $("cratepane").addEventListener("click", (e) => {
   if (!row) return;
   const name = row.querySelector(".nm").textContent;
   if (row.dataset.id === crateIds().air) { toast("that one's on air"); return; }
-  post("/load", { id: row.dataset.id }).then(() => { toast(`loading ${name} on deck ${S ? S.free : ""}…`); setTimeout(loadCrate, 2500); });
+  post("/load", { id: row.dataset.id }).then((r) => {
+    if (!r) { toast(`load request failed for ${name}`); return; }
+    toast(`loading ${name} on deck ${S ? S.free : ""}…`);
+    setTimeout(loadCrate, 2500);
+  });
 });
 $("collapse").addEventListener("click", () => {
   const heads = [...document.querySelectorAll("#cratepane .gh")].map((h) => h.dataset.g);
@@ -1563,7 +1583,10 @@ $("setspane").addEventListener("click", (e) => {
   if (!row) return;
   if (row.classList.contains("now")) { toast("that one's on air"); return; }
   const name = row.querySelector(".nm").textContent.replace(/^\d+/, "");
-  post("/load", { id: row.dataset.id }).then(() => toast(`loading ${name} on deck ${S ? S.free : ""}…`));
+  post("/load", { id: row.dataset.id }).then((r) => {
+    if (!r) { toast(`load request failed for ${name}`); return; }
+    toast(`loading ${name} on deck ${S ? S.free : ""}…`);
+  });
 });
 setInterval(() => { if (setsOn) loadSets(); }, 4000);
 // What a load came to, said once.
