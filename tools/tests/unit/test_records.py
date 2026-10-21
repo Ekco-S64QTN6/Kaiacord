@@ -259,7 +259,7 @@ def test_the_set_ends_when_nothing_comes_next():
     assert b"" in frames
 
 
-def test_a_late_voice_thread_is_counted():
+def test_a_late_mixer_read_is_counted():
     first = Deck(rec("one", 124, "8A"), 1.0, 5.0, tone(500, 5.0))
     src = CrossfadeSource(first, lambda deck: None, grid_at=lambda *a: None)
     wait_for(first, 20)
