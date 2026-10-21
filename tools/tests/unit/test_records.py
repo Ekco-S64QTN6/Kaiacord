@@ -778,10 +778,15 @@ class _SlowRenderer:
         pass
 
 
-def test_buffered_records_read_never_waits_for_a_slow_mixer():
+def test_buffered_records_read_never_waits_for_a_slow_mixer(monkeypatch):
     import threading
     from utils.audio.records import BufferedRecordsSource, SILENCE
 
+    def forbidden_log(*args, **kwargs):
+        pytest.fail("the Discord audio callback must not log synchronously")
+
+    monkeypatch.setattr(R, "log_debug", forbidden_log)
+    monkeypatch.setattr(R, "log_warning", forbidden_log)
     release = threading.Event()
     entered = threading.Event()
     renderer = _SlowRenderer([b"frame"], block_event=release, entered=entered)
@@ -821,9 +826,14 @@ def test_buffered_records_source_preserves_frame_order_and_bounds_memory():
         source.cleanup()
 
 
-def test_buffered_records_source_tracks_late_voice_reads():
+def test_buffered_records_source_tracks_late_voice_reads(monkeypatch):
     from utils.audio.records import BufferedRecordsSource
 
+    def forbidden_log(*args, **kwargs):
+        pytest.fail("the Discord audio callback must not log synchronously")
+
+    monkeypatch.setattr(R, "log_debug", forbidden_log)
+    monkeypatch.setattr(R, "log_warning", forbidden_log)
     renderer = _SlowRenderer([b"a", b"b", b"c"], delay=0.001)
     source = BufferedRecordsSource(renderer, buffer_frames=3)
     try:
@@ -831,7 +841,8 @@ def test_buffered_records_source_tracks_late_voice_reads():
         assert source.read() == b"a"
         time.sleep(R.LATE_S + 0.02)
         assert source.read() == b"b"
-        assert len(source.late) == 1
+        assert source.late_count == 1
         assert source.late[0] >= R.LATE_S
+        assert source.worst_late >= R.LATE_S
     finally:
         source.cleanup()
