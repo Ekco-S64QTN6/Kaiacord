@@ -358,3 +358,13 @@ def test_an_open_booth_window_is_used_again_not_a_second_one(monkeypatch):
         srv, D._server = D._server, None
         if srv:
             srv.shutdown()
+
+def test_the_booth_reflows_in_compact_and_short_viewports():
+    """Keep the dashboard panels accessible when the app window is resized."""
+    page = D.PAGE.read_text(encoding="utf-8")
+    assert "@media (max-width: 1050px)" in page
+    assert "@media (max-width: 650px)" in page
+    assert '@media (max-height: 720px) and (min-width: 1051px)' in page
+    assert 'grid-template-areas: "deck1 deck2" "mixer mixer"' in page
+    assert "overflow-y: auto" in page
+    assert "@media (prefers-reduced-motion: reduce)" in page

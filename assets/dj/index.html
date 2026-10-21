@@ -291,6 +291,114 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
   text-shadow: 0 0 22px rgba(0,240,255,.8), 4px 0 0 rgba(255,47,209,.6); }
 #idle .sub { text-align: center; color: var(--dim); letter-spacing: 3px; margin-top: 18px; font-size: 14px; }
 #idle .sub b { color: var(--pink); }
+
+/* ── responsive layouts ────────────────────────────────────────────
+   The default is the full desktop booth. Below these breakpoints the
+   panels reflow instead of letting the fixed-height grid clip controls.
+*/
+@media (max-width: 1280px) {
+  #app { padding: 8px; gap: 8px; grid-template-rows: 40px minmax(130px, 18vh) 1fr minmax(200px, 26vh); }
+  #mid { grid-template-columns: minmax(0, 1fr) minmax(290px, 30%) minmax(0, 1fr); gap: 8px; }
+  #bottom { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, .9fr); gap: 8px; }
+  header { gap: 10px; }
+  .logo { font-size: 19px; letter-spacing: 3px; }
+  .pill { padding: 4px 7px; font-size: 10px; }
+  .deck { padding: 8px; }
+  .dtop { gap: 5px; }
+  .dnum { width: 28px; font-size: 22px; }
+  .state { font-size: 10px; letter-spacing: 1px; }
+  .dtitle .t { font-size: clamp(13px, 1.4vw, 18px); }
+  .dbody { grid-template-columns: minmax(0, 38%) minmax(0, 1fr); gap: 8px; }
+  .jogwrap { min-height: 0; max-height: 210px; }
+  .ro { padding: 4px; }
+  .ro .v { font-size: clamp(15px, 2vh, 22px); }
+  .ro.big .v { font-size: clamp(20px, 2.7vh, 30px); }
+  .mixer { padding: 22px 8px 8px; }
+  .strips { grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr); gap: 4px; }
+  .strip { grid-template-columns: 40px minmax(0, 1fr); gap: 4px; }
+  .knob canvas { width: clamp(18px, 2.2vh, 30px); height: clamp(18px, 2.2vh, 30px); }
+  .fader { width: 22px; }
+  .xlabels { font-size: 8px; letter-spacing: 1px; }
+  .fx .kind { font-size: 15px; letter-spacing: 1px; }
+  .blendsel { gap: 4px; letter-spacing: 1px; }
+  .blendsel span { padding: 2px 5px; }
+  .tab { padding: 4px 6px; letter-spacing: 1px; }
+}
+
+@media (max-width: 1050px) {
+  html, body { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+  #app { height: auto; min-height: 100vh; min-height: 100svh; grid-template-rows: auto 130px auto auto; }
+  header { min-height: 44px; flex-wrap: wrap; gap: 8px; padding: 4px; }
+  #clock { margin-left: auto; font-size: 16px; }
+  #mid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "deck1 deck2" "mixer mixer";
+    align-items: stretch;
+  }
+  .deck[data-slot="1"] { grid-area: deck1; }
+  .deck[data-slot="2"] { grid-area: deck2; }
+  .mixer { grid-area: mixer; min-height: 400px; }
+  .deck { min-height: 340px; }
+  #bottom {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "crate crate" "next kaia";
+    align-items: stretch;
+  }
+  .crate { grid-area: crate; min-height: 320px; }
+  .next { grid-area: next; min-height: 220px; }
+  .kaia { grid-area: kaia; min-height: 220px; }
+  .tabs { flex-wrap: wrap; }
+}
+
+@media (max-width: 650px) {
+  #app { padding: 6px; gap: 8px; grid-template-rows: auto 115px auto auto; }
+  header { gap: 5px; }
+  .logo { font-size: 16px; letter-spacing: 1px; }
+  .pill { gap: 4px; padding: 3px 5px; font-size: 9px; letter-spacing: 0; }
+  #clock { font-size: 14px; letter-spacing: 1px; }
+  #mid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "deck1" "deck2" "mixer";
+  }
+  .deck { min-height: 320px; }
+  .mixer { min-height: 420px; }
+  .dbody { grid-template-columns: minmax(90px, 36%) minmax(0, 1fr); }
+  .jogwrap { min-height: 0; max-height: 180px; }
+  .transport { gap: 4px; }
+  .btn { min-width: 58px; padding: 7px 10px; font-size: 10px; }
+  #auto { padding: 0 7px; }
+  .strips { grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr); gap: 3px; }
+  .strip { grid-template-columns: 34px minmax(0, 1fr); gap: 3px; }
+  .knob canvas { width: 24px; height: 24px; }
+  .vu { width: 11px; }
+  .fader { width: 20px; }
+  #bottom { grid-template-columns: minmax(0, 1fr); grid-template-areas: "crate" "next" "kaia"; }
+  .crate { min-height: 300px; }
+  .next { min-height: 180px; }
+  .kaia { min-height: 200px; }
+  .tabs { gap: 2px; }
+  .tab { padding: 4px 5px; font-size: 9px; letter-spacing: .5px; }
+  .tabs .count { font-size: 9px; }
+  #collapse { margin-left: 2px; padding: 2px 4px; }
+  .trk { grid-template-columns: minmax(0, 1fr) 38px 32px 44px; gap: 3px; font-size: 11px; }
+}
+
+@media (max-height: 720px) and (min-width: 1051px) {
+  html, body { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+  #app { height: auto; min-height: 100vh; min-height: 100svh; grid-template-rows: 44px 140px minmax(340px, 1fr) 220px; }
+  .deck { min-height: 340px; }
+  .mixer { min-height: 360px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}
+
 </style>
 </head>
 <body>
