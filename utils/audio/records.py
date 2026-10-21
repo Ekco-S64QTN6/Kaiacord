@@ -832,10 +832,6 @@ class CrossfadeSource(_AudioSource):
         self._planning = False
         self._start_frame: Optional[int] = None
         self.frames_sent = 0
-        # How late the renderer returned for a frame. The production audio
-        # source buffers these frames before discord.py's callback consumes them.
-        self._last_read: Optional[float] = None
-        self.late: list[float] = []
         # What the mixer is doing, for the DJ dashboard: pre-fader levels of
         # each deck and the mix (dBFS), the band gains applied this frame, and
         # every transition planned.
@@ -1415,12 +1411,6 @@ class CrossfadeSource(_AudioSource):
         return shift
 
     def read(self) -> bytes:
-        now = time.perf_counter()
-        if self._last_read is not None and now - self._last_read > LATE_S:
-            gap = now - self._last_read
-            self.late.append(gap)
-            log_debug(f"[records] mixer worker {gap * 1000:.0f} ms between rendered frames")
-        self._last_read = now
         cur = self.current
         if cur is None:
             return b""
