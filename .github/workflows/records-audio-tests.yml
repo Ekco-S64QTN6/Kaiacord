@@ -33,6 +33,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes ffmpeg
           python -m pip install --upgrade pip
-          python -m pip install pytest numpy scipy PyYAML
+          python -m pip install pytest pytest-asyncio numpy scipy PyYAML
       - name: Test the record mixer and buffered AudioSource
         run: python -m pytest tools/tests/unit/test_records.py -q
