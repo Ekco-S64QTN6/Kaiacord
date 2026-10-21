@@ -12,10 +12,11 @@ onto it (`load`), its cue point moved (`set_cue`), played synced and on the
 beat (`play_hand`) while the faders do the mix, taking over once the record on
 air has gone quiet — or finished by Kaia (`finish`).
 
-Same contract as the Strudel source: `read()` hands discord.py one 20 ms frame
-every 20 ms and never blocks; ffmpeg output is pumped into a buffer on a
-thread, and anything slow (choosing, measuring, starting ffmpeg) happens on
-another before its frames are needed.
+The mixer renders complete 20 ms PCM frames on a worker. A bounded
+`BufferedRecordsSource` queue sits between it and discord.py, so the voice
+callback only dequeues an already-mixed frame and returns promptly. Each
+ffmpeg deck has its own decoder thread and buffer; choosing, measuring, and
+starting incoming decks happen away from the voice callback.
 """
 from __future__ import annotations
 
