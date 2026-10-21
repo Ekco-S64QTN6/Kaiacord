@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import queue
 import random
 import re
 import subprocess
@@ -1418,7 +1419,7 @@ class CrossfadeSource(_AudioSource):
         if self._last_read is not None and now - self._last_read > LATE_S:
             gap = now - self._last_read
             self.late.append(gap)
-            log_debug(f"[records] voice thread {gap * 1000:.0f} ms between frames")
+            log_debug(f"[records] mixer worker {gap * 1000:.0f} ms between rendered frames")
         self._last_read = now
         cur = self.current
         if cur is None:
@@ -1687,6 +1688,90 @@ class CrossfadeSource(_AudioSource):
         self.current = self.incoming = self.hand = None
 
 
+class BufferedRecordsSource(_AudioSource):
+    """Keep Discord's 20 ms audio callback to a non-blocking PCM dequeue.
+
+    CrossfadeSource does the actual mixing (band filtering, gain curves and
+    NumPy conversion). Those operations are bounded by CPU/GIL scheduling, so
+    a short pause in analysis or the interpreter used to starve discord.py's
+    voice thread. Render ahead on a worker and keep a small bounded queue of
+    complete 20 ms frames; if the queue is temporarily empty, return silence
+    rather than doing DSP or waiting in the voice callback.
+    """
+
+    def __init__(self, renderer: CrossfadeSource, buffer_frames: int = 15):
+        self.renderer = renderer
+        self.buffer_frames = max(3, min(50, int(buffer_frames)))
+        self._frames: queue.Queue[bytes] = queue.Queue(maxsize=self.buffer_frames)
+        self._stop = threading.Event()
+        self._eof = threading.Event()
+        self._last_read: Optional[float] = None
+        self.late: list[float] = []
+        self.underruns = 0
+        self._thread = threading.Thread(
+            target=self._produce, daemon=True, name="kaia-records-audio-buffer"
+        )
+        self._thread.start()
+
+    def is_opus(self) -> bool:
+        return False
+
+    def _produce(self) -> None:
+        try:
+            while not self._stop.is_set():
+                frame = self.renderer.read()
+                if not frame:
+                    return
+                while not self._stop.is_set():
+                    try:
+                        self._frames.put(frame, timeout=0.05)
+                        break
+                    except queue.Full:
+                        continue
+        except Exception as exc:
+            log_error(f"[records] mixer worker failed: {exc}")
+        finally:
+            self._eof.set()
+
+    def wait_ready(self, frames: int = 5, timeout: float = 2.0) -> bool:
+        """Wait off the event loop for enough initial PCM to avoid a cold start."""
+        wanted = max(1, min(int(frames), self.buffer_frames))
+        deadline = time.monotonic() + max(0.0, timeout)
+        while time.monotonic() < deadline:
+            if self._frames.qsize() >= wanted or self._eof.is_set():
+                break
+            time.sleep(0.005)
+        return self._frames.qsize() >= wanted or self._eof.is_set()
+
+    def read(self) -> bytes:
+        """Return one complete frame immediately; never wait for the mixer."""
+        now = time.perf_counter()
+        if self._last_read is not None and now - self._last_read > LATE_S:
+            gap = now - self._last_read
+            self.late.append(gap)
+            log_debug(f"[records] voice callback {gap * 1000:.0f} ms between frames")
+        self._last_read = now
+        try:
+            return self._frames.get_nowait()
+        except queue.Empty:
+            if self._eof.is_set() or self._stop.is_set():
+                return b""
+            self.underruns += 1
+            if self.underruns in (1, 10, 100):
+                log_warning(f"[records] PCM buffer underrun ({self.underruns} total)")
+            return SILENCE
+
+    def cleanup(self) -> None:
+        self._stop.set()
+        if self._thread.is_alive() and threading.current_thread() is not self._thread:
+            self._thread.join(timeout=0.25)
+        while True:
+            try:
+                self._frames.get_nowait()
+            except queue.Empty:
+                break
+
+
 def _music_end(deck: Deck) -> float:
     """Where the record's music ends, as played: its last strong beat a bar on,
     not the end of the file. A blend is fitted before it."""
@@ -1749,6 +1834,7 @@ class RecordsSession:
         self.names: list[str] = []
         self.listeners_seen: set[str] = set()
         self.source: Optional[CrossfadeSource] = None
+        self.voice_source: Optional[BufferedRecordsSource] = None
         self._alone_grace = alone_grace_s
         self._closing = False
         self._task: Optional[asyncio.Task] = None
@@ -2125,6 +2211,8 @@ class RecordsSession:
                 self.vc.stop()
         except Exception as e:
             log_debug(f"[records] stop playback: {e}")
+        if self.voice_source:
+            self.voice_source.cleanup()
         if self.source:
             self.source.cleanup()
         if disconnect:
@@ -2137,10 +2225,15 @@ class RecordsSession:
         # The booth window stays open when the set ends: it shows "no set
         # running" until the next !music records, which uses it again.
         minutes = (time.time() - self.started_at) / 60
-        late = self.source.late if self.source else []
+        late = self.voice_source.late if self.voice_source else []
+        underruns = self.voice_source.underruns if self.voice_source else 0
+        details = []
+        if late:
+            details.append(f"voice callback late {len(late)} times, worst {max(late) * 1000:.0f} ms")
+        if underruns:
+            details.append(f"{underruns} PCM buffer underruns")
         log_action(f"[records] set ended after {minutes:.1f} min, {len(self.names)} records; "
-                   + (f"the voice thread was late {len(late)} times, worst {max(late) * 1000:.0f} ms."
-                      if late else "no late frames."))
+                   + ("; ".join(details) if details else "no late frames or buffer underruns") + ".")
         self._remember(minutes)
 
     def _remember(self, minutes: float) -> None:
@@ -2233,7 +2326,15 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
     except Exception as e:
         log_debug(f"[records] records_kaia_hands not read: {e}")
     settle("a records set")
-    vc.play(session.source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None)
+    from utils.infrastructure.system.yaml_config import config
+    buffer_frames = int(config.get("music.records_audio_buffer_frames", 15))
+    session.voice_source = BufferedRecordsSource(session.source, buffer_frames=buffer_frames)
+    # Warm the renderer's first few frames before starting Discord's voice thread.
+    # This keeps first-use imports/filter setup outside the 20 ms callback.
+    primed = await asyncio.to_thread(session.voice_source.wait_ready, min(5, session.voice_source.buffer_frames), 2.0)
+    if not primed:
+        log_warning("[records] PCM buffer did not prime before playback; starting with underrun protection")
+    vc.play(session.voice_source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None)
     _sessions[guild.id] = session
     try:
         from utils.audio import dj_dashboard
