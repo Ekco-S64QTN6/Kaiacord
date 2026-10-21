@@ -358,3 +358,16 @@ def test_an_open_booth_window_is_used_again_not_a_second_one(monkeypatch):
         srv, D._server = D._server, None
         if srv:
             srv.shutdown()
+
+def test_the_snapshot_uses_buffered_voice_callback_diagnostics(session):
+    """Callback timing belongs to the buffered source, not the mix renderer."""
+    session.voice_source = types.SimpleNamespace(late_count=3, worst_late=0.125)
+    snap = D.snapshot(session)
+    assert snap["late"] == {"count": 3, "worst_ms": 125}
+
+
+def test_the_snapshot_defaults_lateness_when_no_buffer_or_legacy_counter_exists(session):
+    """Synthetic/unbuffered sessions should still render state without diagnostics."""
+    session.voice_source = None
+    assert "late" in D.snapshot(session)
+    assert D.snapshot(session)["late"] == {"count": 0, "worst_ms": 0}
