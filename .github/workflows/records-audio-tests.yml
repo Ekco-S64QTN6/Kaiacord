@@ -1,0 +1,38 @@
+name: Records audio tests
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "utils/audio/records.py"
+      - "tools/tests/unit/test_records.py"
+      - "config/default_config.yaml"
+      - ".github/workflows/records-audio-tests.yml"
+  pull_request:
+    paths:
+      - "utils/audio/records.py"
+      - "tools/tests/unit/test_records.py"
+      - "config/default_config.yaml"
+      - ".github/workflows/records-audio-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  records-audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install audio test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install pytest pytest-asyncio numpy scipy PyYAML
+      - name: Test the record mixer and buffered AudioSource
+        run: python -m pytest tools/tests/unit/test_records.py -q

@@ -259,17 +259,6 @@ def test_the_set_ends_when_nothing_comes_next():
     assert b"" in frames
 
 
-def test_a_late_voice_thread_is_counted():
-    first = Deck(rec("one", 124, "8A"), 1.0, 5.0, tone(500, 5.0))
-    src = CrossfadeSource(first, lambda deck: None, grid_at=lambda *a: None)
-    wait_for(first, 20)
-    src.read()
-    src.read()
-    time.sleep(R.LATE_S + 0.03)
-    src.read()
-    assert len(src.late) == 1 and src.late[0] >= R.LATE_S
-
-
 def test_a_quiet_record_is_raised_but_never_past_its_peak(tmp_path):
     import shutil
     import subprocess
@@ -767,3 +756,93 @@ def test_an_unlocked_transition_echoes_out_under_the_next_record():
     first_repeat, third_repeat = at(plan.drop + 0.2 * beat), at(plan.drop + 2.2 * beat)
     assert first_repeat > 1000 and third_repeat < first_repeat       # it rings on, and dies away
     assert at(plan.drop + (R.ECHO_REPEATS + 1) * beat) < 50          # gone after the repeats
+
+
+class _SlowRenderer:
+    def __init__(self, frames, delay=0.0, block_event=None, entered=None):
+        self.frames = iter(frames)
+        self.delay = delay
+        self.block_event = block_event
+        self.entered = entered
+
+    def read(self):
+        if self.entered is not None:
+            self.entered.set()
+        if self.block_event is not None:
+            self.block_event.wait(timeout=2.0)
+        if self.delay:
+            time.sleep(self.delay)
+        return next(self.frames, b"")
+
+    def cleanup(self):
+        pass
+
+
+def test_buffered_records_read_never_waits_for_a_slow_mixer(monkeypatch):
+    import threading
+    from utils.audio.records import BufferedRecordsSource, SILENCE
+
+    def forbidden_log(*args, **kwargs):
+        pytest.fail("the Discord audio callback must not log synchronously")
+
+    monkeypatch.setattr(R, "log_debug", forbidden_log)
+    monkeypatch.setattr(R, "log_warning", forbidden_log)
+    release = threading.Event()
+    entered = threading.Event()
+    renderer = _SlowRenderer([b"frame"], block_event=release, entered=entered)
+    source = BufferedRecordsSource(renderer, buffer_frames=3)
+    try:
+        assert entered.wait(1.0)
+        before = time.perf_counter()
+        assert source.read() == SILENCE
+        elapsed = time.perf_counter() - before
+        assert elapsed < 0.02
+        assert source.underruns == 1
+
+        release.set()
+        assert source.wait_ready(1, timeout=1.0)
+        assert source.read() == b"frame"
+        assert source.wait_ready(1, timeout=1.0)  # renderer has reached EOF
+        assert source.read() == b""
+    finally:
+        release.set()
+        source.cleanup()
+
+
+def test_buffered_records_source_preserves_frame_order_and_bounds_memory():
+    from utils.audio.records import BufferedRecordsSource
+
+    frames = [f"frame-{i}".encode() for i in range(20)]
+    renderer = _SlowRenderer(frames, delay=0.001)
+    source = BufferedRecordsSource(renderer, buffer_frames=3)
+    try:
+        assert source.wait_ready(3, timeout=1.0)
+        assert source._frames.qsize() <= 3
+        assert [source.read(), source.read(), source.read()] == frames[:3]
+        assert source.wait_ready(3, timeout=1.0)
+        assert [source.read(), source.read(), source.read()] == frames[3:6]
+        assert source._frames.qsize() <= 3
+    finally:
+        source.cleanup()
+
+
+def test_buffered_records_source_tracks_late_voice_reads(monkeypatch):
+    from utils.audio.records import BufferedRecordsSource
+
+    def forbidden_log(*args, **kwargs):
+        pytest.fail("the Discord audio callback must not log synchronously")
+
+    monkeypatch.setattr(R, "log_debug", forbidden_log)
+    monkeypatch.setattr(R, "log_warning", forbidden_log)
+    renderer = _SlowRenderer([b"a", b"b", b"c"], delay=0.001)
+    source = BufferedRecordsSource(renderer, buffer_frames=3)
+    try:
+        assert source.wait_ready(3, timeout=1.0)
+        assert source.read() == b"a"
+        time.sleep(R.LATE_S + 0.02)
+        assert source.read() == b"b"
+        assert source.late_count == 1
+        assert source.late[0] >= R.LATE_S
+        assert source.worst_late >= R.LATE_S
+    finally:
+        source.cleanup()
