@@ -752,6 +752,9 @@ music:
   # both records riding together). Where the beats cannot be laid over each
   # other, the transition is an eight-bar fade instead.
   records_mix_beats: 64
+  # Render ahead of Discord's voice callback to absorb brief CPU/GIL stalls.
+  # Frames are 20 ms each; 15 frames buffer about 300 ms (clamped to 3–50).
+  records_audio_buffer_frames: 15
   # Kaia rides the mixer through a set — gain staging, trading mids and a bass
   # kill in long blends, EQ gestures into phrases alone — phrase-locked, deeper
   # with her energy. The booth's HANDS button toggles it for the set.
