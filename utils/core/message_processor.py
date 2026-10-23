@@ -2614,8 +2614,15 @@ class MessageProcessor:
                         except Exception as e:
                             log_warning(f"History summarization failed: {e}")
 
-                # Add author prefix to user message for history disambiguation
-                user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"
+                # The enriched message is necessary for generation, but its scraped
+                # pages, embeds and directives are not words the user typed. Keep
+                # only a one-line link citation in persisted history, just as in
+                # the RAG transcript, so future prompts cannot mistake page text
+                # for user-authored conversation.
+                from utils.core.sanitizer import summarize_link_context
+                user_msg_with_author = (
+                    f"{ctx.author_name}: {summarize_link_context(ctx.sanitized_content)}"
+                )
                 
                 # --- STYLE DRIFT GUARD (Feedback Loop Prevention) ---
                 # Count ellipsis-fragmented phrases AND excessive em dashes.
@@ -2654,7 +2661,6 @@ class MessageProcessor:
                     # The enricher's blocks belong in the prompt, not the
                     # transcript: logged verbatim they read as things the user
                     # typed, and the log feeds both RAG and the fine-tune corpus.
-                    from utils.core.sanitizer import summarize_link_context
                     await self.rag.log_user_interaction_async(
                         ctx.author_id, ctx.author_name,
                         summarize_link_context(ctx.sanitized_content), bot_response)
@@ -2694,7 +2700,7 @@ class MessageProcessor:
                     )
 
                     # Detect notable events and persist them
-                    event_type = detect_event_type(ctx.sanitized_content, bot_response)
+                    event_type = detect_event_type(_own, bot_response)
                     if event_type:
                         # Generate a brief summary from the exchange
                         summary = _own[:120]

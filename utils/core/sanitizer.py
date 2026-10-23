@@ -49,50 +49,63 @@ RUNTIME_SCAFFOLDING = re.compile(
 )
 
 
-def _link_title(block: str) -> str:
-    """The best one-line title from an embed or scrape block, or ''."""
-    for line in (block or "").split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        if line.lower().startswith("title:"):
-            return line.split(":", 1)[1].strip()[:120]
-        # Otherwise the first substantial line that is not a bare fragment.
-        # Only accept something that actually looks like a page title: a site
-        # separator, or Title Case. The first substantial line after a URL is
-        # just as often the user's own next sentence, and "just get it over
-        # with" is not a citation.
-        if not (6 <= len(line) <= 160) or " " not in line or line.startswith("["):
-            continue
-        looks_titled = (
-            any(sep in line for sep in (" – ", " — ", " | ", " - ")) or
-            sum(1 for w in line.split() if w[:1].isupper()) >= max(2, len(line.split()) // 2)
-        )
-        if looks_titled:
-            return line[:120]
+def _shared_context_citation(marker: str, block: str) -> str:
+    """Describe fetched context without persisting page-controlled text.
+
+    Page titles, embed fields and message bodies are external content and can
+    contain prompt instructions. Persist only a fixed label and, for scraped
+    pages, the hostname from the enricher's deterministic Source line.
+    """
+    if marker.upper() == "LINKED_WEB_CONTENT":
+        source = re.search(r"(?im)^\s*Source:\s*(https?://[^\s<>]+)", block or "")
+        if not source:
+            return ""
+        from urllib.parse import urlsplit
+        try:
+            host = (urlsplit(source.group(1).rstrip(".,;:!?)]}")).hostname or "").lower().rstrip(".")
+        except ValueError:
+            return ""
+        if host.startswith("www."):
+            host = host[4:]
+        # Do not echo odd host syntax back into prompt history.
+        if not host or not re.fullmatch(r"[a-z0-9.-]+", host) or ".." in host:
+            return ""
+        return f"[shared link: {host[:253]}]"
+    if marker.upper() == "ATTACHED_EMBED_CONTEXT":
+        return "[shared embed]"
+    if marker.upper() in ("LINKED_MESSAGE_CONTEXT", "LINKED_MESSAGE"):
+        return "[shared Discord message]"
     return ""
 
 
-def summarize_link_context(text: str) -> str:
-    """Replace an enricher block with a one-line citation of what was linked.
+_REPLY_CONTEXT_PREFIX = re.compile(
+    r"\A\[REPLYING_TO\]\n[\s\S]*?\n\n\[USER_MESSAGE\]\n"
+)
 
-    Stripping the block outright loses the page title, which is the only part
-    of a shared link that carries topic for retrieval — a bare URL is opaque to
-    an embedding. Keeping the whole article is worse: 249 turns of scraped body
-    text held 29% of all user-turn text in the corpus, attributed to whoever
-    pasted the link.
+
+def _strip_reply_context(text: str) -> str:
+    """Remove fetched parent-message context, preserving the actual user turn."""
+    return _REPLY_CONTEXT_PREFIX.sub("", text or "", count=1)
+
+
+def summarize_link_context(text: str) -> str:
+    """Persist a user turn without fetched reply, page, embed, or message blocks.
+
+    The URL typed by the user is kept in the user-authored portion. External
+    page titles and body text are deliberately not copied into future prompts.
     """
     if not text:
         return text
+    text = _strip_reply_context(text)
 
     def _replace(m):
-        title = _link_title(m.group(0).split("]", 1)[-1])
-        return f"\n[shared link: {title}]" if title else ""
+        marker_match = re.match(r"^\s*\[([A-Z_ ]+)\]", m.group(0), re.IGNORECASE)
+        marker = marker_match.group(1).strip() if marker_match else ""
+        citation = _shared_context_citation(marker, m.group(0).split("]", 1)[-1])
+        return "\n" + citation if citation else ""
 
     cleaned = RUNTIME_SCAFFOLDING.sub(_replace, text)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-
-
 def excerpt(text: str, limit: int) -> str:
     """At most `limit` characters, cut at a word boundary and marked with "…".
 
@@ -159,17 +172,12 @@ def pointed_at(sanitized_content: str, parent_context: str | None) -> str | None
 
 
 def strip_runtime_scaffolding(text: str) -> str:
-    """Remove enricher-injected blocks before a message is written to a log.
-
-    Deliberately not part of sanitize_prompt: generation needs the scaffolding.
-    Only persistence does not.
-    """
+    """Remove fetched context before a message enters a log or training corpus."""
     if not text:
         return text
+    text = _strip_reply_context(text)
     cleaned = RUNTIME_SCAFFOLDING.sub("", text)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-
-
 def _is_public_ip(ip_str: str) -> bool:
     import ipaddress
     ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
