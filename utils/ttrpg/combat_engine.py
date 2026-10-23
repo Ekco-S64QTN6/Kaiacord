@@ -410,6 +410,23 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 status_logs.append(f"⚔️ **{sheet['character_name']}** pulls back the final blow, sparing their opponent.")
 
 
+    # Kill-only advanced-class effects are evaluated after all on-hit and
+    # weapon procs, and only after the duel non-lethal guard has had its say.
+    # Passing zero damage / no hit prevents re-applying per-hit smite or
+    # lifesteal effects that were already resolved above.
+    if monster["hp"]["current"] <= 0:
+        kill_mods = apply_advanced_class_to_combat(
+            sheet, 0, False, False, 0, monster, True,
+            location=sheet.get("location", ""),
+        )
+        kill_heal = kill_mods["heal_amount"]
+        if kill_heal:
+            sheet["hp"]["current"] = min(
+                sheet["hp"]["max"], sheet["hp"]["current"] + kill_heal
+            )
+        if kill_mods["extra_log"]:
+            status_logs.extend(kill_mods["extra_log"])
+
     monster_alive = monster["hp"]["current"] > 0
 
     monster_hit = False
