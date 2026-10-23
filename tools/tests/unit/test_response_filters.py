@@ -888,7 +888,13 @@ def test_reflow_before_collapse_catches_fragments_in_separate_paragraphs():
 def test_complete_lexical_verb_sentences_are_not_litany_fragments():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
 
-    text = "a cold wind blows. a dog barks. a distant bell tolls."
+    # Deliberately use the exact stock adjectives that otherwise trigger the
+    # template detector: the finite lexical verbs still make these real clauses.
+    text = (
+        "a quiet machine hums. "
+        "a gentle child laughs. "
+        "a soft rain falls."
+    )
     assert P.collapse_litany(text) == text
 
 
