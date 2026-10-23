@@ -25,7 +25,7 @@ class FakeBreaker:
 
 def test_403_during_mentions_fetch_retries_with_a_fresh_client(monkeypatch):
     old_client = type("OldClient", (), {})()
-    old_client.get_notifications = AsyncMock(side_effect=RuntimeError("403 Forbidden"))
+    old_client.get_notifications = AsyncMock(side_effect=RuntimeError("status: 403, message: Cloudflare challenge page"))
     new_client = type("NewClient", (), {})()
     new_client.get_notifications = AsyncMock(return_value=[])
 
