@@ -17,6 +17,7 @@ jobs:
       # Discord/Google credential are excluded or must mock the network.
       DISCORD_TOKEN: "test-discord-token"
       GEMINI_API_KEY: "test-gemini-api-key"
+      TERM: "xterm-256color"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,3 +42,28 @@ jobs:
         run: python -m pip check
       - name: Run the standard non-GPU suite
         run: python -m pytest -q -m "not ollama and not gpu and not slow"
+
+  rpg-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DISCORD_TOKEN: "test-discord-token"
+      GEMINI_API_KEY: "test-gemini-api-key"
+      TERM: "xterm-256color"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest pytest-asyncio
+          if ! grep -qiE '^[[:space:]]*scipy([<=>!~[:space:]]|$)' requirements.txt; then
+            python -m pip install "scipy>=1.15.0"
+          fi
+      - name: Check dependency consistency
+        run: python -m pip check
+      - name: Run RPG unit tests
+        run: python -m pytest -q tools/tests/unit/ttrpg
