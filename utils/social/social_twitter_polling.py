@@ -24,6 +24,23 @@ from utils.infrastructure.circuit_breaker import CircuitBreaker
 
 # ── Module-owned state (moved from kaia_social_responder.py) ─────────────
 _x_breaker = CircuitBreaker("x")
+X_AUTH_ESCALATION_FAILURES = 2
+
+
+async def _record_x_failure(error: BaseException) -> None:
+    """Record a failed poll and tear down persistent half-open auth failures."""
+    _x_breaker.record_failure()
+    from utils.social.kaia_twitter import (
+        invalidate_x_session, is_x_auth_or_challenge_error,
+    )
+    if (_x_breaker.half_open_failures >= X_AUTH_ESCALATION_FAILURES
+            and is_x_auth_or_challenge_error(error)):
+        log_error(
+            "[X AUTH ESCALATION] Repeated authentication/challenge failures "
+            f"across {_x_breaker.half_open_failures} half-open probes; clearing "
+            "the cached session and saved cookies before the next recovery probe."
+        )
+        await invalidate_x_session("repeated half-open authentication/challenge failures")
 
 
 async def _reconstruct_x_history(_silenced_replied_ids: set):
@@ -105,11 +122,13 @@ async def _get_x_mentions(_silenced_replied_ids: set) -> List[Dict[str, Any]]:
     async def run_fetch(force_new=False):
         from utils.social.kaia_twitter import get_x_client, is_x_configured
         if not is_x_configured():
-            return []
+            raise RuntimeError("X mention polling is enabled but X credentials are not configured")
 
         client = await get_x_client(force_new=force_new)
         if not client:
-            return []
+            # Treat failed login/session construction as unavailable, not an
+            # empty successful poll; otherwise the breaker is reset forever.
+            raise RuntimeError("X client unavailable after login/cookie recovery")
 
         # Get mentions notifications
         notifs = await client.get_notifications('Mentions')
@@ -174,10 +193,10 @@ async def _get_x_mentions(_silenced_replied_ids: set) -> List[Dict[str, Any]]:
                 log_success("X fetch succeeded after re-authentication.")
             except Exception as e2:
                 log_error(f"Failed to fetch X mentions after re-auth retry ({type(e2).__name__}): {e2}")
-                _x_breaker.record_failure()
+                await _record_x_failure(e2)
         else:
             log_error(f"Failed to fetch X mentions ({error_type}): {e}")
-            _x_breaker.record_failure()
+            await _record_x_failure(e)
 
     return mentions
 
