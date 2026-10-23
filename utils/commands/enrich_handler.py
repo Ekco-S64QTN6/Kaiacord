@@ -36,6 +36,41 @@ def _parse(parts):
     return category, limit, "--dry-run" in parts
 
 
+async def _terminate_and_reap(process, grace: float = 3.0) -> None:
+    """Stop a child with bounded waits, escalating TERM to KILL when needed."""
+    if process.returncode is not None:
+        return
+
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        pass
+    except Exception as exc:
+        log_error(f"!enrich could not terminate child: {type(exc).__name__}: {exc}")
+
+    try:
+        await asyncio.wait_for(process.wait(), timeout=grace)
+        return
+    except asyncio.TimeoutError:
+        pass
+    except Exception as exc:
+        log_error(f"!enrich wait after terminate failed: {type(exc).__name__}: {exc}")
+
+    try:
+        process.kill()
+    except ProcessLookupError:
+        pass
+    except Exception as exc:
+        log_error(f"!enrich could not kill child: {type(exc).__name__}: {exc}")
+
+    try:
+        await asyncio.wait_for(process.wait(), timeout=grace)
+    except asyncio.TimeoutError:
+        log_error("!enrich child did not exit after kill within the cleanup timeout")
+    except Exception as exc:
+        log_error(f"!enrich wait after kill failed: {type(exc).__name__}: {exc}")
+
+
 def _summary(stdout: bytes) -> str:
     """The lines after the tool's completion marker, else its last fifteen."""
     lines = [l.strip() for l in _ANSI.sub("", stdout.decode(errors="replace"))
@@ -74,12 +109,7 @@ async def handle_enrich_command(ctx, msg, send_kaia_response):
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=TIMEOUT)
         except (asyncio.TimeoutError, asyncio.CancelledError) as e:
-            if process.returncode is None:
-                try:
-                    process.terminate()
-                    await process.wait()
-                except (ProcessLookupError, OSError):
-                    pass
+            await _terminate_and_reap(process)
             if isinstance(e, asyncio.CancelledError):
                 raise
             await status.edit(embed=notice(
