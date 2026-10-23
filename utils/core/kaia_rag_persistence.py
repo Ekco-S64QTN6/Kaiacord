@@ -275,7 +275,7 @@ class RAGPersistenceMixin:
                     with open(path, "a", encoding="utf-8", errors="replace") as f:
                         if is_new:
                             header = file_io_args.get("header") or (
-                                "---\nsummary: \"\nkeywords: []\ndocument_type: Transcript\n---\n\n"
+                                '---\nsummary: ""\nkeywords: []\ndocument_type: Transcript\n---\n\n'
                             )
                             f.write(header)
                         f.write(file_io_args["text"])
