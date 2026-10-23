@@ -59,7 +59,8 @@ def test_browser_cookie_extraction_logs_lock_failures_and_uses_wal_safe_profile_
         copied = Path(kwargs["cookie_file"])
         assert copied.is_file()
         assert Path(str(copied) + "-wal").read_bytes() == b"sqlite-wal"
-        assert Path(str(copied) + "-shm").read_bytes() == b"sqlite-shm"
+        # A live -shm file contains process coordination state and must not be copied.
+        assert not Path(str(copied) + "-shm").exists()
         if kwargs["domain_name"] == "x.com":
             return [SimpleNamespace(name="auth_token", value="test-session")]
         raise sqlite3.OperationalError("database is locked")
