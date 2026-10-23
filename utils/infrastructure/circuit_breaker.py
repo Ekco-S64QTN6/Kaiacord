@@ -29,8 +29,17 @@ class CircuitBreaker:
         self.failures = 0
         self.last_failure_time: Optional[float] = None
         self._trial_at: Optional[float] = None
+        # Consecutive failed recovery probes. Repeated half-open auth failures
+        # can need credential/session teardown rather than infinite retries.
+        self._half_open_failures = 0
         # Held only for a few assignments, so blocking is safe from the loop.
         self._lock = threading.Lock()
+
+    @property
+    def half_open_failures(self) -> int:
+        """Number of failed half-open recovery probes since the last success."""
+        with self._lock:
+            return self._half_open_failures
 
     def can_proceed(self) -> bool:
         with self._lock:
@@ -58,9 +67,13 @@ class CircuitBreaker:
             self.failures = 0
             self.last_failure_time = None
             self._trial_at = None
+            self._half_open_failures = 0
 
     def record_failure(self) -> None:
         with self._lock:
+            was_half_open = self.state == CircuitState.HALF_OPEN
+            if was_half_open:
+                self._half_open_failures += 1
             self.failures += 1
             self.last_failure_time = time.time()
             self._trial_at = None
