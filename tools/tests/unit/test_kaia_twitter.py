@@ -39,7 +39,8 @@ def test_x_auth_classifier_recognizes_structured_403_and_cloudflare_challenges()
     assert kx.is_x_auth_or_challenge_error(HttpError(401, "Unauthorized"))
     assert kx.is_x_auth_or_challenge_error(HttpError(403, "Forbidden"))
     assert kx.is_x_auth_or_challenge_error(RuntimeError("Cloudflare challenge page"))
-    assert kx.is_x_auth_or_challenge_error(RuntimeError("HTTP 403"))
+    assert not kx.is_x_auth_or_challenge_error(RuntimeError("HTTP 403"))
+    assert not kx.is_x_auth_or_challenge_error(RuntimeError("status: 403, message: Cannot find specified user."))
     assert not kx.is_x_auth_or_challenge_error(RuntimeError("tweet is too long"))
 
 
@@ -47,7 +48,7 @@ def test_a_403_from_posting_invalidates_the_cached_client_and_cookie_file(monkey
     cookies = tmp_path / "x_cookies.json"
     cookies.write_text('{"auth_token":"secret","ct0":"csrf"}')
     monkeypatch.setattr(kx, "_cookies_path", cookies)
-    client = SimpleNamespace(create_tweet=AsyncMock(side_effect=RuntimeError("403 Forbidden")))
+    client = SimpleNamespace(create_tweet=AsyncMock(side_effect=RuntimeError("status: 403, message: Cloudflare challenge page")))
     monkeypatch.setattr(kx, "_client", client)
     monkeypatch.setattr(kx, "get_x_client", AsyncMock(return_value=client))
 
@@ -68,8 +69,9 @@ def test_x_auth_classifier_uses_twikit_exception_names_without_status_code():
     AccountLocked = type("AccountLocked", (Exception,), {})
 
     assert is_x_auth_or_challenge_error(Unauthorized("status: 401, message: expired"))
-    assert is_x_auth_or_challenge_error(Forbidden("status: 403, message: blocked"))
-    assert is_x_auth_or_challenge_error(AccountLocked("challenge required"))
+    assert is_x_auth_or_challenge_error(Forbidden("status: 403, message: Cloudflare challenge page"))
+    assert not is_x_auth_or_challenge_error(Forbidden("status: 403, message: Cannot find specified user."))
+    assert not is_x_auth_or_challenge_error(AccountLocked("account locked"))
     assert is_x_auth_or_challenge_error(RuntimeError("status: 403, message: blocked"))
     assert is_x_auth_or_challenge_error(RuntimeError("HTTP 401 Unauthorized"))
     assert is_x_auth_or_challenge_error(RuntimeError("HTTP 403 Forbidden"))
