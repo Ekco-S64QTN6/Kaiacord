@@ -370,7 +370,9 @@ class NewsRetrievalEnhancer:
     def __init__(self, max_news_per_query: int = 8):
         self.max_news_per_query = max_news_per_query
         self.memory_path = Path("memory/mentioned_news.json")
-        self.mentioned_news_cache = defaultdict(set)  # user_id -> set of news IDs
+        # Keep insertion order so the 100-item cap retains the most recently
+        # mentioned IDs. A set makes eviction arbitrary rather than recency-based.
+        self.mentioned_news_cache = defaultdict(list)  # user_id -> ordered unique news IDs
         self.news_categories = {
             'tech': ['tsmc', 'nvidia', 'azure', 'amd', 'intel', 'chip', 'hardware'],
             'security': ['cve', 'breach', 'zero-day', 'vulnerability', 'patch', 'exploit'],
@@ -384,8 +386,8 @@ class NewsRetrievalEnhancer:
     def save_mentioned_news(self):
         """Save mentioned news cache to disk"""
         try:
-            # Convert sets to lists for JSON serialization
-            serializable_cache = {user_id: list(news_ids) for user_id, news_ids in self.mentioned_news_cache.items()}
+            # Lists preserve recency order across restarts.
+            serializable_cache = {user_id: list(news_ids[-100:]) for user_id, news_ids in self.mentioned_news_cache.items()}
             self.memory_path.parent.mkdir(parents=True, exist_ok=True)
             # Atomic: a partial write here leaves unparseable JSON, and
             # load_mentioned_news() swallows the error and starts from an empty
@@ -403,8 +405,21 @@ class NewsRetrievalEnhancer:
             if self.memory_path.exists():
                 with open(self.memory_path, 'r') as f:
                     data = json.load(f)
-                    # Convert lists back to sets
-                    self.mentioned_news_cache = defaultdict(set, {user_id: set(news_ids) for user_id, news_ids in data.items()})
+                    # Preserve list order from the current format. Old versions
+                    # serialized sets, so their historical order is unrecoverable;
+                    # retain their stored order as a best-effort migration.
+                    loaded = defaultdict(list)
+                    if isinstance(data, dict):
+                        for user_id, news_ids in data.items():
+                            if not isinstance(news_ids, (list, tuple, set)):
+                                continue
+                            ordered = []
+                            for news_id in news_ids:
+                                if news_id in ordered:
+                                    ordered.remove(news_id)
+                                ordered.append(news_id)
+                            loaded[str(user_id)] = ordered[-100:]
+                    self.mentioned_news_cache = loaded
         except Exception as e:
             log_warning(f"Error loading mentioned news: {e}")
     
@@ -472,11 +487,17 @@ class NewsRetrievalEnhancer:
         if not user_id or not news_ids:
             return
             
-        self.mentioned_news_cache[user_id].update(news_ids)
-        
-        # Clean old cache (keep only last 100 mentioned items per user)
-        if len(self.mentioned_news_cache[user_id]) > 100:
-            self.mentioned_news_cache[user_id] = set(list(self.mentioned_news_cache[user_id])[-100:])
+        recent = self.mentioned_news_cache[user_id]
+        # Re-mentioning an item makes it recent again, rather than leaving its
+        # retention position at the first time it appeared.
+        for news_id in news_ids:
+            if news_id in recent:
+                recent.remove(news_id)
+            recent.append(news_id)
+
+        # Keep the newest 100 unique IDs in deterministic order.
+        if len(recent) > 100:
+            del recent[:-100]
         
         self.save_mentioned_news()
             
