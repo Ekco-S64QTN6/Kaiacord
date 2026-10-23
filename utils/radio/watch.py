@@ -452,20 +452,25 @@ async def _uvb76_changed(job: dict, started: datetime, state: dict, clip: Option
             log_warning(f"[radio] posting the UVB-76 break failed: {e}")
 
 
-async def run_job(job: dict, poster=None) -> list[dict]:
-    """Record, process, post. One job at a time across the process."""
+async def run_job(job: dict, poster=None) -> Optional[list[dict]]:
+    """Record, process, post. One job at a time across the process.
+
+    None means the attempt could not run (no client, receiver or usable
+    receiver); [] means the attempt completed but kept no clip. The caller
+    marks only completed attempts as done.
+    """
     if not kiwi.available():
-        log_debug("[radio] kiwiclient not installed; skipping a scheduled listen")
-        return []
+        log_debug("[radio] kiwiclient not installed; retrying scheduled listen on a later tick")
+        return None
     if job["kind"] == "uvb76":
         async with _lock_for(job):
-            await sample_uvb76(job, poster)
-        return []
+            sample = await sample_uvb76(job, poster)
+        return [] if sample is not None else None
     async with _lock_for(job):
         receivers = kiwi.choose(await kiwi.directory(), job["khz"], job["region"])
         if not receivers:
-            log_warning(f"[radio] no free {job['region']} receiver covers {job['khz']:g} kHz")
-            return []
+            log_warning(f"[radio] no free {job['region']} receiver covers {job['khz']:g} kHz; will retry while due")
+            return None
         work = radio_log.clips_dir().parent / "work"
         started = datetime.now(timezone.utc)
         wavs: list[Path] = []
@@ -478,7 +483,8 @@ async def run_job(job: dict, poster=None) -> list[dict]:
             except FeedError as e:
                 log_warning(f"[radio] {e}; trying the next receiver")
         else:
-            return []
+            log_warning(f"[radio] all receivers failed for {job['station']}; will retry while due")
+            return None
         log_info(f"[radio] {job['station']} on {job['khz']:g} kHz via {receiver.host}: "
                  f"{len(wavs)} recording(s)")
         entries = []
@@ -509,6 +515,21 @@ async def run_job(job: dict, poster=None) -> list[dict]:
         return entries
 
 
+async def _run_scheduled(job: dict, poster=None) -> None:
+    """Persist a done key only after the scheduled attempt actually completes.
+
+    Failures stay eligible for a later scheduler tick while the due window is
+    open. A completed attempt that keeps no clip is still done.
+    """
+    try:
+        result = await run_job(job, poster)
+    except Exception as e:
+        log_warning(f"[radio] scheduled {job['key']} failed; will retry while due: {e}")
+        return
+    if result is not None:
+        _mark_done(job["key"])
+
+
 async def tick(poster=None, now: Optional[datetime] = None) -> None:
     """Start whatever is due. Called every minute by the radio task. Nothing
     new starts while records or a live set plays (a listen ends in a CPU
@@ -527,9 +548,8 @@ async def tick(poster=None, now: Optional[datetime] = None) -> None:
         if job["kind"] in launched or _lock_for(job).locked():
             continue                   # the next tick retries while the window is open
         launched.add(job["kind"])
-        _mark_done(job["key"])
         from utils.infrastructure.monitoring.async_task_registry import task_registry
-        task_registry.register(f"radio_job_{job['key']}", asyncio.create_task(run_job(job, poster)))
+        task_registry.register(f"radio_job_{job['key']}", asyncio.create_task(_run_scheduled(job, poster)))
 
 
 # ── the cross-check ─────────────────────────────────────────────────────────
