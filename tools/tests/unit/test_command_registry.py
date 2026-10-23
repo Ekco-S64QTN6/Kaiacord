@@ -222,6 +222,24 @@ def test_admin_is_only_shown_to_an_owner_who_presses_it():
     assert "!reindex" in " ".join(f.value for f in inter.response.edit_message.call_args.kwargs["embed"].fields)
 
 
+def test_help_navigation_rebuilds_admin_buttons_for_the_current_user():
+    from utils.commands.help_handler import ADMIN, LABELS
+
+    # A non-owner created the message, but an owner who presses a section
+    # should receive the owner-specific navigation, including the Admin page.
+    ctx, sent = _help(is_owner=False)
+    interaction = _press(ctx, sent[0][1], "Music & art", owner=True)
+    view = interaction.response.edit_message.call_args.kwargs["view"]
+    assert any(button.label == LABELS[ADMIN][1] for button in view.children)
+
+    # Conversely, an ordinary user pressing a page on an owner's message must
+    # not retain a stale Admin button.
+    ctx, sent = _help(is_owner=True)
+    interaction = _press(ctx, sent[0][1], "Music & art", owner=False)
+    view = interaction.response.edit_message.call_args.kwargs["view"]
+    assert all(button.label != LABELS[ADMIN][1] for button in view.children)
+
+
 def test_help_with_a_word_opens_that_command_or_section():
     _, sent = _help(is_owner=False, content="!help eam")       # an alias
     assert sent[0][0].title == "!skyking" and sent[0][1] is None
