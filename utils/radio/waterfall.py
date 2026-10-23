@@ -545,8 +545,16 @@ class Stream:
                     raise RuntimeError("the dongle stream stopped")
 
     def close(self) -> None:
+        """Stop the reader and wait until no native RTL-SDR read is in flight.
+
+        rtlsdr_read_sync runs in C and releases the GIL. A timed-out join does
+        not cancel that native call; allowing the caller to retune or close the
+        dongle afterward can race the live USB read and corrupt the stream (or
+        crash inside librtlsdr). The reader consumes a bounded sample chunk and
+        exits as soon as that read returns, so do not report closed prematurely.
+        """
         self.running = False
-        self.t.join(2)
+        self.t.join()
 
 
 def _source(dongle, n: int):
