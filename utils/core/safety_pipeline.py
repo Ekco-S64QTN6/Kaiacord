@@ -1116,7 +1116,7 @@ class PostGenerationSafetyPipeline:
         if not changed:
             return text
         out = re.sub(r"(\n\s*\n){2,}", "\n\n", "".join(out_paras)).strip()
-        if len(out) < 40:
+        if not out:
             return text
         log_warning(f"[TEMPLATE_GUARD] Collapsed a litany of fragments ({len(text) - len(out)} chars)")
         return out
