@@ -56,3 +56,25 @@ def test_a_403_from_posting_invalidates_the_cached_client_and_cookie_file(monkey
     assert not ok
     assert kx._client is None
     assert not cookies.exists()
+
+
+def test_x_auth_classifier_uses_twikit_exception_names_without_status_code():
+    from utils.social.kaia_twitter import is_x_auth_or_challenge_error
+
+    # Twikit errors expose their HTTP meaning via exception class and message;
+    # the exception itself does not necessarily expose .status_code.
+    Unauthorized = type("Unauthorized", (Exception,), {})
+    Forbidden = type("Forbidden", (Exception,), {})
+    AccountLocked = type("AccountLocked", (Exception,), {})
+
+    assert is_x_auth_or_challenge_error(Unauthorized("status: 401, message: expired"))
+    assert is_x_auth_or_challenge_error(Forbidden("status: 403, message: blocked"))
+    assert is_x_auth_or_challenge_error(AccountLocked("challenge required"))
+    assert is_x_auth_or_challenge_error(RuntimeError("status: 403, message: blocked"))
+    assert is_x_auth_or_challenge_error(RuntimeError("HTTP 401 Unauthorized"))
+    assert not is_x_auth_or_challenge_error(
+        RuntimeError("this post explains what an HTTP 403 response means")
+    )
+    assert not is_x_auth_or_challenge_error(
+        RuntimeError("tweet content includes the digits 403")
+    )
