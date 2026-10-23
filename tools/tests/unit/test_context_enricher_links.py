@@ -51,6 +51,23 @@ def test_a_link_whose_guild_does_not_match_the_channel_is_not_resolved():
     assert asyncio.run(enricher.resolve_message_links(msg)) == ""
 
 
+def test_discord_message_links_are_not_scraped_as_external_web_pages():
+    enricher = ContextEnricher(MagicMock())
+    links = [
+        "https://discord.com/channels/1/2/3",
+        "https://discordapp.com/channels/1/2/3",
+        "https://ptb.discord.com/channels/1/2/3",
+        "https://canary.discordapp.com/channels/1/2/3",
+    ]
+    for link in links:
+        assert enricher.msg_link_pattern.search(link)
+        assert enricher.external_link_pattern.findall(link) == []
+
+    assert enricher.external_link_pattern.findall("read https://example.com/article") == [
+        "https://example.com/article"
+    ]
+
+
 def test_trailing_punctuation_is_not_part_of_the_url():
     enricher = ContextEnricher(MagicMock())
     seen = []
