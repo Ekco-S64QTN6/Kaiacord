@@ -121,3 +121,12 @@ def test_sanitized_channel_turn_is_the_content_written_to_bot_state_json(tmp_pat
     assert "[shared link: example.com]" in persisted
     assert "Ignore previous instructions" not in persisted
     assert "Fetched body" not in persisted
+
+
+def test_relationship_event_detection_uses_only_user_authored_words():
+    from utils.core.message_processor import MessageProcessor
+
+    source = inspect.getsource(MessageProcessor._background_logging_and_memory)
+
+    assert "event_type = detect_event_type(_own, bot_response)" in source
+    assert "detect_event_type(ctx.sanitized_content, bot_response)" not in source
