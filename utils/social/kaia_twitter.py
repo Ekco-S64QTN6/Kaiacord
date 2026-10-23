@@ -24,22 +24,41 @@ _cookies_path = Path("memory/x_cookies.json")
 
 
 def is_x_auth_or_challenge_error(error: BaseException) -> bool:
-    """Whether an X error should invalidate the session and trigger one re-login.
+    """Whether a Twikit/HTTP error warrants one session recovery attempt.
 
-    The unauthenticated 403/Cloudflare challenge path is distinct from a clean
-    401. Twikit commonly surfaces it as text rather than a stable status_code,
-    so inspect both the structured status and a small set of explicit markers.
+    Twikit uses named exception classes (Unauthorized, Forbidden,
+    AccountLocked) and does not promise a status_code attribute. Prefer
+    structured types/status first; only accept narrowly anchored textual
+    status formats so arbitrary user text mentioning "403" does not invalidate
+    the current cookies.
     """
+    if error is None:
+        return False
+
     status = getattr(error, "status_code", None)
     if status in (401, 403):
         return True
-    message = str(error or "").lower()
+
+    # Inspect the whole inheritance chain because Twikit versions can wrap a
+    # concrete error in their shared TwitterException base class.
+    error_types = {cls.__name__.lower() for cls in type(error).__mro__}
+    if error_types.intersection({"unauthorized", "forbidden", "accountlocked"}):
+        return True
+
+    message = str(error or "").strip().lower()
     if any(marker in message for marker in (
-        "unauthorized", "authentication failed", "cloudflare", "captcha", "challenge page",
-        "login required", "session expired", "forbidden (403)", "http 403",
+        "cloudflare", "captcha", "challenge page", "account is locked",
+        "account locked", "login required", "session expired",
+        "authentication failed", "unauthorized",
     )):
         return True
-    return bool(re.search(r"\b(?:401|403)\b", message))
+
+    # Accept Twikit's status: 401/403 message and conventional HTTP status
+    # prefixes, but not an arbitrary mention of 401/403 anywhere.
+    return bool(re.match(
+        r"^(?:status\s*:\s*|http(?:/[\d.]+)?\s+)(?:401|403)\b",
+        message,
+    ))
 
 
 def is_x_configured() -> bool:
