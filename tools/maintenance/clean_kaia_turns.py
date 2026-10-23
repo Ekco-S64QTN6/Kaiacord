@@ -59,8 +59,8 @@ def clean(text: str, previous: list) -> str:
     out = E.repair_cut_ellipsis(P.strip_address_tag(text))
     out = P.strip_repeated_lines(out, previous, window=WINDOW)
     out = P.strip_grading_opener(out)
-    out = P.collapse_litany(out)
     out = P.reflow_paragraphs(out)
+    out = P.collapse_litany(out)
     return out if out.strip() else text
 
 
