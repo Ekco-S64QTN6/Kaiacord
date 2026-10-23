@@ -33,6 +33,10 @@ class StrudelAudioSource(_AudioSource):
         self._frames: deque[bytes] = deque()
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        # Serialize capture restarts against cleanup. Otherwise cleanup can
+        # close the old process while _pump is opening its replacement, leaving
+        # that replacement alive after the source has stopped.
+        self._capture_lock = threading.Lock()
         self._target = buffer_frames          # 100 frames = 2 s
         self.frames_sent = 0
         self.underruns = 0
@@ -80,7 +84,8 @@ class StrudelAudioSource(_AudioSource):
                 if self._stop.wait(min(2 ** (self.restarts - 1), 10)):
                     return
                 try:
-                    self._proc = self.engine.open_capture()
+                    if not self._restart_capture():
+                        return
                 except Exception as exc2:
                     log_warning(f"[music] could not restart capture: {exc2}")
                     return
@@ -93,6 +98,23 @@ class StrudelAudioSource(_AudioSource):
                 # accumulate a delay that keeps growing.
                 while len(self._frames) > self._target * 3:
                     self._frames.popleft()
+
+    def _restart_capture(self) -> bool:
+        """Start a replacement only while the source is still live.
+
+        Cleanup sets _stop before taking this lock. If shutdown begins during
+        open_capture(), close the just-created process instead of publishing it
+        to a source whose reader thread is about to exit.
+        """
+        with self._capture_lock:
+            if self._stop.is_set():
+                return False
+            proc = self.engine.open_capture()
+            if self._stop.is_set():
+                self.engine.close_capture()
+                return False
+            self._proc = proc
+            return True
 
     def is_opus(self) -> bool:
         return False
@@ -110,9 +132,10 @@ class StrudelAudioSource(_AudioSource):
     def cleanup(self) -> None:
         self._stop.set()
         try:
-            self.engine.close_capture()
-        except Exception:
-            pass
+            with self._capture_lock:
+                self.engine.close_capture()
+        except Exception as exc:
+            log_debug(f"[music] capture cleanup failed: {exc}")
         if self._thread.is_alive():
             self._thread.join(timeout=2.0)
         log_debug(f"[music] source cleaned up: {self.frames_sent} frames, "
