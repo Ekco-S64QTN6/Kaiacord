@@ -24,42 +24,39 @@ _cookies_path = Path("memory/x_cookies.json")
 
 
 def is_x_auth_or_challenge_error(error: BaseException) -> bool:
-    """Whether a Twikit/HTTP error warrants one session recovery attempt.
+    """Whether an X error indicates a stale session or explicit auth challenge.
 
-    Twikit uses named exception classes (Unauthorized, Forbidden,
-    AccountLocked) and does not promise a status_code attribute. Prefer
-    structured types/status first; only accept narrowly anchored textual
-    status formats so arbitrary user text mentioning "403" does not invalidate
-    the current cookies.
+    Twikit raises named Unauthorized/Forbidden classes from HTTP responses, but
+    Forbidden covers every 403, including ordinary resource/policy denials.
+    Only treat 401 as auth by status/class; a 403 needs evidence of a challenge,
+    login/session failure or Cloudflare block before deleting valid cookies.
     """
     if error is None:
         return False
 
     status = getattr(error, "status_code", None)
-    if status in (401, 403):
+    if status == 401:
         return True
 
-    # Inspect the whole inheritance chain because Twikit versions can wrap a
-    # concrete error in their shared TwitterException base class.
     error_types = {cls.__name__.lower() for cls in type(error).__mro__}
-    if error_types.intersection({"unauthorized", "forbidden", "accountlocked"}):
+    if "unauthorized" in error_types:
         return True
 
     message = str(error or "").strip().lower()
     if any(marker in message for marker in (
-        "cloudflare", "captcha", "challenge page", "account is locked",
-        "account locked", "login required", "session expired",
-        "authentication failed", "unauthorized",
+        "cloudflare", "captcha", "challenge page", "arkose",
+        "account is locked", "account locked", "account suspended",
+        "login required", "session expired", "authentication failed",
+        "unauthorized", "cookies are invalid", "cookie has expired",
     )):
         return True
 
-    # Accept Twikit's canonical status prefix, or an explicit HTTP error
-    # phrase. A bare "HTTP 403" is too ambiguous: it might describe a resource
-    # permission failure unrelated to this client's session.
+    # Twikit's canonical message begins with status: 401, message: ...
+    # Do not classify a plain status: 403 or HTTP 403 as an auth failure:
+    # the endpoint may deny access while the existing session remains valid.
     return bool(re.match(
-        r"^(?:status\s*:\s*(?:401|403)\b|"
-        r"http(?:/[\d.]+)?\s+(?:401\s+unauthorized|403\s+forbidden)\b|"
-        r"(?:401\s+unauthorized|403\s+forbidden)\b)",
+        r"^(?:(?:status\s*:\s*)|(?:http(?:/[\d.]+)?\s+))?"
+        r"(?:401\s+unauthorized|401)\b",
         message,
     ))
 
