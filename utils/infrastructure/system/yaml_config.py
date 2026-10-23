@@ -129,8 +129,9 @@ def validate_config(config: Dict[str, Any]) -> tuple[bool, list[str]]:
     if not get_nested(config, 'discord.token'):
         errors.append("Discord token not set (DISCORD_TOKEN environment variable)")
         
-    if not os.getenv("GEMINI_API_KEY") and not get_nested(config, 'api.gemini_key'):
-        errors.append("GEMINI_API_KEY environment variable not set (required for news generation)")
+    # Gemini is optional: it powers daily news generation, not core bot startup.
+    # The news task skips its Gemini-backed update and logs a diagnostic when no
+    # key is configured; do not make an otherwise valid installation fail here.
     
     # Model names
     models = get_nested(config, 'models', {})
