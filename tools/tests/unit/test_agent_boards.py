@@ -40,6 +40,21 @@ def test_a_model_answer_must_be_one_number():
     assert v.parse_model_answer("The answer is 20 - 5 = 15") is None
 
 
+def test_gpu_guard_rejects_a_priority_enum_passed_as_the_coroutine():
+    import asyncio
+    import pytest
+
+    from utils.infrastructure.gpu.gpu_manager import (
+        GPUTaskPriority, run_with_gpu_guard,
+    )
+
+    async def call():
+        return await run_with_gpu_guard("test-model", GPUTaskPriority.BACKGROUND)
+
+    with pytest.raises(TypeError, match="expected an awaitable"):
+        asyncio.run(call())
+
+
 def test_a_model_answer_runs_inside_the_gpu_guard(monkeypatch):
     import asyncio
     import sys
