@@ -512,7 +512,12 @@ async def _model_answer(challenge: str) -> Optional[str]:
                                            messages=[{"role": "user", "content": prompt}],
                                            options=chat_options(temperature=0.0, num_predict=16),
                                            keep_alive=-1)
-        res = await gpu_memory_manager.run_with_gpu_guard(run, GPUTaskPriority.BACKGROUND, "moltbook_verify")
+        res = await gpu_memory_manager.run_with_gpu_guard(
+            config.chat_model,
+            run(),
+            task_id="moltbook_verify",
+            priority=GPUTaskPriority.BACKGROUND,
+        )
         return parse_model_answer(res["message"]["content"])
     except Exception as e:
         log_debug(f"[boards] model could not solve the challenge: {e}")
