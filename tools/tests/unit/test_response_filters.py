@@ -863,6 +863,35 @@ def test_a_litany_of_fragments_keeps_its_first_two():
     assert P.collapse_litany(sentences) == sentences
 
 
+def test_short_litanies_collapse_even_when_the_result_is_under_40_chars():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+
+    text = "a quiet signal. a simple reminder. a gentle nudge. a familiar rhythm."
+    out = P.collapse_litany(text)
+    assert out == "a quiet signal. a simple reminder."
+    assert len(out) < 40
+
+
+def test_reflow_before_collapse_catches_fragments_in_separate_paragraphs():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+
+    text = (
+        "a pattern identified.\\n\\n"
+        "a tendency observed.\\n\\n"
+        "a habit acknowledged.\\n\\n"
+        "a defense strategy."
+    )
+    out = P.collapse_litany(P.reflow_paragraphs(text))
+    assert out == "a pattern identified. a tendency observed."
+
+
+def test_complete_lexical_verb_sentences_are_not_litany_fragments():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+
+    text = "a cold wind blows. a dog barks. a distant bell tolls."
+    assert P.collapse_litany(text) == text
+
+
 def test_a_long_a_quiet_line_counts_as_the_same_template():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
     assert P._frag_key("a quiet reminder of the impermanence of all things.") == "a quiet"
