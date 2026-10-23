@@ -31,11 +31,25 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Ensure system test dependencies
+      - name: Install FFmpeg test binary
+        timeout-minutes: 3
         run: |
-          if ! command -v ffmpeg >/dev/null 2>&1 || ! ldconfig -p 2>/dev/null | grep -q 'libopus\.so'; then
-            sudo apt-get update
-            sudo apt-get install --yes ffmpeg libopus0 libopus-dev
+          python -m pip install --no-input --disable-pip-version-check imageio-ffmpeg
+          mkdir -p "$RUNNER_TEMP/ffmpeg-bin"
+          ln -sf "$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" "$RUNNER_TEMP/ffmpeg-bin/ffmpeg"
+          echo "$RUNNER_TEMP/ffmpeg-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/ffmpeg-bin/ffmpeg" -version
+
+      - name: Ensure system test dependencies
+        timeout-minutes: 4
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          if ! ldconfig -p 2>/dev/null | grep -q 'libopus[.]so'; then
+            # The Python wheel supplies FFmpeg. Install only the small runtime
+            # library from apt instead of downloading FFmpeg's large dependency tree.
+            sudo env DEBIAN_FRONTEND=noninteractive timeout 120s apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+            sudo env DEBIAN_FRONTEND=noninteractive timeout 120s apt-get install --yes --no-install-recommends -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 libopus0
           fi
       - name: Install Python dependencies
         run: |
