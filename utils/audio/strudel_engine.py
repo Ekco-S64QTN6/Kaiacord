@@ -48,6 +48,14 @@ ASSET_DIR = PROJECT_ROOT / "assets" / "strudel"
 SINK_NAME = "kaia_music"
 FRAME_BYTES = 960 * 2 * 2          # 20 ms, 48 kHz, stereo, s16le
 
+def _browser_environment(base_env=None) -> dict[str, str]:
+    """Return Chromium's environment without changing the bot's process env."""
+    env = dict(os.environ if base_env is None else base_env)
+    env["PULSE_SINK"] = SINK_NAME
+    return env
+
+
+
 
 def assets_present() -> bool:
     return (ASSET_DIR / "strudel-repl.js").is_file() and (ASSET_DIR / "player.html").is_file()
@@ -160,7 +168,6 @@ class StrudelEngine:
             raise RuntimeError(f"could not create the '{SINK_NAME}' audio sink")
 
         self._serve()
-        os.environ["PULSE_SINK"] = SINK_NAME
         from playwright.sync_api import sync_playwright
 
         self._pw = sync_playwright().start()
@@ -170,7 +177,8 @@ class StrudelEngine:
             args.append("--window-position=-32000,-32000")
         self._browser = self._pw.chromium.launch(
             headless=False,                 # headless emits silence; see module docstring
-            executable_path=self._pw.chromium.executable_path, args=args)
+            executable_path=self._pw.chromium.executable_path, args=args,
+            env=_browser_environment())
         # no_viewport: Playwright otherwise pins the page to a fixed 1280x720
         # that ignores the real window. The window opens at 760x520 and the
         # operator resizes it, but the page kept rendering at 1280x720 — so the
