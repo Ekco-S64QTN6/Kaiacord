@@ -57,4 +57,5 @@ async def test_stat_choice_applies_only_the_hp_from_real_con_modifier_growth(
     assert sheet["stats"]["con"] == old_con + gain
     assert sheet["hp"]["max"] == 100 + expected_hp_gain
     assert sheet["hp"]["current"] == 50 + expected_hp_gain
-    assert sheet["_stat_choice_levels_pending"] == [] or sheet["_stat_choice_pending"] is False
+    assert not sheet.get("_stat_choice_pending")
+    assert "_stat_choice_levels_pending" not in sheet
