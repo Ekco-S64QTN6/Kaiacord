@@ -128,3 +128,44 @@ def test_failed_startup_closes_source_engine_and_new_voice_connection(monkeypatc
         assert 6622 not in ss._sessions
 
     asyncio.run(scenario())
+
+
+def test_partial_engine_start_failure_still_closes_engine(monkeypatch):
+    """StrudelEngine.start may raise after creating its local server/browser."""
+    from types import SimpleNamespace
+
+    events = []
+
+    class PartiallyStartedEngine:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            events.append("engine.start")
+            raise RuntimeError("browser failed after server started")
+
+        def close(self):
+            events.append("engine.close")
+
+    async def scenario():
+        guild = SimpleNamespace(id=6623, voice_client=None)
+        channel = SimpleNamespace(guild=guild, name="test-channel")
+
+        monkeypatch.setattr(ss.discord.opus, "is_loaded", lambda: True)
+        monkeypatch.setattr(ss, "StrudelEngine", PartiallyStartedEngine)
+        monkeypatch.setattr(ss, "_cfg", lambda _key, default: default)
+
+        from utils.audio import records
+        monkeypatch.setattr(records, "get_records", lambda _guild_id: None)
+
+        try:
+            await ss.start_session(channel, genre="house", requested_by="pytest")
+        except RuntimeError as exc:
+            assert str(exc) == "browser failed after server started"
+        else:
+            raise AssertionError("engine startup failure was not propagated")
+
+        assert events == ["engine.start", "engine.close"]
+        assert 6623 not in ss._sessions
+
+    asyncio.run(scenario())
