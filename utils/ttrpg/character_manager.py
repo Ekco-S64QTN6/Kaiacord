@@ -119,6 +119,25 @@ def _migrate_hp_bonuses(sheet: Dict[str, Any]) -> None:
         
     sheet["_hp_migrated_v2"] = True
 
+def _migrate_advancement_pending(sheet: Dict[str, Any]) -> None:
+    """Recover the level-5 choice flag when an older save lost it.
+
+    Advancement is an earned unlock (level >= 5), not a one-shot event that
+    should become permanently missable if its flag was absent from a save.
+    Do not re-arm after a specialization has already been chosen.
+    """
+    try:
+        level = int(sheet.get("level", 1) or 1)
+    except (TypeError, ValueError):
+        level = 1
+    if sheet.get("advanced_class") or level < 5:
+        # The unlock is one-time. A stale/corrupt flag must not let an already
+        # specialized character choose again, or surface before level 5.
+        sheet.pop("_advancement_pending", None)
+    else:
+        sheet["_advancement_pending"] = True
+
+
 def _migrate_quests(sheet: Dict[str, Any]) -> None:
     """Migrate from single active_quest string to active_quests list."""
     if "active_quests" not in sheet:
@@ -139,6 +158,7 @@ def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
             _migrate_inventory(sheet)
             _migrate_hp_bonuses(sheet)
             _migrate_quests(sheet)
+            _migrate_advancement_pending(sheet)
             return sheet
 
 async def load(user_id: str) -> Optional[Dict[str, Any]]:
@@ -179,6 +199,7 @@ def _load_all_sync() -> List[Dict[str, Any]]:
                     _migrate_inventory(sheet)
                     _migrate_hp_bonuses(sheet)
                     _migrate_quests(sheet)
+                    _migrate_advancement_pending(sheet)
                     sheets.append(sheet)
             except (json.JSONDecodeError, OSError):
                 continue
