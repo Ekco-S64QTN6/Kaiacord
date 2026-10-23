@@ -91,6 +91,7 @@ def test_runtime_scaffold_cleanup_also_strips_reply_quotes_from_training_text():
 
 def test_sanitized_channel_turn_is_the_content_written_to_bot_state_json(tmp_path, monkeypatch):
     import json
+    from collections import deque
 
     from utils.infrastructure.system.bot_state import BotState
     from utils.core.sanitizer import summarize_link_context
@@ -104,6 +105,9 @@ def test_sanitized_channel_turn_is_the_content_written_to_bot_state_json(tmp_pat
     )
     path = tmp_path / "bot_state.json"
     state = BotState(state_file=str(path))
+    # BotState stores channel history in a plain dict; production call sites create
+    # the channel deque before appending to it.
+    state.channel_memory[123] = deque()
     # Mirror the production call-site representation: author prefix plus the
     # scrubber output, then let BotState perform its real JSON persistence.
     state.channel_memory[123].append({
