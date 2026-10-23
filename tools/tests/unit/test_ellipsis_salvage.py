@@ -60,18 +60,33 @@ def test_defusing_is_idempotent_for_mixed_ascii_and_unicode_ellipsis():
 
 
 def test_threshold_relaxation_does_not_bypass_contamination_checks():
-    # All lines are deliberately contaminated. Three ellipsis-affect matches
-    # are below the retry threshold, but the later line contamination check
-    # must still reject the now-defused response.
+    # Three below-threshold cadence matches are sanitized, but the later
+    # per-line contamination check must still reject the result.
     response = (
-        "Breaking news: i'm… processing.\\n"
-        "Breaking news: the status is… unsettling.\\n"
+        "Breaking news: i'm… processing.\n"
+        "Breaking news: the status is… unsettling.\n"
         "Breaking news: that seems… troubling."
     )
     _, reason = _run(response)
     assert reason == "Emergency contamination / fiction detected"
 
 
+def test_ellipsis_count_is_per_copula_clause_not_overlapping_dot_run():
+    # A single clause contributes one hit even when the dot run has several
+    # overlapping substrings. Punctuation without a copula is not a hit.
+    for dots in (".....", "......", "…"):
+        assert len(ECF.RE_AFFECT_ELLIPSIS.findall(f"it is{dots} unsettling")) == 1
+    assert len(ECF.RE_AFFECT_ELLIPSIS.findall("it is... unsettling; she seems… odd; i'm...... thinking")) == 3
+    assert ECF.RE_AFFECT_ELLIPSIS.findall("countdown: .. .. ..") == []
+
+
+def test_exact_three_vs_four_affect_hits_pins_retry_boundary():
+    three = "i'm… processing. the status is..... unsettling. that seems… troubling."
+    four = three + " it feels… wrong."
+    assert len(ECF.RE_AFFECT_ELLIPSIS.findall(three)) == 3
+    assert ECF.filter_response(three) is not None
+    assert len(ECF.RE_AFFECT_ELLIPSIS.findall(four)) == 4
+    assert ECF.filter_response(four) is None
 
 
 def test_defusing_the_cadence_recovers_the_sentence():
