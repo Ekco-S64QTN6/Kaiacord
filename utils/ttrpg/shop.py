@@ -11,8 +11,6 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
     """Returns available weapons, armor, headgear, boots, accessories, and consumables for a location."""
     from utils.ttrpg.calendar import get_season, SEASONAL_SHOP
     from utils.ttrpg.equipment_registry import (
-        HEMLOCK_STOCK_WEAPONS, HEMLOCK_STOCK_ARMOR,
-        HEMLOCK_STOCK_HEADGEAR, HEMLOCK_STOCK_BOOTS, HEMLOCK_STOCK_ACCESSORIES,
         HEMLOCK_STOCK_CONSUMABLES, get_caravan_stock
     )
 
