@@ -29,6 +29,10 @@ def _layer() -> str:
 def _run(body: str, tmp_path=None):
     prelude = textwrap.dedent("""
         set -uo pipefail
+        # These tests define an fzf shell stub in each scenario. Select that
+        # renderer before sourcing the layer, rather than detecting the host
+        # machine's tools and accidentally invoking the whiptail fallback.
+        export TERM=xterm-256color KAIA_TOOLS_UI=fzf
         term_cols(){ echo 80; }; term_rows(){ echo 30; }
         bot_running(){ return 0; }; ollama_running(){ return 0; }
     """)
