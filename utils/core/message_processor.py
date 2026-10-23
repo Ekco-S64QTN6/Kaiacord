@@ -2700,7 +2700,7 @@ class MessageProcessor:
                     )
 
                     # Detect notable events and persist them
-                    event_type = detect_event_type(ctx.sanitized_content, bot_response)
+                    event_type = detect_event_type(_own, bot_response)
                     if event_type:
                         # Generate a brief summary from the exchange
                         summary = _own[:120]
