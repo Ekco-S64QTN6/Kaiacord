@@ -475,3 +475,77 @@ def test_morse_in_the_cw_filter_is_a_tone(tmp_path):
                    + np.sin(2 * np.pi * 700 * t) * 4000 * keying)
     got = watch.keyed_tone(_wav(tmp_path, "m12_morse.wav", x))
     assert got["keyed"] and abs(got["hz"] - 700) < 30, got
+
+
+def test_scheduled_radio_key_is_marked_done_only_after_the_attempt_finishes(monkeypatch):
+    """A failed/offline attempt must remain due for retry on the next tick."""
+    from types import SimpleNamespace
+    from utils.audio import voice_busy
+    from utils.infrastructure.monitoring import async_task_registry
+    from utils.radio import priyom
+
+    async def scenario():
+        job = {
+            "key": "num:E07:2026-10-23T12:00:8000",
+            "kind": "numbers",
+            "station": "E07",
+            "khz": 8000.0,
+            "mode": "usb",
+            "seconds": 10,
+            "region": "eu",
+        }
+        gate = asyncio.Event()
+        started = []
+        marked = []
+        registered = []
+
+        async def fake_run_job(job, poster=None):
+            started.append(job["key"])
+            await gate.wait()
+            return []
+
+        monkeypatch.setattr(voice_busy, "music", lambda: False)
+        monkeypatch.setattr(watch, "read_cache", lambda _path: {})
+        monkeypatch.setattr(priyom, "upcoming", lambda *a, **kw: [])
+        monkeypatch.setattr(watch, "due_jobs", lambda *a, **kw: [job])
+        monkeypatch.setattr(watch, "_lock_for", lambda _job: asyncio.Lock())
+        monkeypatch.setattr(watch, "_done", lambda: set())
+        monkeypatch.setattr(watch, "_mark_done", marked.append)
+        monkeypatch.setattr(watch, "run_job", fake_run_job)
+        monkeypatch.setattr(
+            async_task_registry,
+            "task_registry",
+            SimpleNamespace(register=lambda _name, task: registered.append(task)),
+        )
+
+        await watch.tick(now=datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc))
+        assert marked == [], "tick marked this job done before the worker ran"
+        assert len(registered) == 1
+
+        await asyncio.sleep(0)
+        assert started == [job["key"]]
+        assert marked == [], "in-progress job was persisted as done too early"
+
+        gate.set()
+        await registered[0]
+        assert marked == [job["key"]]
+
+    asyncio.run(scenario())
+
+
+def test_unavailable_radio_attempt_is_not_persisted_as_done(monkeypatch):
+    """None means no recording attempt completed; the scheduler should retry."""
+    async def scenario():
+        job = {"key": "hfgcs:2026-10-23T15:10", "kind": "hfgcs"}
+        marked = []
+        monkeypatch.setattr(watch, "run_job", AsyncMock(return_value=None))
+        monkeypatch.setattr(watch, "_mark_done", marked.append)
+
+        await watch._run_scheduled(job)
+        assert marked == []
+
+        monkeypatch.setattr(watch, "run_job", AsyncMock(return_value=[]))
+        await watch._run_scheduled(job)
+        assert marked == [job["key"]]
+
+    asyncio.run(scenario())
