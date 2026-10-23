@@ -43,6 +43,15 @@ from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_ch
 from utils.ttrpg.rpg_views import *
 from utils.ttrpg.session_manager import serialize_user_action
 
+
+# Loot tier by boss level; shared by every dungeon boss kill.
+_BOSS_TIER_BY_LEVEL = {
+    1: "easy", 2: "easy", 3: "medium", 4: "medium",
+    5: "hard", 6: "hard", 7: "hard", 8: "deadly",
+    9: "boss", 10: "boss", 11: "boss", 12: "boss",
+    13: "boss", 14: "boss", 15: "boss",
+}
+
 # Same load / resolve / await / save shape as the overworld handlers,
 # reached from the dungeon view's Attack button — so the same race.
 @serialize_combat_action
@@ -212,11 +221,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         from utils.ttrpg.character_manager import INVENTORY_LIMIT
         level = sheet.get("level", 1)
         if is_boss:
-            _boss_tier_map = {1: "easy", 2: "easy", 3: "medium", 4: "medium",
-                              5: "hard", 6: "hard", 7: "hard", 8: "deadly", 9: "boss",
-                              10: "boss", 11: "boss", 12: "boss", 13: "boss",
-                              14: "boss", 15: "boss"}
-            tier = _boss_tier_map.get(level, "boss")
+            tier = _BOSS_TIER_BY_LEVEL.get(level, "boss")
         else:
             tier = _get_dungeon_loot_tier(level, False)
         if is_boss:
