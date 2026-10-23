@@ -402,17 +402,61 @@ class StrudelEngine:
         return self._ffmpeg
 
     def close_capture(self) -> None:
-        if self._ffmpeg is None:
+        # Detach the owned handle first so concurrent/repeated cleanup cannot
+        # race against this process or try to reap it a second time.
+        proc, self._ffmpeg = self._ffmpeg, None
+        if proc is None:
             return
+
         try:
-            self._ffmpeg.terminate()
-            self._ffmpeg.wait(timeout=3)
-        except Exception:
             try:
-                self._ffmpeg.kill()
-            except Exception:
+                proc.terminate()
+            except ProcessLookupError:
                 pass
-        self._ffmpeg = None
+            except Exception as exc:
+                log_debug(f"[music] terminating ffmpeg capture: {exc}")
+
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                # A terminate timeout needs both a hard kill and a second wait:
+                # kill() alone does not reap a child or release its process table
+                # entry. Keep the second wait bounded if the OS cannot reap it.
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                except Exception as exc:
+                    log_debug(f"[music] killing ffmpeg capture: {exc}")
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    log_warning("[music] ffmpeg capture did not exit after kill")
+                except Exception as exc:
+                    log_debug(f"[music] reaping ffmpeg capture after kill: {exc}")
+            except Exception as exc:
+                log_debug(f"[music] waiting for ffmpeg capture: {exc}")
+                # A non-timeout wait failure must not silently abandon a
+                # potentially live child either; make a best-effort hard stop.
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                except Exception as kill_exc:
+                    log_debug(f"[music] killing ffmpeg after wait failure: {kill_exc}")
+                try:
+                    proc.wait(timeout=3)
+                except Exception as wait_exc:
+                    log_warning(f"[music] ffmpeg capture could not be reaped: {wait_exc}")
+        finally:
+            # This is the pipe consumed by StrudelAudioSource._pump. Close it
+            # explicitly rather than relying on Popen/GC to release the fd.
+            pipe = getattr(proc, "stdout", None)
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except Exception as exc:
+                    log_debug(f"[music] closing ffmpeg capture pipe: {exc}")
 
     def close(self) -> None:
         try:
