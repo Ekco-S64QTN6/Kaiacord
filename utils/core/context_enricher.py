@@ -30,7 +30,7 @@ class ContextEnricher:
         )
         # Regex for standard web links (ignoring discord message links)
         self.external_link_pattern = re.compile(
-            r'(?<!<)https?://(?!discord(?:app)?\.com/channels/)[^\s>]+'
+            r'(?<!<)https?://(?!(?:(?:ptb|canary)\.)?discord(?:app)?\.com/channels/)[^\s>]+'
         )
         
         # Fetch Cache: {id: (timestamp, object)}
