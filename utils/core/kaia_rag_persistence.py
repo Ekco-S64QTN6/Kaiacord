@@ -17,6 +17,7 @@ from utils.infrastructure.monitoring.telemetry_paths import corpus_dir
 import os
 import re
 import asyncio
+import fcntl
 import shutil
 import traceback
 from datetime import datetime
@@ -257,12 +258,29 @@ class RAGPersistenceMixin:
         }
 
     def _write_interaction_to_disk(self, file_io_args: dict) -> bool:
-        """Perform the actual file write outside any lock."""
+        """Append one interaction, deciding first-write metadata under a file lock.
+
+        File metadata is prepared before disk I/O, so multiple worker threads can
+        carry stale is_new=True values for the same path. A sidecar flock serializes
+        only writers to this log file, and the existence check happens inside the
+        lock immediately before appending.
+        """
         try:
-            with open(file_io_args["path"], "a", encoding="utf-8", errors="replace") as f:
-                if file_io_args["is_new"]:
-                    f.write(file_io_args["header"])
-                f.write(file_io_args["text"])
+            path = file_io_args["path"]
+            lock_path = path + ".append.lock"
+            with open(lock_path, "a", encoding="utf-8") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                try:
+                    is_new = not os.path.exists(path) or os.path.getsize(path) == 0
+                    with open(path, "a", encoding="utf-8", errors="replace") as f:
+                        if is_new:
+                            header = file_io_args.get("header") or (
+                                "---\nsummary: \"\nkeywords: []\ndocument_type: Transcript\n---\n\n"
+                            )
+                            f.write(header)
+                        f.write(file_io_args["text"])
+                finally:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
             log_success(f"Logged interaction for {file_io_args['user_name']} (Disk Only)")
 
