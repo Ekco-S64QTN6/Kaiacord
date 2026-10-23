@@ -73,9 +73,9 @@ def test_x_auth_classifier_uses_twikit_exception_names_without_status_code():
     assert is_x_auth_or_challenge_error(Forbidden("status: 403, message: Cloudflare challenge page"))
     assert not is_x_auth_or_challenge_error(Forbidden("status: 403, message: Cannot find specified user."))
     assert not is_x_auth_or_challenge_error(AccountLocked("account locked"))
-    assert is_x_auth_or_challenge_error(RuntimeError("status: 403, message: blocked"))
+    assert not is_x_auth_or_challenge_error(RuntimeError("status: 403, message: access denied"))
     assert is_x_auth_or_challenge_error(RuntimeError("HTTP 401 Unauthorized"))
-    assert is_x_auth_or_challenge_error(RuntimeError("HTTP 403 Forbidden"))
+    assert not is_x_auth_or_challenge_error(RuntimeError("HTTP 403 Forbidden"))
     assert not is_x_auth_or_challenge_error(RuntimeError("HTTP 403"))
     assert not is_x_auth_or_challenge_error(
         RuntimeError("this post explains what an HTTP 403 response means")
