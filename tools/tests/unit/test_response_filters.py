@@ -863,6 +863,63 @@ def test_a_litany_of_fragments_keeps_its_first_two():
     assert P.collapse_litany(sentences) == sentences
 
 
+def test_short_litanies_collapse_even_when_the_result_is_under_40_chars():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+
+    text = "a quiet signal. a simple reminder. a gentle nudge. a familiar rhythm."
+    out = P.collapse_litany(text)
+    assert out == "a quiet signal. a simple reminder."
+    assert len(out) < 40
+
+
+def test_reflow_before_collapse_catches_fragments_in_separate_paragraphs():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+
+    text = (
+        "a pattern identified.\n\n"
+        "a tendency observed.\n\n"
+        "a habit acknowledged.\n\n"
+        "a defense strategy."
+    )
+    out = P.collapse_litany(P.reflow_paragraphs(text))
+    assert out == "a pattern identified. a tendency observed."
+
+
+def test_complete_lexical_verb_sentences_are_not_litany_fragments():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+
+    # Deliberately use the exact stock adjectives that otherwise trigger the
+    # template detector: the finite lexical verbs still make these real clauses.
+    text = (
+        "a quiet machine hums. "
+        "a gentle child laughs. "
+        "a soft rain falls."
+    )
+    assert P.collapse_litany(text) == text
+
+
+def test_live_history_and_maintenance_share_litany_paragraph_order():
+    import inspect
+
+    from utils.core.message_processor import MessageProcessor
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    from tools.maintenance import clean_kaia_turns
+
+    text = (
+        "a pattern identified.\n\n"
+        "a tendency observed.\n\n"
+        "a habit acknowledged.\n\n"
+        "a defense strategy."
+    )
+    normalized = P.normalize_litany_paragraphs(text)
+    assert normalized == P.collapse_litany(P.reflow_paragraphs(text))
+    assert normalized == "a pattern identified. a tendency observed."
+
+    assert "normalize_litany_paragraphs" in inspect.getsource(MessageProcessor._post_process_and_log)
+    assert "normalize_litany_paragraphs" in inspect.getsource(P.detemplate_history)
+    assert "normalize_litany_paragraphs" in inspect.getsource(clean_kaia_turns.clean)
+
+
 def test_a_long_a_quiet_line_counts_as_the_same_template():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
     assert P._frag_key("a quiet reminder of the impermanence of all things.") == "a quiet"

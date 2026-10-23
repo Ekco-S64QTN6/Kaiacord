@@ -1065,12 +1065,26 @@ class PostGenerationSafetyPipeline:
         joined = "\n\n".join(out)
         return joined if joined != text.strip() else text
 
+    @classmethod
+    def normalize_litany_paragraphs(cls, text: str) -> str:
+        """Canonical paragraph-formatting sequence shared by live and stored turns.
+
+        Reflow first so fragment runs split across short paragraphs become
+        visible to the litany detector. Keep this order in one place to avoid
+        live replies and history cleanup drifting apart.
+        """
+        return cls.collapse_litany(cls.reflow_paragraphs(text))
+
     #: A litany — "a pattern identified. a tendency observed. a habit
     #: acknowledged. a coping mechanism. a defense strategy." — keeps its first
     #: LITANY_KEEP fragments. Runs of four or more were in no reply of hers from
     #: July to September, 2% in early October and 38% by 18 Oct, each copied
     #: from the last; the rest of the run restates the first two.
     LITANY_KEEP = 2
+
+    _LIKELY_FINITE_VERB_ENDING = re.compile(
+        r"\b[a-z]{3,}(?:s|es|ies)\b[.!?]?$", re.IGNORECASE
+    )
 
     @classmethod
     def _litany_fragment(cls, sentence: str) -> bool:
@@ -1080,7 +1094,14 @@ class PostGenerationSafetyPipeline:
         w = cls._WORD.findall(s.lower().replace("\u2019", "'"))
         # "a/an" only: "the constraints diminish." is a sentence whose verb the
         # auxiliary-only check cannot see.
-        return bool(w) and w[0] in ("a", "an") and len(w) <= 10 and not cls._CLAUSE_VERB.search(s)
+        # A stock adjective alone is not enough: "a quiet machine hums" and
+        # "a gentle child laughs" are complete clauses with lexical verbs that
+        # do not appear in _CLAUSE_VERB. Be conservative at this boundary—keeping
+        # a possible fragment is preferable to deleting a complete sentence.
+        if cls._LIKELY_FINITE_VERB_ENDING.search(s):
+            return False
+        return (bool(w) and w[0] in ("a", "an") and len(w) <= 10
+                and not cls._CLAUSE_VERB.search(s) and cls._stock_fragment(s))
 
     @classmethod
     def collapse_litany(cls, text: str) -> str:
@@ -1112,7 +1133,7 @@ class PostGenerationSafetyPipeline:
         if not changed:
             return text
         out = re.sub(r"(\n\s*\n){2,}", "\n\n", "".join(out_paras)).strip()
-        if len(out) < 40:
+        if not out:
             return text
         log_warning(f"[TEMPLATE_GUARD] Collapsed a litany of fragments ({len(text) - len(out)} chars)")
         return out
@@ -1144,6 +1165,7 @@ class PostGenerationSafetyPipeline:
         "pertinent", "valid", "astute", "insightful", "poignant", "palpable", "faint", "soft", "slow", "steady"))
     _ABSTRACT = re.compile(r"^(?:" + _SAID_NOUN + r"|[a-z\-]{3,}(?:tion|sion|ment|ance|ence|ness|ity|ism|ude|ing)s?"
                            r"|sense|feeling|shift|hum|echo|truth|grief|hope|calm|peace|tension|resolve|reality|"
+                           r"pattern|tendency|habit|strategy|defense|defence|"
                            r"balance|rhythm|cadence|signal|nudge|reminder|sign)$", re.IGNORECASE)
 
     @classmethod
@@ -1241,7 +1263,7 @@ class PostGenerationSafetyPipeline:
         mine = [i for i, t in enumerate(history or []) if isinstance(t, dict) and t.get("role") == "assistant"]
         out = list(history or [])
         for i in mine:                            # the prompt's own note, never hers to repeat
-            tagless = cls.reflow_paragraphs(cls.collapse_litany(cls.strip_address_tag(str(out[i].get("content", "")))))
+            tagless = cls.normalize_litany_paragraphs(cls.strip_address_tag(str(out[i].get("content", ""))))
             if tagless != out[i].get("content", ""):
                 out[i] = {**out[i], "content": tagless}
         if len(mine) < 3:

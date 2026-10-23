@@ -59,8 +59,7 @@ def clean(text: str, previous: list) -> str:
     out = E.repair_cut_ellipsis(P.strip_address_tag(text))
     out = P.strip_repeated_lines(out, previous, window=WINDOW)
     out = P.strip_grading_opener(out)
-    out = P.collapse_litany(out)
-    out = P.reflow_paragraphs(out)
+    out = P.normalize_litany_paragraphs(out)
     return out if out.strip() else text
 
 
@@ -87,7 +86,7 @@ def clean_log(raw: str, previous: list) -> tuple:
             continue
         text = body.strip()
         new = clean(text, previous)
-        previous.append(text)
+        previous.append(new)
         del previous[:-WINDOW]
         if new != text:
             tail = body[len(body.rstrip()):]
@@ -160,7 +159,7 @@ def main() -> int:
                 if isinstance(t, dict) and t.get("role") == "assistant" and not t.get("event"):
                     text = str(t.get("content", ""))
                     new = clean(text, previous)
-                    previous.append(text)
+                    previous.append(new)
                     if new != text:
                         show(f"channel memory {ch}", [(text, new)])
                         t["content"] = new
