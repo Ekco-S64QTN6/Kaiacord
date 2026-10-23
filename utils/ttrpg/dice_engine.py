@@ -5,6 +5,7 @@ import secrets
 from typing import Tuple
 
 STAT_MODIFIER = lambda stat: (stat - 10) // 2
+MAX_ROLL_MODIFIER = 50
 
 CLASSES = {
     "Warrior":  {"hp_die": 10, "primary": "str"},
@@ -29,9 +30,13 @@ def roll(notation: str) -> Tuple[int, str]:
     count = int(m.group(1)) if m.group(1) else 1
     sides = int(m.group(2))
     modifier = int(m.group(3)) if m.group(3) else 0
-    
+
     if count < 1 or count > 20 or sides < 2 or sides > 100:
         raise ValueError(f"Dice out of range: {notation}")
+    if abs(modifier) > MAX_ROLL_MODIFIER:
+        raise ValueError(
+            f"Dice modifier out of range (maximum ±{MAX_ROLL_MODIFIER}): {notation}"
+        )
     
     rolls = [secrets.randbelow(sides) + 1 for _ in range(count)]
     total = sum(rolls) + modifier
@@ -52,7 +57,8 @@ def stat_check(stat_value: int, dc: int, advantage: bool = False,
                disadvantage: bool = False) -> Tuple[bool, int, str]:
     """
     Roll a d20 stat check against DC.
-    Returns (success, total, breakdown).
+    Returns (success, total, breakdown). If both advantage and disadvantage are
+    true, they cancel to a normal single roll (the standard 5e rule).
     """
     mod = STAT_MODIFIER(stat_value)
     
