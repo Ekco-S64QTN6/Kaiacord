@@ -45,7 +45,6 @@ def is_x_auth_or_challenge_error(error: BaseException) -> bool:
     message = str(error or "").strip().lower()
     if any(marker in message for marker in (
         "cloudflare", "captcha", "challenge page", "arkose",
-        "account is locked", "account locked", "account suspended",
         "login required", "session expired", "authentication failed",
         "unauthorized", "cookies are invalid", "cookie has expired",
     )):
