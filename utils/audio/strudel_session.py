@@ -160,6 +160,13 @@ class MusicSession:
             raise
         except Exception as exc:
             log_error(f"[music] session loop failed: {exc}")
+            # A watchdog failure must not leave the guild registered as active
+            # while its source streams silence (or keeps playing stale audio).
+            # stop() knows not to cancel this same task while cleanup is running.
+            try:
+                await self.stop()
+            except Exception as cleanup_exc:
+                log_error(f"[music] cleanup after watchdog failure failed: {cleanup_exc}")
 
     async def _cycle(self) -> float | None:
         loop = asyncio.get_running_loop()
@@ -247,8 +254,9 @@ class MusicSession:
             await self.vc.disconnect(force=True)
         except Exception as exc:
             log_debug(f"[music] disconnect: {exc}")
-        if self._task and not self._task.done():
-            self._task.cancel()
+        task = self._task
+        if task and not task.done() and task is not asyncio.current_task():
+            task.cancel()
         minutes = (time.time() - self.started_at) / 60
         log_action(f"[music] session ended after {minutes:.1f} min.")
         self._remember(minutes)
