@@ -32,6 +32,52 @@ def xp_to_next_level(current_level: int) -> int:
     return XP_THRESHOLDS.get(current_level + 1, 0)
 
 
+def retroactive_hp_gain_for_con_change(previous_con: int, new_con: int, level: int) -> int:
+    """Return HP gained from a CON increase based on modifier change."""
+    previous_mod = (int(previous_con) - 10) // 2
+    new_mod = (int(new_con) - 10) // 2
+    return max(0, new_mod - previous_mod) * max(0, int(level))
+
+
+def queue_stat_choice(sheet: dict, level: int) -> None:
+    """Persist one stat-growth choice for each earned milestone.
+
+    Keep the legacy boolean for existing callers/UI while retaining a queue so
+    multi-level XP gains cannot collapse several choices into one flag.
+    A None entry represents one legacy pending choice whose milestone is unknown.
+    """
+    raw = sheet.get("_stat_choice_levels_pending")
+    if isinstance(raw, list):
+        pending = list(raw)
+    else:
+        pending = [None] if sheet.get("_stat_choice_pending") else []
+    if level not in pending:
+        pending.append(level)
+    sheet["_stat_choice_levels_pending"] = pending
+    sheet["_stat_choice_pending"] = bool(pending)
+
+
+def consume_stat_choice(sheet: dict) -> bool:
+    """Consume exactly one stat-growth choice; return whether more remain."""
+    raw = sheet.get("_stat_choice_levels_pending")
+    if isinstance(raw, list) and raw:
+        pending = list(raw)
+        pending.pop(0)
+    elif sheet.get("_stat_choice_pending"):
+        # Backward compatibility with saves/UI created before the queue existed.
+        pending = []
+    else:
+        pending = []
+
+    if pending:
+        sheet["_stat_choice_levels_pending"] = pending
+        sheet["_stat_choice_pending"] = True
+        return True
+    sheet.pop("_stat_choice_levels_pending", None)
+    sheet.pop("_stat_choice_pending", None)
+    return False
+
+
 def check_level_up(sheet: dict) -> tuple[bool, int]:
     """
     Returns (leveled_up, new_level).
@@ -58,9 +104,11 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
         sheet["hp"]["max"] += hp_gain
         sheet["hp"]["current"] = min(sheet["hp"]["current"] + hp_gain, sheet["hp"]["max"])
 
-        # Stat growth: stat choice at levels 4, 8, and 12
+        # Stat growth: queue one independent choice for each milestone.
+        # A boolean alone loses choices when one XP reward crosses multiple
+        # milestones (for example, a jump from level 3 to level 13).
         if new_level in (4, 8, 12):
-            sheet["_stat_choice_pending"] = True
+            queue_stat_choice(sheet, new_level)
 
         # Mark for class advancement at level 5 (if not already advanced)
         if new_level == 5 and not sheet.get("advanced_class"):
