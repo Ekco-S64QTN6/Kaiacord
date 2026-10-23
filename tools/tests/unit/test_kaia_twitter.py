@@ -102,3 +102,40 @@ def test_cookie_profile_discovery_includes_librewolf_brave_and_sandbox_paths(tmp
     assert found[roots[0].resolve()][1] == "librewolf"
     assert found[roots[1].resolve()][1] == "brave"
     assert found[roots[2].resolve()][1] == "firefox"
+
+
+def test_cookie_extraction_never_pairs_auth_and_csrf_from_different_profiles(
+    monkeypatch, tmp_path
+):
+    import sys
+    from types import SimpleNamespace
+
+    warnings = []
+    monkeypatch.setattr(kx, "log_warning", lambda msg, *a, **k: warnings.append(str(msg)))
+    monkeypatch.setattr(kx, "log_debug", lambda *a, **k: None)
+    monkeypatch.setattr(kx, "log_info", lambda *a, **k: None)
+    monkeypatch.setattr(kx, "_COOKIE_EXTRACTION_WARNED", set())
+    monkeypatch.setattr(kx.Path, "home", classmethod(lambda cls: tmp_path))
+
+    def chrome(**kwargs):
+        if kwargs.get("domain_name") == "x.com":
+            return [SimpleNamespace(name="auth_token", value="chrome-auth")]
+        return []
+
+    def firefox(**kwargs):
+        if kwargs.get("domain_name") == "twitter.com":
+            return [SimpleNamespace(name="ct0", value="firefox-csrf")]
+        return []
+
+    empty = lambda **kwargs: []
+    fake = SimpleNamespace(
+        chrome=chrome, chromium=empty, brave=empty,
+        firefox=firefox, librewolf=empty,
+    )
+    monkeypatch.setitem(sys.modules, "browser_cookie3", fake)
+
+    cookies = kx._extract_browser_cookies()
+
+    assert cookies == {"auth_token": "chrome-auth"}
+    assert "ct0" not in cookies
+    assert any("no matching ct0" in warning for warning in warnings)
