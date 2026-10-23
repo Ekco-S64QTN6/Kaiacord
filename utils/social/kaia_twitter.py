@@ -35,7 +35,7 @@ def is_x_auth_or_challenge_error(error: BaseException) -> bool:
         return True
     message = str(error or "").lower()
     if any(marker in message for marker in (
-        "unauthorized", "cloudflare", "captcha", "challenge page",
+        "unauthorized", "authentication failed", "cloudflare", "captcha", "challenge page",
         "login required", "session expired", "forbidden (403)", "http 403",
     )):
         return True
