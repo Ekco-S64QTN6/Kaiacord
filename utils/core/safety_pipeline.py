@@ -1082,6 +1082,10 @@ class PostGenerationSafetyPipeline:
     #: from the last; the rest of the run restates the first two.
     LITANY_KEEP = 2
 
+    _LIKELY_FINITE_VERB_ENDING = re.compile(
+        r"\b[a-z]{3,}(?:s|es|ies)\b[.!?]?$", re.IGNORECASE
+    )
+
     @classmethod
     def _litany_fragment(cls, sentence: str) -> bool:
         s = sentence.strip()
@@ -1090,9 +1094,12 @@ class PostGenerationSafetyPipeline:
         w = cls._WORD.findall(s.lower().replace("\u2019", "'"))
         # "a/an" only: "the constraints diminish." is a sentence whose verb the
         # auxiliary-only check cannot see.
-        # Only collapse the known repetitive stock/abstract register. A/an
-        # sentences can contain real lexical verbs ("a cold wind blows"), which
-        # the auxiliary-only _CLAUSE_VERB cannot identify.
+        # A stock adjective alone is not enough: "a quiet machine hums" and
+        # "a gentle child laughs" are complete clauses with lexical verbs that
+        # do not appear in _CLAUSE_VERB. Be conservative at this boundary—keeping
+        # a possible fragment is preferable to deleting a complete sentence.
+        if cls._LIKELY_FINITE_VERB_ENDING.search(s):
+            return False
         return (bool(w) and w[0] in ("a", "an") and len(w) <= 10
                 and not cls._CLAUSE_VERB.search(s) and cls._stock_fragment(s))
 
