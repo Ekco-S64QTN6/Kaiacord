@@ -221,8 +221,8 @@ def _browser_cookie_db_candidates(home: Optional[Path] = None) -> list[tuple[str
         ("Firefox", "firefox", home / ".mozilla" / "firefox"),
         ("Firefox Snap", "firefox", home / "snap" / "firefox" / "common" / ".mozilla" / "firefox"),
         ("Firefox Flatpak", "firefox", home / ".var" / "app" / "org.mozilla.firefox" / ".mozilla" / "firefox"),
-        ("LibreWolf", "firefox", home / ".librewolf"),
-        ("LibreWolf Flatpak", "firefox", home / ".var" / "app" / "io.gitlab.librewolf-community" / ".librewolf"),
+        ("LibreWolf", "librewolf", home / ".librewolf"),
+        ("LibreWolf Flatpak", "librewolf", home / ".var" / "app" / "io.gitlab.librewolf-community" / ".librewolf"),
         ("Firedragon", "firefox", home / ".firedragon"),
         ("Firedragon Flatpak", "firefox", home / ".var" / "app" / "org.garudalinux.firedragon" / ".firedragon"),
         ("Chrome", "chrome", home / ".config" / "google-chrome"),
@@ -341,6 +341,7 @@ def _extract_browser_cookies() -> dict:
         ("Chromium", "chromium"),
         ("Brave", "brave"),
         ("Firefox", "firefox"),
+        ("LibreWolf", "librewolf"),
     )
     attempted = 0
     auth_only_fallback = None
@@ -385,6 +386,8 @@ def _extract_browser_cookies() -> dict:
         # The database format is family-based. LibreWolf uses Firefox's
         # cookies.sqlite schema; Chromium/Brave-compatible readers may also
         # be exposed only through browser_cookie3.chrome in older releases.
+        if not callable(loader) and loader_name == "librewolf":
+            loader = getattr(browser_cookie3, "firefox", None)
         if not callable(loader) and loader_name in ("brave", "chromium"):
             loader = getattr(browser_cookie3, "chrome", None)
         if not callable(loader):
