@@ -24,6 +24,8 @@ jobs:
     env:
       # Fake import/config token only; CI never uses live service credentials.
       DISCORD_TOKEN: "test-discord-token"
+      # If a mis-marked test tries to call Ollama, fail fast instead of loading a model.
+      OLLAMA_HOST: "http://127.0.0.1:9"
       TERM: "xterm-256color"
     steps:
       - uses: actions/checkout@v4
