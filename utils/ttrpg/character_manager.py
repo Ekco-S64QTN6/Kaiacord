@@ -130,7 +130,11 @@ def _migrate_advancement_pending(sheet: Dict[str, Any]) -> None:
         level = int(sheet.get("level", 1) or 1)
     except (TypeError, ValueError):
         level = 1
-    if level >= 5 and not sheet.get("advanced_class"):
+    if sheet.get("advanced_class") or level < 5:
+        # The unlock is one-time. A stale/corrupt flag must not let an already
+        # specialized character choose again, or surface before level 5.
+        sheet.pop("_advancement_pending", None)
+    else:
         sheet["_advancement_pending"] = True
 
 
