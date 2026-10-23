@@ -207,7 +207,10 @@ class Deck:
         self._eof = False
         self._closed = False
         self._zi = None
-        threading.Thread(target=self._pump, daemon=True, name="kaia-records-deck").start()
+        self._pump_thread = threading.Thread(
+            target=self._pump, daemon=True, name="kaia-records-deck"
+        )
+        self._pump_thread.start()
 
     def _pump(self) -> None:
         out = getattr(self._proc, "stdout", self._proc)
@@ -215,6 +218,8 @@ class Deck:
         try:
             while not self._closed:
                 self._room.acquire()
+                if self._closed:
+                    break
                 need = FRAME_BYTES - len(carry)
                 chunk = carry + (out.read(need) if need > 0 else b"")
                 carry = b""
@@ -279,14 +284,52 @@ class Deck:
         return low, x - low - high, high
 
     def close(self) -> None:
-        self._closed = True
+        # A transition and session shutdown can both retire a deck.
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
         self._room.release()
         proc = self._proc
+        poll = getattr(proc, "poll", None)
+        kill = getattr(proc, "kill", None)
         try:
-            if hasattr(proc, "kill"):
-                proc.kill()
-        except Exception:
-            pass
+            if callable(kill) and (not callable(poll) or poll() is None):
+                kill()
+        except Exception as exc:
+            log_debug(f"[records] decoder kill failed: {exc}")
+
+        wait = getattr(proc, "wait", None)
+        if callable(wait):
+            try:
+                # Reap ffmpeg even when it exited naturally at EOF.
+                wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                try:
+                    if callable(kill):
+                        kill()
+                except Exception:
+                    pass
+                try:
+                    wait(timeout=1.0)
+                except Exception as exc:
+                    log_warning(f"[records] decoder did not exit after kill: {exc}")
+            except Exception as exc:
+                log_debug(f"[records] decoder wait failed: {exc}")
+
+        stdout = getattr(proc, "stdout", None)
+        if stdout is None and hasattr(proc, "read"):
+            stdout = proc
+        try:
+            close_stdout = getattr(stdout, "close", None)
+            if callable(close_stdout):
+                close_stdout()
+        except Exception as exc:
+            log_debug(f"[records] decoder pipe close failed: {exc}")
+        if self._pump_thread.is_alive() and threading.current_thread() is not self._pump_thread:
+            self._pump_thread.join(timeout=0.5)
+            if self._pump_thread.is_alive():
+                log_warning("[records] decoder reader did not stop after cleanup")
 
 
 @dataclass

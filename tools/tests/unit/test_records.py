@@ -846,3 +846,37 @@ def test_buffered_records_source_tracks_late_voice_reads(monkeypatch):
         assert source.worst_late >= R.LATE_S
     finally:
         source.cleanup()
+
+def test_deck_close_reaps_ffmpeg_and_closes_its_pipe():
+    """A retired deck must not leave a killed ffmpeg child or stdout handle."""
+    class Decoder:
+        def __init__(self):
+            self.stdout = io.BytesIO()
+            self.returncode = None
+            self.kill_calls = 0
+            self.wait_calls = 0
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            self.kill_calls += 1
+            self.returncode = -9
+
+        def wait(self, timeout=None):
+            self.wait_calls += 1
+            assert timeout is not None
+            return self.returncode
+
+    decoder = Decoder()
+    deck = Deck(rec("decoder-cleanup", 120, "8A"), 1.0, 1.0,
+                stream_factory=lambda *_args, **_kwargs: decoder)
+
+    deck.close()
+    deck.close()  # cleanup is safe if transition and session shutdown both retire it
+
+    assert decoder.kill_calls == 1
+    assert decoder.wait_calls == 1
+    assert decoder.stdout.closed
+    assert not deck._pump_thread.is_alive()
+
