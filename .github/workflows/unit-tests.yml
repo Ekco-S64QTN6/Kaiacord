@@ -13,23 +13,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # Some import-time config checks require these to exist even in unit
-      # tests; these are placeholders and must never be used for a deployment.
-      DISCORD_TOKEN: "ci-placeholder-discord-token"
-      GEMINI_API_KEY: "ci-placeholder-gemini-key"
+      # A dummy token is enough for test collection; tests that need a real
+      # Discord/Google credential are excluded or must mock the network.
+      DISCORD_TOKEN: "test-discord-token"
+      GEMINI_API_KEY: "test-gemini-api-key"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install system test dependencies
+      - name: Ensure system test dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg libopus0 libopus-dev
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! ldconfig -p 2>/dev/null | grep -q 'libopus\.so'; then
+            sudo apt-get update
+            sudo apt-get install --yes ffmpeg libopus0 libopus-dev
+          fi
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest pytest-asyncio
+          # Remove this fallback once PR #15's SciPy declaration is on main.
+          if ! grep -qiE '^[[:space:]]*scipy([<=>!~[:space:]]|$)' requirements.txt; then
+            python -m pip install "scipy>=1.15.0"
+          fi
+      - name: Check dependency consistency
+        run: python -m pip check
       - name: Run the standard non-GPU suite
         run: python -m pytest -q -m "not ollama and not gpu and not slow"
