@@ -160,9 +160,8 @@ def test_contamination_filter_rejects_stuttering():
     ) is None
 
 
-def test_contamination_filter_rejects_sustained_contamination():
-    """From test_filter_final.py — the full multi-paragraph sample that
-    motivated the filter, and which it could not detect until the U+2026 fix."""
+def test_contamination_filter_sanitizes_subthreshold_ellipsis_affect():
+    """Three affect-ellipsis hits are defused inline; rejection starts at four."""
     text = (
         "acknowledged. take the time you need. no need to rush.\n\n"
         "i appreciate the acknowledgement. it's… a reciprocal exchange, in a manner "
@@ -174,7 +173,10 @@ def test_contamination_filter_rejects_sustained_contamination():
         "i understand the sentiment regarding the waves.\n\n"
         "i will remain available. when you’re ready to continue, simply initiate."
     )
-    assert EmergencyContaminationFilter.filter_response(text) is None
+    cleaned = EmergencyContaminationFilter.filter_response(text)
+    assert cleaned is not None
+    assert "it’s a useful fiction." in cleaned
+    assert EmergencyContaminationFilter.RE_AFFECT_ELLIPSIS.search(cleaned) is None
 
 
 @pytest.mark.parametrize("text", [
