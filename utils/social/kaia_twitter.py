@@ -196,55 +196,193 @@ async def post_quip_to_x(quip: str) -> bool:
     return success
 
 
+_COOKIE_EXTRACTION_WARNED: set[tuple[str, str, str]] = set()
+
+
+def _cookie_extraction_warning(source: str, domain: str, error: BaseException,
+                               path: Optional[Path] = None) -> None:
+    """Log each repeated browser/profile failure once without exposing cookie values."""
+    key = (source, domain, type(error).__name__)
+    if key in _COOKIE_EXTRACTION_WARNED:
+        return
+    _COOKIE_EXTRACTION_WARNED.add(key)
+    location = f" at {path}" if path is not None else ""
+    detail = str(error).replace("\n", " ")[:180]
+    log_warning(
+        f"[X COOKIE] {source} extraction failed for {domain}{location} "
+        f"({type(error).__name__}): {detail}"
+    )
+
+
+def _browser_cookie_db_candidates(home: Optional[Path] = None) -> list[tuple[str, str, Path, Path]]:
+    """Known Linux browser profile databases as (label, loader, root, database)."""
+    home = home or Path.home()
+    roots = [
+        ("Firefox", "firefox", home / ".mozilla" / "firefox"),
+        ("Firefox Snap", "firefox", home / "snap" / "firefox" / "common" / ".mozilla" / "firefox"),
+        ("Firefox Flatpak", "firefox", home / ".var" / "app" / "org.mozilla.firefox" / ".mozilla" / "firefox"),
+        ("LibreWolf", "librewolf", home / ".librewolf"),
+        ("LibreWolf Flatpak", "librewolf", home / ".var" / "app" / "io.gitlab.librewolf-community" / ".librewolf"),
+        ("Firedragon Flatpak", "firefox", home / ".var" / "app" / "org.garudalinux.firedragon" / ".firedragon"),
+        ("Chrome", "chrome", home / ".config" / "google-chrome"),
+        ("Chrome Snap", "chrome", home / "snap" / "chromium" / "common" / "chromium"),
+        ("Chromium", "chromium", home / ".config" / "chromium"),
+        ("Chromium Flatpak", "chromium", home / ".var" / "app" / "org.chromium.Chromium" / "config" / "chromium"),
+        ("Brave", "brave", home / ".config" / "BraveSoftware" / "Brave-Browser"),
+        ("Brave Flatpak", "brave", home / ".var" / "app" / "com.brave.Browser" / "config" / "BraveSoftware" / "Brave-Browser"),
+    ]
+    candidates: list[tuple[str, str, Path, Path]] = []
+    seen: set[Path] = set()
+    for label, loader_name, root in roots:
+        if not root.is_dir():
+            continue
+        # Firefox-family profile roots normally hold <profile>/cookies.sqlite.
+        if loader_name in ("firefox", "librewolf"):
+            possible = [root / "cookies.sqlite"]
+            try:
+                possible.extend(root.glob("*/cookies.sqlite"))
+                # Custom profiles can be nested in a non-default subdirectory.
+                possible.extend(root.glob("*/*/cookies.sqlite"))
+            except OSError as e:
+                _cookie_extraction_warning(label, "x.com", e, root)
+        else:
+            # Chromium migrated to Network/Cookies, but older versions used
+            # <profile>/Cookies. Cover both layouts and a root-level profile.
+            possible = [
+                root / "Cookies",
+                root / "Network" / "Cookies",
+            ]
+            try:
+                possible.extend(root.glob("*/Network/Cookies"))
+                possible.extend(root.glob("*/Cookies"))
+            except OSError as e:
+                _cookie_extraction_warning(label, "x.com", e, root)
+        for database in possible:
+            try:
+                resolved = database.resolve()
+            except OSError:
+                resolved = database
+            if database.is_file() and resolved not in seen:
+                seen.add(resolved)
+                candidates.append((label, loader_name, root, database))
+    return candidates
+
+
+def _load_cookies_from_profile_copy(loader, loader_name: str, profile_root: Path,
+                                    database: Path, domain: str) -> list:
+    """Copy a live SQLite cookie DB and its WAL sidecars before parsing it.
+
+    SQLite WAL data is not necessarily checkpointed into the main database while
+    a browser is open. Copying only Cookies/cookies.sqlite can silently miss the
+    current session; copy existing -wal/-shm sidecars too. The copy is short-lived
+    and never modifies the browser's original profile.
+    """
+    with tempfile.TemporaryDirectory(prefix="kaiacord-x-cookies-") as temp_dir:
+        temp_root = Path(temp_dir)
+        try:
+            relative = database.relative_to(profile_root)
+        except ValueError:
+            relative = Path(database.name)
+        copied_db = temp_root / relative
+        copied_db.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(database, copied_db)
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(str(database) + suffix)
+            if sidecar.is_file():
+                # A sidecar can disappear between is_file and copy2 while the
+                # browser checkpoints it. Keep the main copy usable if that
+                # happens, but report the race so session failures are explainable.
+                try:
+                    shutil.copy2(sidecar, Path(str(copied_db) + suffix))
+                except OSError as e:
+                    _cookie_extraction_warning(
+                        f"{loader_name} SQLite {suffix} sidecar", domain, e, sidecar
+                    )
+        kwargs = {"cookie_file": str(copied_db), "domain_name": domain}
+        # Chromium decryption may consult Local State; pass the original key
+        # file explicitly where the browser profile exposes one.
+        local_state = profile_root / "Local State"
+        if loader_name not in ("firefox", "librewolf") and local_state.is_file():
+            kwargs["key_file"] = str(local_state)
+        return list(loader(**kwargs))
+
+
 def _extract_browser_cookies() -> dict:
-    """Synchronous helper to extract X/Twitter cookies from browsers."""
+    """Extract X cookies from supported browsers, including common Linux profiles.
+
+    Try browser_cookie3's own detection first; on a locked SQLite database,
+    retry known profile paths from a short-lived copy including WAL files.
+    """
     try:
         import browser_cookie3
-        
-        # We need to check both x.com and legacy twitter.com
-        domains = ['x.com', 'twitter.com']
-        all_cookies = []
-        
-        for domain in domains:
-            try:
-                # Try Chrome
-                all_cookies.extend(list(browser_cookie3.chrome(domain_name=domain)))
-            except Exception: pass
-            try:
-                # Try Firefox
-                all_cookies.extend(list(browser_cookie3.firefox(domain_name=domain)))
-            except Exception: pass
+    except ImportError as e:
+        log_error("browser_cookie3 not installed. Cannot recover the X session from browser cookies.")
+        _cookie_extraction_warning("browser_cookie3 import", "x.com", e)
+        return {}
 
-        # Specific path for Firedragon (Flatpak)
-        firedragon_path = Path.home() / ".var/app/org.garudalinux.firedragon/.firedragon"
-        if firedragon_path.exists():
+    domains = ("x.com", "twitter.com")
+    browser_loaders = (
+        ("Chrome", "chrome"),
+        ("Chromium", "chromium"),
+        ("Brave", "brave"),
+        ("Firefox", "firefox"),
+        ("LibreWolf", "librewolf"),
+    )
+    all_cookies = []
+    attempted = 0
+
+    # First use package autodetection for any browser it already supports.
+    for label, loader_name in browser_loaders:
+        loader = getattr(browser_cookie3, loader_name, None)
+        if not callable(loader):
+            log_debug(f"[X COOKIE] browser_cookie3 has no {loader_name} loader; skipping {label}.")
+            continue
+        for domain in domains:
+            attempted += 1
             try:
-                for profile in firedragon_path.glob("*/cookies.sqlite"):
-                    for domain in domains:
-                        try:
-                            all_cookies.extend(list(browser_cookie3.firefox(cookie_file=str(profile), domain_name=domain)))
-                        except Exception: pass
-            except Exception:
-                pass
-        
-        if all_cookies:
-            # Twikit 2.x expects a flat dictionary of {name: value}
-            cookie_dict = {}
-            for cookie in all_cookies:
-                cookie_dict[cookie.name] = cookie.value
-            
-            # VERIFICATION: Ensure we have the critical session cookies
-            # auth_token: The main session secret
-            # ct0: CSRF token
-            if 'auth_token' in cookie_dict:
-                log_debug("Found 'auth_token' in extracted cookies.")
-                return cookie_dict
-            else:
-                log_warning("Extracted cookies found, but missing 'auth_token' (logged out?).")
-                
-    except ImportError:
-        log_error("browser_cookie3 not installed. Cannot attempt cookie bypass.")
-    except Exception as e:
-        log_error(f"Error extracting browser cookies: {e}")
-    
+                found = list(loader(domain_name=domain))
+                all_cookies.extend(found)
+                if found:
+                    log_debug(f"[X COOKIE] Read {len(found)} {domain} cookie(s) using {label} autodetection.")
+            except Exception as e:
+                _cookie_extraction_warning(f"{label} autodetection", domain, e)
+
+    # If autodetection failed (locked/open profile, non-standard location, or
+    # sandboxed install), try explicit local profile files with a temporary copy.
+    for label, loader_name, profile_root, database in _browser_cookie_db_candidates():
+        loader = getattr(browser_cookie3, loader_name, None)
+        if not callable(loader):
+            continue
+        for domain in domains:
+            attempted += 1
+            try:
+                found = _load_cookies_from_profile_copy(
+                    loader, loader_name, profile_root, database, domain
+                )
+                all_cookies.extend(found)
+                if found:
+                    log_debug(
+                        f"[X COOKIE] Read {len(found)} {domain} cookie(s) from "
+                        f"a copied {label} profile database at {database}."
+                    )
+            except Exception as e:
+                _cookie_extraction_warning(f"{label} copied-profile", domain, e, database)
+
+    cookie_dict = {}
+    for cookie in all_cookies:
+        name = getattr(cookie, "name", None)
+        value = getattr(cookie, "value", None)
+        if name and value is not None:
+            cookie_dict[name] = value
+
+    # auth_token is the credential-bearing X session cookie. Do not inject a
+    # partial or logged-out cookie jar just because unrelated site cookies exist.
+    if "auth_token" in cookie_dict:
+        log_info(f"[X COOKIE] Found an auth_token in {len(all_cookies)} extracted browser cookies.")
+        return cookie_dict
+
+    log_warning(
+        f"[X COOKIE] No auth_token found after {attempted} browser/profile extraction attempts. "
+        "Check that a browser is logged in to X and that its profile is readable."
+    )
     return {}
