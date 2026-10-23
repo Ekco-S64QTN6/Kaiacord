@@ -77,9 +77,9 @@ async def _reconstruct_x_history(_silenced_replied_ids: set):
         if count > 0:
             log_info(f"Reconstructed thread state for {count} X replies.")
     except Exception as e:
-        error_str = str(e).lower()
-        if "unauthorized" in error_str or "auth" in error_str or "401" in error_str:
-            log_warning(f"X history reconstruction failed (401), retrying: {e}")
+        from utils.social.kaia_twitter import is_x_auth_or_challenge_error
+        if is_x_auth_or_challenge_error(e):
+            log_warning(f"X history reconstruction hit an auth/challenge error, retrying: {e}")
             try:
                 count = await run_reconstruct(force_new=True)
                 if count > 0:
@@ -161,12 +161,13 @@ async def _get_x_mentions(_silenced_replied_ids: set) -> List[Dict[str, Any]]:
         mentions = await run_fetch()
         _x_breaker.record_success()
     except Exception as e:
-        error_str = str(e).lower()
         error_type = type(e).__name__
 
-        # Recover from auth/unauthorized errors by clearing session
-        if "unauthorized" in error_str or "auth" in error_str or "login" in error_str or "401" in error_str:
-            log_warning(f"X session potentially expired (401), retrying with new client: {e}")
+        # Twikit may surface the Cloudflare/403 challenge as text rather than
+        # a structured 401. Reuse the same classifier as direct posting/login.
+        from utils.social.kaia_twitter import is_x_auth_or_challenge_error
+        if is_x_auth_or_challenge_error(e):
+            log_warning(f"X session/challenge error, retrying with new client: {e}")
             try:
                 mentions = await run_fetch(force_new=True)
                 _x_breaker.record_success()
@@ -198,9 +199,9 @@ async def _reply_to_x(mention: Dict[str, Any], response_text: str) -> bool:
     try:
         return await run_reply()
     except Exception as e:
-        error_str = str(e).lower()
-        if "unauthorized" in error_str or "auth" in error_str or "401" in error_str:
-            log_warning(f"X reply failed (401), retrying with fresh session: {e}")
+        from utils.social.kaia_twitter import is_x_auth_or_challenge_error
+        if is_x_auth_or_challenge_error(e):
+            log_warning(f"X reply auth/challenge failed, retrying with fresh session: {e}")
             try:
                 return await run_reply(force_new=True)
             except Exception as e2:
