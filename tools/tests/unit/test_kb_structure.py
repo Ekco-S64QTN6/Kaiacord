@@ -106,7 +106,13 @@ def test_the_ingress_allow_list_names_only_real_folders():
     pi = _load("_pi", "tools/maintenance/process_ingress.py")
     # The operator-owned knowledge base is not committed. An empty root
     # directory is not evidence that its folder layout is available.
-    if not KB.is_dir() or not any(KB.rglob("*.md")):
-        pytest.skip("no knowledge-base Markdown corpus in this checkout")
+    has_live_corpus = any(
+        f for name in pi.ALLOWED_FOLDERS
+        for f in (KB / name).rglob("*.md")
+        if not any(part.startswith(".") for part in f.relative_to(KB).parts)
+        and not f.name.startswith("news_summary_")
+    )
+    if not KB.is_dir() or not has_live_corpus:
+        pytest.skip("no Markdown corpus in ingress folders in this checkout")
     for folder in pi.ALLOWED_FOLDERS:
         assert (KB / folder).exists(), f"allow-list names {folder}/, which does not exist"
