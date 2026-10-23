@@ -33,21 +33,45 @@ def _run(content):
         author_id=1, channel_id=1)
 
 
-def test_three_common_hits_are_defused_without_a_retry():
-    """Three cadence hits are cleaned in place, not discarded for regeneration."""
-    filtered = ECF.filter_response(REAL_REJECTED_REPLY)
+def test_three_common_hits_are_defused_and_pass_the_full_safety_pipeline():
+    """Three cadence hits are sanitized in place, then validated normally."""
+    filtered, reason = _run(REAL_REJECTED_REPLY)
+    assert not reason, f"the defused response should pass the full pipeline: {reason}"
     assert filtered and "…" not in filtered
     assert "processing that, ekco" in filtered
     assert "unsettling, but it tracks" in filtered
 
 
-def test_four_common_hits_still_trigger_a_retry():
+def test_four_common_hits_still_trigger_a_full_pipeline_retry():
     """Keep the retry for unusually dense ellipsis-affect cadence."""
     response = (
         "i'm… processing. the status is… unsettling. that seems… troubling. "
         "it feels… wrong."
     )
-    assert ECF.filter_response(response) is None
+    _, reason = _run(response)
+    assert reason == "Emergency contamination / fiction detected"
+
+
+def test_defusing_is_idempotent_for_mixed_ascii_and_unicode_ellipsis():
+    response = "i'm… processing... the status is...... unsettling"
+    once = ECF.defuse_ellipsis_affect(response)
+    assert ECF.defuse_ellipsis_affect(once) == once
+    assert "…" not in once and "..." not in once and "......" not in once
+
+
+def test_threshold_relaxation_does_not_bypass_contamination_checks():
+    # All lines are deliberately contaminated. Three ellipsis-affect matches
+    # are below the retry threshold, but the later line contamination check
+    # must still reject the now-defused response.
+    response = (
+        "Breaking news: i'm… processing.\\n"
+        "Breaking news: the status is… unsettling.\\n"
+        "Breaking news: that seems… troubling."
+    )
+    _, reason = _run(response)
+    assert reason == "Emergency contamination / fiction detected"
+
+
 
 
 def test_defusing_the_cadence_recovers_the_sentence():
