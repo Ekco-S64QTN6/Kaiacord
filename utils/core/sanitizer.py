@@ -52,13 +52,12 @@ RUNTIME_SCAFFOLDING = re.compile(
 def _shared_context_citation(marker: str, block: str) -> str:
     """Describe fetched context without persisting page-controlled text.
 
-    Page titles, embed fields and message bodies are all external content. Even
-    a single-line, length-capped title can contain prompt instructions, so the
-    persisted history keeps only a fixed label and (for scraped pages) the
-    hostname from the enricher's deterministic Source line.
+    Page titles, embed fields and message bodies are external content and can
+    contain prompt instructions. Persist only a fixed label and, for scraped
+    pages, the hostname from the enricher's deterministic Source line.
     """
     if marker.upper() == "LINKED_WEB_CONTENT":
-        source = re.search(r"(?im)^\\s*Source:\\s*(https?://[^\\s<>]+)", block or "")
+        source = re.search(r"(?im)^\s*Source:\s*(https?://[^\s<>]+)", block or "")
         if not source:
             return ""
         from urllib.parse import urlsplit
@@ -68,7 +67,7 @@ def _shared_context_citation(marker: str, block: str) -> str:
             return ""
         if host.startswith("www."):
             host = host[4:]
-        # Do not echo odd host syntax back into the prompt history.
+        # Do not echo odd host syntax back into prompt history.
         if not host or not re.fullmatch(r"[a-z0-9.-]+", host) or ".." in host:
             return ""
         return f"[shared link: {host[:253]}]"
@@ -83,21 +82,20 @@ def summarize_link_context(text: str) -> str:
     """Replace enricher-only blocks with fixed, non-instructional citations.
 
     The actual user-authored URL remains untouched outside the enriched block.
-    The page title and body do not: both are page-controlled and can carry
-    prompt injection, even when the title is escaped and length-capped.
+    Page titles and body text do not: both are page-controlled and can carry
+    prompt injection, even when a title is escaped and length-capped.
     """
     if not text:
         return text
 
     def _replace(m):
-        marker_match = re.match(r"\\s*\\[([^]\\r\\n]+)\\]", m.group(0))
+        marker_match = re.match(r"^\s*\[([A-Z_ ]+)\]", m.group(0), re.IGNORECASE)
         marker = marker_match.group(1).strip() if marker_match else ""
         citation = _shared_context_citation(marker, m.group(0).split("]", 1)[-1])
-        return "\\n" + citation if citation else ""
+        return "\n" + citation if citation else ""
 
     cleaned = RUNTIME_SCAFFOLDING.sub(_replace, text)
-    return re.sub(r"\\n{3,}", "\\n\\n", cleaned).strip()
-
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 def excerpt(text: str, limit: int) -> str:
     """At most `limit` characters, cut at a word boundary and marked with "…".
 
