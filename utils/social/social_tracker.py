@@ -99,6 +99,20 @@ class SocialTracker:
         return entries
 
     @staticmethod
+    def _state_generation(state: dict) -> int:
+        try:
+            return self._state_generation(state)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _entry_generation(entry: dict) -> Optional[int]:
+        try:
+            return int(entry.get("generation", -1))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _normalize_thread_counts(raw: Any) -> Dict[str, Dict[str, int]]:
         counts: Dict[str, Dict[str, int]] = {}
         if not isinstance(raw, dict):
@@ -172,7 +186,7 @@ class SocialTracker:
                 if self._snapshot_generation == 0:
                     self._remember_id(mention_id)
                 continue
-            if int(entry.get("generation", -1)) != self._snapshot_generation:
+            if self._entry_generation(entry) != self._snapshot_generation:
                 continue
             self._remember_id(mention_id)
             if mention_id in snapshot_set or mention_id in counted:
@@ -202,7 +216,7 @@ class SocialTracker:
                 if generation == 0:
                     logged_ids.append(mention_id)
                 continue
-            if int(entry.get("generation", -1)) != generation:
+            if self._entry_generation(entry) != generation:
                 # Old-generation entries may remain after a crash between
                 # snapshot replace and log compaction. Do not resurrect IDs the
                 # retention cap has already removed from the snapshot.
@@ -269,7 +283,7 @@ class SocialTracker:
             if entry.get("legacy"):
                 if generation == 0:
                     known.add(entry_id)
-            elif int(entry.get("generation", -1)) == generation:
+            elif self._entry_generation(entry) == generation:
                 known.add(entry_id)
         if mention_id in known:
             return None
