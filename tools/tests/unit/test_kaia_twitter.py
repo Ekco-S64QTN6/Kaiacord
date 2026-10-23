@@ -89,6 +89,7 @@ def test_cookie_profile_discovery_includes_librewolf_brave_and_sandbox_paths(tmp
 
     roots = [
         tmp_path / ".librewolf" / "profile" / "cookies.sqlite",
+        tmp_path / ".firedragon" / "profile" / "cookies.sqlite",
         tmp_path / ".config" / "BraveSoftware" / "Brave-Browser" / "Default" / "Network" / "Cookies",
         tmp_path / "snap" / "firefox" / "common" / ".mozilla" / "firefox" / "profile" / "cookies.sqlite",
     ]
@@ -100,8 +101,9 @@ def test_cookie_profile_discovery_includes_librewolf_brave_and_sandbox_paths(tmp
     found = {db.resolve(): (label, loader) for label, loader, _root, db in candidates}
 
     assert found[roots[0].resolve()][1] == "librewolf"
-    assert found[roots[1].resolve()][1] == "brave"
-    assert found[roots[2].resolve()][1] == "firefox"
+    assert found[roots[1].resolve()][1] == "firefox"
+    assert found[roots[2].resolve()][1] == "brave"
+    assert found[roots[3].resolve()][1] == "firefox"
 
 
 def test_cookie_extraction_never_pairs_auth_and_csrf_from_different_profiles(
