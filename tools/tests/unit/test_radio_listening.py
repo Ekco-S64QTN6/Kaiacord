@@ -142,7 +142,10 @@ def test_a_transcription_is_checked_against_eam_watch():
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
-def test_noise_and_non_eam_voice_are_dropped(tmp_path):
+def test_noise_and_non_eam_voice_are_dropped(tmp_path, monkeypatch):
+    # This test exercises the classification pipeline, not the external ffprobe
+    # executable; provide the known durations for its generated tone fixtures.
+    monkeypatch.setattr(watch, "_seconds", lambda p: float(p.stem[1:]))
     def tone(seconds):
         p = tmp_path / f"t{seconds}.wav"
         subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
@@ -236,7 +239,8 @@ def test_a_recording_is_dated_by_its_own_file_not_the_watch():
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
-def test_without_a_transcript_an_hfgcs_opening_is_not_kept(tmp_path):
+def test_without_a_transcript_an_hfgcs_opening_is_not_kept(tmp_path, monkeypatch):
+    monkeypatch.setattr(watch, "_seconds", lambda _p: 40.0)
     p = tmp_path / "t.wav"
     subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=duration=40",
                     "-ar", "12000", str(p)], check=True)
@@ -248,7 +252,8 @@ def test_without_a_transcript_an_hfgcs_opening_is_not_kept(tmp_path):
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
-def test_a_number_station_is_kept_as_a_recording_without_a_transcript(tmp_path):
+def test_a_number_station_is_kept_as_a_recording_without_a_transcript(tmp_path, monkeypatch):
+    monkeypatch.setattr(watch, "_seconds", lambda _p: 40.0)
     """Whisper looped on E11's digit groups — "8-1-4-0-8-0-0" forty times,
     "he was born on the hill". The catch is posted as a recording instead."""
     from utils.commands import radio_handler as rh
