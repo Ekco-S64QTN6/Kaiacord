@@ -1124,7 +1124,9 @@ class PostGenerationSafetyPipeline:
         if out == (text or ""):
             return text
         out = re.sub(r"\n{3,}", "\n\n", out).strip()
-        return out if len(out) >= 2 else text
+        # If the response was only the leaked tag, suppress it rather than
+        # falling back to the original prompt leak.
+        return out
 
     #: A short verbless line — "a quiet grief.", "it's a quiet hum." — is a
     #: template by its first words ("a quiet", "it's a quiet"), not by six of
