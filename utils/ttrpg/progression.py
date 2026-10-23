@@ -32,6 +32,18 @@ def xp_to_next_level(current_level: int) -> int:
     return XP_THRESHOLDS.get(current_level + 1, 0)
 
 
+def retroactive_con_hp_gain(current_con: int, con_gain: int, level: int) -> int:
+    """HP granted by a CON increase, based on the actual modifier change.
+
+    A +1 CON increase at an even score does not change the modifier; awarding
+    one HP per character level there over-rewards Growth B. HP is retroactive
+    only for each point the CON modifier actually increases.
+    """
+    before = (int(current_con) - 10) // 2
+    after = (int(current_con) + int(con_gain) - 10) // 2
+    return max(0, after - before) * max(1, int(level))
+
+
 def check_level_up(sheet: dict) -> tuple[bool, int]:
     """
     Returns (leveled_up, new_level).
