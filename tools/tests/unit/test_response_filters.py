@@ -892,6 +892,28 @@ def test_complete_lexical_verb_sentences_are_not_litany_fragments():
     assert P.collapse_litany(text) == text
 
 
+def test_live_history_and_maintenance_share_litany_paragraph_order():
+    import inspect
+
+    from utils.core.message_processor import MessageProcessor
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    from tools.maintenance import clean_kaia_turns
+
+    text = (
+        "a pattern identified.\n\n"
+        "a tendency observed.\n\n"
+        "a habit acknowledged.\n\n"
+        "a defense strategy."
+    )
+    normalized = P.normalize_litany_paragraphs(text)
+    assert normalized == P.collapse_litany(P.reflow_paragraphs(text))
+    assert normalized == "a pattern identified. a tendency observed."
+
+    assert "normalize_litany_paragraphs" in inspect.getsource(MessageProcessor._post_process_and_log)
+    assert "normalize_litany_paragraphs" in inspect.getsource(P.detemplate_history)
+    assert "normalize_litany_paragraphs" in inspect.getsource(clean_kaia_turns.clean)
+
+
 def test_a_long_a_quiet_line_counts_as_the_same_template():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
     assert P._frag_key("a quiet reminder of the impermanence of all things.") == "a quiet"
