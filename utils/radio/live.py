@@ -243,14 +243,26 @@ async def stop(guild_id: int) -> bool:
         if s.vc.is_playing():
             s.vc.stop()
     finally:
-        if s.vc.is_connected():
-            await s.vc.disconnect(force=True)
-        if s.watchdog and s.watchdog is not asyncio.current_task():
-            s.watchdog.cancel()
-        if s.local:
-            from utils.radio import rtl
-            if rtl.DEVICE.locked():
-                rtl.DEVICE.release()
+        # Voice disconnect is a network operation and can fail independently of
+        # stream shutdown. It must never skip watchdog cancellation or release
+        # of a local RTL-SDR device lock.
+        try:
+            if s.vc.is_connected():
+                await s.vc.disconnect(force=True)
+        except Exception as e:
+            log_error(f"[radio] voice disconnect failed during cleanup: {e}")
+        finally:
+            try:
+                if s.watchdog and s.watchdog is not asyncio.current_task():
+                    s.watchdog.cancel()
+            finally:
+                if s.local:
+                    try:
+                        from utils.radio import rtl
+                        if rtl.DEVICE.locked():
+                            rtl.DEVICE.release()
+                    except Exception as e:
+                        log_error(f"[radio] RTL-SDR lock release failed: {e}")
     log_action(f"[radio] live session ended after {s.minutes:.0f} min")
     return True
 
