@@ -49,14 +49,23 @@ RUNTIME_SCAFFOLDING = re.compile(
 )
 
 
+def _safe_link_title(title: str) -> str:
+    """Keep a fetched title single-line and unable to forge scaffold markers."""
+    # Embed and page titles are external input. A newline or bracketed marker
+    # must not turn the persisted citation into another apparent prompt block.
+    title = re.sub(r"[\\x00-\\x1f\\x7f-\\x9f\\u2028\\u2029]", " ", title or "")
+    title = re.sub(r"[\\[\\]{}<>]", "", title)
+    return re.sub(r"\\s+", " ", title).strip()[:120].strip()
+
+
 def _link_title(block: str) -> str:
     """The best one-line title from an embed or scrape block, or ''."""
-    for line in (block or "").split("\n"):
+    for line in (block or "").splitlines():
         line = line.strip()
         if not line:
             continue
         if line.lower().startswith("title:"):
-            return line.split(":", 1)[1].strip()[:120]
+            return _safe_link_title(line.split(":", 1)[1])
         # Otherwise the first substantial line that is not a bare fragment.
         # Only accept something that actually looks like a page title: a site
         # separator, or Title Case. The first substantial line after a URL is
@@ -69,7 +78,7 @@ def _link_title(block: str) -> str:
             sum(1 for w in line.split() if w[:1].isupper()) >= max(2, len(line.split()) // 2)
         )
         if looks_titled:
-            return line[:120]
+            return _safe_link_title(line)
     return ""
 
 
