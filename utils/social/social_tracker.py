@@ -162,13 +162,19 @@ class SocialTracker:
         snapshot_set = set(snapshot_ids)
         for entry in entries:
             mention_id = str(entry.get("mention_id") or "")
-            self._remember_id(mention_id)
-            if entry.get("legacy"):
+            if not mention_id:
                 continue
-            # A crash between replacing the snapshot and clearing the log can
-            # leave old events behind. Generation mismatch makes replay idempotent.
+            if entry.get("legacy"):
+                # Legacy one-ID-per-line logs have no generation marker. Honor
+                # them only before any new-format snapshot exists. After a
+                # snapshot generation has advanced they can only be crash
+                # residue from compaction, and must not resurrect evicted IDs.
+                if self._snapshot_generation == 0:
+                    self._remember_id(mention_id)
+                continue
             if int(entry.get("generation", -1)) != self._snapshot_generation:
                 continue
+            self._remember_id(mention_id)
             if mention_id in snapshot_set or mention_id in counted:
                 continue
             counted.add(mention_id)
@@ -187,17 +193,37 @@ class SocialTracker:
         snapshot_set = set(disk_ids)
         counted: set[str] = set()
         logged_ids: list[str] = []
+        observed: set[str] = set()
         for entry in entries:
             mention_id = str(entry.get("mention_id") or "")
             if not mention_id:
                 continue
+            if entry.get("legacy"):
+                if generation == 0:
+                    logged_ids.append(mention_id)
+                continue
+            if int(entry.get("generation", -1)) != generation:
+                # Old-generation entries may remain after a crash between
+                # snapshot replace and log compaction. Do not resurrect IDs the
+                # retention cap has already removed from the snapshot.
+                continue
+            if mention_id in snapshot_set or mention_id in observed:
+                continue
+            observed.add(mention_id)
             logged_ids.append(mention_id)
-            if entry.get("legacy") or int(entry.get("generation", -1)) != generation:
-                continue
-            if mention_id in snapshot_set or mention_id in counted:
-                continue
             counted.add(mention_id)
             self._append_event_count(counts, entry)
+
+        # Retry-pending events are the only valid source of IDs not represented
+        # by the disk snapshot or append log. The rest of our local deque may be
+        # stale and must not evict newer IDs during a refresh.
+        pending_ids: list[str] = []
+        for event in self._pending_events:
+            mention_id = str(event.get("mention_id") or "")
+            if not mention_id or mention_id in snapshot_set or mention_id in observed:
+                continue
+            observed.add(mention_id)
+            pending_ids.append(mention_id)
 
         # Never lower a locally reconstructed or locally observed thread count;
         # another process may have advanced the authoritative disk snapshot.
@@ -206,10 +232,9 @@ class SocialTracker:
             for user, value in users.items():
                 counts[root][user] = max(int(counts[root].get(user, 0)), int(value))
 
-        current_ids = list(self._replied_deque)
         self._replied_ids.clear()
         self._replied_deque.clear()
-        merged_ids = disk_ids + current_ids + logged_ids
+        merged_ids = disk_ids + logged_ids + pending_ids
         for mention_id in merged_ids[-self.max_ids:]:
             self._remember_id(mention_id)
         self._thread_counts = counts
@@ -236,10 +261,18 @@ class SocialTracker:
         snapshot_ids = state.get("replied_ids", [])
         known = {str(x) for x in snapshot_ids} if isinstance(snapshot_ids, list) else set()
         entries = self._read_log_entries()
-        known.update(str(e.get("mention_id")) for e in entries if e.get("mention_id"))
+        generation = max(0, int(state.get("log_generation", 0) or 0))
+        for entry in entries:
+            entry_id = str(entry.get("mention_id") or "")
+            if not entry_id:
+                continue
+            if entry.get("legacy"):
+                if generation == 0:
+                    known.add(entry_id)
+            elif int(entry.get("generation", -1)) == generation:
+                known.add(entry_id)
         if mention_id in known:
             return None
-        generation = max(0, int(state.get("log_generation", 0) or 0))
         event = {
             "mention_id": mention_id,
             "platform": platform,
@@ -308,16 +341,21 @@ class SocialTracker:
                 mention_id = str(entry.get("mention_id") or "")
                 if not mention_id or mention_id in disk_id_set or mention_id in observed_events:
                     continue
-                if not entry.get("legacy") and int(entry.get("generation", -1)) != generation:
-                    # A stale-generation line can remain after a crash between
-                    # state replacement and log unlink. Its state was already
-                    # represented by the previous snapshot, so it is not new.
+                if entry.get("legacy"):
+                    # Pre-generation plain-ID logs are still imported on the
+                    # first snapshot only; after generation advances they are
+                    # leftover entries from an interrupted compaction.
+                    if generation != 0:
+                        continue
+                    observed_events.add(mention_id)
+                    event_ids.append(mention_id)
+                    continue
+                if int(entry.get("generation", -1)) != generation:
+                    # Do not restore an older event that the retention cap
+                    # intentionally dropped from the current snapshot.
                     continue
                 observed_events.add(mention_id)
                 event_ids.append(mention_id)
-                if entry.get("legacy"):
-                    continue
-                counted.add(mention_id)
                 self._append_event_count(counts, entry)
 
             pending_ids: list[str] = []
