@@ -240,3 +240,75 @@ async def main():
 if __name__ == "__main__":
     exit_code = asyncio.run(main())
     sys.exit(exit_code)
+
+
+@pytest.mark.asyncio
+async def test_registration_racing_shutdown_is_cancelled_not_left_pending():
+    """A registration paused before the lock must not sneak in after the snapshot."""
+    import threading
+
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    registry = AsyncTaskRegistry()
+    real_lock = threading.Lock()
+    register_waiting = threading.Event()
+    allow_register = threading.Event()
+
+    class RegistrationGate:
+        def __enter__(self):
+            if threading.current_thread().name == "late-task-register":
+                register_waiting.set()
+                if not allow_register.wait(timeout=2):
+                    raise TimeoutError("test did not release registration")
+            real_lock.acquire()
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            real_lock.release()
+
+    class FakeTask:
+        def __init__(self, loop):
+            self.loop = loop
+            self.cancelled_state = False
+
+        def get_loop(self):
+            return self.loop
+
+        def cancel(self):
+            self.cancelled_state = True
+            return True
+
+        def done(self):
+            return self.cancelled_state
+
+        def cancelled(self):
+            return self.cancelled_state
+
+        def add_done_callback(self, _callback):
+            pass
+
+        def exception(self):
+            return None
+
+    registry._lock = RegistrationGate()
+    task = FakeTask(asyncio.get_running_loop())
+    worker = threading.Thread(
+        target=registry.register,
+        args=("late", task),
+        name="late-task-register",
+        daemon=True,
+    )
+    worker.start()
+    assert await asyncio.to_thread(register_waiting.wait, 1.0)
+
+    # This marks shutdown and snapshots an empty registry while register is
+    # stalled after entering its critical section. The stale pre-lock check
+    # would let it insert after the snapshot.
+    assert await registry.cancel_all(timeout=0.1) == 0
+    allow_register.set()
+    await asyncio.to_thread(worker.join, 1.0)
+    await asyncio.sleep(0)
+
+    assert not worker.is_alive()
+    assert registry.get_all_tasks() == {}
+    assert task.cancelled_state, "task racing shutdown was not cancelled"
