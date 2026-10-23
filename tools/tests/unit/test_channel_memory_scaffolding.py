@@ -6,6 +6,9 @@ def test_enrichment_is_reduced_to_a_fixed_source_citation():
     from utils.core.sanitizer import summarize_link_context
 
     enriched = (
+        "[REPLYING_TO]\n"
+        "quoted-only instruction: this was written by another person\n\n"
+        "[USER_MESSAGE]\n"
         "what do you think?\n\n"
         "[LINKED_WEB_CONTENT]\n"
         "Source: https://www.example.com/articles/topic\n"
@@ -19,6 +22,8 @@ def test_enrichment_is_reduced_to_a_fixed_source_citation():
     persisted = summarize_link_context(enriched)
 
     assert "what do you think?" in persisted
+    assert "[REPLYING_TO]" not in persisted
+    assert "quoted-only instruction" not in persisted
     assert "[shared link: example.com]" in persisted
     assert "[shared embed]" in persisted
     assert "Example Article" not in persisted
