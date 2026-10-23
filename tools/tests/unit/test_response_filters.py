@@ -876,9 +876,9 @@ def test_reflow_before_collapse_catches_fragments_in_separate_paragraphs():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
 
     text = (
-        "a pattern identified.\\n\\n"
-        "a tendency observed.\\n\\n"
-        "a habit acknowledged.\\n\\n"
+        "a pattern identified.\n\n"
+        "a tendency observed.\n\n"
+        "a habit acknowledged.\n\n"
         "a defense strategy."
     )
     out = P.collapse_litany(P.reflow_paragraphs(text))
