@@ -92,7 +92,7 @@ def test_runtime_scaffold_cleanup_also_strips_reply_quotes_from_training_text():
 def test_sanitized_channel_turn_is_the_content_written_to_bot_state_json(tmp_path, monkeypatch):
     import json
 
-    from utils.core.bot_state import BotState
+    from utils.infrastructure.system.bot_state import BotState
     from utils.core.sanitizer import summarize_link_context
 
     raw = (
