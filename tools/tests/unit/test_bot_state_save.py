@@ -39,3 +39,65 @@ def test_save_survives_concurrent_mutation(tmp_path, monkeypatch):
     assert not failures, failures[0]
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert len(saved["relationships"]) >= 2000
+
+
+def test_save_retries_when_snapshot_comprehension_races(tmp_path, monkeypatch):
+    """A RuntimeError while copying a live mapping must be inside the retry loop."""
+    import utils.infrastructure.system.bot_state as mod
+
+    warnings = []
+    monkeypatch.setattr(mod, "log_warning", lambda msg, *a, **k: warnings.append(msg))
+
+    class FlakyDict(dict):
+        calls = 0
+
+        def items(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("dictionary changed size during iteration")
+            return super().items()
+
+    path = tmp_path / "bot_state.json"
+    state = BotState(state_file=str(path))
+    state.channel_memory = FlakyDict()
+    try:
+        state.save()
+    finally:
+        state._executor.shutdown(wait=True)
+
+    assert state.channel_memory.calls >= 2
+    assert path.exists()
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["channel_memory"] == {}
+    assert not warnings, warnings
+
+
+def test_save_deep_copies_nested_state_and_retries_runtime_race(tmp_path, monkeypatch):
+    import utils.infrastructure.system.bot_state as mod
+
+    warnings = []
+    monkeypatch.setattr(mod, "log_warning", lambda msg, *a, **k: warnings.append(msg))
+
+    class FlakyDeepcopyDict(dict):
+        calls = 0
+
+        def __deepcopy__(self, memo):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("mapping mutated during nested snapshot")
+            return {k: dict(v) if isinstance(v, dict) else v for k, v in self.items()}
+
+    path = tmp_path / "bot_state_nested.json"
+    state = BotState(state_file=str(path))
+    state.relationships = FlakyDeepcopyDict({
+        "user-1": {"topic_counts": {"radio": 3}, "interaction_count": 7}
+    })
+    try:
+        state.save()
+    finally:
+        state._executor.shutdown(wait=True)
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["relationships"]["user-1"]["topic_counts"] == {"radio": 3}
+    assert state.relationships.calls >= 2
+    assert not warnings, warnings
