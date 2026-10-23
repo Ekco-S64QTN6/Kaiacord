@@ -105,3 +105,26 @@ def test_two_failed_half_open_auth_probes_clear_the_x_session(monkeypatch):
     assert calls == [False, True]
     assert breaker.failures == 1
     invalidate.assert_awaited_once_with("repeated half-open authentication/challenge failures")
+
+
+def test_account_locked_poll_does_not_force_login_or_purge_cookies(monkeypatch):
+    Locked = type("AccountLocked", (Exception,), {})
+    locked_client = type("LockedClient", (), {})()
+    locked_client.get_notifications = AsyncMock(side_effect=Locked("account locked"))
+    calls = []
+
+    async def get_client(force_new=False):
+        calls.append(force_new)
+        return locked_client
+
+    monkeypatch.setattr(twitter, "get_x_client", get_client)
+    monkeypatch.setattr(twitter, "is_x_configured", lambda: True)
+    invalidate = AsyncMock()
+    monkeypatch.setattr(twitter, "invalidate_x_session", invalidate)
+    breaker = FakeBreaker()
+    monkeypatch.setattr(polling, "_x_breaker", breaker)
+
+    assert asyncio.run(polling._get_x_mentions(set())) == []
+    assert calls == [False]
+    assert breaker.failures == 1
+    invalidate.assert_not_awaited()
