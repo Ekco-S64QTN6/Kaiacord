@@ -100,7 +100,7 @@ def test_cookie_profile_discovery_includes_librewolf_brave_and_sandbox_paths(tmp
     candidates = kx._browser_cookie_db_candidates(tmp_path)
     found = {db.resolve(): (label, loader) for label, loader, _root, db in candidates}
 
-    assert found[roots[0].resolve()][1] == "firefox"
+    assert found[roots[0].resolve()][1] == "librewolf"
     assert found[roots[1].resolve()][1] == "firefox"
     assert found[roots[2].resolve()][1] == "brave"
     assert found[roots[3].resolve()][1] == "firefox"
