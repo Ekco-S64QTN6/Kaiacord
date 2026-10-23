@@ -75,6 +75,47 @@ def test_append_to_a_missing_file_creates_it(tmp_path):
     assert p.read_text(encoding="utf-8") == "only line\n"
 
 
+def test_concurrent_appends_do_not_overwrite_each_other(tmp_path, monkeypatch):
+    """Force both unlocked writers to read the old content before either replaces it."""
+    import threading
+    import utils.core.atomic_write as atomic_write_module
+
+    target = tmp_path / "shared.log"
+    write_atomic(target, "base\n")
+    simultaneous_writes = threading.Barrier(2)
+    real_write_atomic = atomic_write_module.write_atomic
+    errors = []
+
+    def synchronized_write(path, text, encoding="utf-8"):
+        if Path(path) == target:
+            try:
+                simultaneous_writes.wait(timeout=0.15)
+            except threading.BrokenBarrierError:
+                # With append_atomic's lock, only one writer can reach this
+                # point at a time. Let it complete, then the next writer reads
+                # the newly appended content.
+                pass
+        return real_write_atomic(path, text, encoding=encoding)
+
+    monkeypatch.setattr(atomic_write_module, "write_atomic", synchronized_write)
+
+    def append(line):
+        try:
+            append_atomic(target, line + "\n")
+        except Exception as exc:  # pragma: no cover - surfaced below
+            errors.append(exc)
+
+    writers = [threading.Thread(target=append, args=(line,)) for line in ("first", "second")]
+    for writer in writers:
+        writer.start()
+    for writer in writers:
+        writer.join(timeout=3)
+
+    assert not errors
+    assert all(not writer.is_alive() for writer in writers)
+    assert set(target.read_text(encoding="utf-8").splitlines()) == {"base", "first", "second"}
+
+
 AUTOMATIC_WRITERS = [
     "utils/core/kaia_dream.py",
     "utils/social/kaia_identities.py",
