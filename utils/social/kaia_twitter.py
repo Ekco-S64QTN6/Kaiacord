@@ -53,6 +53,22 @@ def is_x_configured() -> bool:
     return bool(username and password)
 
 
+async def invalidate_x_session(reason: str = "persistent authentication/challenge failures") -> None:
+    """Clear the cached X client and cookie file under the client lifecycle lock.
+
+    Caller can let the circuit breaker cool down after this; the next permitted
+    request will create a new client and perform a clean login/cookie recovery.
+    """
+    global _client
+    async with _client_lock:
+        _client = None
+        try:
+            _cookies_path.unlink(missing_ok=True)
+        except OSError as e:
+            log_warning(f"Could not remove X session cookie file ({type(e).__name__}).")
+    log_warning(f"Invalidated cached X session after {reason}; next poll must re-authenticate.")
+
+
 async def get_x_client(force_new: bool = False):
     """Get or create the X client (lazy initialization with cookie persistence)."""
     global _client
@@ -187,11 +203,7 @@ async def post_to_x(text: str) -> tuple[bool, Optional[str]]:
         if is_x_auth_or_challenge_error(e):
             # The cached client holds the dead session too; drop it with the
             # cookies so the next call logs in again.
-            global _client
-            _client = None
-            if _cookies_path.exists():
-                _cookies_path.unlink()
-                log_warning(f"Cleared dead X cookies (received auth error: {error_msg})")
+            await invalidate_x_session(f"post failed with {error_type}")
         
         return False, f"{error_type}: {error_msg}"
 
