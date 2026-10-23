@@ -161,3 +161,28 @@ def test_old_generation_log_residue_does_not_resurrect_retired_ids(tmp_path, mon
     assert tracker.get_all_replied_ids() == {"x:latest-a", "x:latest-b"}
     assert not tracker.is_replied("x:retired")
     assert not tracker.is_replied("x:malformed-generation")
+
+
+def test_failed_local_append_merges_thread_count_with_another_process(tmp_path, monkeypatch):
+    """An in-memory pending event must not be lost when merging disk counts."""
+    monkeypatch.setenv("KAIACORD_TELEMETRY_SUFFIX", "")
+    log_path = str(tmp_path / "pending.log")
+    state_path = str(tmp_path / "pending.json")
+    a = SocialTracker(log_path=log_path, state_path=state_path)
+    b = SocialTracker(log_path=log_path, state_path=state_path)
+
+    def fail_append(*args, **kwargs):
+        raise OSError("simulated read-only/temporary filesystem failure")
+
+    monkeypatch.setattr(a, "_append_event_under_file_lock", fail_append)
+
+    async def run():
+        await a.mark_replied("x:pending", "x", "root", "person")
+        await b.mark_replied("bsky:durable", "bluesky", "root", "person")
+        await a.save_snapshot()
+
+    asyncio.run(run())
+    loaded = SocialTracker(log_path=log_path, state_path=state_path)
+    assert loaded.is_replied("x:pending")
+    assert loaded.is_replied("bsky:durable")
+    assert loaded.get_thread_count("root", "person") == 2
