@@ -141,3 +141,76 @@ def test_cookie_extraction_never_pairs_auth_and_csrf_from_different_profiles(
     assert cookies == {"auth_token": "chrome-auth"}
     assert "ct0" not in cookies
     assert any("no matching ct0" in warning for warning in warnings)
+
+
+def test_x_auth_classifier_recognizes_structured_403_and_cloudflare_challenges():
+    class HttpError(Exception):
+        def __init__(self, status_code, message):
+            super().__init__(message)
+            self.status_code = status_code
+
+    assert kx.is_x_auth_or_challenge_error(HttpError(401, "Unauthorized"))
+    assert kx.is_x_auth_or_challenge_error(HttpError(403, "Cloudflare challenge page"))
+    assert not kx.is_x_auth_or_challenge_error(HttpError(403, "Forbidden: Cannot find specified user"))
+    assert kx.is_x_auth_or_challenge_error(RuntimeError("Cloudflare challenge page"))
+    assert not kx.is_x_auth_or_challenge_error(RuntimeError("HTTP 403"))
+    assert not kx.is_x_auth_or_challenge_error(RuntimeError("status: 403, message: Cannot find specified user."))
+    assert not kx.is_x_auth_or_challenge_error(RuntimeError("tweet is too long"))
+
+
+def test_a_403_from_posting_invalidates_the_cached_client_and_cookie_file(monkeypatch, tmp_path):
+    cookies = tmp_path / "x_cookies.json"
+    cookies.write_text('{"auth_token":"secret","ct0":"csrf"}')
+    monkeypatch.setattr(kx, "_cookies_path", cookies)
+    client = SimpleNamespace(create_tweet=AsyncMock(side_effect=RuntimeError("status: 403, message: Cloudflare challenge page")))
+    monkeypatch.setattr(kx, "_client", client)
+    monkeypatch.setattr(kx, "get_x_client", AsyncMock(return_value=client))
+
+    ok, _ = asyncio.run(kx.post_to_x("hello"))
+
+    assert not ok
+    assert kx._client is None
+    assert not cookies.exists()
+
+
+def test_x_auth_classifier_uses_twikit_exception_names_without_status_code():
+    from utils.social.kaia_twitter import is_x_auth_or_challenge_error
+
+    # Twikit errors expose their HTTP meaning via exception class and message;
+    # the exception itself does not necessarily expose .status_code.
+    Unauthorized = type("Unauthorized", (Exception,), {})
+    Forbidden = type("Forbidden", (Exception,), {})
+    AccountLocked = type("AccountLocked", (Exception,), {})
+
+    assert is_x_auth_or_challenge_error(Unauthorized("status: 401, message: expired"))
+    assert is_x_auth_or_challenge_error(Forbidden("status: 403, message: Cloudflare challenge page"))
+    assert not is_x_auth_or_challenge_error(Forbidden("status: 403, message: Cannot find specified user."))
+    assert not is_x_auth_or_challenge_error(AccountLocked("account locked"))
+    assert not is_x_auth_or_challenge_error(RuntimeError("status: 403, message: access denied"))
+    assert is_x_auth_or_challenge_error(RuntimeError("HTTP 401 Unauthorized"))
+    assert not is_x_auth_or_challenge_error(RuntimeError("HTTP 403 Forbidden"))
+    assert not is_x_auth_or_challenge_error(RuntimeError("HTTP 403"))
+    assert not is_x_auth_or_challenge_error(
+        RuntimeError("this post explains what an HTTP 403 response means")
+    )
+    assert not is_x_auth_or_challenge_error(
+        RuntimeError("tweet content includes the digits 403")
+    )
+
+
+def test_account_locked_does_not_delete_cookies_or_invalidate_client(monkeypatch, tmp_path):
+    cookies = tmp_path / "x_cookies.json"
+    cookies.write_text('{"auth_token":"keep-for-manual-unlock"}')
+    monkeypatch.setattr(kx, "_cookies_path", cookies)
+    locked = type("AccountLocked", (Exception,), {})
+    client = SimpleNamespace(create_tweet=AsyncMock(side_effect=locked("account challenge")))
+    monkeypatch.setattr(kx, "_client", client)
+    invalidate = AsyncMock()
+    monkeypatch.setattr(kx, "invalidate_x_session", invalidate)
+
+    ok, _ = asyncio.run(kx.post_to_x("hello"))
+
+    assert not ok
+    assert kx._client is client
+    assert cookies.exists()
+    invalidate.assert_not_awaited()

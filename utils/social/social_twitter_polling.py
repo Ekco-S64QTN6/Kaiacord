@@ -24,6 +24,25 @@ from utils.infrastructure.circuit_breaker import CircuitBreaker
 
 # ── Module-owned state (moved from kaia_social_responder.py) ─────────────
 _x_breaker = CircuitBreaker("x")
+X_AUTH_ESCALATION_FAILURES = 2
+
+
+async def _record_x_failure(error: BaseException) -> None:
+    """Record a failed poll and tear down persistent half-open auth failures."""
+    _x_breaker.record_failure()
+    from utils.social.kaia_twitter import (
+        invalidate_x_session, is_x_auth_or_challenge_error,
+        is_x_manual_recovery_error,
+    )
+    if (_x_breaker.half_open_failures >= X_AUTH_ESCALATION_FAILURES
+            and is_x_auth_or_challenge_error(error)
+            and not is_x_manual_recovery_error(error)):
+        log_error(
+            "[X AUTH ESCALATION] Repeated authentication/challenge failures "
+            f"across {_x_breaker.half_open_failures} half-open probes; clearing "
+            "the cached session and saved cookies before the next recovery probe."
+        )
+        await invalidate_x_session("repeated half-open authentication/challenge failures")
 
 
 async def _reconstruct_x_history(_silenced_replied_ids: set):
@@ -77,9 +96,15 @@ async def _reconstruct_x_history(_silenced_replied_ids: set):
         if count > 0:
             log_info(f"Reconstructed thread state for {count} X replies.")
     except Exception as e:
-        error_str = str(e).lower()
-        if "unauthorized" in error_str or "auth" in error_str or "401" in error_str:
-            log_warning(f"X history reconstruction failed (401), retrying: {e}")
+        from utils.social.kaia_twitter import (
+            is_x_auth_or_challenge_error, is_x_manual_recovery_error,
+        )
+        if is_x_manual_recovery_error(e):
+            log_error(
+                f"X account requires manual unlock/review; not retrying history reconstruction: {type(e).__name__}: {e}"
+            )
+        elif is_x_auth_or_challenge_error(e):
+            log_warning(f"X history reconstruction hit an auth/challenge error, retrying: {e}")
             try:
                 count = await run_reconstruct(force_new=True)
                 if count > 0:
@@ -105,11 +130,13 @@ async def _get_x_mentions(_silenced_replied_ids: set) -> List[Dict[str, Any]]:
     async def run_fetch(force_new=False):
         from utils.social.kaia_twitter import get_x_client, is_x_configured
         if not is_x_configured():
-            return []
+            raise RuntimeError("X mention polling is enabled but X credentials are not configured")
 
         client = await get_x_client(force_new=force_new)
         if not client:
-            return []
+            # Treat failed login/session construction as unavailable, not an
+            # empty successful poll; otherwise the breaker is reset forever.
+            raise RuntimeError("X client unavailable after authentication failed during login/cookie recovery")
 
         # Get mentions notifications
         notifs = await client.get_notifications('Mentions')
@@ -161,22 +188,30 @@ async def _get_x_mentions(_silenced_replied_ids: set) -> List[Dict[str, Any]]:
         mentions = await run_fetch()
         _x_breaker.record_success()
     except Exception as e:
-        error_str = str(e).lower()
         error_type = type(e).__name__
 
-        # Recover from auth/unauthorized errors by clearing session
-        if "unauthorized" in error_str or "auth" in error_str or "login" in error_str or "401" in error_str:
-            log_warning(f"X session potentially expired (401), retrying with new client: {e}")
+        # Twikit may surface the Cloudflare/403 challenge as text rather than
+        # a structured 401. Reuse the same classifier as direct posting/login.
+        from utils.social.kaia_twitter import (
+            is_x_auth_or_challenge_error, is_x_manual_recovery_error,
+        )
+        if is_x_manual_recovery_error(e):
+            log_error(
+                f"X account requires manual unlock/review; retaining cookies and skipping re-login: {type(e).__name__}: {e}"
+            )
+            await _record_x_failure(e)
+        elif is_x_auth_or_challenge_error(e):
+            log_warning(f"X session/challenge error, retrying with new client: {e}")
             try:
                 mentions = await run_fetch(force_new=True)
                 _x_breaker.record_success()
                 log_success("X fetch succeeded after re-authentication.")
             except Exception as e2:
                 log_error(f"Failed to fetch X mentions after re-auth retry ({type(e2).__name__}): {e2}")
-                _x_breaker.record_failure()
+                await _record_x_failure(e2)
         else:
             log_error(f"Failed to fetch X mentions ({error_type}): {e}")
-            _x_breaker.record_failure()
+            await _record_x_failure(e)
 
     return mentions
 
@@ -198,9 +233,15 @@ async def _reply_to_x(mention: Dict[str, Any], response_text: str) -> bool:
     try:
         return await run_reply()
     except Exception as e:
-        error_str = str(e).lower()
-        if "unauthorized" in error_str or "auth" in error_str or "401" in error_str:
-            log_warning(f"X reply failed (401), retrying with fresh session: {e}")
+        from utils.social.kaia_twitter import (
+            is_x_auth_or_challenge_error, is_x_manual_recovery_error,
+        )
+        if is_x_manual_recovery_error(e):
+            log_error(
+                f"X account requires manual unlock/review; not retrying reply: {type(e).__name__}: {e}"
+            )
+        elif is_x_auth_or_challenge_error(e):
+            log_warning(f"X reply auth/challenge failed, retrying with fresh session: {e}")
             try:
                 return await run_reply(force_new=True)
             except Exception as e2:

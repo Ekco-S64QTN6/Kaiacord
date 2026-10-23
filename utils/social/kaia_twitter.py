@@ -9,6 +9,7 @@ Uses username/password authentication, no API keys needed.
 
 import os
 import asyncio
+import re
 from pathlib import Path
 from typing import Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_warning, log_error, log_debug
@@ -22,6 +23,61 @@ _client_lock = asyncio.Lock()
 _cookies_path = Path("memory/x_cookies.json")
 
 
+def is_x_auth_or_challenge_error(error: BaseException) -> bool:
+    """Whether an X error indicates a stale session or explicit auth challenge.
+
+    Twikit raises named Unauthorized/Forbidden classes from HTTP responses, but
+    Forbidden covers every 403, including ordinary resource/policy denials.
+    Only treat 401 as auth by status/class; a 403 needs evidence of a challenge,
+    login/session failure or Cloudflare block before deleting valid cookies.
+    """
+    if error is None:
+        return False
+
+    status = getattr(error, "status_code", None)
+    if status == 401:
+        return True
+
+    error_types = {cls.__name__.lower() for cls in type(error).__mro__}
+    if "unauthorized" in error_types:
+        return True
+
+    message = str(error or "").strip().lower()
+    if any(marker in message for marker in (
+        "cloudflare", "captcha", "challenge page", "arkose",
+        "login required", "session expired", "authentication failed",
+        "unauthorized", "cookies are invalid", "cookie has expired",
+    )):
+        return True
+
+    # Twikit's canonical message begins with status: 401, message: ...
+    # Do not classify a plain status: 403 or HTTP 403 as an auth failure:
+    # the endpoint may deny access while the existing session remains valid.
+    return bool(re.match(
+        r"^(?:(?:status\s*:\s*)|(?:http(?:/[\d.]+)?\s+))?"
+        r"(?:401\s+unauthorized|401)\b",
+        message,
+    ))
+
+
+def is_x_manual_recovery_error(error: BaseException) -> bool:
+    """True when X requires manual account action, not another cookie reset.
+
+    Twikit's AccountLocked/AccountSuspended are account states rather than
+    evidence of a stale cookie. Repeatedly deleting cookies and logging in does
+    not solve them and may aggravate automated-login protections.
+    """
+    if error is None:
+        return False
+    error_types = {cls.__name__.lower() for cls in type(error).__mro__}
+    if error_types.intersection({"accountlocked", "accountsuspended"}):
+        return True
+    message = str(error or "").lower()
+    return any(marker in message for marker in (
+        "account is locked", "account locked", "account suspended",
+    ))
+
+
 def is_x_configured() -> bool:
     """Check if X credentials and enabled flag are configured."""
     from utils.infrastructure.system.yaml_config import config
@@ -31,6 +87,22 @@ def is_x_configured() -> bool:
     username = os.getenv("X_USERNAME")
     password = os.getenv("X_PASSWORD")
     return bool(username and password)
+
+
+async def invalidate_x_session(reason: str = "persistent authentication/challenge failures") -> None:
+    """Clear the cached X client and cookie file under the client lifecycle lock.
+
+    Caller can let the circuit breaker cool down after this; the next permitted
+    request will create a new client and perform a clean login/cookie recovery.
+    """
+    global _client
+    async with _client_lock:
+        _client = None
+        try:
+            _cookies_path.unlink(missing_ok=True)
+        except OSError as e:
+            log_warning(f"Could not remove X session cookie file ({type(e).__name__}).")
+    log_warning(f"Invalidated cached X session after {reason}; next poll must re-authenticate.")
 
 
 async def get_x_client(force_new: bool = False):
@@ -164,20 +236,15 @@ async def post_to_x(text: str) -> tuple[bool, Optional[str]]:
         
         # If auth error (401), clear cookies so they can be re-extracted on next use
         # More robust check using status_code if available, falling back to string match
-        is_auth_error = False
-        if hasattr(e, 'status_code') and e.status_code == 401:
-            is_auth_error = True
-        elif "401" in error_msg or "unauthorized" in error_msg.lower():
-            is_auth_error = True
-            
-        if is_auth_error:
+        if is_x_manual_recovery_error(e):
+            log_warning(
+                "X reports that the account is locked or suspended; retaining cookies. "
+                "Resolve the account challenge/status in a browser before retrying."
+            )
+        elif is_x_auth_or_challenge_error(e):
             # The cached client holds the dead session too; drop it with the
             # cookies so the next call logs in again.
-            global _client
-            _client = None
-            if _cookies_path.exists():
-                _cookies_path.unlink()
-                log_warning(f"Cleared dead X cookies (received auth error: {error_msg})")
+            await invalidate_x_session(f"post failed with {error_type}")
         
         return False, f"{error_type}: {error_msg}"
 
