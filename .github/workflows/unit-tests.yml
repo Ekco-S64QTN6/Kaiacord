@@ -15,6 +15,8 @@ jobs:
     env:
       # Import/config scaffolding only. CI must not receive live service keys.
       DISCORD_TOKEN: "test-discord-token"
+      # If a mis-marked test tries to call Ollama, fail fast instead of loading a model.
+      OLLAMA_HOST: "http://127.0.0.1:9"
       TERM: "xterm-256color"
       CI_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
       CI_DIFF_HEAD: ${{ github.sha }}
