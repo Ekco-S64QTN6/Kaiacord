@@ -167,7 +167,7 @@ class SocialTracker:
             state, entries = self._state_view_locked()
         raw_ids = state.get("replied_ids", [])
         snapshot_ids = [str(x) for x in raw_ids if x] if isinstance(raw_ids, list) else []
-        self._snapshot_generation = max(0, int(state.get("log_generation", 0) or 0))
+        self._snapshot_generation = self._state_generation(state)
         self._thread_counts = self._normalize_thread_counts(state.get("thread_counts", {}))
         for mention_id in snapshot_ids[-self.max_ids:]:
             self._remember_id(mention_id)
@@ -201,7 +201,7 @@ class SocialTracker:
         snapshot_ids = state.get("replied_ids", [])
         if not isinstance(snapshot_ids, list):
             snapshot_ids = []
-        generation = max(0, int(state.get("log_generation", 0) or 0))
+        generation = self._state_generation(state)
         counts = self._normalize_thread_counts(state.get("thread_counts", {}))
         disk_ids = [str(x) for x in snapshot_ids if x]
         snapshot_set = set(disk_ids)
@@ -275,7 +275,7 @@ class SocialTracker:
         snapshot_ids = state.get("replied_ids", [])
         known = {str(x) for x in snapshot_ids} if isinstance(snapshot_ids, list) else set()
         entries = self._read_log_entries()
-        generation = max(0, int(state.get("log_generation", 0) or 0))
+        generation = self._state_generation(state)
         for entry in entries:
             entry_id = str(entry.get("mention_id") or "")
             if not entry_id:
@@ -346,7 +346,7 @@ class SocialTracker:
                 disk_ids = []
             disk_ids = [str(x) for x in disk_ids if x]
             disk_id_set = set(disk_ids)
-            generation = max(0, int(state.get("log_generation", 0) or 0))
+            generation = self._state_generation(state)
             counts = self._normalize_thread_counts(state.get("thread_counts", {}))
             counted: set[str] = set()
             event_ids: list[str] = []
@@ -364,7 +364,7 @@ class SocialTracker:
                     observed_events.add(mention_id)
                     event_ids.append(mention_id)
                     continue
-                if int(entry.get("generation", -1)) != generation:
+                if self._entry_generation(entry) != generation:
                     # Do not restore an older event that the retention cap
                     # intentionally dropped from the current snapshot.
                     continue
@@ -425,7 +425,7 @@ class SocialTracker:
                 for mention_id in ids[-self.max_ids:]:
                     self._remember_id(str(mention_id))
                 self._thread_counts = self._normalize_thread_counts(state.get("thread_counts", {}))
-                self._snapshot_generation = max(0, int(state.get("log_generation", 0) or 0))
+                self._snapshot_generation = self._state_generation(state)
                 self._pending_events.clear()
                 log_info(f"[SocialTracker] Saved state snapshot to {self.state_path}")
             except Exception as e:
