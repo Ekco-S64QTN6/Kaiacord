@@ -29,6 +29,18 @@ the simx attacked oracus again and the atres fled
 EXCERPT = " ".join(tn.prose_chunks(DOC))
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_english_wordlist(monkeypatch):
+    """Keep these unit tests independent of whether NLTK data is installed.
+
+    The production fallback intentionally errs on the side of treating words
+    as English when the corpus is unavailable. These tests need a known tiny
+    vocabulary so fictional terms such as "oracus" and "atres" remain eligible
+    while the genuine English word "neat" remains protected.
+    """
+    monkeypatch.setattr(tn, "_ENGLISH", {"neat"})
+
+
 @pytest.mark.parametrize("heard, correct", [
     ("oracus", "Arrakis"),               # not a word, sounds alike
     ("ATT treaties", "Atreides"),         # a phrase, sounds alike
