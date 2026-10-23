@@ -1080,7 +1080,11 @@ class PostGenerationSafetyPipeline:
         w = cls._WORD.findall(s.lower().replace("\u2019", "'"))
         # "a/an" only: "the constraints diminish." is a sentence whose verb the
         # auxiliary-only check cannot see.
-        return bool(w) and w[0] in ("a", "an") and len(w) <= 10 and not cls._CLAUSE_VERB.search(s)
+        # Only collapse the known repetitive stock/abstract register. A/an
+        # sentences can contain real lexical verbs ("a cold wind blows"), which
+        # the auxiliary-only _CLAUSE_VERB cannot identify.
+        return (bool(w) and w[0] in ("a", "an") and len(w) <= 10
+                and not cls._CLAUSE_VERB.search(s) and cls._stock_fragment(s))
 
     @classmethod
     def collapse_litany(cls, text: str) -> str:
