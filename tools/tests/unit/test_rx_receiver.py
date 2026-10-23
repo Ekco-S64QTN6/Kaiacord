@@ -488,3 +488,92 @@ def test_a_decoded_data_catch_keeps_what_it_said(monkeypatch, led):
     scanner.classify(_catch(144_390_000, noise, seconds=5))
     e = led.recent(1)[0]
     assert e["kind"] == "data" and e["transcript"].startswith("[APRS] W5EAK-9>")
+
+
+def test_stream_close_waits_for_a_native_read_before_returning():
+    """A timed-out join must never permit a concurrent retune/dongle close."""
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingDongle:
+        def read(self, n):
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError("test did not release the mocked native read")
+            return np.zeros(n, dtype=np.complex64)
+
+    source = w.Stream(BlockingDongle(), 16)
+    assert entered.wait(timeout=1)
+
+    closed = threading.Event()
+
+    def close_source():
+        source.close()
+        closed.set()
+
+    closer = threading.Thread(target=close_source)
+    closer.start()
+    try:
+        assert not closed.wait(timeout=0.05), (
+            "close returned while the dongle read thread was still in-flight"
+        )
+    finally:
+        release.set()
+
+    assert closed.wait(timeout=2)
+    closer.join(timeout=1)
+    assert not closer.is_alive()
+    assert not source.t.is_alive()
+
+
+def test_stream_close_has_a_hard_deadline_and_quarantines_a_still_reading_dongle():
+    """A wedged native read must not leave the scanner waiting or retuning."""
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingDongle:
+        def __init__(self):
+            self._stream_close_timed_out = False
+            self.tunes = []
+
+        def read(self, n):
+            entered.set()
+            release.wait(timeout=3)
+            return np.zeros(n, dtype=np.complex64)
+
+        def tune(self, freq):
+            self.tunes.append(freq)
+            return True
+
+    dongle = BlockingDongle()
+    source = w.Stream(dongle, 16)
+    assert entered.wait(timeout=1)
+
+    assert source.close(timeout=0.02) is False
+    assert dongle._stream_close_timed_out is True
+    assert source.t.is_alive()
+    # A subsequent close does not spin or wait again; caller must abort.
+    before = time.perf_counter()
+    assert source.close(timeout=1.0) is False
+    assert time.perf_counter() - before < 0.05
+    assert dongle.tunes == []
+
+    release.set()
+    source.t.join(timeout=1)
+    assert not source.t.is_alive()
+
+
+def test_dongle_close_skips_native_close_after_a_stream_timeout(monkeypatch):
+    from utils.radio.dongle import Dongle
+
+    calls = []
+    fake_lib = NS(rtlsdr_close=lambda dev: calls.append(dev))
+    d = Dongle.__new__(Dongle)
+    d.lib = fake_lib
+    d.dev = object()
+    d._stream_close_timed_out = True
+
+    d.close()
+
+    assert calls == []
+    assert d.dev is not None  # the process boundary, not a competing C call, releases it

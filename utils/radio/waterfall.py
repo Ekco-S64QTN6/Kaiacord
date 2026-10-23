@@ -501,6 +501,10 @@ SIDE_GUARD_HZ = 15_000
 _span_win: Optional[np.ndarray] = None
 
 
+class StreamCloseTimeout(RuntimeError):
+    """A native RTL-SDR read failed to stop within the close deadline."""
+
+
 class Stream:
     """Reads `n` samples at a time on a thread, so the next read is under way
     while the last chunk is processed. rtlsdr_read_sync buffers nothing
@@ -517,6 +521,7 @@ class Stream:
         self.q: "queue.Queue" = queue.Queue(maxsize=self.DEPTH)
         self.running = True
         self.err: Optional[BaseException] = None
+        self._close_timed_out = False
         self.t = threading.Thread(target=self._loop, name="rtl-stream", daemon=True)
         self.t.start()
 
@@ -544,9 +549,31 @@ class Stream:
                 if not self.t.is_alive():
                     raise RuntimeError("the dongle stream stopped")
 
-    def close(self) -> None:
+    def close(self, timeout: float = 10.0) -> bool:
+        """Stop the reader and wait up to timeout seconds for native I/O.
+
+        A timed-out join cannot cancel rtlsdr_read_sync. If the call is still
+        in-flight, mark the dongle unsafe, return False, and force the watcher
+        child to exit instead of tuning or closing the same native handle. The
+        process boundary is the only reliable way to dispose of a wedged C call.
+        """
         self.running = False
-        self.t.join(2)
+        if self._close_timed_out:
+            return False
+        if threading.current_thread() is self.t:
+            return False
+        self.t.join(timeout=max(0.0, timeout))
+        if self.t.is_alive():
+            self._close_timed_out = True
+            # Dongle.close() must not call librtlsdr_close while read_sync is
+            # still using the device. The watcher runs in a child process; when
+            # this fatal exception unwinds, process exit releases the handle.
+            try:
+                self.d._stream_close_timed_out = True
+            except Exception:
+                pass
+            return False
+        return True
 
 
 def _source(dongle, n: int):
@@ -884,7 +911,11 @@ class Watcher:
                     break
                 elif (follow and own and not live and not sides and resumed is None
                       and quiet >= SILENCE_S + PEEK_AFTER_S and time.time() - last_peek >= PEEK_EVERY_S):
-                    source.close()
+                    if not source.close():
+                        self.stop.set()
+                        raise StreamCloseTimeout(
+                            "RTL-SDR read did not stop within 10 seconds; aborting watcher before retune"
+                        )
                     self._handoff = self._peek(dongle, center)
                     dongle.tune(center)
                     last_peek = time.time()
@@ -893,8 +924,11 @@ class Watcher:
                         break
                     source = _source(dongle, int(FS * HOLD_CHUNK_S))
         finally:
-            if own:
-                source.close()
+            if own and not source.close():
+                self.stop.set()
+                raise StreamCloseTimeout(
+                    "RTL-SDR read did not stop within 10 seconds; watcher must exit"
+                )
         # Held the whole minute with no speech: something near-constant (425.950
         # ran the full minute eight times in an hour). Left alone for
         # LONG_COOLDOWN_S, doubling on each return.
@@ -994,7 +1028,11 @@ class Watcher:
         try:
             self._listen(d, source, pin, center, s, valid, aim, idx, demod, live)
         finally:
-            source.close()
+            if not source.close():
+                self.stop.set()
+                raise StreamCloseTimeout(
+                    "RTL-SDR read did not stop within 10 seconds; watcher must exit"
+                )
 
     def _listen(self, d, source, pin, center, s, valid, aim, idx, demod, live) -> None:
         floor, floor_at = None, -1
@@ -1191,6 +1229,9 @@ def child_main(pin: Optional[dict], gain_db: float, ppm: int, stop, catches, aud
     class _Stop:
         def is_set(self):
             return stop.is_set()
+
+        def set(self):
+            stop.set()
 
     w = Watcher(_send, gain_db=gain_db, stop=_Stop(), sink=_sink, ppm=ppm, hops=hops,
                 scope=_scope if spectra is not None else None, exempt=exempt,
