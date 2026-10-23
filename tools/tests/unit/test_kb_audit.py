@@ -75,7 +75,7 @@ def test_private_use_glyphs_are_reported_in_prose_only(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(
-    not KB.is_dir() or not any(KB.rglob("*.md")),
+    not KB.is_dir() or not any(audit.corpus_files()),
     reason="no knowledge-base Markdown corpus in this checkout",
 )
 def test_the_audit_runs_over_the_real_corpus():
@@ -89,7 +89,7 @@ def test_the_audit_runs_over_the_real_corpus():
 
 
 @pytest.mark.skipif(
-    not KB.is_dir() or not any(KB.rglob("*.md")),
+    not KB.is_dir() or not any(audit.corpus_files()),
     reason="no knowledge-base Markdown corpus in this checkout",
 )
 def test_excluded_trees_are_not_audited_as_corpus():
