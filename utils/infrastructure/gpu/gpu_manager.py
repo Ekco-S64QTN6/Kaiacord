@@ -1,4 +1,5 @@
 import time
+import inspect
 import uuid
 import asyncio
 import threading
@@ -43,6 +44,11 @@ async def run_with_gpu_guard(model_name: str, coro, task_id: str = None, priorit
     Consolidated GPU concurrency gating.
     Uses a semaphore to prevent parallel heavy model calls and supports re-entrancy.
     """
+    if not inspect.isawaitable(coro):
+        raise TypeError(
+            "run_with_gpu_guard expected an awaitable as 'coro'; "
+            f"received {type(coro).__name__}"
+        )
     if task_id is None:
         task_id = f"gpu_{uuid.uuid4().hex[:6]}"
 
