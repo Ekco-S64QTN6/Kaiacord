@@ -1230,6 +1230,9 @@ def child_main(pin: Optional[dict], gain_db: float, ppm: int, stop, catches, aud
         def is_set(self):
             return stop.is_set()
 
+        def set(self):
+            stop.set()
+
     w = Watcher(_send, gain_db=gain_db, stop=_Stop(), sink=_sink, ppm=ppm, hops=hops,
                 scope=_scope if spectra is not None else None, exempt=exempt,
                 squelch_open=(lambda: bool(squelch.value)) if squelch is not None else None,
