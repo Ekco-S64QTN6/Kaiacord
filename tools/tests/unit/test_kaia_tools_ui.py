@@ -29,6 +29,7 @@ def _layer() -> str:
 def _run(body: str, tmp_path=None):
     prelude = textwrap.dedent("""
         set -uo pipefail
+        export TERM=xterm-256color KAIA_TOOLS_UI=fzf
         term_cols(){ echo 80; }; term_rows(){ echo 30; }
         bot_running(){ return 0; }; ollama_running(){ return 0; }
     """)
