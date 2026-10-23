@@ -12,6 +12,11 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Some import-time config checks require these to exist even in unit
+      # tests; these are placeholders and must never be used for a deployment.
+      DISCORD_TOKEN: "ci-placeholder-discord-token"
+      GEMINI_API_KEY: "ci-placeholder-gemini-key"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
