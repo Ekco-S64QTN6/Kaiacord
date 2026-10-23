@@ -2482,8 +2482,8 @@ class MessageProcessor:
             ctx.response_text = PostGenerationSafetyPipeline.strip_room_status(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_event_echo(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_status_lines(ctx.response_text)
-            ctx.response_text = PostGenerationSafetyPipeline.collapse_litany(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.reflow_paragraphs(ctx.response_text)
+            ctx.response_text = PostGenerationSafetyPipeline.collapse_litany(ctx.response_text)
         except Exception:
             pass
         try:
