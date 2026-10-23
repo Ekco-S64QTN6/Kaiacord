@@ -109,3 +109,46 @@ def test_stale_full_deque_cannot_evict_newer_snapshot_ids_at_retention_limit(tmp
     loaded = SocialTracker(log_path=log_path, state_path=state_path, max_ids=2)
     assert loaded.get_all_replied_ids() == {"x:new-a", "bsky:new-b"}
     assert loaded.get_thread_count("root", "person") == 4
+
+
+def test_old_generation_log_residue_does_not_resurrect_retired_ids(tmp_path, monkeypatch):
+    """A crash after state replacement must not bypass the retention cap."""
+    import json
+
+    monkeypatch.setenv("KAIACORD_TELEMETRY_SUFFIX", "")
+    log_path = tmp_path / "generation.log"
+    state_path = tmp_path / "generation.json"
+    state_path.write_text(json.dumps({
+        "replied_ids": ["x:new-a", "x:new-b"],
+        "thread_counts": {"root": {"person": 2}},
+        "log_generation": 4,
+    }))
+    # This event was already represented by a prior snapshot, then evicted.
+    # Its old-generation JSONL line remains only because the process crashed
+    # before unlinking the compacted log.
+    log_path.write_text(
+        json.dumps({
+            "mention_id": "x:retired",
+            "platform": "x",
+            "root_uri": "root",
+            "user_handle": "person",
+            "generation": 3,
+            "timestamp": 1,
+        }) + "\n"
+    )
+    tracker = SocialTracker(
+        log_path=str(log_path), state_path=str(state_path), max_ids=2
+    )
+    assert tracker.get_all_replied_ids() == {"x:new-a", "x:new-b"}
+
+    # Also simulate a long-lived process refreshing after another process has
+    # advanced the snapshot and left the same crash residue behind.
+    (tmp_path / "generation2.json").write_text(json.dumps({
+        "replied_ids": ["x:latest-a", "x:latest-b"],
+        "thread_counts": {"root": {"person": 3}},
+        "log_generation": 5,
+    }))
+    tracker.state_path = tmp_path / "generation2.json"
+    tracker._refresh_from_disk_sync()
+    assert tracker.get_all_replied_ids() == {"x:latest-a", "x:latest-b"}
+    assert not tracker.is_replied("x:retired")
