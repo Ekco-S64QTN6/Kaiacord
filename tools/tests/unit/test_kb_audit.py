@@ -74,7 +74,10 @@ def test_private_use_glyphs_are_reported_in_prose_only(tmp_path, monkeypatch):
     assert not any("user_logs" in f for f in flagged)
 
 
-@pytest.mark.skipif(not KB.exists(), reason="no corpus in this checkout")
+@pytest.mark.skipif(
+    not KB.is_dir() or not any(KB.rglob("*.md")),
+    reason="no knowledge-base Markdown corpus in this checkout",
+)
 def test_the_audit_runs_over_the_real_corpus():
     findings, counts = audit.audit()
     assert sum(counts.values()) > 0, "the audit found no files at all"
@@ -85,7 +88,10 @@ def test_the_audit_runs_over_the_real_corpus():
         assert name in audit.FIXES, f"{name} is reported with no remedy named"
 
 
-@pytest.mark.skipif(not KB.exists(), reason="no corpus in this checkout")
+@pytest.mark.skipif(
+    not KB.is_dir() or not any(KB.rglob("*.md")),
+    reason="no knowledge-base Markdown corpus in this checkout",
+)
 def test_excluded_trees_are_not_audited_as_corpus():
     """`_quarantine` holds what was pulled *out*; auditing it would report every
     file it contains as a fresh finding, forever."""
