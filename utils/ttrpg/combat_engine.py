@@ -414,7 +414,7 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
     # weapon procs, and only after the duel non-lethal guard has had its say.
     # Passing zero damage / no hit prevents re-applying per-hit smite or
     # lifesteal effects that were already resolved above.
-    if monster["hp"]["current"] <= 0:
+    if player_damage > 0 and monster["hp"]["current"] <= 0:
         kill_mods = apply_advanced_class_to_combat(
             sheet, 0, False, False, 0, monster, True,
             location=sheet.get("location", ""),
