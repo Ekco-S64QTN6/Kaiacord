@@ -5,6 +5,12 @@ on:
   push:
     branches: ["main"]
 
+# A new push supersedes old checks for the same PR/branch instead of queueing
+# multiple full runs behind a stale commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
