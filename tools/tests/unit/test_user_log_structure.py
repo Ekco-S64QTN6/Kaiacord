@@ -24,10 +24,11 @@ PREAMBLE = re.compile(r"(here'?s the cleaned|adhering to your instructions|"
 
 
 def _discord_logs():
-    if not LOGS.exists():
-        pytest.skip("no corpus")
-    return [f for f in LOGS.glob("*/interactions_*.md")
-            if not f.parent.name.startswith("forum_")]
+    files = [f for f in LOGS.glob("*/interactions_*.md")
+             if not f.parent.name.startswith("forum_")]
+    if not files:
+        pytest.skip("no Discord interaction transcripts in this checkout")
+    return files
 
 
 def test_most_transcripts_carry_turn_markers():
