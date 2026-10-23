@@ -30,6 +30,13 @@ def reg(tmp_path, monkeypatch):
     return r
 
 
+def _require_live_registry():
+    """Live-registry assertions need the operator-owned file, not an empty CI singleton."""
+    from utils.social.kaia_identities import IdentityRegistry
+    if not IdentityRegistry.REGISTRY_PATH.is_file():
+        pytest.skip("no live identity registry in this checkout")
+
+
 # ── Self ─────────────────────────────────────────────────────────────
 
 def test_her_own_forum_account_is_recognised(reg):
@@ -40,6 +47,7 @@ def test_her_own_forum_account_is_recognised(reg):
 
 
 def test_the_live_registry_knows_which_account_is_hers():
+    _require_live_registry()
     from utils.social.kaia_identities import registry
     assert registry.is_self(322197), "forum_Kaia_322197 must be marked as self"
 
@@ -83,6 +91,7 @@ def test_one_person_can_hold_several_forum_accounts(reg):
 
 def test_the_operator_supplied_links_are_recorded():
     """Names that give nothing away have to be recorded, not inferred."""
+    _require_live_registry()
     from utils.social.kaia_identities import registry
     for forum_id, name in ((251675, "Ekco"), (33136, "Jimjam"),
                            (22006, "Cecily"), (210090, "Starkind")):
@@ -198,6 +207,7 @@ def test_compaction_never_strips_the_identity_link():
     document that reaches retrieval no longer carried them, so nothing in a
     prompt connected a forum account to the Discord user behind it.
     """
+    _require_live_registry()
     import importlib.util
     from pathlib import Path as _P
 
