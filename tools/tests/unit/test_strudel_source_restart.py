@@ -91,3 +91,32 @@ def test_close_capture_kills_then_waits_again_after_terminate_timeout():
     assert decoder.waited == 2
     assert decoder.stdout.closed
     assert engine._ffmpeg is None
+
+def test_close_capture_force_stops_after_an_unexpected_wait_error():
+    class BrokenWaitDecoder:
+        def __init__(self):
+            self.stdout = io.BytesIO(b"audio")
+            self.killed = 0
+            self.waited = 0
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            self.killed += 1
+
+        def wait(self, timeout=None):
+            self.waited += 1
+            if self.waited == 1:
+                raise OSError("simulated wait failure")
+            return -9
+
+    decoder = BrokenWaitDecoder()
+    engine = _engine_with_fake_capture(decoder)
+
+    engine.close_capture()
+
+    assert decoder.killed == 1
+    assert decoder.waited == 2
+    assert decoder.stdout.closed
+    assert engine._ffmpeg is None
