@@ -1,153 +1,438 @@
-import json
-import time
+"""Cross-process-safe state for replies made on social platforms."""
 import asyncio
-from pathlib import Path
+import fcntl
+import json
+import os
+import time
 from collections import deque
-from typing import Set, Dict, Optional
-from utils.infrastructure.logging.kaia_logger import log_info, log_debug, log_warning, log_error
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Set, Dict, Optional, Any, Iterator
+
+from utils.infrastructure.logging.kaia_logger import (
+    log_info, log_debug, log_warning, log_error,
+)
 from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
+
 class SocialTracker:
+    """Persistent social reply tracker.
+
+    The asyncio lock protects one instance's in-memory state. A separate OS
+    advisory lock protects the shared append log and snapshot-compaction cycle
+    across processes. The JSONL log carries enough metadata to merge thread
+    counts when two processes have independent in-memory snapshots.
     """
-    Persistent, high-performance tracker for social media interactions.
-    Uses an append-only log for fast writes and a deque for efficient memory management.
-    """
-    def __init__(self, 
-                 log_path: str = "memory/social_replied.log",
-                 state_path: str = "memory/social_state.json",
-                 max_ids: int = 5000):
-        # Redirected under pytest: a test that marks a reply must not add it to
-        # the live bot's list of mentions it has answered.
+
+    def __init__(
+        self,
+        log_path: str = "memory/social_replied.log",
+        state_path: str = "memory/social_state.json",
+        max_ids: int = 5000,
+    ):
+        # Redirected under pytest so tests cannot mutate production state.
         self.log_path = Path(telemetry_path(log_path))
         self.state_path = Path(telemetry_path(state_path))
-        self.max_ids = max_ids
-        
-        # In-memory storage
-        self._replied_ids = set()
-        self._replied_deque = deque(maxlen=max_ids)
-        self._thread_counts = {} # {root_uri: {user_handle: count}}
+        self.max_ids = max(1, int(max_ids))
+        # The lock inode is stable: never unlink/replace this file. All tracker
+        # instances sharing a log directory coordinate through the same lock.
+        self.lock_path = self.log_path.parent / "social_tracker.lock"
+
+        self._replied_ids: set[str] = set()
+        self._replied_deque = deque(maxlen=self.max_ids)
+        self._thread_counts: Dict[str, Dict[str, int]] = {}
+        self._snapshot_generation = 0
+        # Only events whose append failed may exist in memory but not on disk.
+        # Persist these explicitly; never merge the full stale local deque over
+        # newer disk IDs during snapshot compaction.
+        self._pending_events: list[dict] = []
         self._lock = asyncio.Lock()
-        
-        # Ensure directory exists
-        self.log_path.parent.mkdir(exist_ok=True)
-        
+
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self._load()
 
-    def _load(self):
-        """Initial load from state file and log file."""
-        # 1. Load baseline state from JSON (snapshot)
-        if self.state_path.exists():
+    @contextmanager
+    def _interprocess_lock(self) -> Iterator[None]:
+        """Exclusive advisory lock shared by all processes using this tracker."""
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.lock_path, "a", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             try:
-                with open(self.state_path, 'r') as f:
-                    state = json.load(f)
-                    
-                    raw_thread_counts = state.get('thread_counts', {})
-                    # MIGRATION: Ensure thread_counts is Dict[str, Dict[str, int]]
-                    if raw_thread_counts and not all(isinstance(v, dict) for v in raw_thread_counts.values()):
-                        log_info("[SocialTracker] Migrating legacy (flat) thread counts...")
-                        new_counts = {}
-                        for k, v in raw_thread_counts.items():
-                            if isinstance(v, dict):
-                                new_counts[k] = v
-                            else:
-                                new_counts[k] = {"__legacy_total__": v}
-                        self._thread_counts = new_counts
-                    else:
-                        self._thread_counts = raw_thread_counts
-                    
-                    initial_ids = state.get('replied_ids', [])
-                    for rid in initial_ids[-self.max_ids:]:
-                        if rid not in self._replied_ids:
-                            self._replied_ids.add(rid)
-                            self._replied_deque.append(rid)
-                log_debug(f"[SocialTracker] Loaded baseline state: {len(self._replied_ids)} IDs")
-            except Exception as e:
-                log_warning(f"[SocialTracker] Failed to load state file: {e}")
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
-        # 2. Replay append-only log for any missing IDs
-        if self.log_path.exists():
-            try:
-                count = 0
-                with open(self.log_path, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and line not in self._replied_ids:
-                            self._replied_ids.add(line)
-                            self._replied_deque.append(line)
-                            count += 1
-                if count > 0:
-                    log_debug(f"[SocialTracker] Replayed {count} IDs from log")
-            except Exception as e:
-                log_warning(f"[SocialTracker] Failed to replay log: {e}")
+    def _read_state(self) -> dict:
+        if not self.state_path.exists():
+            return {}
+        try:
+            with open(self.state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+            return state if isinstance(state, dict) else {}
+        except (OSError, json.JSONDecodeError, TypeError) as e:
+            log_warning(f"[SocialTracker] Failed to read state snapshot: {e}")
+            return {}
+
+    def _read_log_entries(self) -> list[dict]:
+        """Read current JSONL events and legacy one-ID-per-line entries."""
+        if not self.log_path.exists():
+            return []
+        entries: list[dict] = []
+        try:
+            with open(self.log_path, "r", encoding="utf-8") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line:
+                        continue
+                    try:
+                        item = json.loads(line)
+                    except json.JSONDecodeError:
+                        item = None
+                    if isinstance(item, dict) and item.get("mention_id"):
+                        entries.append(item)
+                    else:
+                        # Backward compatibility with the old plain-ID log.
+                        entries.append({"mention_id": line, "legacy": True})
+        except OSError as e:
+            log_warning(f"[SocialTracker] Failed to read reply log: {e}")
+        return entries
+
+    @staticmethod
+    def _state_generation(state: dict) -> int:
+        try:
+            return max(0, int(state.get("log_generation", 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _entry_generation(entry: dict) -> Optional[int]:
+        try:
+            return int(entry.get("generation", -1))
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _normalize_thread_counts(raw: Any) -> Dict[str, Dict[str, int]]:
+        counts: Dict[str, Dict[str, int]] = {}
+        if not isinstance(raw, dict):
+            return counts
+        for root, per_user in raw.items():
+            if isinstance(per_user, dict):
+                counts[str(root)] = {}
+                for user, value in per_user.items():
+                    try:
+                        counts[str(root)][str(user)] = max(0, int(value))
+                    except (TypeError, ValueError):
+                        continue
+            else:
+                # Migrate legacy flat {root: total} values without pretending
+                # that their user attribution is known.
+                try:
+                    counts[str(root)] = {"__legacy_total__": max(0, int(per_user))}
+                except (TypeError, ValueError):
+                    continue
+        return counts
+
+    def _remember_id(self, mention_id: str) -> None:
+        if not mention_id or mention_id in self._replied_ids:
+            return
+        if len(self._replied_deque) == self.max_ids:
+            oldest = self._replied_deque[0]
+            self._replied_ids.discard(oldest)
+        self._replied_deque.append(mention_id)
+        self._replied_ids.add(mention_id)
+
+    @staticmethod
+    def _append_event_count(counts: Dict[str, Dict[str, int]], event: dict) -> None:
+        root = event.get("root_uri")
+        user = event.get("user_handle")
+        if not root or not user:
+            return
+        root, user = str(root), str(user)
+        counts.setdefault(root, {})
+        try:
+            counts[root][user] = max(0, int(counts[root].get(user, 0))) + 1
+        except (TypeError, ValueError):
+            counts[root][user] = 1
+
+    def _state_view_locked(self) -> tuple[dict, list[dict]]:
+        """Read a consistent snapshot and log while the file lock is held."""
+        state = self._read_state()
+        return state, self._read_log_entries()
+
+    def _load(self) -> None:
+        """Load the compacted snapshot plus events written since that snapshot."""
+        with self._interprocess_lock():
+            state, entries = self._state_view_locked()
+        raw_ids = state.get("replied_ids", [])
+        snapshot_ids = [str(x) for x in raw_ids if x] if isinstance(raw_ids, list) else []
+        self._snapshot_generation = self._state_generation(state)
+        self._thread_counts = self._normalize_thread_counts(state.get("thread_counts", {}))
+        for mention_id in snapshot_ids[-self.max_ids:]:
+            self._remember_id(mention_id)
+
+        counted: set[str] = set()
+        snapshot_set = set(snapshot_ids)
+        for entry in entries:
+            mention_id = str(entry.get("mention_id") or "")
+            if not mention_id:
+                continue
+            if entry.get("legacy"):
+                # Legacy one-ID-per-line logs have no generation marker. Honor
+                # them only before any new-format snapshot exists. After a
+                # snapshot generation has advanced they can only be crash
+                # residue from compaction, and must not resurrect evicted IDs.
+                if self._snapshot_generation == 0:
+                    self._remember_id(mention_id)
+                continue
+            if self._entry_generation(entry) != self._snapshot_generation:
+                continue
+            self._remember_id(mention_id)
+            if mention_id in snapshot_set or mention_id in counted:
+                continue
+            counted.add(mention_id)
+            self._append_event_count(self._thread_counts, entry)
+        log_debug(f"[SocialTracker] Loaded baseline state: {len(self._replied_ids)} IDs")
+
+    def _refresh_from_disk_sync(self) -> None:
+        with self._interprocess_lock():
+            state, entries = self._state_view_locked()
+        snapshot_ids = state.get("replied_ids", [])
+        if not isinstance(snapshot_ids, list):
+            snapshot_ids = []
+        generation = self._state_generation(state)
+        counts = self._normalize_thread_counts(state.get("thread_counts", {}))
+        disk_ids = [str(x) for x in snapshot_ids if x]
+        snapshot_set = set(disk_ids)
+        counted: set[str] = set()
+        logged_ids: list[str] = []
+        observed: set[str] = set()
+        for entry in entries:
+            mention_id = str(entry.get("mention_id") or "")
+            if not mention_id:
+                continue
+            if entry.get("legacy"):
+                if generation == 0:
+                    logged_ids.append(mention_id)
+                continue
+            if self._entry_generation(entry) != generation:
+                # Old-generation entries may remain after a crash between
+                # snapshot replace and log compaction. Do not resurrect IDs the
+                # retention cap has already removed from the snapshot.
+                continue
+            if mention_id in snapshot_set or mention_id in observed:
+                continue
+            observed.add(mention_id)
+            logged_ids.append(mention_id)
+            counted.add(mention_id)
+            self._append_event_count(counts, entry)
+
+        # Retry-pending events are the only valid source of IDs not represented
+        # by the disk snapshot or append log. The rest of our local deque may be
+        # stale and must not evict newer IDs during a refresh.
+        pending_ids: list[str] = []
+        for event in self._pending_events:
+            mention_id = str(event.get("mention_id") or "")
+            if not mention_id or mention_id in snapshot_set or mention_id in observed:
+                continue
+            observed.add(mention_id)
+            pending_ids.append(mention_id)
+            self._append_event_count(counts, event)
+
+        # Never lower a locally reconstructed or locally observed thread count;
+        # another process may have advanced the authoritative disk snapshot.
+        for root, users in self._thread_counts.items():
+            counts.setdefault(root, {})
+            for user, value in users.items():
+                counts[root][user] = max(int(counts[root].get(user, 0)), int(value))
+
+        self._replied_ids.clear()
+        self._replied_deque.clear()
+        merged_ids = disk_ids + logged_ids + pending_ids
+        for mention_id in merged_ids[-self.max_ids:]:
+            self._remember_id(mention_id)
+        self._thread_counts = counts
+        self._snapshot_generation = generation
+
+    async def refresh_from_disk(self) -> None:
+        """Merge other processes' reply events before a polling pass."""
+        async with self._lock:
+            await asyncio.to_thread(self._refresh_from_disk_sync)
 
     def is_replied(self, mention_id: str) -> bool:
-        """Check if an ID has already been replied to."""
         return mention_id in self._replied_ids
 
     def get_all_replied_ids(self) -> Set[str]:
-        """Get all IDs in the current session set."""
         return self._replied_ids.copy()
 
     def get_thread_count(self, root_uri: str, user_handle: str) -> int:
-        """Get number of times we've replied to this user in this thread."""
         return self._thread_counts.get(root_uri, {}).get(user_handle, 0)
 
-    async def mark_replied(self, mention_id: str, platform: str, root_uri: Optional[str], user_handle: str):
-        """Mark an ID as replied and update thread counts."""
+    def _append_event_locked(self, mention_id: str, platform: str,
+                             root_uri: Optional[str], user_handle: str) -> Optional[dict]:
+        """Append one unique event. Caller owns _interprocess_lock()."""
+        state = self._read_state()
+        snapshot_ids = state.get("replied_ids", [])
+        known = {str(x) for x in snapshot_ids} if isinstance(snapshot_ids, list) else set()
+        entries = self._read_log_entries()
+        generation = self._state_generation(state)
+        for entry in entries:
+            entry_id = str(entry.get("mention_id") or "")
+            if not entry_id:
+                continue
+            if entry.get("legacy"):
+                if generation == 0:
+                    known.add(entry_id)
+            elif self._entry_generation(entry) == generation:
+                known.add(entry_id)
+        if mention_id in known:
+            return None
+        event = {
+            "mention_id": mention_id,
+            "platform": platform,
+            "root_uri": str(root_uri) if root_uri else None,
+            "user_handle": str(user_handle) if user_handle else None,
+            "generation": generation,
+            "timestamp": time.time(),
+        }
+        with open(self.log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, separators=(",", ":")) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        return event
+
+    async def mark_replied(self, mention_id: str, platform: str,
+                           root_uri: Optional[str], user_handle: str):
+        """Mark a reply once across tracker instances and processes."""
         async with self._lock:
             if mention_id in self._replied_ids:
                 return
+            try:
+                event = await asyncio.to_thread(
+                    self._append_event_under_file_lock,
+                    mention_id, platform, root_uri, user_handle,
+                )
+            except Exception as e:
+                # Keep the in-memory duplicate guard even when storage is
+                # temporarily unavailable; snapshotting may persist it later.
+                log_error(f"[SocialTracker] Failed to append reply event: {e}")
+                event = {
+                    "mention_id": mention_id, "platform": platform,
+                    "root_uri": str(root_uri) if root_uri else None,
+                    "user_handle": str(user_handle) if user_handle else None,
+                    "generation": self._snapshot_generation,
+                    "timestamp": time.time(),
+                }
+                self._pending_events.append(event)
+            if event is None:
+                await asyncio.to_thread(self._refresh_from_disk_sync)
+                return
+            self._remember_id(mention_id)
+            self._append_event_count(self._thread_counts, event)
 
-            # Update memory
-            # If deque is full, remove oldest from set
-            if len(self._replied_deque) == self.max_ids:
-                oldest = self._replied_deque[0]
-                if oldest in self._replied_ids:
-                    self._replied_ids.remove(oldest)
-            
-            self._replied_ids.add(mention_id)
-            self._replied_deque.append(mention_id)
-            
-            if root_uri:
-                if root_uri not in self._thread_counts:
-                    self._thread_counts[root_uri] = {}
-                self._thread_counts[root_uri][user_handle] = self._thread_counts[root_uri].get(user_handle, 0) + 1
-            
-            # Persist: Append to log (fast but still potentially blocking)
-            def _append_to_log():
-                try:
-                    with open(self.log_path, 'a') as f:
-                        f.write(f"{mention_id}\n")
-                except Exception as e:
-                    log_error(f"[SocialTracker] Failed to append to log: {e}")
+    def _append_event_under_file_lock(self, mention_id: str, platform: str,
+                                      root_uri: Optional[str], user_handle: str) -> Optional[dict]:
+        with self._interprocess_lock():
+            return self._append_event_locked(mention_id, platform, root_uri, user_handle)
 
-            await asyncio.to_thread(_append_to_log)
+    def _write_snapshot_sync(self) -> dict:
+        """Merge all writers under flock, atomically replace state, then compact log."""
+        from utils.core.atomic_write import write_atomic
+
+        with self._interprocess_lock():
+            state, entries = self._state_view_locked()
+            disk_ids = state.get("replied_ids", [])
+            if not isinstance(disk_ids, list):
+                disk_ids = []
+            disk_ids = [str(x) for x in disk_ids if x]
+            disk_id_set = set(disk_ids)
+            generation = self._state_generation(state)
+            counts = self._normalize_thread_counts(state.get("thread_counts", {}))
+            counted: set[str] = set()
+            event_ids: list[str] = []
+            observed_events: set[str] = set()
+            for entry in entries:
+                mention_id = str(entry.get("mention_id") or "")
+                if not mention_id or mention_id in disk_id_set or mention_id in observed_events:
+                    continue
+                if entry.get("legacy"):
+                    # Pre-generation plain-ID logs are still imported on the
+                    # first snapshot only; after generation advances they are
+                    # leftover entries from an interrupted compaction.
+                    if generation != 0:
+                        continue
+                    observed_events.add(mention_id)
+                    event_ids.append(mention_id)
+                    continue
+                if self._entry_generation(entry) != generation:
+                    # Do not restore an older event that the retention cap
+                    # intentionally dropped from the current snapshot.
+                    continue
+                observed_events.add(mention_id)
+                event_ids.append(mention_id)
+                self._append_event_count(counts, entry)
+
+            pending_ids: list[str] = []
+            for event in self._pending_events:
+                mention_id = str(event.get("mention_id") or "")
+                if not mention_id or mention_id in disk_id_set or mention_id in observed_events:
+                    continue
+                observed_events.add(mention_id)
+                pending_ids.append(mention_id)
+                self._append_event_count(counts, event)
+
+            # The local count is an upper bound for reconstructed/observed
+            # threads, but the local ID deque is not authoritative: another
+            # process may have compacted newer IDs since this instance loaded.
+            for root, users in self._thread_counts.items():
+                counts.setdefault(root, {})
+                for user, value in users.items():
+                    counts[root][user] = max(int(counts[root].get(user, 0)), int(value))
+
+            # Disk snapshot IDs are the baseline, followed only by un-compacted
+            # current-generation log events and events whose append failed.
+            ids = []
+            seen = set()
+            for mention_id in disk_ids + event_ids + pending_ids:
+                if mention_id and mention_id not in seen:
+                    ids.append(mention_id)
+                    seen.add(mention_id)
+            ids = ids[-self.max_ids:]
+
+            new_state = dict(state)
+            new_state.update({
+                "replied_ids": ids,
+                "thread_counts": counts,
+                "last_updated": time.time(),
+                "log_generation": generation + 1,
+            })
+            write_atomic(self.state_path, json.dumps(new_state, indent=2))
+
+            # Every cooperating writer opens the log only while holding the
+            # separate lockfile, so no writer retains an fd to the old inode.
+            # Keep the historical behavior: remove the compacted log entirely.
+            if self.log_path.exists():
+                self.log_path.unlink()
+            return new_state
 
     async def save_snapshot(self):
-        """Save full state snapshot and truncate log."""
+        """Merge other processes' state and compact the append-only log safely."""
         async with self._lock:
-            def _write_snapshot():
-                try:
-                    state = {
-                        'replied_ids': list(self._replied_deque),
-                        'thread_counts': self._thread_counts,
-                        'last_updated': time.time()
-                    }
-                    # Atomic, because the log is deleted next: a snapshot cut
-                    # short by a crash with its log already gone forgets every
-                    # mention she has answered, and she answers them again.
-                    from utils.core.atomic_write import write_atomic
-                    write_atomic(self.state_path, json.dumps(state, indent=2))
+            try:
+                state = await asyncio.to_thread(self._write_snapshot_sync)
+                ids = state.get("replied_ids", [])
+                self._replied_ids.clear()
+                self._replied_deque.clear()
+                for mention_id in ids[-self.max_ids:]:
+                    self._remember_id(str(mention_id))
+                self._thread_counts = self._normalize_thread_counts(state.get("thread_counts", {}))
+                self._snapshot_generation = self._state_generation(state)
+                self._pending_events.clear()
+                log_info(f"[SocialTracker] Saved state snapshot to {self.state_path}")
+            except Exception as e:
+                log_error(f"[SocialTracker] Failed to save state snapshot: {e}")
 
-                    # Truncate log as it's now synced to state
-                    if self.log_path.exists():
-                        self.log_path.unlink()
-                    
-                    log_info(f"[SocialTracker] Saved state snapshot to {self.state_path}")
-                except Exception as e:
-                    log_error(f"[SocialTracker] Failed to save state snapshot: {e}")
-
-            await asyncio.to_thread(_write_snapshot)
 
 # Singleton instance
 social_tracker = SocialTracker()
