@@ -494,16 +494,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
     player_alive = sheet["hp"]["current"] > 0
     
-    if monster["hp"]["current"] <= 0:
-
-        adv_mods = apply_advanced_class_to_combat(
-            sheet, 0, False, False, 0, monster, True
-        )
-        if adv_mods["heal_amount"]:
-            sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + adv_mods["heal_amount"])
-        if adv_mods["extra_log"]:
-            status_logs.extend(adv_mods["extra_log"])
-
     # Pet post-combat heal (Sylvan Sprite)
     pet_heal = pet_bonuses.get("combat_heal", 0)
     if pet_heal > 0 and sheet["hp"]["current"] > 0 and monster["hp"]["current"] <= 0:
