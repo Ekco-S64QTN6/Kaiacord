@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # A dummy token is enough for test collection; tests that need a real
-      # Discord/Google credential are excluded or must mock the network.
+      # Fake Discord token for import/config scaffolding only. No external API
+      # credentials are supplied to CI; credential-dependent integration tests
+      # must be opt-in and run locally.
       DISCORD_TOKEN: "test-discord-token"
-      GEMINI_API_KEY: "test-gemini-api-key"
       # Shell UI helpers run under CI without an interactive terminal.
       TERM: "xterm-256color"
     steps:
