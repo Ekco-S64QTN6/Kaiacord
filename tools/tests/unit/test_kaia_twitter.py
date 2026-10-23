@@ -37,7 +37,8 @@ def test_x_auth_classifier_recognizes_structured_403_and_cloudflare_challenges()
             self.status_code = status_code
 
     assert kx.is_x_auth_or_challenge_error(HttpError(401, "Unauthorized"))
-    assert kx.is_x_auth_or_challenge_error(HttpError(403, "Forbidden"))
+    assert kx.is_x_auth_or_challenge_error(HttpError(403, "Cloudflare challenge page"))
+    assert not kx.is_x_auth_or_challenge_error(HttpError(403, "Forbidden: Cannot find specified user"))
     assert kx.is_x_auth_or_challenge_error(RuntimeError("Cloudflare challenge page"))
     assert not kx.is_x_auth_or_challenge_error(RuntimeError("HTTP 403"))
     assert not kx.is_x_auth_or_challenge_error(RuntimeError("status: 403, message: Cannot find specified user."))
