@@ -174,7 +174,7 @@ def help_view(ctx, is_owner: bool, page: str = HOME) -> discord.ui.View:
                 embed = home_embed(owner) if _key == HOME else section_embed(_key, owner)
                 if _key == ADMIN and not owner:
                     return await interaction.response.send_message(embed=embed, ephemeral=True)
-                await interaction.response.edit_message(embed=embed, view=help_view(ctx, is_owner, _key))
+                await interaction.response.edit_message(embed=embed, view=help_view(ctx, owner, _key))
             except Exception as e:
                 log_error(f"[help] section {_key!r} failed: {e}")
         button.callback = _pressed
