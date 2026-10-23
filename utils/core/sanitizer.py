@@ -188,7 +188,9 @@ def _is_public_ip(ip_str: str) -> bool:
     """
     import ipaddress
     ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
-    return ip.is_global
+    # Python classifies multicast addresses as global; they are not public
+    # unicast destinations and must not pass the SSRF egress guard.
+    return ip.is_global and not ip.is_multicast
 
 
 def public_only_connector():

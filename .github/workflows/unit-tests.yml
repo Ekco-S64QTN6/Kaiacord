@@ -26,10 +26,23 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Ensure system test dependencies
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1 || ! ldconfig -p 2>/dev/null | grep -q 'libopus\.so'; then
-            sudo apt-get update
-            sudo apt-get install --yes ffmpeg libopus0 libopus-dev
+            # Bound repository refreshes and HTTP retries so a transient apt mirror
+            # failure cannot pin this job indefinitely.
+            sudo env DEBIAN_FRONTEND=noninteractive timeout 180s apt-get \
+              -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=30 \
+              -o Acquire::https::Timeout=30 \
+              update
+            sudo env DEBIAN_FRONTEND=noninteractive timeout 180s apt-get \
+              install --yes --no-install-recommends \
+              -o DPkg::Options::=--force-confdef \
+              -o DPkg::Options::=--force-confold \
+              ffmpeg libopus0 libopus-dev
           fi
       - name: Install Python dependencies
         run: |
