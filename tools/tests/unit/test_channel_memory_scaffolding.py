@@ -35,7 +35,6 @@ def test_channel_history_uses_the_same_scrubber_as_the_rag_transcript():
     source = inspect.getsource(MessageProcessor._background_logging_and_memory)
 
     assert "summarize_link_context(ctx.sanitized_content)" in source
-    assert "summarize_link_context(ctx.sanitized_content)" in source
     assert 'user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"' not in source
 
 
