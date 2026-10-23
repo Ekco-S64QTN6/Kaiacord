@@ -30,6 +30,7 @@ def test_loading_a_level_five_sheet_does_not_rearm_after_specialization(tmp_path
         "user_id": "42",
         "class": "Warrior",
         "advanced_class": "Paladin",
+        "_advancement_pending": True,  # stale flag must not permit a second choice
         "level": 5,
         "xp": 5000,
         "hp": {"current": 35, "max": 35},
