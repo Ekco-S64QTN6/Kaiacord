@@ -223,6 +223,7 @@ def _browser_cookie_db_candidates(home: Optional[Path] = None) -> list[tuple[str
         ("Firefox Flatpak", "firefox", home / ".var" / "app" / "org.mozilla.firefox" / ".mozilla" / "firefox"),
         ("LibreWolf", "librewolf", home / ".librewolf"),
         ("LibreWolf Flatpak", "librewolf", home / ".var" / "app" / "io.gitlab.librewolf-community" / ".librewolf"),
+        ("Firedragon", "firefox", home / ".firedragon"),
         ("Firedragon Flatpak", "firefox", home / ".var" / "app" / "org.garudalinux.firedragon" / ".firedragon"),
         ("Chrome", "chrome", home / ".config" / "google-chrome"),
         ("Chrome Snap", "chrome", home / "snap" / "chromium" / "common" / "chromium"),
