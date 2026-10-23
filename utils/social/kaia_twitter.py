@@ -22,6 +22,25 @@ _client_lock = asyncio.Lock()
 _cookies_path = Path("memory/x_cookies.json")
 
 
+def is_x_auth_or_challenge_error(error: BaseException) -> bool:
+    """Whether an X error should invalidate the session and trigger one re-login.
+
+    The unauthenticated 403/Cloudflare challenge path is distinct from a clean
+    401. Twikit commonly surfaces it as text rather than a stable status_code,
+    so inspect both the structured status and a small set of explicit markers.
+    """
+    status = getattr(error, "status_code", None)
+    if status in (401, 403):
+        return True
+    message = str(error or "").lower()
+    if any(marker in message for marker in (
+        "unauthorized", "cloudflare", "captcha", "challenge page",
+        "login required", "session expired", "forbidden (403)", "http 403",
+    )):
+        return True
+    return bool(__import__("re").search(r"\b(?:401|403)\b", message))
+
+
 def is_x_configured() -> bool:
     """Check if X credentials and enabled flag are configured."""
     from utils.infrastructure.system.yaml_config import config
@@ -164,13 +183,7 @@ async def post_to_x(text: str) -> tuple[bool, Optional[str]]:
         
         # If auth error (401), clear cookies so they can be re-extracted on next use
         # More robust check using status_code if available, falling back to string match
-        is_auth_error = False
-        if hasattr(e, 'status_code') and e.status_code == 401:
-            is_auth_error = True
-        elif "401" in error_msg or "unauthorized" in error_msg.lower():
-            is_auth_error = True
-            
-        if is_auth_error:
+        if is_x_auth_or_challenge_error(e):
             # The cached client holds the dead session too; drop it with the
             # cookies so the next call logs in again.
             global _client
