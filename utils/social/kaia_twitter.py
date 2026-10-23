@@ -62,6 +62,24 @@ def is_x_auth_or_challenge_error(error: BaseException) -> bool:
     ))
 
 
+def is_x_manual_recovery_error(error: BaseException) -> bool:
+    """True when X requires manual account action, not another cookie reset.
+
+    Twikit's AccountLocked/AccountSuspended are account states rather than
+    evidence of a stale cookie. Repeatedly deleting cookies and logging in does
+    not solve them and may aggravate automated-login protections.
+    """
+    if error is None:
+        return False
+    error_types = {cls.__name__.lower() for cls in type(error).__mro__}
+    if error_types.intersection({"accountlocked", "accountsuspended"}):
+        return True
+    message = str(error or "").lower()
+    return any(marker in message for marker in (
+        "account is locked", "account locked", "account suspended",
+    ))
+
+
 def is_x_configured() -> bool:
     """Check if X credentials and enabled flag are configured."""
     from utils.infrastructure.system.yaml_config import config
@@ -220,7 +238,12 @@ async def post_to_x(text: str) -> tuple[bool, Optional[str]]:
         
         # If auth error (401), clear cookies so they can be re-extracted on next use
         # More robust check using status_code if available, falling back to string match
-        if is_x_auth_or_challenge_error(e):
+        if is_x_manual_recovery_error(e):
+            log_warning(
+                "X reports that the account is locked or suspended; retaining cookies. "
+                "Resolve the account challenge/status in a browser before retrying."
+            )
+        elif is_x_auth_or_challenge_error(e):
             # The cached client holds the dead session too; drop it with the
             # cookies so the next call logs in again.
             await invalidate_x_session(f"post failed with {error_type}")
