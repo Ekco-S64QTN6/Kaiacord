@@ -39,46 +39,67 @@ class AsyncTaskRegistry:
         self._lock = threading.Lock()
         self._shutdown_requested = False
         
+    @staticmethod
+    def _cancel_task(task: asyncio.Task) -> None:
+        """Request cancellation on the task's event loop, even from other threads."""
+        try:
+            loop = task.get_loop()
+            if loop.is_closed():
+                return
+            try:
+                current_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                current_loop = None
+            if current_loop is loop:
+                task.cancel()
+            else:
+                loop.call_soon_threadsafe(task.cancel)
+        except (AttributeError, RuntimeError):
+            # Defensive fallback for task-like objects used by tooling/tests.
+            try:
+                task.cancel()
+            except Exception:
+                pass
+
     def register(self, name: str, task: asyncio.Task) -> None:
+        """Register a task unless shutdown has already begun.
+
+        The shutdown check and insertion share one lock with cancel_all()'s
+        shutdown flag/snapshot. Otherwise a thread can pass the check, pause,
+        and insert after cancel_all() already took its snapshot.
         """
-        Register a task for tracking.
-        
-        Args:
-            name: Unique name for the task (used for logging)
-            task: The asyncio.Task to track
-        """
-        if self._shutdown_requested:
-            # Don't register new tasks during shutdown
-            task.cancel()
-            return
-            
+        cancel = False
         with self._lock:
-            # Clean up any existing task with this name if it's done
-            if name in self._tasks:
-                existing = self._tasks[name]
-                if existing.done():
-                    del self._tasks[name]
-                else:
-                    # Task with this name still running - append unique suffix
-                    name = f"{name}_{id(task)}"
-            
-            self._tasks[name] = task
-            
-            # Add callback to auto-cleanup when task completes
-            def cleanup_callback(t, name=name):
-                with self._lock:
-                    # Find and remove this task
-                    to_remove = [k for k, v in self._tasks.items() if v is t]
-                    for k in to_remove:
-                        del self._tasks[k]
-                # A background task that died with an exception said nothing:
-                # nobody awaits these, so the error was never retrieved.
-                if not t.cancelled() and t.exception() is not None:
-                    logger.log(f"Background task '{name}' failed: "
-                               f"{type(t.exception()).__name__}: {t.exception()}", "ERROR")
-                        
-            task.add_done_callback(cleanup_callback)
-    
+            if self._shutdown_requested:
+                cancel = True
+            else:
+                # Clean up any existing task with this name if it's done.
+                if name in self._tasks:
+                    existing = self._tasks[name]
+                    if existing.done():
+                        del self._tasks[name]
+                    else:
+                        # Task with this name still running - append unique suffix.
+                        name = f"{name}_{id(task)}"
+
+                self._tasks[name] = task
+
+                def cleanup_callback(t, name=name):
+                    with self._lock:
+                        to_remove = [k for k, v in self._tasks.items() if v is t]
+                        for k in to_remove:
+                            del self._tasks[k]
+                    # A background task that died with an exception said nothing:
+                    # nobody awaits these, so the error was never retrieved.
+                    if not t.cancelled() and t.exception() is not None:
+                        logger.log(f"Background task '{name}' failed: "
+                                   f"{type(t.exception()).__name__}: {t.exception()}", "ERROR")
+
+                task.add_done_callback(cleanup_callback)
+
+        if cancel:
+            self._cancel_task(task)
+
     def get_pending_count(self) -> int:
         """Get count of pending (non-completed) tasks."""
         with self._lock:
@@ -99,9 +120,8 @@ class AsyncTaskRegistry:
         Returns:
             Number of tasks that were cancelled
         """
-        self._shutdown_requested = True
-        
         with self._lock:
+            self._shutdown_requested = True
             tasks = list(self._tasks.values())
             task_names = list(self._tasks.keys())
         
@@ -150,15 +170,16 @@ class AsyncTaskRegistry:
         Returns:
             Number of tasks that were force-cancelled
         """
-        self._shutdown_requested = True
-        
         with self._lock:
-            count = 0
-            for name, task in self._tasks.items():
-                if not task.done():
-                    task.cancel()
-                    count += 1
+            self._shutdown_requested = True
+            tasks = list(self._tasks.values())
             self._tasks.clear()
+
+        count = 0
+        for task in tasks:
+            if not task.done():
+                self._cancel_task(task)
+                count += 1
             
         if count > 0:
             logger.log(f"Force-cancelled {count} tasks", "WARNING")
