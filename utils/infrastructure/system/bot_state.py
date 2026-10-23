@@ -9,6 +9,7 @@ Extracted from Kaiacord.py to improve modularity.
 
 import os
 import json
+import copy
 import re
 import time
 import threading
@@ -174,7 +175,7 @@ class BotState:
                             'last_manual_quip_time': self.last_manual_quip_time,
                             'last_quip_time': self.last_quip_time,
                             'quip_history': list(self.quip_history),
-                            'recent_ingestions': self.recent_ingestions,
+                            'recent_ingestions': copy.deepcopy(self.recent_ingestions),
                             'last_dream_date': self.last_dream_date,
                             'kaia_engagement': self.kaia_engagement,
                             # Persisted so engagement decay survives a restart. Held
@@ -184,20 +185,20 @@ class BotState:
                             'last_interaction_time': self.last_interaction_time,
                             'kaia_coherence': self.kaia_coherence,
                             'kaia_dream_freshness': self.kaia_dream_freshness,
-                            'curiosity_last_sent': self.curiosity_last_sent,
+                            'curiosity_last_sent': copy.deepcopy(self.curiosity_last_sent),
                             'last_evening_reflection': self.last_evening_reflection,
                             'last_dawn_date': self.last_dawn_date,
-                            'forum_reply_times': self.forum_reply_times,
-                            'relationships': self.relationships,
-                            'pending_afterthoughts': self.pending_afterthoughts,
+                            'forum_reply_times': copy.deepcopy(self.forum_reply_times),
+                            'relationships': copy.deepcopy(self.relationships),
+                            'pending_afterthoughts': copy.deepcopy(self.pending_afterthoughts),
                             'channel_last_activity': {str(k): v for k, v in self.channel_last_activity.items()},
                             'unprompted_last_sent': self.unprompted_last_sent,
                             'unprompted_count': self.unprompted_count,
                             'unprompted_date': self.unprompted_date,
-                            'unprompted_sources': {k: dict(v) for k, v in self.unprompted_sources.items()},
+                            'unprompted_sources': copy.deepcopy({k: dict(v) for k, v in self.unprompted_sources.items()}),
                             # boot_complete is TRANSIENT - do not save to disk
                             # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
-                            'channel_memory': {str(k): list(v) for k, v in self.channel_memory.items()},
+                            'channel_memory': copy.deepcopy({str(k): list(v) for k, v in self.channel_memory.items()}),
                             'saved_at': time.time()
                         }
                         payload = json.dumps(state, indent=2)
