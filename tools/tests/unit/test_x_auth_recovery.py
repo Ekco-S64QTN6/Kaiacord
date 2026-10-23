@@ -86,7 +86,7 @@ def test_a_missing_client_is_a_failure_not_a_successful_empty_poll(monkeypatch):
 
 def test_two_failed_half_open_auth_probes_clear_the_x_session(monkeypatch):
     client = type("Client", (), {})()
-    client.get_notifications = AsyncMock(side_effect=RuntimeError("403 Forbidden"))
+    client.get_notifications = AsyncMock(side_effect=RuntimeError("403 Forbidden: Cloudflare challenge page"))
     calls = []
 
     async def get_client(force_new=False):
