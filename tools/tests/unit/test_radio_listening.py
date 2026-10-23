@@ -475,3 +475,18 @@ def test_morse_in_the_cw_filter_is_a_tone(tmp_path):
                    + np.sin(2 * np.pi * 700 * t) * 4000 * keying)
     got = watch.keyed_tone(_wav(tmp_path, "m12_morse.wav", x))
     assert got["keyed"] and abs(got["hz"] - 700) < 30, got
+
+
+def test_station_rotation_preserves_minutes_in_last_heard_timestamp():
+    now = datetime(2026, 9, 24, 12, 50, tzinfo=timezone.utc)
+    done = {
+        "num:E07:2026-09-23T12:45:8000",
+        "num:V07:2026-09-23T12:05:9000",
+    }
+
+    _, last = watch._numbers_done(done, now)
+    assert last["E07"] == "2026-09-23T12:45"
+    assert last["V07"] == "2026-09-23T12:05"
+
+    jobs = watch.due_jobs(now, [_num("E07", "12:51"), _num("V07", "12:51", 9000)], done)
+    assert [j["station"] for j in jobs if j["kind"] == "numbers"] == ["V07", "E07"]
