@@ -401,7 +401,8 @@ class StatChoiceView(discord.ui.View):
             sheet["hp"]["max"] += hp_gain
             sheet["hp"]["current"] += hp_gain
             
-        del sheet["_stat_choice_pending"]
+        from utils.ttrpg.progression import consume_stat_choice
+        consume_stat_choice(sheet)
         await save(sheet)
         
         gains_str = ", ".join([f"+{v} {s.upper()}" for s, v in gains.items()])
