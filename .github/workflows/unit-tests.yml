@@ -5,22 +5,33 @@ on:
   push:
     branches: ["main"]
 
+# A new push supersedes old checks for the same PR/branch instead of queueing
+# multiple full runs behind a stale commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
-      # A dummy token is enough for test collection; tests that need a real
-      # Discord/Google credential are excluded or must mock the network.
+      # Import/config scaffolding only. CI must not receive live service keys.
       DISCORD_TOKEN: "test-discord-token"
+      # Sentinel for module-level configuration validation only; network tests are excluded.
       GEMINI_API_KEY: "test-gemini-api-key"
-      # Shell UI helpers run under CI without an interactive terminal.
+      # If a mis-marked test tries to call Ollama, fail fast instead of loading a model.
+      OLLAMA_HOST: "http://127.0.0.1:9"
       TERM: "xterm-256color"
+      CI_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      CI_DIFF_HEAD: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -33,27 +44,25 @@ jobs:
           ln -sf "$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" "$RUNNER_TEMP/ffmpeg-bin/ffmpeg"
           echo "$RUNNER_TEMP/ffmpeg-bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/ffmpeg-bin/ffmpeg" -version
-
       - name: Ensure system test dependencies
         timeout-minutes: 4
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           if ! ldconfig -p 2>/dev/null | grep -q 'libopus[.]so'; then
-            # The Python wheel supplies FFmpeg. Install only the small runtime
-            # library from apt instead of downloading FFmpeg's large dependency tree.
             sudo env DEBIAN_FRONTEND=noninteractive timeout 120s apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
             sudo env DEBIAN_FRONTEND=noninteractive timeout 120s apt-get install --yes --no-install-recommends -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 libopus0
           fi
       - name: Install Python dependencies
+        timeout-minutes: 5
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt pytest pytest-asyncio
-          # Remove this fallback once PR #15's SciPy declaration is on main.
+          python -m pip install --no-input --disable-pip-version-check --upgrade pip
+          python -m pip install --no-input --disable-pip-version-check -r requirements.txt pytest pytest-asyncio
           if ! grep -qiE '^[[:space:]]*scipy([<=>!~[:space:]]|$)' requirements.txt; then
-            python -m pip install "scipy>=1.15.0"
+            python -m pip install --no-input --disable-pip-version-check "scipy>=1.15.0"
           fi
       - name: Check dependency consistency
         run: python -m pip check
-      - name: Run the standard non-GPU suite
-        run: python -m pytest -q -m "not ollama and not gpu and not slow"
+      - name: Run focused offline tests
+        timeout-minutes: 5
+        run: python .github/scripts/run_ci_tests.py
