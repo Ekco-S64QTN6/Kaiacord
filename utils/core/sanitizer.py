@@ -88,6 +88,11 @@ def summarize_link_context(text: str) -> str:
     if not text:
         return text
 
+    # Replies arrive as a runtime-owned quote prefix followed by the exact
+    # user-authored message. Drop the quote prefix before persisting; otherwise
+    # another person's fetched message is recorded as though the author typed it.
+    text = re.sub(r"\A\[REPLYING_TO\]\n[\s\S]*?\n\n\[USER_MESSAGE\]\n", "", text, count=1)
+
     def _replace(m):
         marker_match = re.match(r"^\s*\[([A-Z_ ]+)\]", m.group(0), re.IGNORECASE)
         marker = marker_match.group(1).strip() if marker_match else ""
