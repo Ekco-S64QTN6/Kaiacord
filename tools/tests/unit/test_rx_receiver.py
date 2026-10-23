@@ -488,3 +488,39 @@ def test_a_decoded_data_catch_keeps_what_it_said(monkeypatch, led):
     scanner.classify(_catch(144_390_000, noise, seconds=5))
     e = led.recent(1)[0]
     assert e["kind"] == "data" and e["transcript"].startswith("[APRS] W5EAK-9>")
+
+
+def test_stream_close_waits_for_a_native_read_before_returning():
+    """A timed-out join must never permit a concurrent retune/dongle close."""
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingDongle:
+        def read(self, n):
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError("test did not release the mocked native read")
+            return np.zeros(n, dtype=np.complex64)
+
+    source = w.Stream(BlockingDongle(), 16)
+    assert entered.wait(timeout=1)
+
+    closed = threading.Event()
+
+    def close_source():
+        source.close()
+        closed.set()
+
+    closer = threading.Thread(target=close_source)
+    closer.start()
+    try:
+        assert not closed.wait(timeout=0.05), (
+            "close returned while the dongle read thread was still in-flight"
+        )
+    finally:
+        release.set()
+
+    assert closed.wait(timeout=2)
+    closer.join(timeout=1)
+    assert not closer.is_alive()
+    assert not source.t.is_alive()
