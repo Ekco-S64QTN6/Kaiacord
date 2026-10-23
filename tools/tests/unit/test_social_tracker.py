@@ -82,3 +82,30 @@ def test_separate_processes_do_not_drop_events_during_compaction(tmp_path, monke
     assert loaded.is_replied("x:process-a")
     assert loaded.is_replied("bsky:process-b")
     assert loaded.get_thread_count("shared-root", "shared-user") == 2
+
+
+def test_stale_full_deque_cannot_evict_newer_snapshot_ids_at_retention_limit(tmp_path, monkeypatch):
+    monkeypatch.setenv("KAIACORD_TELEMETRY_SUFFIX", "")
+    log_path = str(tmp_path / "bounded.log")
+    state_path = str(tmp_path / "bounded.json")
+    seed = SocialTracker(log_path=log_path, state_path=state_path, max_ids=2)
+
+    async def seed_old_history():
+        await seed.mark_replied("x:old-1", "x", "root", "person")
+        await seed.mark_replied("x:old-2", "x", "root", "person")
+        await seed.save_snapshot()
+
+    asyncio.run(seed_old_history())
+    a = SocialTracker(log_path=log_path, state_path=state_path, max_ids=2)
+    b = SocialTracker(log_path=log_path, state_path=state_path, max_ids=2)
+
+    async def race_stale_snapshot():
+        await a.mark_replied("x:new-a", "x", "root", "person")
+        await b.mark_replied("bsky:new-b", "bluesky", "root", "person")
+        await a.save_snapshot()
+        await b.save_snapshot()
+
+    asyncio.run(race_stale_snapshot())
+    loaded = SocialTracker(log_path=log_path, state_path=state_path, max_ids=2)
+    assert loaded.get_all_replied_ids() == {"x:new-a", "bsky:new-b"}
+    assert loaded.get_thread_count("root", "person") == 4
