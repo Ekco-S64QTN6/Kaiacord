@@ -1246,7 +1246,7 @@ class PostGenerationSafetyPipeline:
         mine = [i for i, t in enumerate(history or []) if isinstance(t, dict) and t.get("role") == "assistant"]
         out = list(history or [])
         for i in mine:                            # the prompt's own note, never hers to repeat
-            tagless = cls.reflow_paragraphs(cls.collapse_litany(cls.strip_address_tag(str(out[i].get("content", "")))))
+            tagless = cls.collapse_litany(cls.reflow_paragraphs(cls.strip_address_tag(str(out[i].get("content", "")))))
             if tagless != out[i].get("content", ""):
                 out[i] = {**out[i], "content": tagless}
         if len(mine) < 3:
