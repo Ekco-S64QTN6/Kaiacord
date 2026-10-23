@@ -9,6 +9,7 @@ Uses username/password authentication, no API keys needed.
 
 import os
 import asyncio
+import re
 from pathlib import Path
 from typing import Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_warning, log_error, log_debug
@@ -38,7 +39,7 @@ def is_x_auth_or_challenge_error(error: BaseException) -> bool:
         "login required", "session expired", "forbidden (403)", "http 403",
     )):
         return True
-    return bool(__import__("re").search(r"\b(?:401|403)\b", message))
+    return bool(re.search(r"\b(?:401|403)\b", message))
 
 
 def is_x_configured() -> bool:
