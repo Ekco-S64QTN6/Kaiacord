@@ -309,11 +309,11 @@ class NewsManager:
                     # and let get_news_async handle the refresh if it was called.
                     pass
                 else:
-                    with self._lock:
-                        self.refresh()
-            except RuntimeError:
-                with self._lock:
+                    # refresh() owns the cache lock. Taking it here too would
+                    # deadlock because the lock is intentionally non-reentrant.
                     self.refresh()
+            except RuntimeError:
+                self.refresh()
             
         category_lower = (category or 'general').lower()
         

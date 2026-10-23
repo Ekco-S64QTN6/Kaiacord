@@ -14,6 +14,12 @@ on:
       - ".github/workflows/ttrpg-tests.yml"
   workflow_dispatch:
 
+# A new push supersedes old checks for the same PR/branch instead of queueing
+# multiple full runs behind a stale commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -22,8 +28,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      # Fake import/config token only; CI never uses live service credentials.
       DISCORD_TOKEN: "test-discord-token"
+      # Sentinel for module-level configuration validation only; network tests are excluded.
       GEMINI_API_KEY: "test-gemini-api-key"
+      # If a mis-marked test tries to call Ollama, fail fast instead of loading a model.
+      OLLAMA_HOST: "http://127.0.0.1:9"
       TERM: "xterm-256color"
     steps:
       - uses: actions/checkout@v4
