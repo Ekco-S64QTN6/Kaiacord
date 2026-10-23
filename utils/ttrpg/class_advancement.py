@@ -337,32 +337,40 @@ import time
 import threading
 
 _WEALTHIEST_CACHE = {"timestamp": 0, "uid": None, "updating": False}
+_WEALTHIEST_LOCK = threading.Lock()
+
 
 def _is_wealthiest(sheet: dict) -> bool:
-    """Check if this sheet's owner has the most total gil across all players (cached via background thread)."""
-    import os, json
+    """Check the richest player using a single background refresh at a time."""
+    import json
+    import os
+
     my_uid = str(sheet.get("user_id", ""))
     now = time.time()
-    
-    # Cache hit check (5m TTL)
-    if now - _WEALTHIEST_CACHE["timestamp"] < 300:
-        return _WEALTHIEST_CACHE["uid"] == my_uid
+    start_refresh = False
+    with _WEALTHIEST_LOCK:
+        # Read the cache and claim refresh ownership as one atomic operation.
+        if now - _WEALTHIEST_CACHE["timestamp"] < 300:
+            return _WEALTHIEST_CACHE["uid"] == my_uid
+        if not _WEALTHIEST_CACHE["updating"]:
+            _WEALTHIEST_CACHE["updating"] = True
+            start_refresh = True
+        stale_uid = _WEALTHIEST_CACHE["uid"]
 
-    if not _WEALTHIEST_CACHE.get("updating"):
-        _WEALTHIEST_CACHE["updating"] = True
-        
+    if start_refresh:
         def _update_cache():
+            richest_uid = None
+            max_gil = 0
+            successful_scan = False
             try:
                 char_dir = os.path.join("memory", "ttrpg", "characters")
                 if not os.path.isdir(char_dir):
                     return
-                max_gil = 0
-                richest_uid = None
                 for fname in os.listdir(char_dir):
                     if not fname.endswith(".json"):
                         continue
                     try:
-                        with open(os.path.join(char_dir, fname), "r") as f:
+                        with open(os.path.join(char_dir, fname), "r", encoding="utf-8") as f:
                             other = json.load(f)
                         total = _total_gil(other)
                         if total > max_gil:
@@ -370,17 +378,25 @@ def _is_wealthiest(sheet: dict) -> bool:
                             richest_uid = str(other.get("user_id", fname[:-5]))
                     except Exception:
                         continue
-                
-                _WEALTHIEST_CACHE["timestamp"] = time.time()
-                _WEALTHIEST_CACHE["uid"] = richest_uid if max_gil >= 1000 else None
+                successful_scan = True
             finally:
+                # Publish all cache fields together. A caller can never observe
+                # a fresh timestamp with the previous UID or a stuck updater.
+                with _WEALTHIEST_LOCK:
+                    if successful_scan:
+                        _WEALTHIEST_CACHE["timestamp"] = time.time()
+                        _WEALTHIEST_CACHE["uid"] = richest_uid if max_gil >= 1000 else None
+                    _WEALTHIEST_CACHE["updating"] = False
+
+        try:
+            threading.Thread(target=_update_cache, daemon=True).start()
+        except Exception:
+            with _WEALTHIEST_LOCK:
                 _WEALTHIEST_CACHE["updating"] = False
+            raise
 
-        # Spawn background thread to update cache without blocking event loop
-        threading.Thread(target=_update_cache, daemon=True).start()
-
-    # Return stale value (or None if first run) while updating
-    return _WEALTHIEST_CACHE["uid"] == my_uid
+    # Do not block a Discord command on directory I/O; return the last snapshot.
+    return stale_uid == my_uid
 
 
 def get_title(sheet: dict) -> str:
