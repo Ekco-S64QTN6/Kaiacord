@@ -589,8 +589,10 @@ class _Inline:
     def read(self, n: int = 0) -> np.ndarray:
         return self.d.read(self.n)
 
-    def close(self) -> None:
-        pass
+    def close(self) -> bool:
+        # Inline/simulated sources have no reader thread to stop. Match Stream.close's
+        # success contract because callers treat a falsey return as a close timeout.
+        return True
 
 
 def quantize_rel(rel: np.ndarray) -> np.ndarray:
