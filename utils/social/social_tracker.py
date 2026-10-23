@@ -238,6 +238,7 @@ class SocialTracker:
                 continue
             observed.add(mention_id)
             pending_ids.append(mention_id)
+            self._append_event_count(counts, event)
 
         # Never lower a locally reconstructed or locally observed thread count;
         # another process may have advanced the authoritative disk snapshot.
@@ -379,6 +380,7 @@ class SocialTracker:
                     continue
                 observed_events.add(mention_id)
                 pending_ids.append(mention_id)
+                self._append_event_count(counts, event)
 
             # The local count is an upper bound for reconstructed/observed
             # threads, but the local ID deque is not authoritative: another
