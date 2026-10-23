@@ -17,8 +17,7 @@ from utils.ttrpg.progression import (
     harvest_bonus, streak_bonus, golden_tongue_bonus, check_and_reset_hunts, hunts_remaining, check_level_up, get_max_hunts, xp_to_next_level,
 )
 from utils.ttrpg.class_advancement import (
-    apply_advanced_class_to_combat, apply_advanced_class_to_sheet,
-    get_advanced_options, get_title, ADVANCED_CLASSES
+    apply_advanced_class_to_sheet, get_advanced_options, get_title, ADVANCED_CLASSES
 )
 from utils.ttrpg.dungeon import load_dungeon, save_dungeon
 from utils.ttrpg.rpg_ui import TIER_ICONS
@@ -1102,20 +1101,12 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["xp"] += xp_gain
         sheet["gil"] += gil_gain
         
+    # Combat and kill-specific advanced-class effects are resolved inside
+    # _resolve_combat so the same passives apply to overworld and dungeon fights.
+    # Re-applying them here used to double Shadowknight lifesteal and duplicate
+    # Paladin/Necromancer on-hit log lines.
     # Emit Math block
-    # Advanced class passive bonuses
-    adv_mods = apply_advanced_class_to_combat(
-        sheet, res.get("player_damage", 0), res["player_hit"],
-        res["player_crit"], res.get("monster_damage", 0),
-        monster, res["monster_defeated"],
-        location=sheet.get("location", "")
-    )
-    if adv_mods["heal_amount"] and res["player_alive"]:
-        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + adv_mods["heal_amount"])
-    if adv_mods["extra_log"]:
-        m_block = "\n".join(res["exchanges"] + adv_mods["extra_log"])
-    else:
-        m_block = "\n".join(res["exchanges"])
+    m_block = "\n".join(res["exchanges"])
 
     if res["monster_defeated"]:
         # Quest Task Tracking: Kill

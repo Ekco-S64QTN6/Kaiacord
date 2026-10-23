@@ -319,17 +319,47 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         if player_hit and not player_fumble:
             dice_count = 2 if player_crit else 1
             dmg_rolls = [secrets.randbelow(weapon_dmg_die) + 1 for _ in range(dice_count)]
-            
+
             # Warrior mastery: +1 damage per 3 levels (Lv.1-3: 0, Lv.4-6: +1, Lv.7-9: +2, Lv.10: +3)
             warrior_dmg_bonus = (sheet.get("level", 1) - 1) // 3 if class_name == "Warrior" else 0
             adv_bonus_flat = 0
             if adv_class == "Wizard": adv_bonus_flat = 3
             if adv_class == "Shadowblade" and player_crit: adv_bonus_flat = 4
-            
+
             total_dmg_bonus = atk_mod + warrior_dmg_bonus + adv_bonus_flat + weapon_dmg_bonus + oracle_dmg_bonus
-            
             player_damage = max(1, sum(dmg_rolls) + total_dmg_bonus)
-                    
+
+            # Resolve both kinds of on-hit proc before advanced-class passives.
+            # Shadowknight lifesteal must see the complete hit, not just the
+            # base weapon roll that existed before these bonus damage sources.
+            proc_result = resolve_class_proc(sheet, weapon_dmg_die, player_crit, monster)
+            proc_damage = int(proc_result.get("proc_damage", 0) or 0)
+            if proc_damage:
+                player_damage += proc_damage
+
+            weapon_proc_damage = 0
+            weapon_proc_heal = 0
+            weapon_proc_logs = []
+            weapon_proc = weapon.get("proc") if weapon else None
+            if weapon_proc:
+                wp_chance = 0.50 if player_crit else 0.10
+                if secrets.randbelow(100) < int(wp_chance * 100):
+                    wp_die = weapon_proc["die"]
+                    weapon_proc_damage = secrets.randbelow(wp_die) + 1
+                    wp_element = weapon_proc.get("element", "")
+                    player_damage += weapon_proc_damage
+                    weapon_proc_logs.append(
+                        f"{weapon_proc.get('emoji', '⚡')} **{weapon_proc['name']}!** "
+                        f"+{weapon_proc_damage} {wp_element} damage (1d{wp_die})"
+                    )
+                    if wp_element == "drain":
+                        weapon_proc_heal = weapon_proc_damage
+                        weapon_proc_logs.append(
+                            f"🩸 *Life drained: +{weapon_proc_heal} HP*"
+                        )
+
+            # Advanced damage bonuses are applied once to the accumulated hit.
+            # For Shadowknight, that same value drives lifesteal.
             adv_mods = apply_advanced_class_to_combat(
                 sheet, player_damage, True, player_crit, 0, monster, False
             )
@@ -337,26 +367,14 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             if pd_bonus:
                 player_damage += pd_bonus
 
-            # ── Class proc (10% base / 50% on crit) ──────────────────────────
-            proc_result = resolve_class_proc(sheet, weapon_dmg_die, player_crit, monster)
-            proc_damage = 0
-            if proc_result["proc_triggered"]:
-                proc_damage = proc_result["proc_damage"]
-                if proc_damage:
-                    player_damage += proc_damage
-                if proc_result["proc_heal"] > 0:
-                    sheet["hp"]["current"] = min(
-                        sheet["hp"]["max"],
-                        sheet["hp"]["current"] + proc_result["proc_heal"]
-                    )
-            # ─────────────────────────────────────────────────────────────────
-
             die_str = f"{'2' if player_crit else '1'}d{weapon_dmg_die}"
             bonus_str = f"{'+' if total_dmg_bonus >= 0 else ''}{total_dmg_bonus}" if total_dmg_bonus != 0 else ""
             if pd_bonus:
                 bonus_str += f"+{pd_bonus}(Class)"
             if proc_damage:
                 bonus_str += f"+{proc_damage}(Proc)"
+            if weapon_proc_damage:
+                bonus_str += f"+{weapon_proc_damage}(Weapon proc)"
             player_dmg_breakdown = (
                 f"{die_str}[{','.join(str(r) for r in dmg_rolls)}]"
                 f"{bonus_str}=**{player_damage}**"
@@ -367,48 +385,47 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 drained = max(1, player_damage // 4)
                 sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + drained)
                 status_logs.append(f"🩸 *Dark Embrace drinks deep: +{drained} HP*")
-            
-            # Apply lifesteal
+
+            # All healing now follows the full damage calculation.
+            if proc_result.get("proc_heal", 0) > 0:
+                sheet["hp"]["current"] = min(
+                    sheet["hp"]["max"], sheet["hp"]["current"] + proc_result["proc_heal"]
+                )
             heal = adv_mods["heal_amount"]
             if heal:
                 sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + heal)
+            if weapon_proc_heal:
+                sheet["hp"]["current"] = min(
+                    sheet["hp"]["max"], sheet["hp"]["current"] + weapon_proc_heal
+                )
             if adv_mods["extra_log"]:
                 status_logs.extend(adv_mods["extra_log"])
-            # Log proc after main exchange lines
             if proc_result.get("proc_triggered") and proc_result.get("proc_log"):
                 status_logs.extend(proc_result["proc_log"])
+            status_logs.extend(weapon_proc_logs)
 
-            # ── Weapon proc (independent 10% / 50% on crit) ──────────────────
-            weapon_proc = weapon.get("proc") if weapon else None
-            if weapon_proc:
-                wp_chance = 0.50 if player_crit else 0.10
-                if secrets.randbelow(100) < int(wp_chance * 100):
-                    wp_die = weapon_proc["die"]
-                    wp_extra = secrets.randbelow(wp_die) + 1
-                    wp_emoji = weapon_proc.get("emoji", "⚡")
-                    wp_name = weapon_proc["name"]
-                    wp_element = weapon_proc.get("element", "")
-                    player_damage += wp_extra
-                    monster["hp"]["current"] = max(0, monster["hp"]["current"] - wp_extra)
-                    status_logs.append(
-                        f"{wp_emoji} **{wp_name}!** +{wp_extra} {wp_element} damage (1d{wp_die})"
-                    )
-                    # Drain element: heal player for proc damage
-                    if wp_element == "drain":
-                        sheet["hp"]["current"] = min(
-                            sheet["hp"]["max"],
-                            sheet["hp"]["current"] + wp_extra
-                        )
-                        status_logs.append(
-                            f"🩸 *Life drained: +{wp_extra} HP*"
-                        )
-            # ─────────────────────────────────────────────────────────────────
-            
             # Non-lethal duel check applied after all procs
             if is_duel and monster["hp"]["current"] == 0:
                 monster["hp"]["current"] = 1
                 status_logs.append(f"⚔️ **{sheet['character_name']}** pulls back the final blow, sparing their opponent.")
 
+
+    # Kill-only advanced-class effects are evaluated after all on-hit and
+    # weapon procs, and only after the duel non-lethal guard has had its say.
+    # Passing zero damage / no hit prevents re-applying per-hit smite or
+    # lifesteal effects that were already resolved above.
+    if player_damage > 0 and monster["hp"]["current"] <= 0:
+        kill_mods = apply_advanced_class_to_combat(
+            sheet, 0, False, False, 0, monster, True,
+            location=sheet.get("location", ""),
+        )
+        kill_heal = kill_mods["heal_amount"]
+        if kill_heal:
+            sheet["hp"]["current"] = min(
+                sheet["hp"]["max"], sheet["hp"]["current"] + kill_heal
+            )
+        if kill_mods["extra_log"]:
+            status_logs.extend(kill_mods["extra_log"])
 
     monster_alive = monster["hp"]["current"] > 0
 
@@ -477,16 +494,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
 
     player_alive = sheet["hp"]["current"] > 0
     
-    if monster["hp"]["current"] <= 0:
-
-        adv_mods = apply_advanced_class_to_combat(
-            sheet, 0, False, False, 0, monster, True
-        )
-        if adv_mods["heal_amount"]:
-            sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + adv_mods["heal_amount"])
-        if adv_mods["extra_log"]:
-            status_logs.extend(adv_mods["extra_log"])
-
     # Pet post-combat heal (Sylvan Sprite)
     pet_heal = pet_bonuses.get("combat_heal", 0)
     if pet_heal > 0 and sheet["hp"]["current"] > 0 and monster["hp"]["current"] <= 0:
