@@ -33,10 +33,21 @@ def _run(content):
         author_id=1, channel_id=1)
 
 
-def test_the_real_reply_is_still_rejected_on_its_own():
-    """The guard is not being weakened — this must still fail as written."""
-    _, reason = _run(REAL_REJECTED_REPLY)
-    assert reason, "the guard no longer catches the cadence it was built for"
+def test_three_common_hits_are_defused_without_a_retry():
+    """Three cadence hits are cleaned in place, not discarded for regeneration."""
+    filtered = ECF.filter_response(REAL_REJECTED_REPLY)
+    assert filtered and "…" not in filtered
+    assert "processing that, ekco" in filtered
+    assert "unsettling, but it tracks" in filtered
+
+
+def test_four_common_hits_still_trigger_a_retry():
+    """Keep the retry for unusually dense ellipsis-affect cadence."""
+    response = (
+        "i'm… processing. the status is… unsettling. that seems… troubling. "
+        "it feels… wrong."
+    )
+    assert ECF.filter_response(response) is None
 
 
 def test_defusing_the_cadence_recovers_the_sentence():
