@@ -2329,7 +2329,34 @@ async def start_records(channel, crate: list[library.Record], first: library.Rec
     primed = await asyncio.to_thread(session.voice_source.wait_ready, min(5, session.voice_source.buffer_frames), 2.0)
     if not primed:
         log_warning("[records] PCM buffer did not prime before playback; starting with underrun protection")
-    vc.play(session.voice_source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None)
+    try:
+        vc.play(session.voice_source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None)
+    except BaseException:
+        # The deck, mixer, and PCM producer already own threads/processes at
+        # this point, but the session is not registered until play succeeds.
+        # Tear those down and release the voice connection before propagating
+        # the original startup error to the command handler.
+        if session.voice_source:
+            try:
+                session.voice_source.cleanup()
+            except Exception as cleanup_exc:
+                log_debug(f"[records] startup PCM cleanup failed: {cleanup_exc}")
+        if session.source:
+            try:
+                session.source.cleanup()
+            except Exception as cleanup_exc:
+                log_debug(f"[records] startup mixer cleanup failed: {cleanup_exc}")
+        else:
+            try:
+                deck.close()
+            except Exception as cleanup_exc:
+                log_debug(f"[records] startup deck cleanup failed: {cleanup_exc}")
+        try:
+            if vc.is_connected():
+                await vc.disconnect(force=True)
+        except Exception as cleanup_exc:
+            log_debug(f"[records] startup voice disconnect failed: {cleanup_exc}")
+        raise
     _sessions[guild.id] = session
     try:
         from utils.audio import dj_dashboard
