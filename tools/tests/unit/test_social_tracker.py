@@ -134,12 +134,20 @@ def test_old_generation_log_residue_does_not_resurrect_retired_ids(tmp_path, mon
             "user_handle": "person",
             "generation": 3,
             "timestamp": 1,
+        }) + "\n" + json.dumps({
+            "mention_id": "x:malformed-generation",
+            "platform": "x",
+            "root_uri": "root",
+            "user_handle": "person",
+            "generation": "not-an-integer",
+            "timestamp": 2,
         }) + "\n"
     )
     tracker = SocialTracker(
         log_path=str(log_path), state_path=str(state_path), max_ids=2
     )
     assert tracker.get_all_replied_ids() == {"x:new-a", "x:new-b"}
+    assert not tracker.is_replied("x:malformed-generation")
 
     # Also simulate a long-lived process refreshing after another process has
     # advanced the snapshot and left the same crash residue behind.
@@ -152,3 +160,4 @@ def test_old_generation_log_residue_does_not_resurrect_retired_ids(tmp_path, mon
     tracker._refresh_from_disk_sync()
     assert tracker.get_all_replied_ids() == {"x:latest-a", "x:latest-b"}
     assert not tracker.is_replied("x:retired")
+    assert not tracker.is_replied("x:malformed-generation")
