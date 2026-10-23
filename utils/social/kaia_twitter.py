@@ -56,7 +56,8 @@ def is_x_auth_or_challenge_error(error: BaseException) -> bool:
     # Accept Twikit's status: 401/403 message and conventional HTTP status
     # prefixes, but not an arbitrary mention of 401/403 anywhere.
     return bool(re.match(
-        r"^(?:status\s*:\s*|http(?:/[\d.]+)?\s+)(?:401|403)\b",
+        r"^(?:(?:status\s*:\s*)|(?:http(?:/[\d.]+)?\s+))?"
+        r"(?:401\s+unauthorized|403\s+forbidden|401|403)\b",
         message,
     ))
 
