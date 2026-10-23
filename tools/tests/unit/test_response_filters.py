@@ -806,6 +806,20 @@ def test_the_address_note_is_never_sent_or_shown_back():
     assert shown[0]["content"] == hist[0]["content"]             # what a person typed is theirs
 
 
+def test_an_address_tag_only_response_is_removed_not_restored():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+
+    assert P.strip_address_tag("(speaking exclusively to starkind)") == ""
+    assert P.strip_address_tag("(speaking exclusively to starkind)\n\nhello.") == "hello."
+
+def test_address_tag_filter_does_not_remove_discord_mentions():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+
+    assert P.strip_address_tag("<@123>") == "<@123>"
+    assert P.strip_address_tag("<@123> hello") == "<@123> hello"
+    assert P.strip_address_tag("<@!123> hello") == "<@!123> hello"
+
+
 def test_the_grading_opener_is_caught_without_a_name():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
     text = "a quiet affirmation. a measured assessment. the reassurance is welcome, and the plan holds up well."
