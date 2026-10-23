@@ -101,7 +101,7 @@ class SocialTracker:
     @staticmethod
     def _state_generation(state: dict) -> int:
         try:
-            return self._state_generation(state)
+            return max(0, int(state.get("log_generation", 0) or 0))
         except (TypeError, ValueError):
             return 0
 
