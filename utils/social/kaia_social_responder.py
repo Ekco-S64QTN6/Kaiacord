@@ -223,7 +223,11 @@ async def check_and_reply_mentions(on_message_func):
     """
     if shutdown_manager.shutting_down:
         return 0
-        
+
+    # Reconcile events written by other tracker instances/processes before
+    # applying duplicate-reply and per-thread limits for this polling pass.
+    await social_tracker.refresh_from_disk()
+
     global _first_poll_done
     
     # log_debug("Social media poll started...")
