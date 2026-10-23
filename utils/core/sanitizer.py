@@ -49,58 +49,54 @@ RUNTIME_SCAFFOLDING = re.compile(
 )
 
 
-def _safe_link_title(title: str) -> str:
-    """Keep a fetched title single-line and unable to forge scaffold markers."""
-    # Embed and page titles are external input. A newline or bracketed marker
-    # must not turn the persisted citation into another apparent prompt block.
-    title = re.sub(r"[\\x00-\\x1f\\x7f-\\x9f\\u2028\\u2029]", " ", title or "")
-    title = re.sub(r"[\\[\\]{}<>]", "", title)
-    return re.sub(r"\\s+", " ", title).strip()[:120].strip()
+def _shared_context_citation(marker: str, block: str) -> str:
+    """Describe fetched context without persisting page-controlled text.
 
-
-def _link_title(block: str) -> str:
-    """The best one-line title from an embed or scrape block, or ''."""
-    for line in (block or "").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if line.lower().startswith("title:"):
-            return _safe_link_title(line.split(":", 1)[1])
-        # Otherwise the first substantial line that is not a bare fragment.
-        # Only accept something that actually looks like a page title: a site
-        # separator, or Title Case. The first substantial line after a URL is
-        # just as often the user's own next sentence, and "just get it over
-        # with" is not a citation.
-        if not (6 <= len(line) <= 160) or " " not in line or line.startswith("["):
-            continue
-        looks_titled = (
-            any(sep in line for sep in (" – ", " — ", " | ", " - ")) or
-            sum(1 for w in line.split() if w[:1].isupper()) >= max(2, len(line.split()) // 2)
-        )
-        if looks_titled:
-            return _safe_link_title(line)
+    Page titles, embed fields and message bodies are all external content. Even
+    a single-line, length-capped title can contain prompt instructions, so the
+    persisted history keeps only a fixed label and (for scraped pages) the
+    hostname from the enricher's deterministic Source line.
+    """
+    if marker.upper() == "LINKED_WEB_CONTENT":
+        source = re.search(r"(?im)^\\s*Source:\\s*(https?://[^\\s<>]+)", block or "")
+        if not source:
+            return ""
+        from urllib.parse import urlsplit
+        try:
+            host = (urlsplit(source.group(1).rstrip(".,;:!?)]}")).hostname or "").lower().rstrip(".")
+        except ValueError:
+            return ""
+        if host.startswith("www."):
+            host = host[4:]
+        # Do not echo odd host syntax back into the prompt history.
+        if not host or not re.fullmatch(r"[a-z0-9.-]+", host) or ".." in host:
+            return ""
+        return f"[shared link: {host[:253]}]"
+    if marker.upper() == "ATTACHED_EMBED_CONTEXT":
+        return "[shared embed]"
+    if marker.upper() in ("LINKED_MESSAGE_CONTEXT", "LINKED_MESSAGE"):
+        return "[shared Discord message]"
     return ""
 
 
 def summarize_link_context(text: str) -> str:
-    """Replace an enricher block with a one-line citation of what was linked.
+    """Replace enricher-only blocks with fixed, non-instructional citations.
 
-    Stripping the block outright loses the page title, which is the only part
-    of a shared link that carries topic for retrieval — a bare URL is opaque to
-    an embedding. Keeping the whole article is worse: 249 turns of scraped body
-    text held 29% of all user-turn text in the corpus, attributed to whoever
-    pasted the link.
+    The actual user-authored URL remains untouched outside the enriched block.
+    The page title and body do not: both are page-controlled and can carry
+    prompt injection, even when the title is escaped and length-capped.
     """
     if not text:
         return text
 
     def _replace(m):
-        title = _link_title(m.group(0).split("]", 1)[-1])
-        return f"\n[shared link: {title}]" if title else ""
+        marker_match = re.match(r"\\s*\\[([^]\\r\\n]+)\\]", m.group(0))
+        marker = marker_match.group(1).strip() if marker_match else ""
+        citation = _shared_context_citation(marker, m.group(0).split("]", 1)[-1])
+        return "\\n" + citation if citation else ""
 
     cleaned = RUNTIME_SCAFFOLDING.sub(_replace, text)
-    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-
+    return re.sub(r"\\n{3,}", "\\n\\n", cleaned).strip()
 
 def excerpt(text: str, limit: int) -> str:
     """At most `limit` characters, cut at a word boundary and marked with "…".
