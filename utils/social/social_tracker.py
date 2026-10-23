@@ -42,6 +42,10 @@ class SocialTracker:
         self._replied_deque = deque(maxlen=self.max_ids)
         self._thread_counts: Dict[str, Dict[str, int]] = {}
         self._snapshot_generation = 0
+        # Only events whose append failed may exist in memory but not on disk.
+        # Persist these explicitly; never merge the full stale local deque over
+        # newer disk IDs during snapshot compaction.
+        self._pending_events: list[dict] = []
         self._lock = asyncio.Lock()
 
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,7 +274,9 @@ class SocialTracker:
                     "root_uri": str(root_uri) if root_uri else None,
                     "user_handle": str(user_handle) if user_handle else None,
                     "generation": self._snapshot_generation,
+                    "timestamp": time.time(),
                 }
+                self._pending_events.append(event)
             if event is None:
                 await asyncio.to_thread(self._refresh_from_disk_sync)
                 return
@@ -297,28 +303,44 @@ class SocialTracker:
             counts = self._normalize_thread_counts(state.get("thread_counts", {}))
             counted: set[str] = set()
             event_ids: list[str] = []
+            observed_events: set[str] = set()
             for entry in entries:
                 mention_id = str(entry.get("mention_id") or "")
-                if not mention_id:
+                if not mention_id or mention_id in disk_id_set or mention_id in observed_events:
                     continue
+                if not entry.get("legacy") and int(entry.get("generation", -1)) != generation:
+                    # A stale-generation line can remain after a crash between
+                    # state replacement and log unlink. Its state was already
+                    # represented by the previous snapshot, so it is not new.
+                    continue
+                observed_events.add(mention_id)
                 event_ids.append(mention_id)
-                if entry.get("legacy") or int(entry.get("generation", -1)) != generation:
-                    continue
-                if mention_id in disk_id_set or mention_id in counted:
+                if entry.get("legacy"):
                     continue
                 counted.add(mention_id)
                 self._append_event_count(counts, entry)
 
-            # Merge in-memory reconstructions and events without replacing newer
-            # values committed by another process.
+            pending_ids: list[str] = []
+            for event in self._pending_events:
+                mention_id = str(event.get("mention_id") or "")
+                if not mention_id or mention_id in disk_id_set or mention_id in observed_events:
+                    continue
+                observed_events.add(mention_id)
+                pending_ids.append(mention_id)
+
+            # The local count is an upper bound for reconstructed/observed
+            # threads, but the local ID deque is not authoritative: another
+            # process may have compacted newer IDs since this instance loaded.
             for root, users in self._thread_counts.items():
                 counts.setdefault(root, {})
                 for user, value in users.items():
                     counts[root][user] = max(int(counts[root].get(user, 0)), int(value))
 
+            # Disk snapshot IDs are the baseline, followed only by un-compacted
+            # current-generation log events and events whose append failed.
             ids = []
             seen = set()
-            for mention_id in disk_ids + list(self._replied_deque) + event_ids:
+            for mention_id in disk_ids + event_ids + pending_ids:
                 if mention_id and mention_id not in seen:
                     ids.append(mention_id)
                     seen.add(mention_id)
@@ -352,6 +374,7 @@ class SocialTracker:
                     self._remember_id(str(mention_id))
                 self._thread_counts = self._normalize_thread_counts(state.get("thread_counts", {}))
                 self._snapshot_generation = max(0, int(state.get("log_generation", 0) or 0))
+                self._pending_events.clear()
                 log_info(f"[SocialTracker] Saved state snapshot to {self.state_path}")
             except Exception as e:
                 log_error(f"[SocialTracker] Failed to save state snapshot: {e}")
