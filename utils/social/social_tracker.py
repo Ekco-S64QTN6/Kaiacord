@@ -333,11 +333,11 @@ class SocialTracker:
             })
             write_atomic(self.state_path, json.dumps(new_state, indent=2))
 
-            # Keep the log inode stable: with the advisory lock no cooperating
-            # writer can hold it open while compaction truncates it.
-            with open(self.log_path, "w", encoding="utf-8") as f:
-                f.flush()
-                os.fsync(f.fileno())
+            # Every cooperating writer opens the log only while holding the
+            # separate lockfile, so no writer retains an fd to the old inode.
+            # Keep the historical behavior: remove the compacted log entirely.
+            if self.log_path.exists():
+                self.log_path.unlink()
             return new_state
 
     async def save_snapshot(self):
