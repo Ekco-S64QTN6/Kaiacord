@@ -40,6 +40,53 @@ def test_a_model_answer_must_be_one_number():
     assert v.parse_model_answer("The answer is 20 - 5 = 15") is None
 
 
+def test_gpu_guard_rejects_a_priority_enum_passed_as_the_coroutine():
+    import asyncio
+    import pytest
+
+    from utils.infrastructure.gpu.gpu_manager import (
+        GPUTaskPriority, run_with_gpu_guard,
+    )
+
+    async def call():
+        return await run_with_gpu_guard("test-model", GPUTaskPriority.BACKGROUND)
+
+    with pytest.raises(TypeError, match="awaitable"):
+        asyncio.run(call())
+
+
+def test_a_model_answer_runs_inside_the_gpu_guard(monkeypatch):
+    import asyncio
+    import sys
+    from types import SimpleNamespace
+
+    from utils.social import agent_boards as ab
+    import utils.infrastructure.gpu.gpu_manager as gpu_manager
+    from utils.infrastructure.system.yaml_config import config
+
+    calls = {}
+    monkeypatch.setitem(
+        sys.modules,
+        "ollama",
+        SimpleNamespace(chat=lambda **kwargs: {"message": {"content": "15"}}),
+    )
+    monkeypatch.setattr(gpu_manager, "chat_options", lambda **kwargs: {})
+
+    async def fake_guard(model_name, coro, task_id=None, priority=None):
+        calls.update(model_name=model_name, coro=coro, task_id=task_id, priority=priority)
+        return await (coro() if callable(coro) else coro)
+
+    monkeypatch.setattr(gpu_manager.gpu_memory_manager, "run_with_gpu_guard", fake_guard)
+
+    answer = asyncio.run(ab._model_answer("a lobster swims 20 meters and slows by 5"))
+
+    assert answer == "15.00"
+    assert calls["model_name"] == config.chat_model
+    assert callable(calls["coro"]) and not asyncio.iscoroutine(calls["coro"])
+    assert calls["task_id"] == "moltbook_verify"
+    assert calls["priority"] is gpu_manager.GPUTaskPriority.BACKGROUND
+
+
 def test_nothing_she_posts_carries_a_credential(monkeypatch):
     from utils.social import agent_boards as ab
     monkeypatch.setattr(ab, "credentials", lambda: {"agent_room": {"agent_token": "amb_tok_abcdefghijklmnopqrstuvwxyz"}})
@@ -382,3 +429,28 @@ def test_the_voice_note_survives_into_the_prompt():
     import inspect
     from utils.core.message_processor import MessageProcessor
     assert "'[your own recent replies'" in inspect.getsource(MessageProcessor._construct_messages)
+
+
+def test_gpu_guard_does_not_create_a_factory_coroutine_when_model_setup_fails(monkeypatch):
+    import asyncio
+    import pytest
+    import utils.infrastructure.gpu.gpu_manager as gpu_manager
+
+    created = []
+
+    async def work():
+        created.append("started")
+
+    def factory():
+        created.append("constructed")
+        return work()
+
+    async def fail_model_setup(_model):
+        raise RuntimeError("simulated model setup failure")
+
+    monkeypatch.setattr(gpu_manager.ModelContextMonitor, "set_model", fail_model_setup)
+
+    with pytest.raises(RuntimeError, match="simulated model setup failure"):
+        asyncio.run(gpu_manager.run_with_gpu_guard("test-model", factory))
+
+    assert created == []

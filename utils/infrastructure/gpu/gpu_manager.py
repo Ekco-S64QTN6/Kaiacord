@@ -1,4 +1,5 @@
 import time
+import inspect
 import uuid
 import asyncio
 import threading
@@ -41,13 +42,25 @@ class GPUTaskPriority(Enum):
 async def run_with_gpu_guard(model_name: str, coro, task_id: str = None, priority: GPUTaskPriority = GPUTaskPriority.CHAT):
     """
     Consolidated GPU concurrency gating.
-    Uses a semaphore to prevent parallel heavy model calls and supports re-entrancy.
+    Accepts an awaitable or a zero-argument awaitable factory. Prefer a factory
+    when work must not be created until the GPU permit is held.
     """
     if task_id is None:
         task_id = f"gpu_{uuid.uuid4().hex[:6]}"
 
+    async def _run_coro():
+        # A factory avoids an un-awaited coroutine if semaphore admission,
+        # cancellation, or model-context setup fails before inference starts.
+        awaitable = coro() if callable(coro) and not inspect.isawaitable(coro) else coro
+        if not inspect.isawaitable(awaitable):
+            raise TypeError(
+                "run_with_gpu_guard expects an awaitable or an awaitable factory; "
+                f"received {type(awaitable).__name__}"
+            )
+        return await awaitable
+
     if gpu_context_active.get():
-        return await coro
+        return await _run_coro()
 
     global _waiting
     token = gpu_context_active.set(True)
@@ -61,7 +74,7 @@ async def run_with_gpu_guard(model_name: str, coro, task_id: str = None, priorit
             await ModelContextMonitor.set_model(model_name)
             t_start = time.perf_counter()
             log_debug(f"[{task_id}] Executing protected GPU coro: {model_name} (Priority: {priority.name})")
-            result = await coro
+            result = await _run_coro()
             log_debug(f"[{task_id}] Finished in {time.perf_counter() - t_start:.2f}s")
             return result
         finally:
