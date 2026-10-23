@@ -47,3 +47,28 @@ def test_an_unreported_trial_does_not_hold_the_breaker_shut(monkeypatch):
     assert b.can_proceed()          # trial handed out, never reported
     now[0] += 61
     assert b.can_proceed(), "the breaker stayed shut on a trial nobody reported"
+
+
+def test_half_open_failure_count_survives_reopening_and_clears_on_success(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(cb.time, "time", lambda: now[0])
+    b = cb.CircuitBreaker("x", failure_threshold=1, recovery_timeout=10)
+
+    b.record_failure()  # CLOSED -> OPEN; not a half-open probe
+    assert b.half_open_failures == 0
+    now[0] += 11
+    assert b.can_proceed()
+    b.record_failure()  # first failed recovery probe
+    assert b.state is cb.CircuitState.OPEN
+    assert b.half_open_failures == 1
+
+    now[0] += 11
+    assert b.can_proceed()
+    b.record_failure()  # second failed recovery probe
+    assert b.half_open_failures == 2
+
+    now[0] += 11
+    assert b.can_proceed()
+    b.record_success()
+    assert b.half_open_failures == 0
+    assert b.state is cb.CircuitState.CLOSED
