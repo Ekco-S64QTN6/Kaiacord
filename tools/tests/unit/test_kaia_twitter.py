@@ -52,6 +52,13 @@ def test_browser_cookie_extraction_logs_lock_failures_and_uses_wal_safe_profile_
     monkeypatch.setattr(kx, "log_info", lambda *a, **k: None)
     monkeypatch.setattr(kx, "_COOKIE_EXTRACTION_WARNED", set())
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    # Isolate the WAL-safe extraction path. Profile discovery is covered by its
+    # own test below; injecting the discovered candidate avoids coupling this
+    # test to pathlib's platform-specific home-directory implementation.
+    monkeypatch.setattr(
+        kx, "_browser_cookie_db_candidates",
+        lambda: [("Firefox", "firefox", profile_root, database)],
+    )
 
     def locked_loader(**kwargs):
         if "cookie_file" not in kwargs:
