@@ -88,6 +88,12 @@ class Dongle:
         return (iq[0::2] + 1j * iq[1::2]).astype(np.complex64)
 
     def close(self) -> None:
+        if getattr(self, "_stream_close_timed_out", False):
+            # A Stream timed out while rtlsdr_read_sync was active. Calling
+            # rtlsdr_close on the same handle can race native I/O; this dongle
+            # is quarantined until the dedicated watcher child exits, letting
+            # process teardown release the handle without another C call.
+            return
         if self.dev:
             self.lib.rtlsdr_close(self.dev)
             self.dev = ctypes.c_void_p()
