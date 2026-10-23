@@ -554,3 +554,18 @@ def test_unavailable_radio_attempt_is_not_persisted_as_done(monkeypatch):
         assert marked == [job["key"]]
 
     asyncio.run(scenario())
+
+
+def test_station_rotation_preserves_minutes_in_last_heard_timestamp():
+    now = datetime(2026, 9, 24, 12, 50, tzinfo=timezone.utc)
+    done = {
+        "num:E07:2026-09-23T12:45:8000",
+        "num:V07:2026-09-23T12:05:9000",
+    }
+
+    _, last = watch._numbers_done(done, now)
+    assert last["E07"] == "2026-09-23T12:45"
+    assert last["V07"] == "2026-09-23T12:05"
+
+    jobs = watch.due_jobs(now, [_num("E07", "12:51"), _num("V07", "12:51", 9000)], done)
+    assert [j["station"] for j in jobs if j["kind"] == "numbers"] == ["V07", "E07"]

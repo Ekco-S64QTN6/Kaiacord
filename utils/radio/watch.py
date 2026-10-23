@@ -133,7 +133,10 @@ def _numbers_done(done: set[str], now: datetime) -> tuple[dict, dict]:
         parts = key.split(":")
         if len(parts) < 3 or parts[0] != "num":
             continue
-        station, when = parts[1].upper(), parts[2]
+        station = parts[1].upper()
+        # The timestamp itself contains a colon (HH:MM); the final segment is
+        # the frequency, so splitting and reading parts[2] truncates minutes.
+        when = ":".join(parts[2:-1]) if len(parts) > 3 else parts[2]
         if when.startswith(day):
             today[station] = today.get(station, 0) + 1
         last[station] = max(last.get(station, ""), when)
