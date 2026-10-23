@@ -389,18 +389,23 @@ class StatChoiceView(discord.ui.View):
         if "stats" not in sheet:
             sheet["stats"] = {"str": 10, "dex": 10, "int": 10, "wis": 10, "con": 10, "cha": 10}
             
+        previous_con = sheet["stats"].get("con", 10)
         for stat, val in gains.items():
             sheet["stats"][stat] = sheet["stats"].get(stat, 10) + val
-            
-        # Retrospective HP boost if CON increased
+
+        # Retroactive HP tracks the actual CON-modifier increase, not just
+        # the number of CON points selected.
         if "con" in gains:
-            # Simple logic: increase max HP by (current_con_mod - previous_con_mod) * level, OR per rules:
-            # In D&D/TTRPGs, increasing CON retroactively grants HP for all levels.
-            con_gain = gains["con"]
-            hp_gain = max(1, (con_gain + 1) // 2) * sheet["level"]
-            sheet["hp"]["max"] += hp_gain
-            sheet["hp"]["current"] += hp_gain
-            
+            from utils.ttrpg.progression import retroactive_con_hp_gain
+            hp_gain = retroactive_con_hp_gain(
+                previous_con, gains["con"], sheet.get("level", 1)
+            )
+            if hp_gain:
+                sheet["hp"]["max"] += hp_gain
+                sheet["hp"]["current"] = min(
+                    sheet["hp"]["current"] + hp_gain, sheet["hp"]["max"]
+                )
+
         del sheet["_stat_choice_pending"]
         await save(sheet)
         
