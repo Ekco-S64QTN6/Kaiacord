@@ -1,0 +1,51 @@
+name: RPG unit tests
+
+on:
+  pull_request:
+    paths:
+      - "utils/ttrpg/**"
+      - "tools/tests/unit/ttrpg/**"
+      - ".github/workflows/ttrpg-tests.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "utils/ttrpg/**"
+      - "tools/tests/unit/ttrpg/**"
+      - ".github/workflows/ttrpg-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rpg-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DISCORD_TOKEN: "test-discord-token"
+      GEMINI_API_KEY: "test-gemini-api-key"
+      TERM: "xterm-256color"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Ensure system test dependencies
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! ldconfig -p 2>/dev/null | grep -q 'libopus\.so'; then
+            sudo apt-get update
+            sudo apt-get install --yes ffmpeg libopus0 libopus-dev
+          fi
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest pytest-asyncio
+          # Keep this fallback until requirements.txt declares SciPy on main.
+          if ! grep -qiE '^[[:space:]]*scipy([<=>!~[:space:]]|$)' requirements.txt; then
+            python -m pip install "scipy>=1.15.0"
+          fi
+      - name: Check dependency consistency
+        run: python -m pip check
+      - name: Run RPG unit tests
+        run: python -m pytest -q tools/tests/unit/ttrpg
