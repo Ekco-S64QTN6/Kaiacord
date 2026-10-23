@@ -10,6 +10,7 @@ beside its destination rather than in `/tmp`.
 """
 from __future__ import annotations
 
+import fcntl
 import os
 import threading
 from pathlib import Path
@@ -46,13 +47,26 @@ def write_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
 
 
 def append_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
-    """Append, read-modify-write, atomically.
+    """Append to a small log without losing concurrent writers.
 
-    For the small append-only logs in `knowledge_base/user_logs/`. Not for
-    anything large — it rewrites the whole file.
+    The read-modify-write sequence is protected by a stable sidecar lock, so
+    cooperating threads and processes cannot both read the same old contents
+    and replace one another's append. The lock file is intentionally retained:
+    unlinking it could let writers lock different inodes.
+    This rewrites the file, so it is only for small logs in
+    `knowledge_base/user_logs/`, not large files.
     """
     dest = Path(path)
-    existing = ""
-    if dest.exists():
-        existing = dest.read_text(encoding=encoding, errors="replace")
-    return write_atomic(dest, existing + text, encoding=encoding)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = dest.with_name(f".{dest.name}.append.lock")
+    with open(lock_path, "a", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            try:
+                existing = dest.read_text(encoding=encoding, errors="replace")
+            except FileNotFoundError:
+                existing = ""
+            write_atomic(dest, existing + text, encoding=encoding)
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    return dest
