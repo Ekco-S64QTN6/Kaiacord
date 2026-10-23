@@ -134,17 +134,24 @@ def test_history_offers_recorded_catches_to_play(monkeypatch, tmp_path):
     assert played.await_count == 1
 
 
-def test_listen_along_audio_is_steady_20ms_frames():
-    src = scanner.ScanAudio()
+def test_listen_along_audio_is_steady_20ms_frames(monkeypatch):
+    import queue
+
+    audio_queue = queue.Queue(maxsize=4)
+    src = scanner.ScanAudio(audio_queue)
     assert src.read() == bytes(3840)                        # silence while nothing is held
-    scanner._along[1] = {}
+    from utils.radio import rx_dashboard
+    monkeypatch.setattr(rx_dashboard, "audio", lambda _chunk: None)
+    with scanner._along_audio_lock:
+        scanner._along_audio[1] = audio_queue
     try:
         scanner._sink(np.full(240, 1000, np.int16))
         frame = np.frombuffer(src.read(), np.int16)
         assert len(frame) == 1920 and frame.max() == 1000    # 960 stereo samples at 48 kHz
     finally:
-        scanner._along.clear()
-    scanner._sink(np.full(240, 1000, np.int16))              # nobody listening: dropped
+        with scanner._along_audio_lock:
+            scanner._along_audio.pop(1, None)
+    scanner._sink(np.full(240, 1000, np.int16))              # nobody listening: no queued audio
     assert src.read() == bytes(3840)
 
 

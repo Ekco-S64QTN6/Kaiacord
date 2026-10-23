@@ -485,7 +485,13 @@ import queue as _queue
 import threading as _threading
 
 _along: dict = {}                    # guild_id -> {"vc", "started"}
-_audio: "_queue.Queue" = _queue.Queue(maxsize=600)
+# Each Discord voice client needs its own copy of the scanner stream. A shared
+# queue makes simultaneous listeners compete for chunks, so each hears only a
+# fraction of the watch. Queue membership is changed on the event loop and read
+# by the audio-producing thread.
+_along_audio_lock = _threading.Lock()
+_along_audio: dict[int, "_queue.Queue"] = {}
+_ALONG_AUDIO_BUFFER_CHUNKS = 100
 
 
 def _sink(chunk) -> None:
@@ -494,12 +500,23 @@ def _sink(chunk) -> None:
         rx_dashboard.audio(chunk)         # the receiver dashboard's monitor, if anyone is listening
     except Exception:
         pass
-    if not _along:
-        return
-    try:
-        _audio.put_nowait(chunk)
-    except _queue.Full:
-        pass                         # nobody draining: drop rather than lag
+    with _along_audio_lock:
+        targets = tuple(_along_audio.values())
+    for target in targets:
+        try:
+            target.put_nowait(chunk)
+        except _queue.Full:
+            # Prefer current radio audio over an increasingly stale backlog.
+            # A queue is per listener, so this can never steal another guild's
+            # frames.
+            try:
+                target.get_nowait()
+            except _queue.Empty:
+                pass
+            try:
+                target.put_nowait(chunk)
+            except _queue.Full:
+                pass
 
 
 def listening_along() -> bool:
@@ -507,14 +524,15 @@ def listening_along() -> bool:
 
 
 class ScanAudio:
-    """discord.AudioSource over the watcher's 12 kHz audio: 20 ms frames of
+    """discord.AudioSource over one listener's scanner stream: 20 ms frames of
     48 kHz stereo, silence when nothing is queued."""
 
     FRAME_12K = 240
 
-    def __init__(self):
+    def __init__(self, audio_queue: "_queue.Queue"):
         import numpy as _np
         self._np = _np
+        self._audio = audio_queue
         self._buf = _np.zeros(0, _np.int16)
 
     def is_opus(self) -> bool:
@@ -524,7 +542,7 @@ class ScanAudio:
         np_ = self._np
         while len(self._buf) < self.FRAME_12K:
             try:
-                self._buf = np_.concatenate([self._buf, _audio.get_nowait()])
+                self._buf = np_.concatenate([self._buf, self._audio.get_nowait()])
             except _queue.Empty:
                 self._buf = np_.concatenate([self._buf, np_.zeros(self.FRAME_12K - len(self._buf), np_.int16)])
         frame, self._buf = self._buf[:self.FRAME_12K], self._buf[self.FRAME_12K:]
@@ -548,11 +566,20 @@ async def start_listen_along(voice_channel, requested_by: str) -> None:
         await vc.move_to(voice_channel)
     else:
         vc = await voice_channel.connect(timeout=30.0, reconnect=True)
-    while not _audio.empty():
-        _audio.get_nowait()
-    settle("the scanner live")
-    vc.play(discord.PCMAudio(_PcmStream(ScanAudio())))
+    # Give this guild a private bounded queue; starting another listener must
+    # neither drain its audio nor compete for chunks from the same queue.
+    audio_queue = _queue.Queue(maxsize=_ALONG_AUDIO_BUFFER_CHUNKS)
     _along[guild.id] = {"vc": vc, "started": time.time()}
+    with _along_audio_lock:
+        _along_audio[guild.id] = audio_queue
+    settle("the scanner live")
+    try:
+        vc.play(discord.PCMAudio(_PcmStream(ScanAudio(audio_queue))))
+    except Exception:
+        _along.pop(guild.id, None)
+        with _along_audio_lock:
+            _along_audio.pop(guild.id, None)
+        raise
     log_info(f"[scanner] {requested_by} is listening along in {voice_channel.name}")
     from utils.infrastructure.monitoring.async_task_registry import task_registry
     task_registry.register(f"scanner_along_watch_{guild.id}", asyncio.create_task(_along_watchdog(guild.id)))
@@ -566,6 +593,8 @@ async def stop_listen_along(guild_id: int, disconnect: bool = True) -> bool:
     """End a listen-along. `disconnect=False` when something else is about to
     play on the same connection."""
     entry = _along.pop(guild_id, None)
+    with _along_audio_lock:
+        _along_audio.pop(guild_id, None)
     if not entry:
         return False
     vc = entry["vc"]
