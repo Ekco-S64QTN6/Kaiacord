@@ -193,14 +193,34 @@ def test_contamination_filter_passes_clean_responses(text):
 
 # ── Bare-name openers ────────────────────────────────────────────────
 
-def test_the_addressee_list_is_not_hand_written():
-    """It was eleven names typed by hand, so it was wrong the moment someone
-    new joined. Measured against the fine-tune corpus it missed gnowmaticflux
-    (54 openers), gymconserve (39) and kristinoemnclature (29) — 5.8% of her
-    replies still opened with a bare name, to exactly the people nobody had
-    remembered to add."""
+def test_the_addressee_list_is_not_hand_written(monkeypatch):
+    """The name bank is discovered from user-log entries, not a private corpus."""
+    import os
     from utils.core.response_filter import BotSpeakFilter
-    assert len(BotSpeakFilter.ADDRESSEE_NAMES.split("|")) > 50
+
+    # CI deliberately has no live knowledge_base/user_logs corpus. Supply a
+    # deterministic directory listing so this test checks discovery rather than
+    # whether the runner happens to have the operator's local data mounted.
+    discovered = [f"fixtureuser{i:02d}_{10000 + i}" for i in range(60)]
+    real_listdir = os.listdir
+
+    def listdir(path):
+        if os.fspath(path) == os.path.join("knowledge_base", "user_logs"):
+            return discovered
+        return real_listdir(path)
+
+    monkeypatch.setattr(os, "listdir", listdir)
+    # refresh_addressees mutates class attributes; register their original
+    # values with monkeypatch so this test cannot leak its synthetic names.
+    for attr in ("ADDRESSEE_NAMES", "RE_ADDRESSEE_OPENER",
+                 "RE_ONLY_ADDRESSEE", "RE_VOCATIVE_BAIT"):
+        monkeypatch.setattr(BotSpeakFilter, attr, getattr(BotSpeakFilter, attr))
+
+    BotSpeakFilter.refresh_addressees()
+    names = BotSpeakFilter.ADDRESSEE_NAMES.split("|")
+    assert len(names) > 50
+    assert "fixtureuser00" in names
+    assert "fixtureuser59" in names
 
 
 @pytest.mark.parametrize("text,expected", [
