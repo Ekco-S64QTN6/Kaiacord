@@ -32,6 +32,13 @@ def xp_to_next_level(current_level: int) -> int:
     return XP_THRESHOLDS.get(current_level + 1, 0)
 
 
+def retroactive_hp_gain_for_con_change(previous_con: int, new_con: int, level: int) -> int:
+    """Return HP gained from a CON increase based on modifier change."""
+    previous_mod = (int(previous_con) - 10) // 2
+    new_mod = (int(new_con) - 10) // 2
+    return max(0, new_mod - previous_mod) * max(0, int(level))
+
+
 def queue_stat_choice(sheet: dict, level: int) -> None:
     """Persist one stat-growth choice for each earned milestone.
 
