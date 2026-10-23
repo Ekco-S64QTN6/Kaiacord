@@ -128,7 +128,7 @@ async def _get_x_mentions(_silenced_replied_ids: set) -> List[Dict[str, Any]]:
         if not client:
             # Treat failed login/session construction as unavailable, not an
             # empty successful poll; otherwise the breaker is reset forever.
-            raise RuntimeError("X client unavailable after login/cookie recovery")
+            raise RuntimeError("X client unavailable after authentication failed during login/cookie recovery")
 
         # Get mentions notifications
         notifs = await client.get_notifications('Mentions')
