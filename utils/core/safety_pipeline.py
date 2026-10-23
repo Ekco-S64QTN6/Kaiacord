@@ -1148,6 +1148,7 @@ class PostGenerationSafetyPipeline:
         "pertinent", "valid", "astute", "insightful", "poignant", "palpable", "faint", "soft", "slow", "steady"))
     _ABSTRACT = re.compile(r"^(?:" + _SAID_NOUN + r"|[a-z\-]{3,}(?:tion|sion|ment|ance|ence|ness|ity|ism|ude|ing)s?"
                            r"|sense|feeling|shift|hum|echo|truth|grief|hope|calm|peace|tension|resolve|reality|"
+                           r"pattern|tendency|habit|strategy|defense|defence|"
                            r"balance|rhythm|cadence|signal|nudge|reminder|sign)$", re.IGNORECASE)
 
     @classmethod
