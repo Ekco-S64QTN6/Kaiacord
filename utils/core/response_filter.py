@@ -84,7 +84,10 @@ class EmergencyContaminationFilter:
 
     # At or above this many copula-ellipsis hits the response is regenerated
     # rather than cleaned; below it the punctuation is stripped in place.
-    ELLIPSIS_REJECT_AFFECT = 3
+    # Three copula-ellipsis hits occur in otherwise usable reflective replies (seen
+    # in production). Defuse that register inline; reserve a retry for denser
+    # cadence rather than spending another full inference on punctuation.
+    ELLIPSIS_REJECT_AFFECT = 4
     #: Words no sentence ends on: articles, possessives, "it's"/"that's", "just".
     #: Plenty of other words only look like it — "it simply is.", "a file i
     #: don't have access to.", "scared of.", "inevitable, almost.", "anything
