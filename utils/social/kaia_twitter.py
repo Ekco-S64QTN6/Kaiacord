@@ -9,6 +9,8 @@ Uses username/password authentication, no API keys needed.
 
 import os
 import asyncio
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_warning, log_error, log_debug
