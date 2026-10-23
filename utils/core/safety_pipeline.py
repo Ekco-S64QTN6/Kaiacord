@@ -1065,6 +1065,16 @@ class PostGenerationSafetyPipeline:
         joined = "\n\n".join(out)
         return joined if joined != text.strip() else text
 
+    @classmethod
+    def normalize_litany_paragraphs(cls, text: str) -> str:
+        """Canonical paragraph-formatting sequence shared by live and stored turns.
+
+        Reflow first so fragment runs split across short paragraphs become
+        visible to the litany detector. Keep this order in one place to avoid
+        live replies and history cleanup drifting apart.
+        """
+        return cls.collapse_litany(cls.reflow_paragraphs(text))
+
     #: A litany — "a pattern identified. a tendency observed. a habit
     #: acknowledged. a coping mechanism. a defense strategy." — keeps its first
     #: LITANY_KEEP fragments. Runs of four or more were in no reply of hers from
