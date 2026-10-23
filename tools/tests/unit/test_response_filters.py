@@ -810,7 +810,7 @@ def test_an_address_tag_only_response_is_removed_not_restored():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
 
     assert P.strip_address_tag("(speaking exclusively to starkind)") == ""
-    assert P.strip_address_tag("(speaking exclusively to starkind)\\n\\nhello.") == "hello."
+    assert P.strip_address_tag("(speaking exclusively to starkind)\n\nhello.") == "hello."
 
 
 def test_the_grading_opener_is_caught_without_a_name():
