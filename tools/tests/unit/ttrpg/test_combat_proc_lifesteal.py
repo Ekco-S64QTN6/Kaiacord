@@ -46,3 +46,46 @@ def test_shadowknight_lifesteal_includes_class_and_weapon_proc_damage(monkeypatc
     assert "2 HP" in " ".join(result["exchanges"]) or any(
         "Lifesteal: +2 HP" in line for line in result["exchanges"]
     )
+
+
+def test_paladin_kill_heal_runs_once_after_the_monster_is_defeated(monkeypatch):
+    sheet = {
+        "user_id": "42",
+        "character_name": "Oathkeeper",
+        "class": "Warrior",
+        "advanced_class": "Paladin",
+        "level": 1,
+        "stats": {"str": 10, "dex": 10, "con": 10},
+        "hp": {"current": 10, "max": 20},
+        "equipment": {"weapon": None, "armor": None},
+        "conditions": [],
+    }
+    monster = {
+        "id": "skeleton",
+        "name": "Skeleton",
+        "hp": {"current": 3, "max": 3},
+        "attack": 0,
+        "defense": 1,
+        "tier": "easy",
+    }
+
+    # Hit (10), weapon damage (1), and fail the class proc chance (99).
+    rolls = iter([9, 0, 99])
+    monkeypatch.setattr(combat_engine.secrets, "randbelow", lambda n: next(rolls))
+
+    result = combat_engine._resolve_combat(sheet, monster)
+
+    assert result["monster_defeated"] is True
+    assert result["player_damage"] == 3  # 1 base + 2 Paladin smite
+    assert result["sheet"]["hp"]["current"] == 13  # one +3 heal-on-kill
+    log = "\n".join(result["exchanges"])
+    assert log.count("Paladin's smite") == 1
+    assert log.count("Holy kill restores 3 HP") == 1
+
+
+def test_advanced_class_effects_are_not_reapplied_by_the_overworld_handler():
+    from pathlib import Path
+
+    source = Path("utils/ttrpg/rpg_combat_handler.py").read_text(encoding="utf-8")
+    block = source[source.index("# Combat and kill-specific advanced-class effects"):]
+    assert "apply_advanced_class_to_combat(" not in block
