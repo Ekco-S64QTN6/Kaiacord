@@ -308,11 +308,24 @@ def _load_cookies_from_profile_copy(loader, loader_name: str, profile_root: Path
         return list(loader(**kwargs))
 
 
+def _cookie_dict_for_source(cookies) -> dict:
+    """Build a cookie map from one browser/profile only (never mix sessions)."""
+    result = {}
+    for cookie in cookies:
+        name = getattr(cookie, "name", None)
+        value = getattr(cookie, "value", None)
+        if name and value is not None:
+            result[name] = value
+    return result
+
+
 def _extract_browser_cookies() -> dict:
     """Extract X cookies from supported browsers, including common Linux profiles.
 
     Try browser_cookie3's own detection first; on a locked SQLite database,
-    retry known profile paths from a short-lived copy including WAL files.
+    retry known profile paths from a short-lived copy including the WAL file.
+    Cookies from different profiles are never merged, as that could pair an
+    auth_token from one login with the CSRF cookie from another.
     """
     try:
         import browser_cookie3
@@ -329,58 +342,67 @@ def _extract_browser_cookies() -> dict:
         ("Firefox", "firefox"),
         ("LibreWolf", "librewolf"),
     )
-    all_cookies = []
     attempted = 0
+    auth_only_fallback = None
 
-    # First use package autodetection for any browser it already supports.
+    def consider(source: str, cookies: list) -> Optional[dict]:
+        nonlocal auth_only_fallback
+        jar = _cookie_dict_for_source(cookies)
+        if "auth_token" not in jar:
+            return None
+        if "ct0" in jar:
+            log_info(f"[X COOKIE] Found an auth_token and matching ct0 from {source}.")
+            return jar
+        # Preserve the prior contract as a final fallback, but never fill ct0
+        # from another browser/profile.
+        if auth_only_fallback is None:
+            auth_only_fallback = jar
+        log_debug(f"[X COOKIE] {source} had auth_token but no ct0; trying other profiles.")
+        return None
+
+    # First use package autodetection, collecting both domains per browser so
+    # the auth cookie and CSRF cookie come from the same detected source.
     for label, loader_name in browser_loaders:
         loader = getattr(browser_cookie3, loader_name, None)
         if not callable(loader):
             log_debug(f"[X COOKIE] browser_cookie3 has no {loader_name} loader; skipping {label}.")
             continue
+        source_cookies = []
         for domain in domains:
             attempted += 1
             try:
-                found = list(loader(domain_name=domain))
-                all_cookies.extend(found)
-                if found:
-                    log_debug(f"[X COOKIE] Read {len(found)} {domain} cookie(s) using {label} autodetection.")
+                source_cookies.extend(list(loader(domain_name=domain)))
             except Exception as e:
                 _cookie_extraction_warning(f"{label} autodetection", domain, e)
+        valid = consider(f"{label} autodetection", source_cookies)
+        if valid is not None:
+            return valid
 
     # If autodetection failed (locked/open profile, non-standard location, or
-    # sandboxed install), try explicit local profile files with a temporary copy.
+    # sandboxed install), retry each explicit database as its own cookie source.
     for label, loader_name, profile_root, database in _browser_cookie_db_candidates():
         loader = getattr(browser_cookie3, loader_name, None)
         if not callable(loader):
             continue
+        source_cookies = []
         for domain in domains:
             attempted += 1
             try:
-                found = _load_cookies_from_profile_copy(
+                source_cookies.extend(_load_cookies_from_profile_copy(
                     loader, loader_name, profile_root, database, domain
-                )
-                all_cookies.extend(found)
-                if found:
-                    log_debug(
-                        f"[X COOKIE] Read {len(found)} {domain} cookie(s) from "
-                        f"a copied {label} profile database at {database}."
-                    )
+                ))
             except Exception as e:
                 _cookie_extraction_warning(f"{label} copied-profile", domain, e, database)
+        valid = consider(f"{label} profile {database}", source_cookies)
+        if valid is not None:
+            return valid
 
-    cookie_dict = {}
-    for cookie in all_cookies:
-        name = getattr(cookie, "name", None)
-        value = getattr(cookie, "value", None)
-        if name and value is not None:
-            cookie_dict[name] = value
-
-    # auth_token is the credential-bearing X session cookie. Do not inject a
-    # partial or logged-out cookie jar just because unrelated site cookies exist.
-    if "auth_token" in cookie_dict:
-        log_info(f"[X COOKIE] Found an auth_token in {len(all_cookies)} extracted browser cookies.")
-        return cookie_dict
+    if auth_only_fallback is not None:
+        log_warning(
+            "[X COOKIE] Found auth_token but no matching ct0 in any single browser/profile; "
+            "using the auth_token-only fallback. X may still require a fresh login."
+        )
+        return auth_only_fallback
 
     log_warning(
         f"[X COOKIE] No auth_token found after {attempted} browser/profile extraction attempts. "
