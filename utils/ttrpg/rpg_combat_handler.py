@@ -17,8 +17,7 @@ from utils.ttrpg.progression import (
     harvest_bonus, streak_bonus, golden_tongue_bonus, check_and_reset_hunts, hunts_remaining, check_level_up, get_max_hunts, xp_to_next_level,
 )
 from utils.ttrpg.class_advancement import (
-    apply_advanced_class_to_combat, apply_advanced_class_to_sheet,
-    get_advanced_options, get_title, ADVANCED_CLASSES
+    apply_advanced_class_to_sheet, get_advanced_options, get_title, ADVANCED_CLASSES
 )
 from utils.ttrpg.dungeon import load_dungeon, save_dungeon
 from utils.ttrpg.rpg_ui import TIER_ICONS
