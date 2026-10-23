@@ -514,7 +514,7 @@ async def _model_answer(challenge: str) -> Optional[str]:
                                            keep_alive=-1)
         res = await gpu_memory_manager.run_with_gpu_guard(
             config.chat_model,
-            run(),
+            run,
             task_id="moltbook_verify",
             priority=GPUTaskPriority.BACKGROUND,
         )
