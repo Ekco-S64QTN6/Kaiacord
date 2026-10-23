@@ -196,13 +196,13 @@ async def post_quip_to_x(quip: str) -> bool:
     return success
 
 
-_COOKIE_EXTRACTION_WARNED: set[tuple[str, str, str]] = set()
+_COOKIE_EXTRACTION_WARNED: set[tuple[str, str, str, str]] = set()
 
 
 def _cookie_extraction_warning(source: str, domain: str, error: BaseException,
                                path: Optional[Path] = None) -> None:
     """Log each repeated browser/profile failure once without exposing cookie values."""
-    key = (source, domain, type(error).__name__)
+    key = (source, domain, str(path or ""), type(error).__name__)
     if key in _COOKIE_EXTRACTION_WARNED:
         return
     _COOKIE_EXTRACTION_WARNED.add(key)
@@ -273,9 +273,10 @@ def _load_cookies_from_profile_copy(loader, loader_name: str, profile_root: Path
     """Copy a live SQLite cookie DB and its WAL sidecars before parsing it.
 
     SQLite WAL data is not necessarily checkpointed into the main database while
-    a browser is open. Copying only Cookies/cookies.sqlite can silently miss the
-    current session; copy existing -wal/-shm sidecars too. The copy is short-lived
-    and never modifies the browser's original profile.
+    a browser is open. Copy the -wal sidecar too, so recent cookies remain visible.
+    Do not copy -shm: its coordination/lock state belongs to the live database
+    participants, and SQLite will rebuild a fresh shared-memory index for the copy.
+    The copy is short-lived and never modifies the browser's original profile.
     """
     with tempfile.TemporaryDirectory(prefix="kaiacord-x-cookies-") as temp_dir:
         temp_root = Path(temp_dir)
@@ -286,7 +287,7 @@ def _load_cookies_from_profile_copy(loader, loader_name: str, profile_root: Path
         copied_db = temp_root / relative
         copied_db.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(database, copied_db)
-        for suffix in ("-wal", "-shm"):
+        for suffix in ("-wal",):
             sidecar = Path(str(database) + suffix)
             if sidecar.is_file():
                 # A sidecar can disappear between is_file and copy2 while the
