@@ -78,3 +78,21 @@ def test_x_auth_classifier_uses_twikit_exception_names_without_status_code():
     assert not is_x_auth_or_challenge_error(
         RuntimeError("tweet content includes the digits 403")
     )
+
+
+def test_account_locked_does_not_delete_cookies_or_invalidate_client(monkeypatch, tmp_path):
+    cookies = tmp_path / "x_cookies.json"
+    cookies.write_text('{"auth_token":"keep-for-manual-unlock"}')
+    monkeypatch.setattr(kx, "_cookies_path", cookies)
+    locked = type("AccountLocked", (Exception,), {})
+    client = SimpleNamespace(create_tweet=AsyncMock(side_effect=locked("account challenge")))
+    monkeypatch.setattr(kx, "_client", client)
+    invalidate = AsyncMock()
+    monkeypatch.setattr(kx, "invalidate_x_session", invalidate)
+
+    ok, _ = asyncio.run(kx.post_to_x("hello"))
+
+    assert not ok
+    assert kx._client is client
+    assert cookies.exists()
+    invalidate.assert_not_awaited()
