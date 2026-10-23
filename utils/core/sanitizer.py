@@ -171,10 +171,16 @@ def strip_runtime_scaffolding(text: str) -> str:
 
 
 def _is_public_ip(ip_str: str) -> bool:
+    """Return whether an address is globally routable, not just non-private.
+
+    Python's is_private and the explicit special-use flags do not reject every
+    non-global range. In particular, RFC 6598 shared address space (100.64.0.0/10)
+    is neither is_private nor is_global; accepting it weakens the SSRF
+    guard used by URL validation and the connection-time DNS resolver.
+    """
     import ipaddress
     ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
-    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-                or ip.is_multicast or ip.is_unspecified)
+    return ip.is_global
 
 
 def public_only_connector():
