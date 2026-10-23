@@ -73,6 +73,13 @@ def _db() -> sqlite3.Connection:
         Path(p).parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(p, timeout=10)
         con.row_factory = sqlite3.Row
+        # The bot writes catches while KAIA // OPS and KAIA//RX query this
+        # database from independent processes. WAL lets those readers retain
+        # snapshots without holding up scanner commits.
+        mode = con.execute("PRAGMA journal_mode").fetchone()[0].lower()
+        if mode != "wal":
+            con.execute("PRAGMA journal_mode = WAL")
+        con.execute("PRAGMA busy_timeout = 10000")
         con.executescript(SCHEMA)
         have = {r[1] for r in con.execute("PRAGMA table_info(events)")}
         for name, typ in EVENT_COLUMNS:
