@@ -78,20 +78,25 @@ def _shared_context_citation(marker: str, block: str) -> str:
     return ""
 
 
-def summarize_link_context(text: str) -> str:
-    """Replace enricher-only blocks with fixed, non-instructional citations.
+_REPLY_CONTEXT_PREFIX = re.compile(
+    r"\A\[REPLYING_TO\]\n[\s\S]*?\n\n\[USER_MESSAGE\]\n"
+)
 
-    The actual user-authored URL remains untouched outside the enriched block.
-    Page titles and body text do not: both are page-controlled and can carry
-    prompt injection, even when a title is escaped and length-capped.
+
+def _strip_reply_context(text: str) -> str:
+    """Remove fetched parent-message context, preserving the actual user turn."""
+    return _REPLY_CONTEXT_PREFIX.sub("", text or "", count=1)
+
+
+def summarize_link_context(text: str) -> str:
+    """Persist a user turn without fetched reply, page, embed, or message blocks.
+
+    The URL typed by the user is kept in the user-authored portion. External
+    page titles and body text are deliberately not copied into future prompts.
     """
     if not text:
         return text
-
-    # Replies arrive as a runtime-owned quote prefix followed by the exact
-    # user-authored message. Drop the quote prefix before persisting; otherwise
-    # another person's fetched message is recorded as though the author typed it.
-    text = re.sub(r"\A\[REPLYING_TO\]\n[\s\S]*?\n\n\[USER_MESSAGE\]\n", "", text, count=1)
+    text = _strip_reply_context(text)
 
     def _replace(m):
         marker_match = re.match(r"^\s*\[([A-Z_ ]+)\]", m.group(0), re.IGNORECASE)
@@ -167,17 +172,12 @@ def pointed_at(sanitized_content: str, parent_context: str | None) -> str | None
 
 
 def strip_runtime_scaffolding(text: str) -> str:
-    """Remove enricher-injected blocks before a message is written to a log.
-
-    Deliberately not part of sanitize_prompt: generation needs the scaffolding.
-    Only persistence does not.
-    """
+    """Remove fetched context before a message enters a log or training corpus."""
     if not text:
         return text
+    text = _strip_reply_context(text)
     cleaned = RUNTIME_SCAFFOLDING.sub("", text)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-
-
 def _is_public_ip(ip_str: str) -> bool:
     import ipaddress
     ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
