@@ -140,7 +140,8 @@ def test_listen_along_audio_is_steady_20ms_frames(monkeypatch):
     audio_queue = queue.Queue(maxsize=4)
     src = scanner.ScanAudio(audio_queue)
     assert src.read() == bytes(3840)                        # silence while nothing is held
-    monkeypatch.setattr(scanner.rx_dashboard, "audio", lambda _chunk: None, raising=False)
+    from utils.radio import rx_dashboard
+    monkeypatch.setattr(rx_dashboard, "audio", lambda _chunk: None)
     with scanner._along_audio_lock:
         scanner._along_audio[1] = audio_queue
     try:
