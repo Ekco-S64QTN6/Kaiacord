@@ -12,7 +12,7 @@ repeat it.
 2. **Read the relevant design doc** before modifying any system:
    - Combat/classes/equipment → `docs/ttrpg/aethelgard_system.md`
    - Lore, NPCs, world → `docs/ttrpg/aethelgard_lore_bible.md`
-   - Balance targets & TTRPG audit → `docs/ttrpg/ttrpg_report.md`
+   - Balance targets → `docs/ttrpg/aethelgard_system.md` (Balance targets)
 3. **Check open issues** — if someone's already working on it, coordinate.
 
 ## Setup
@@ -104,7 +104,7 @@ Areas: `ttrpg`, `combat`, `fishing`, `housing`, `alchemy`, `core`, `docs`, `conf
 
 ## What We're Looking For
 
-See `docs/ttrpg/ttrpg_report.md` for current balance state. Good first contributions:
+Open work, with a decision on each, is in [`docs/ROADMAP.md`](docs/ROADMAP.md). Good first contributions:
 
 ### 🟢 Easy Picks
 - Add alchemy recipes (14 exist; the discovery tables support more)
@@ -114,7 +114,7 @@ See `docs/ttrpg/ttrpg_report.md` for current balance state. Good first contribut
 
 ### 🟡 Medium
 - Expand seasonal monster pools
-- More Spine of the World floor variety (`docs/ttrpg/Spine_Variety_Audit.md`)
+- More Spine of the World floor variety (rare spawns per zone; see the roadmap)
 
 ### 🔴 Hard (Coordinate First)
 - Combat engine balance changes (defense soft-cap, lifesteal caps)

@@ -192,7 +192,7 @@ bluesky:
 # ============================================================================
 # @KaiaKuroshi. Credentials in .env (X_USERNAME / X_EMAIL / X_PASSWORD);
 # twikit authenticates with browser session cookies cached at
-# memory/x_cookies.json — see docs/04-security/x-twikit-credentials.md.
+# memory/x_cookies.json — see docs/07-security/x-twikit-credentials.md.
 #
 # Known blocker: twikit 2.3.3 cannot reach x.com. Its ON_DEMAND_FILE_REGEX no
 # longer matches the page, so ClientTransaction.get_indices raises "Couldn't

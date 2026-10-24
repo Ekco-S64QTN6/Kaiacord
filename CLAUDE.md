@@ -1775,7 +1775,7 @@ it here.
 | GPU management | `docs/03-architecture/gpu-management.md` |
 | Testing | `docs/04-development/testing.md`, `tools/tests/README.md` |
 | TTRPG spec | `docs/ttrpg/aethelgard_system.md` — **read before touching combat** |
-| TTRPG balance | `docs/ttrpg/ttrpg_report.md` |
+| TTRPG balance | `docs/ttrpg/aethelgard_system.md` (Balance targets) · open work: `docs/ROADMAP.md` |
 | Corpus layout | `knowledge_base/README.md` — **read before adding a folder** ([§10](#10-knowledge-base)) |
 | Shell tooling | `scripts/README.md` — what `kaia-tools.sh` exposes |
 | Contributing | `CONTRIBUTING.md` — human-facing PR workflow |

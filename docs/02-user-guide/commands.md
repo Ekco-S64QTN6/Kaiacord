@@ -7,7 +7,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | Command | Description | Access |
 |:---|:---|:---|
 | `!scores` / `!stats` | Gamified memory analytics & affinity leaderboards | All |
-| `!art` | Generate a fractal flame artwork with Kaia commentary | All |
+| `!art [loop] [words]` | An Electric Sheep piece, chosen from your words; `loop` posts it moving | All |
 | `!music` | Perform a live-coded set in your voice channel | All |
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
 | `!help [section \| command]` | A button panel: a page per section (owners also get Admin); `!help music` explains one command | All |
@@ -57,7 +57,17 @@ Displays Kaia's gamified memory analytics, affinity bond scores, active beliefs,
 - **System Telemetry**: Displays emotional vector (`valence`, `arousal`, `energy`), RAG retrieval confidence, forum activity, and operational statistics.
 
 ### 🎨 Art (`!art`)
-Generates a fractal flame artwork using the Electric Sheep algorithm (CPU-rendered, NumPy/SciPy). Kaia provides commentary on each piece. Features 20 variation functions, 10 color palettes, and adaptive density estimation.
+Real Electric Sheep genomes rendered by [flam3](https://github.com/scottdraves/flam3). Your words' colours
+and complexity pick the sheep; now and then Kaia breeds two into one of her own; an attached picture
+repaints it in that picture's colours. She titles it and says what she sees.
+
+- `!art` — her choice · `!art a cold storm over the sea` — from your words
+- `!art loop deep ocean` — a 4-second rotating loop (about 30 s to render)
+- `!art mandelbrot` · `!art <weirdly.net link>` — the Mandelbrot set, or those exact coordinates
+- `--seed N` reproduces a piece; `--palette NAME` is a colour word (`ember`, `deep_ocean`, `void`…)
+
+Every post credits "artwork by Scott Draves and the Electric Sheep" and names the sheep (CC BY-NC 3.0).
+Setup: `tools/maintenance/fetch_art_flock.py --build-flam3 --count 300 --gate`.
 
 ### ⚔️ RPG & Fishing (`!rpg`)
 Opens the Aethelgard TTRPG interface — a full persistent RPG with turn-based combat, 10 advanced classes, a 77-floor mega-dungeon, housing, farming, pets, alchemy, and a 248-species fishing minigame. Python handles all game math; Kaia narrates outcomes.
