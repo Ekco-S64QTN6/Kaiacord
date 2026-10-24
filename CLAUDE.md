@@ -22,7 +22,7 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 |:--|:--|:--|
 | **Kaia** | `utils/core/` | AI persona. Behavioural injections in `message_processor.py`, post-generation safety pipeline in `safety_pipeline.py` + `response_filter.py`, hybrid BM25 + vector RAG. |
 | **Aethelgard TTRPG** | `utils/ttrpg/` | Deterministic turn-based RPG, 77-floor mega-dungeon. |
-| **Fractal art** | `utils/core/kaia_art.py` | Electric Sheep flame renderer, CPU-only NumPy/SciPy. |
+| **Fractal art** | `utils/core/kaia_sheep.py` | Electric Sheep genomes rendered by flam3 (external, GPL); `kaia_art.py` is the NumPy fallback and the Mandelbrot renderer. |
 | **Music** | `utils/audio/` | Live-coded sets in a voice channel, driving Strudel in a real browser; `!music records` mixes the local library with a playable DJ booth. No LLM, no GPU — see [§7](#7-music-engine). |
 | **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X, each behind its own enable flag. |
 | **Monitoring** | `utils/infrastructure/monitoring/`, `utils/admin/` | Curses dashboard (`btop_dashboard_v2.py`); KAIA // OPS, the read-only browser dashboard in its own process — see [§9](#kaia--ops). |
@@ -874,6 +874,17 @@ two- and three-hue gradients, and a flame came out in two or three colours. Ever
 hue wheel (`_spectrum_lut`: start, direction, saturation are what make them different), the colour coordinate is
 mapped through its own quantiles after warm-up so the points use the whole palette, and a saturation lift
 (`SAT_LIFT`) keeps hue where arcs of different colours average to grey. `test_every_palette_goes_round_the_colour_wheel`.
+
+**`!art` is Electric Sheep, not an imitation of it.** The NumPy renderer drew 2–4 random transforms with a
+hue-wheel palette and every piece looked alike; no tuning of it got close. `kaia_sheep` uses the real thing:
+flock genomes (`memory/art/flock/`, git-ignored, fetched by `tools/maintenance/fetch_art_flock.py`) and flam3
+run as separate programs (GPL; nothing copied into this MIT repo). Things that cost time to find:
+a *transition* sheep's file is two `<flame>`s with no root element (`split_flames`); `scale` is pixels per unit,
+so it scales with the width (`resize`); the genomes ask for 4× supersampling and 1000 motion-blur samples,
+which make a loop ~4× slower for nothing visible, so loops use supersample 2 and `temporal_samples=1`; a cross
+of two sheep can wash out to pale fog, so crosses are rare (15%) and pass a strict preview. Recolouring maps
+each palette entry by brightness rank onto the picture's ramp, keeping the sheep's light and shade. The
+licence (CC BY-NC, credit and sheep number on every post) is why the credit is in the footer: keep it.
 
 **`!art` is decided before it is drawn.** `kaia_art_intent.decide` turns a prompt, her mood or an
 attached image into an `ArtIntent` — palette (or a colour ramp from the image), symmetry, lead

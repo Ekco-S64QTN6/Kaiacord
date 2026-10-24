@@ -706,6 +706,17 @@ forum:
 #
 # GPU cost is zero and this process stays light: the synthesis happens inside
 # the browser, so the chat model keeps all of its VRAM.
+art:
+  # !art renders Electric Sheep genomes with flam3 (utils/core/kaia_sheep.py).
+  # flam3_dir: ~/.local/bin        # where flam3-render/-genome/-animate are; default ~/.local/bin, then PATH
+  still_width: 1280               # px; height follows the sheep's aspect
+  still_quality: 1000             # samples per pixel; 10-25 s a still on ten cores
+  loop_width: 640
+  loop_frames: 96                 # one full rotation; 4 s at 24 fps
+  loop_quality: 120
+  breed_chance: 0.15              # how often she crosses two sheep instead of picking one
+  # render_threads: 10            # default: every core but two
+
 music:
   enabled: true
 
