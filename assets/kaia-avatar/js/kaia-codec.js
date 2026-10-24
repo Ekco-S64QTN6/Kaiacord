@@ -4,6 +4,9 @@
  * Mounts the animated Kaia codec into a container element:
  *   const codec = await KaiaCodec.mount(stageEl);
  *   codec.setMood('happy'); codec.speak('Handshake captured.'); codec.react('capture');
+ *
+ * `portrait: 'random'` picks one of KaiaCodec.PORTRAITS, never the one this
+ * browser showed last (KaiaCodec.randomPortrait).
  */
 
 class KaiaCodec {
@@ -15,7 +18,8 @@ class KaiaCodec {
 
   constructor(container, { assets = '/static/assets/kaia', portrait = KaiaCodec.DEFAULT_PORTRAIT, maxFps = 60, still = false } = {}) {
     this.container = container;
-    this.assets = `${assets}/${portrait}`;
+    this.portrait = portrait === 'random' ? KaiaCodec.randomPortrait() : portrait;
+    this.assets = `${assets}/${this.portrait}`;
     this.frameInterval = 1000 / maxFps;
     this.animator = new window.KaiaAnimator();
     this.animator.still = still;
@@ -90,5 +94,17 @@ class KaiaCodec {
 /** Portrait folders under assets/kaia/ (each: kaia_codec.webp + kaia_rig.json). */
 KaiaCodec.PORTRAITS = ['k60', 'k59', 'k28', 't1', 't2', 't3'];
 KaiaCodec.DEFAULT_PORTRAIT = 'k60';
+
+/** One of PORTRAITS at random, never the one last shown in this browser
+ *  (remembered under `key`; storage may be unavailable, so best effort). */
+KaiaCodec.randomPortrait = function (key = 'kaia-codec-portrait') {
+  const all = KaiaCodec.PORTRAITS;
+  let last = null;
+  try { last = localStorage.getItem(key); } catch (e) { /* no storage */ }
+  const pool = all.length > 1 ? all.filter((p) => p !== last) : all;
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  try { localStorage.setItem(key, pick); } catch (e) { /* no storage */ }
+  return pick;
+};
 
 window.KaiaCodec = KaiaCodec;

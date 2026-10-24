@@ -189,3 +189,12 @@ def test_the_overview_lays_every_band_low_to_high_a_row_a_pass():
     hz = 144_000_000 + (peak + 0.5 - x0) / (x1 - x0) * 4_000_000
     assert n == 1 and seq == 1 and len(row) == rx_scope.OV_COLS and abs(hz - 146_520_000) < 30_000
     assert row[seg[0][0]:seg[0][1]].max() == 0               # a band not yet visited stays dark
+
+
+def test_every_rx_launch_is_counted_even_when_the_window_is_reused(monkeypatch):
+    from utils.radio import rx_dashboard as rx
+    monkeypatch.setattr(rx, "_launch", 0)
+    monkeypatch.setattr(rx, "url", lambda: "http://127.0.0.1:1/")
+    monkeypatch.setattr(rx, "_window", NS(poll=lambda: None))   # already open
+    assert rx.open_window() == "http://127.0.0.1:1/"
+    assert rx._launch == 1

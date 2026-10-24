@@ -112,7 +112,14 @@ def status() -> dict:
             "along": scanner.listening_along(), "kaia": _kaia_line(mode, freq, lv, tuned),
             "asked": scanner.asked(), "nightly": scanner.within_hours(), "cols": scope.cols,
             "gain_live": scanner.live_gain(), "habits": scanner.habit_count(),
-            "bands": scope.bands_info(), "overview": scope.overview_info(), "t": time.time()}
+            "bands": scope.bands_info(), "overview": scope.overview_info(), "t": time.time(),
+            "launch": _launch}
+
+
+#: How many times KAIA//RX has been launched (`open_window`, once per
+#: `!scanner dash`). A page already open reloads when it changes, so every
+#: launch shows a fresh portrait of her.
+_launch = 0
 
 
 _line_cache: dict = {"key": None, "t": 0.0, "line": ""}
@@ -593,9 +600,10 @@ def serve() -> str:
 def open_window() -> str:
     """Pop the dashboard out as an app window (blocking: run it off the loop).
     Returns its address."""
-    global _window, _profile
+    global _window, _profile, _launch
     if not url():
         return ""
+    _launch += 1
     if _window is not None and _window.poll() is None:
         return url()
     from utils.infrastructure.system import app_window
