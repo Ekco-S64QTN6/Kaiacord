@@ -194,6 +194,10 @@ Fully automatic. Player never touches dice.
 ### Weapon Procs
 Select T3+ weapons possess inherent elemental procs. These trigger independently on standard hits (10% chance) and critical hits (50% chance). They scale in extra damage from 1d4 to 1d12 based on weapon tier, and can trigger simultaneously alongside Class Procs.
 
+**Order of a hit.** Base roll + flat bonuses, then the class proc and the weapon proc are added, then advanced-class damage bonuses — so Shadowknight lifesteal (Dark Embrace) drains from the complete hit. Monster HP is reduced once by that total. Heals (class proc, lifesteal, drain weapons) apply after the damage. Kill-only advanced effects run after the duel non-lethal guard, before the monster's counterattack.
+
+**Dice notation** (`dice_engine.roll`) accepts 1–20 dice of 2–100 sides and a modifier of at most ±50.
+
 ### Inventory Capacity Cap
 Players are subject to a strict inventory size limit of **50 items**. Any purchase, brew, or loot drop that would cause the inventory to exceed 50 is blocked (items dropped in combat are left behind on the ground with an `🎒 [Inventory Full]` message).
 
@@ -543,6 +547,10 @@ At 12:00 PM (Noon) daily, a random dynamic world event is selected from the acti
 | 8 | 28,000 | 15 | 256,000 (cap) |
 
 **HP gain per level** = `HP_per_level[class] + CON modifier` (minimum 1).
+
+**Stat choices** at levels 4, 8 and 12 are queued, one per milestone (`progression.queue_stat_choice`), so a single XP award that crosses several milestones keeps every choice. Raising CON adds HP retroactively by the *modifier* change times level (`retroactive_hp_gain_for_con_change`), not per point.
+
+**Advancement** unlocks at level 5. A character loaded at level 5+ with no `advanced_class` is re-armed for the choice (`character_manager._migrate_advancement_pending`); choosing "stay" sets `advanced_class` to the base class, so it is offered once.
 
 Daily hunts reset at midnight. Dawn announcements post to `#aethelgard`.
 

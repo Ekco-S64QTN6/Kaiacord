@@ -62,9 +62,9 @@ number has been stale in three files at once — CLAUDE.md, README and CONTRIBUT
 different one. Run it and read the tail; what matters is that nothing *failed*, not that the count
 matches a doc.
 
-The no-external-services invocation is the default because only **2** of ~2,800 tests need Ollama
-or a GPU (checked 27 Sept 2026 — take the figure from `--collect-only -m "ollama or gpu"`, not
-here). The rest of what it deselects is the ~47 marked `slow`. Two such tests were once unmarked
+The no-external-services invocation is the default because only **2** of ~3,200 tests need Ollama
+or a GPU (checked 23 Oct 2026 — take the figure from `--collect-only -m "ollama or gpu"`, not
+here). The rest of what it deselects is the ~54 marked `slow`. Two such tests were once unmarked
 until September 2026 and ran on every "no external services" invocation, embedding through the
 bot's own live Ollama — Ollama's journal (`journalctl -u ollama`) is where that showed up. A test
 that touches the daemon is marked `ollama`, whatever else it does. The full `pytest -q` additionally
@@ -76,6 +76,21 @@ rather than a silently ignored one: `slow`, `gpu`, `ollama`, `network`, `integra
 **There is no linter or formatter.** No `ruff`, `black`, `pyproject.toml`, `setup.cfg`, or
 pre-commit hook exists, and none is in `requirements.txt`. Don't go looking for one, and don't
 introduce one without asking. Validation is the test suite plus exercising the code you changed.
+
+**CI is focused, not the suite.** `.github/workflows/` runs on GitHub Actions with fake
+credentials (`DISCORD_TOKEN`, `GEMINI_API_KEY` sentinels) and `OLLAMA_HOST` pointed at a dead port,
+so a mis-marked test fails fast instead of loading a model:
+
+| Workflow | Runs |
+|:--|:--|
+| `unit-tests.yml` | every PR and push to `main`: `.github/scripts/run_ci_tests.py` — `compileall` over `utils/` and `tools/`, the hygiene baseline (`test_suite_hygiene`, `test_chat_model_calls`, `test_no_shadowed_imports`), plus the tests for what the diff touched (`test_<stem>.py`, `RELATED_TESTS`, all of `tools/tests/unit/ttrpg/` for a `utils/ttrpg/` change) |
+| `ttrpg-tests.yml` | `tools/tests/unit/ttrpg/` when `utils/ttrpg/**` changes |
+| `records-audio-tests.yml` | `test_records.py` when `utils/audio/records.py` changes |
+
+A green check is therefore not a green suite: run the full no-external-services invocation
+locally before merging anything wider than one module. A module whose tests are named by
+behaviour rather than by file needs an entry in `RELATED_TESTS`, or CI runs none of them. CI
+installs `pytest` and `pytest-asyncio` itself; neither is in `requirements.txt`.
 
 > [!NOTE]
 > **Correction (Sept 2026).** Earlier agent docs claimed that importing anything from `utils/`
@@ -154,7 +169,7 @@ exec(open('utils/ttrpg/equipment_registry.py').read())
 print('gear', sum(len(d) for d in (WEAPONS,ARMOR,HEADGEAR,BOOTS,ACCESSORIES)), '+ consumables', len(CONSUMABLES))"
 ```
 
-Verified 2026-09-24: **369 monsters**, **395 gear + 58 consumables = 453 items**, 248 fish (`len(FISH)`),
+Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**, 248 fish (`len(FISH)`),
 12 quests, 10 classes.
 
 ---
@@ -189,9 +204,19 @@ Verified 2026-09-24: **369 monsters**, **395 gear + 58 consumables = 453 items**
   before handing anything to a writer thread: `BotState.save()` serialises on the caller's
   thread, because `json.dump` over live dicts on the writer raised mid-iteration and dropped
   the save. `write_atomic` names its temporary per process *and* thread for the same reason.
+- **Appends to a user log are serialised by a sidecar `flock`.** `append_atomic` and the RAG
+  interaction logger (`_write_interaction_to_disk`) both lock `.<log name>.append.lock` beside the
+  log and decide "first write, add the header" inside the lock — two worker threads each carried
+  a stale `is_new` and wrote two frontmatter blocks. The lock file is never unlinked (writers
+  would lock different inodes) and is dot-prefixed so corpus walkers skip it. The social tracker
+  and the radio ledger cross processes the same way: `memory/social_tracker.lock`, and SQLite
+  in WAL mode so KAIA // OPS and KAIA//RX read while the scanner commits.
 - **GPU is reserved for Ollama.** No CUDA, Numba, or PyCUDA for non-LLM work. CPU + NumPy only.
   All Ollama calls go through `gpu_memory_manager` with an appropriate `GPUTaskPriority`
-  (`grep -rc run_with_gpu_guard utils/` for current call sites). The bot process itself holds
+  (`grep -rc run_with_gpu_guard utils/` for current call sites). The signature is
+  `run_with_gpu_guard(model_name, coro, task_id=…, priority=…)` — pass `task_id` and `priority`
+  by keyword; the Moltbook verifier passed them positionally and every solve failed. `coro` may
+  be a zero-argument factory, which is preferable: nothing is created until the permit is held. The bot process itself holds
   no CUDA context: a `torch.cuda` call in it creates one, ~100 MiB on a card the model already
   fills, and `clear_gpu_memory()` was doing exactly that on every boot.
 - **Every call to the chat model sends the same runner options.** Ollama keeps one runner per
@@ -226,6 +251,12 @@ Verified 2026-09-24: **369 monsters**, **395 gear + 58 consumables = 453 items**
   (`tools/maintenance/mem_report.py`). Tell a leak (traced total grows) from fragmentation (RSS grows,
   traced doesn't) before fixing either. A cache keyed by `id()` must drop its entry with the object
   (`weakref.finalize`), or it outlives it — and a recycled id serves the old value.
+- **An HTTP fetch of a URL a user supplied goes through `is_safe_url` and
+  `sanitizer.public_only_connector`** (the link enricher, `!download`). The connector resolves
+  at connect time and admits globally routable unicast only (`_is_public_ip`:
+  `is_global and not is_multicast`). The older test — not private, loopback, link-local, reserved —
+  passed CGNAT space (100.64.0.0/10) and multicast. Discord message links, `ptb.` and `canary.`
+  included, are resolved through the API by the enricher and never scraped.
 - **`secrets` for security-relevant randomness** (combat rolls, loot, tokens). `random` is fine
   for flavour (dream shuffling, world-event variety).
 
@@ -255,6 +286,13 @@ and repair is the heaviest-weighted line in her relationship notes. Use
 result against real data (`memory/relationships/`, `knowledge_base/user_logs/`) before
 trusting it. The same audit found the curiosity scanner reading the user's *forum* folder and
 quoting Kaia's own lines back as theirs, and memory anchors injecting "you remember None".
+
+**What is persisted is what the user typed.** Channel history, the user log and the fine-tune
+corpus all store `sanitizer.summarize_link_context(ctx.sanitized_content)`: the `[REPLYING_TO]`
+prefix is dropped and each enricher block becomes a fixed citation — `[shared link: <host>]`,
+`[shared embed]`, `[shared Discord message]`. A page's title is not kept either: it is text the
+page controls, and history read back as conversation is where an injected instruction would
+land. The full enriched message still goes to generation for that turn only.
 
 The 2000-character cap in `sanitize_prompt` applies to what the user typed. Enricher blocks
 carry their own caps (`url_max_content_length`); cutting the whole string cut the page.
@@ -407,8 +445,12 @@ starkind)", headed every reply by 16 Oct; `strip_address_tag` takes it out of wh
 shown. Her paragraphs fragmented too — 2.3 a reply of ~32 words in early September, 5.4 of ~19 by mid-October —
 and `reflow_paragraphs` joins short prose paragraphs back together. From 16 Oct the cadence came back as
 litanies — "a pattern identified. a tendency observed. a habit acknowledged." — in 38% of replies (none before
-October); `collapse_litany` keeps the first two of a run of three or more "a …" fragments, leaving verse and
-lists alone. `reflow_paragraphs` changes no word (lists, headings, code,
+October); `collapse_litany` keeps the first two of a run of three or more "a …" fragments made of her stock
+vocabulary, leaving verse, lists and anything ending on a likely finite verb ("a quiet machine hums.") alone.
+Reflow runs first, so a run split across short paragraphs is seen whole; the order lives in one place,
+`normalize_litany_paragraphs`, which the live path, `detemplate_history` and `clean_kaia_turns.py` all call.
+A reply that is *only* the address tag is suppressed (`strip_address_tag` returns empty) rather than sent
+back as the leak — the one deliberate exception to the rule below. `reflow_paragraphs` changes no word (lists, headings, code,
 quotes and stage directions keep their lines) and runs in what she sends and in her history. **A history-side rule is
 not finished until the logs match it:** her logged turns are retrieved and her recent ones are the template, so
 `tools/maintenance/clean_kaia_turns.py` runs the same filters over her turns in `user_logs/`, channel memory and
@@ -447,7 +489,9 @@ and her self-model ("guardngnowm is. persistent"), which is injected whole. Afte
 `repair_cut_ellipsis` undoes the old damage. Keep that list narrow: "scared of.", "what i'm here for.",
 "inevitable, almost.", "anything but.", "not quite." are real endings, and a first, wider list fused them.
 
-**Never let a filter empty a good response.** An empty return triggers a full regeneration,
+**Never let a filter empty a good response.** Ellipsis cadence below `ELLIPSIS_REJECT_AFFECT` (4
+copula-ellipsis hits) is defused in place, never regenerated: three occur in usable reflective replies.
+An empty return triggers a full regeneration,
 which costs a whole inference round-trip — and if every attempt is rejected she says nothing at
 all. That happened: three contemplative replies to a question about her own code were each
 rejected for ellipsis-affect drift, 35 s of inference discarded, silence delivered. Exhaustion is
@@ -557,6 +601,14 @@ the authority, but they are the ones most likely to be "fixed" by mistake:
 - **Patterns are applied by clicking a real button.** `evaluate()` through Playwright is not a
   user gesture: it returns true, logs `[cyclist] start`, reports a running AudioContext, and
   produces nothing.
+
+`PULSE_SINK` is set in Chromium's launch environment only (`_browser_environment`), never in
+`os.environ`: set on the bot's process, every child it started afterwards inherited the
+music-only null sink, so anything of theirs that played sound went nowhere audible. Every child process the music engine starts is reaped on
+every exit path: `close_capture` and `Deck.close` terminate, wait, kill and wait again (a `kill()`
+alone leaves a zombie), close the pipe, and a capture restart racing a shutdown is serialised by
+`StrudelAudioSource._capture_lock`. A records start that fails after its threads exist
+tears them down and leaves the voice channel before re-raising.
 
 **A track is arranged, not accumulated.** Every part is in the program from bar one; a
 `.mask("<…>")` and per-bar automation sequences (`lpf`, `gain`, roll speed) decide what sounds in
@@ -669,7 +721,7 @@ a mix that sounded wrong:
   playing and the one the rotation starts next, and ▶ PLAY follows a set from there (`play_set`: its
   first unplayed record is the next pick; a plan not yet begun is called off and the pick in flight
   dropped by generation). `records_graph.py --md FILE` writes the listing.
-- **The audio thread works from one snapshot per frame.** A skip, a load or a cue from the booth calls a
+- **The renderer works from one snapshot per frame.** A skip, a load or a cue from the booth calls a
   plan off on another thread; a frame that read the plan before it and the incoming deck after it raised
   `'NoneType' object has no attribute 'slot'`, and discord.py stopped the set. `read()` takes plan,
   incoming and start frame once, and `_advance` re-checks them under the lock.
@@ -699,8 +751,14 @@ a mix that sounded wrong:
 - **Check a change on click tracks** through the real `CrossfadeSource` (the incoming first kick must
   land on the planned bar, kicks within a few ms) — a beat detector on real music is not a reliable
   judge of another beat detector.
-- **Nothing slow on the voice thread.** The incoming ffmpeg is started and buffered by the planner
-  thread; the set logs every frame the voice thread came back late for (`[records] voice thread`).
+- **Nothing slow on the voice thread — not even the mix.** `CrossfadeSource.read()` (band filters,
+  gain curves, NumPy) runs on a renderer worker; discord.py reads `BufferedRecordsSource`, which only
+  dequeues a finished 20 ms frame and returns silence on an empty queue — it never waits for the mixer,
+  logs or touches disk (late reads are counted in memory and reported at set end, `[records] voice
+  thread`). The queue is `music.records_audio_buffer_frames` (15 frames ≈ 300 ms, clamped 3–50): every
+  booth control and Kaia's hands are heard that much later, so keep it small. The incoming ffmpeg is
+  started and buffered by the planner thread. `records-audio-tests.yml` runs `test_records.py` in CI on
+  any change to `records.py`.
 
 **The DJ booth** (`dj_dashboard.py`, `assets/dj/index.html`) shows only the mixer's own state —
 the decks `CrossfadeSource` holds, their grids, the plan, the band gains applied this frame and the
@@ -805,7 +863,10 @@ KiwiSDRs via `kiwirecorder` (fetched into `assets/kiwiclient/` by
 `tools/maintenance/fetch_radio_assets.py`, never vendored — no licence file, GPL parts), CPU-only
 faster-whisper `large-v3` on band-passed audio, and `phonetic.parse`, which merges the readbacks
 and writes `?` where they disagree. Rules: pick receivers with a free slot and no time limit, hold
-a slot only while a job or `!radio` needs it, one listen at a time. **Radio history lives in
+a slot only while a job or `!radio` needs it, one listen at a time. A scheduled listen is marked
+done only when it completed (`watch._run_scheduled`; `run_job` returns `None` for "could not run":
+no kiwiclient, no free receiver, every receiver failed) — marked at launch, a busy receiver
+directory cost the whole day's slot for that station. **Radio history lives in
 `memory/radio/`, never in `knowledge_base/`** — it is noise to retrieval. Accuracy is measured
 against eam.watch's human copies (`watch.cross_check`), not claimed. Small and medium Whisper
 models, raw audio and the VAD filter all hallucinated on HF audio; don't "optimise" to them
@@ -863,6 +924,13 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
 - **A constant carrier is locked out, and the lockout grows.** A full-minute hold that is not speech
   locks ±75 kHz (drifting carriers wandered 55–130 kHz and cost a minute a step) for 30 minutes,
   doubling on each return to 4 h. That reach is a trade-off: roadmap R5d.
+- **A wedged read ends the watcher, never the handle.** `rtlsdr_read_sync` cannot be cancelled. If a
+  `Stream` reader does not stop within 10 s, `close()` returns False, the dongle is marked so
+  `Dongle.close` makes no further C call on it, and the watcher raises `StreamCloseTimeout` and
+  exits; process teardown releases the device. Retuning or closing under an in-flight read raced
+  native I/O.
+- **Each listen-along has its own queue** (`scanner._along_audio`, per guild, bounded, oldest chunk
+  dropped when full). One shared queue made two listeners split the stream between them.
 - **Every process that holds the dongle dies with the bot.** The bot exits by `os._exit`, which skips
   multiprocessing's cleanup; an orphaned watcher kept the dongle through two restarts. `child_main`
   and `rtl.open_stream` arm `PR_SET_PDEATHSIG`.
@@ -992,6 +1060,19 @@ drives it, so the copyleft does not reach Kaiacord. Do not copy Strudel source i
   and `forum.enabled` decide whether their subsystem runs; `.env` values alone do nothing, and
   the mention poller is not started when both social flags are off. Read `config/kaia.yaml` for
   what is currently set — this file does not track it.
+- **X sessions are torn down only on evidence** (`kaia_twitter.is_x_auth_or_challenge_error`). A
+  401, a Cloudflare challenge, or a Twikit auth exception type invalidates the cached client and
+  cookie file (`invalidate_x_session`, under the client lifecycle lock); a bare 403 does not — an
+  endpoint can deny one call on a valid session. A locked or suspended account
+  (`is_x_manual_recovery_error`) keeps its cookies and is never auto-relogged: a login loop on a
+  locked account is how it stays locked. Repeated failed half-open probes on the circuit breaker
+  (`half_open_failures`) escalate to an invalidation. Browser cookie recovery reads one profile
+  at a time (never `auth_token` from one browser with `ct0` from another), copying the SQLite
+  database with its WAL sidecars first.
+- **The social tracker is shared across processes.** `social_tracker` appends JSONL events under
+  an `flock` and compacts into a generation-numbered snapshot; every polling pass starts with
+  `refresh_from_disk()`, so a reply made by another process counts against duplicates and
+  per-thread limits. Old plain-ID logs still load.
 - **`forum.tech_support_enabled` needs grounding work before it is turned on.** It answered
   strangers without staying grounded in the wiki, and confidently wrong EQ advice is worse than
   silence.

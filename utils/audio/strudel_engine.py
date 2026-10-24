@@ -55,8 +55,6 @@ def _browser_environment(base_env=None) -> dict[str, str]:
     return env
 
 
-
-
 def assets_present() -> bool:
     return (ASSET_DIR / "strudel-repl.js").is_file() and (ASSET_DIR / "player.html").is_file()
 

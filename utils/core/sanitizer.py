@@ -106,6 +106,8 @@ def summarize_link_context(text: str) -> str:
 
     cleaned = RUNTIME_SCAFFOLDING.sub(_replace, text)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
 def excerpt(text: str, limit: int) -> str:
     """At most `limit` characters, cut at a word boundary and marked with "…".
 
@@ -178,6 +180,8 @@ def strip_runtime_scaffolding(text: str) -> str:
     text = _strip_reply_context(text)
     cleaned = RUNTIME_SCAFFOLDING.sub("", text)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
 def _is_public_ip(ip_str: str) -> bool:
     """Return whether an address is globally routable, not just non-private.
 
