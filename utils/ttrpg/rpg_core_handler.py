@@ -850,6 +850,12 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
     view = RPGFullLocationView(ctx, msg, uid, uname, is_owner, target)
     await msg.channel.send(embed=embed, view=view)
 
+    # Back from hunting grounds: the trip is over, and Kaia tells it once
+    # (utils/ttrpg/outing.py). Walking between hunting grounds is one trip.
+    from utils.ttrpg import outing
+    if outing.is_hunting_ground(current_loc_key) and not outing.is_hunting_ground(target):
+        await outing.close(ctx, msg.channel, uid, uname, sheet, reason=f"came back to {name}")
+
 
 def _names(phrase: str, text: str) -> bool:
     """`phrase` appears in `text` as whole words."""

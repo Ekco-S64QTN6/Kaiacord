@@ -39,7 +39,6 @@ __all__ = [
     'RPGLocationView',
     '_show_stat_choice',
     '_make_hunt_status_view',
-    '_narrate_combat_summary',
     '_InteractionChannel', '_InteractionMsg', '_make_interaction_send', 
     'StatChoiceView', 'RPGFullLocationView', 'RPGCombatView', 'BossApproachView', 'SpineLiftView',
     'DungeonView', 'DungeonCombatView', 'MailMenuView', 'MailSendView', 'GilModal', 
@@ -1397,6 +1396,12 @@ class DungeonView(discord.ui.View):
                 from utils.ttrpg.dungeon import clear_dungeon
                 await clear_dungeon(self._uid)
             await interaction.followup.send("You have left the dungeon and returned to the entrance.")
+            # Leaving ends the trip; Kaia tells it once (utils/ttrpg/outing.py).
+            from utils.ttrpg import outing
+            sheet = await load(self._uid)
+            if sheet:
+                await outing.close(self._ctx, interaction.channel, self._uid, self._uname, sheet,
+                                   reason=f"left {dungeon.get('theme_name', 'the dungeon')}")
         leave_btn.callback = _leave_cb
         self.add_item(leave_btn)
 
@@ -2121,53 +2126,6 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, 
         view.add_item(_make_status_btn(ctx, uid, uname, is_owner, row=2))
 
     return view
-
-async def _narrate_combat_summary(ctx, channel, uid, uname, sheet, combat_log: list, player_won: bool):
-    """Generate a single end-of-combat summary narration from the accumulated combat log."""
-    from utils.ttrpg.rpg_prompt_builder import build_combat_summary_prompt
-    from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
-    import uuid as _uuid
-
-    if not combat_log:
-        return
-
-    persona = await load_persona_async()
-    prompt = build_combat_summary_prompt(sheet, combat_log, player_won)
-    from utils.ttrpg.rpg_prompt_builder import TTRPG_NARRATOR_OVERRIDE
-    messages = [
-        {"role": "system", "content": f"{persona}{TTRPG_NARRATOR_OVERRIDE}{prompt}"},
-        {"role": "user",   "content": f"{uname} finished the fight."}
-    ]
-    gpu_manager = OllamaGPUManager(config.chat_model)
-    opts = gpu_manager.get_gpu_options(for_chat=True)
-    opts["num_predict"] = 200
-    opts["temperature"] = 0.85
-
-    async with channel.typing():
-        try:
-            resp = await gpu_memory_manager.run_with_gpu_guard(
-                model_name=config.chat_model,
-                priority=GPUTaskPriority.CHAT,
-                coro=asyncio.wait_for(
-                    ctx.ollama_client.chat(
-                        model=config.chat_model,
-                        messages=messages,
-                        options=opts,
-                        keep_alive=-1
-                    ),
-                    timeout=45.0
-                ),
-                task_id=f"rpg_combat_summary_{_uuid.uuid4().hex[:8]}"
-            )
-            narration = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
-            if narration:
-                embed = discord.Embed(
-                    description=f"*{narration}*",
-                    color=0x2D5A27 if player_won else 0x8B0000
-                )
-                await channel.send(embed=embed)
-        except Exception as e:
-            log_error(f"[rpg combat summary] {e}")
 
 def _make_hunt_status_view(ctx, msg, uid, uname, is_owner):
     """Return a View with 🗡️ Hunt Again + 📊 Status buttons (post-combat/event)."""
