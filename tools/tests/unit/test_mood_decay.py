@@ -80,6 +80,9 @@ def test_a_busy_day_tires_her_without_emptying_her(monkeypatch, tmp_path):
     evening should bring her most of the way back."""
     import datetime
     clock = [datetime.datetime(2026, 10, 1, 9, 0).timestamp()]
+    # circadian_energy() reads the wall clock, not time.time(); pinned to the
+    # curve's mean so the result does not depend on when the suite runs.
+    monkeypatch.setattr(kaia_mood.EmotionalArc, "circadian_energy", lambda self: 0.5)
     arc = _arc(monkeypatch, tmp_path, clock)
     arc._mood.social_energy = 0.8
     arc._mood.arousal = 0.4

@@ -336,17 +336,20 @@ class MessageProcessor:
                     except Exception:
                         pass
 
-                    # Background RAG log — observation only (empty response)
+                    # Background RAG log — observation only (empty response).
+                    # A picture or sticker alone is logged as a citation, not
+                    # as an empty turn.
                     try:
-                        if self.rag:
-                            from utils.core.sanitizer import summarize_link_context
+                        from utils.core.sanitizer import attachment_citations, summarize_link_context
+                        observed = " ".join(x for x in (summarize_link_context(msg.content or "").strip(),
+                                                        attachment_citations(msg)) if x)
+                        if self.rag and observed:
                             author_display = msg.author.display_name or msg.author.name
                             task_registry.register(
                                 f"observe_log_{uuid.uuid4().hex[:6]}",
                                 asyncio.create_task(
                                     self.rag.log_user_interaction_async(
-                                        msg.author.id, author_display,
-                                        summarize_link_context(msg.content), ""
+                                        msg.author.id, author_display, observed, ""
                                     )
                                 ))
                     except Exception:
@@ -2530,6 +2533,23 @@ class MessageProcessor:
 
         # 2. SEND RESPONSE
         await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
+
+        # A reply saying she is flagging something for review flags it: a row in
+        # memory/review_flags.jsonl and a post in #kaia-opolis. Discord only, and
+        # never a DM, whose words must not be posted to a channel.
+        if not ctx.is_social and not getattr(ctx, "is_dm", False) \
+                and not getattr(ctx.message, "no_persist", False):
+            try:
+                from utils.core import review_flags
+                _flag = await asyncio.to_thread(
+                    review_flags.record, ctx.response_text, author=ctx.author_name,
+                    author_id=ctx.author_id, own_words=ctx.own_words or "",
+                    channel_name=getattr(ctx.message.channel, "name", "") or "",
+                    channel_id=ctx.channel_id, jump_url=getattr(ctx.message, "jump_url", "") or "")
+                if _flag and _flag.get("post"):
+                    await review_flags.notify(self.bot, _flag)
+            except Exception as _flag_err:
+                log_debug(f"Review flag not recorded (non-fatal): {_flag_err}")
         
         # 2. LOGGING & STATE (background, to avoid holding up the UI)
         #

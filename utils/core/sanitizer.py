@@ -78,6 +78,21 @@ def _shared_context_citation(marker: str, block: str) -> str:
     return ""
 
 
+def attachment_citations(msg) -> str:
+    """What a message carried besides its text, as fixed citations:
+    "[shared image]", "[shared file]", "[sticker]". A file's name is the
+    sender's text and is not kept, for the reason a page title is not."""
+    out = []
+    for a in getattr(msg, "attachments", None) or []:
+        kind = (getattr(a, "content_type", None) or "").split("/")[0]
+        if not kind:
+            name = (getattr(a, "filename", "") or "").lower()
+            kind = "image" if name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")) else ""
+        out.append("[shared image]" if kind == "image" else "[shared video]" if kind == "video" else "[shared file]")
+    out += ["[sticker]"] * len(getattr(msg, "stickers", None) or [])
+    return " ".join(out)
+
+
 _REPLY_CONTEXT_PREFIX = re.compile(
     r"\A\[REPLYING_TO\]\n[\s\S]*?\n\n\[USER_MESSAGE\]\n"
 )
@@ -106,6 +121,8 @@ def summarize_link_context(text: str) -> str:
 
     cleaned = RUNTIME_SCAFFOLDING.sub(_replace, text)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
 def excerpt(text: str, limit: int) -> str:
     """At most `limit` characters, cut at a word boundary and marked with "…".
 
@@ -178,6 +195,8 @@ def strip_runtime_scaffolding(text: str) -> str:
     text = _strip_reply_context(text)
     cleaned = RUNTIME_SCAFFOLDING.sub("", text)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
 def _is_public_ip(ip_str: str) -> bool:
     """Return whether an address is globally routable, not just non-private.
 

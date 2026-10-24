@@ -53,7 +53,7 @@ READERS = {
     "monologue": (S.monologue, lambda: [S.MEM / "monologue_log.jsonl"]),
     "self": (S.self_docs, lambda: [S.MEM / "kaia_self_model.md", S.MEM / "identity_stream.md", S.MEM / "self_claims.json"]),
     "checks": (S.checks, lambda: [S.MEM / "self_corrections.jsonl", S.MEM / "security_dogtag_replay.jsonl",
-                                  S.MEM / "hallucination_log.jsonl"]),
+                                  S.MEM / "hallucination_log.jsonl", S.MEM / "review_flags.jsonl"]),
     "generation": (S.generation, lambda: [S.MEM / "generation_log.jsonl"]),
     "voice": (S.voice, S._voice_paths),
     "corpus": (S.corpus, lambda: [S.MEM / "rag_storage" / "file_manifest.json", S.KB / "kaia_dreams"]),

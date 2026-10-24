@@ -129,6 +129,10 @@ CUES = (None, 0, 8, 16, 32)
 #: …and the blend shortened, halving down to this (a short blend that locks
 #: beats any transition that does not).
 SHORTEST_BEATS = 16
+#: A record loaded at the booth or asked for comes in from its start, or a
+#: phrase in: cued 32 bars in to find a lock, Urgent came in a minute into the
+#: song (24 Oct). Kaia's own picks may still be scrubbed the whole way.
+HAND_CUES = (None, 0, 8)
 
 
 def find_blend(now: float, out_path: str, out_ratio: float, out_grid, music_end: float, nxt, mode: str,
@@ -155,7 +159,7 @@ def find_blend(now: float, out_path: str, out_ratio: float, out_grid, music_end:
                 at, end = now, music_end - step * 32 * beat
             else:
                 at, end = now + step * 16 * beat, music_end
-            for cue in CUES:
+            for cue in (HAND_CUES if getattr(nxt, "source", "") in ("hand", "request") else CUES):
                 if budget_s and time.time() - started > budget_s:
                     return None
                 plan = R.plan_transition(at, out_ratio, out_grid, end, nxt, mode, beats, lead=lead, in_bars=cue)

@@ -89,7 +89,7 @@ def test_failed_startup_closes_source_engine_and_new_voice_connection(monkeypatc
         def stop(self):
             self.playing = False
 
-        def play(self, _source, after=None):
+        def play(self, _source, after=None, **_kwargs):
             raise RuntimeError("voice playback refused")
 
     async def scenario():
@@ -167,5 +167,69 @@ def test_partial_engine_start_failure_still_closes_engine(monkeypatch):
 
         assert events == ["engine.start", "engine.close"]
         assert 6623 not in ss._sessions
+
+    asyncio.run(scenario())
+
+
+def test_failed_startup_leaves_a_reused_connections_playback_alone(monkeypatch):
+    """If free_voice() could not stop the radio, startup cleanup must not either."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    events = []
+
+    class FakeEngine:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def warm_up(self, _code):
+            pass
+
+        def play(self, _code):
+            return True
+
+        def close(self):
+            events.append("engine.close")
+
+    class FailingSource:
+        def __init__(self, _engine):
+            raise RuntimeError("capture failed")
+
+    async def scenario():
+        radio_vc = SimpleNamespace(
+            is_connected=lambda: True,
+            is_playing=lambda: True,          # the radio is still on it
+            move_to=AsyncMock(),
+            stop=MagicMock(),
+            disconnect=AsyncMock(),
+        )
+        guild = SimpleNamespace(id=6624, voice_client=radio_vc)
+        channel = SimpleNamespace(guild=guild, name="test-channel")
+
+        monkeypatch.setattr(ss.discord.opus, "is_loaded", lambda: True)
+        monkeypatch.setattr(ss, "StrudelEngine", FakeEngine)
+        monkeypatch.setattr(ss, "StrudelAudioSource", FailingSource)
+        monkeypatch.setattr(ss, "_cfg", lambda _key, default: 0.0 if _key == "prime_seconds" else default)
+        monkeypatch.setattr(ss, "build_for_mood", lambda _genre: SimpleNamespace(code=lambda: "test-pattern"))
+
+        from utils.audio import records
+        from utils.radio import live
+        monkeypatch.setattr(records, "get_records", lambda _guild_id: None)
+        monkeypatch.setattr(live, "free_voice", AsyncMock(side_effect=RuntimeError("radio busy")))
+
+        try:
+            await ss.start_session(channel, genre="house", requested_by="pytest")
+        except RuntimeError as exc:
+            assert str(exc) == "capture failed"
+        else:
+            raise AssertionError("startup failure was not propagated")
+
+        assert events == ["engine.close"]
+        radio_vc.stop.assert_not_called()
+        radio_vc.disconnect.assert_not_awaited()
+        assert 6624 not in ss._sessions
 
     asyncio.run(scenario())

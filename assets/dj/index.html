@@ -530,7 +530,7 @@ const shown = { 1: { low: 0, high: 0, level: -90 }, 2: { low: 0, high: 0, level:
 // ── stream ───────────────────────────────────────────────────────
 function connect() {
   const es = new EventSource("/events");
-  es.onmessage = (e) => { S = JSON.parse(e.data); recvAt = performance.now() / 1000; meterIngest(); wantWaves(); };
+  es.onmessage = (e) => { S = JSON.parse(e.data); kaiaRelaunch(S.launch); recvAt = performance.now() / 1000; meterIngest(); wantWaves(); };
   es.onerror = () => { es.close(); setTimeout(connect, 1500); };
 }
 function wantWaves() {
@@ -1338,7 +1338,16 @@ function updateBottom() {
 const kaiaBooth = { codec: null, said: "", fed: 0 };
 KaiaAnimator.registerMood("BoothSet", { glow: 1.25, flowSpeed: 1.5, conduit: 0.8, bloom: 0.7, energy: 1.1, saccade: 0.8 });
 KaiaAnimator.registerMood("BoothIdle", { lid: 0.5, gazeY: 0.2, pitch: 0.25, glow: 0.3, flowSpeed: 0.4, brightness: 0.8, conduit: 0.2, energy: 0.4, pulseRate: 0.6 });
-KaiaCodec.mount($("kaia-stage"), { assets: "/kaia/portraits", maxFps: 30 })
+// A different portrait of her on every launch (`portrait: "random"` in the
+// engine never repeats the last one); the page reloads when the server counts
+// a new launch, since the window is often reused rather than reopened.
+var kaiaLaunch = null;
+function kaiaRelaunch(n) {
+  if (n == null) return;
+  if (kaiaLaunch === null) kaiaLaunch = n;
+  else if (n !== kaiaLaunch) location.reload();
+}
+KaiaCodec.mount($("kaia-stage"), { assets: "/kaia/portraits", portrait: "random", maxFps: 30 })
   .then((c) => { kaiaBooth.codec = c; }).catch((e) => console.error("[booth] Kaia:", e));
 window.KaiaBooth = { react: (kind) => kaiaBooth.codec && kaiaBooth.codec.react(kind) };
 $("kaialog").onclick = () => { const on = !$("kaiadetail").classList.contains("on"); $("kaiadetail").classList.toggle("on", on); $("kaialog").classList.toggle("on", on); };

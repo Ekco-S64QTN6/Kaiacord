@@ -174,3 +174,45 @@ def test_a_linked_page_carries_no_length_instruction():
         out = asyncio.run(enricher.enrich_content(msg))
     assert "[LINKED_WEB_CONTENT]" in out
     assert "concise" not in out.lower() and "CORE_DIRECTIVE" not in out
+
+
+def _embed(title, description, fields=()):
+    return SimpleNamespace(title=title, description=description,
+                           fields=[SimpleNamespace(name=n, value=v) for n, v in fields])
+
+
+def test_a_reply_to_one_of_her_embeds_quotes_what_the_embed_says():
+    """Her commands answer in an embed with no message text; "can you read
+    this output" quoted her as "Kaia:" and nothing else, and she described
+    the !help page as a corrupted transmission."""
+    bot = MagicMock()
+    bot.user.id = 7
+    target = MagicMock(spec=["author", "content", "embeds", "mentions"])
+    target.author = SimpleNamespace(id=7, display_name="Kaia")
+    target.content = ""
+    target.mentions = []
+    target.embeds = [_embed("Kaia — help", "Pick a section.",
+                            [("Music", "`!music` plays a live set")])]
+    msg = MagicMock()
+    msg.reference = SimpleNamespace(message_id=1, resolved=None)
+    msg.channel.fetch_message = AsyncMock(return_value=target)
+    enricher = ContextEnricher(bot)
+    with patch.object(ContextEnricher, "_bot_message_recipient", return_value=None):
+        out = asyncio.run(enricher.resolve_replies(msg))
+    assert out.startswith("Kaia: ")
+    assert "Pick a section." in out and "`!music` plays a live set" in out
+
+
+def test_a_linked_message_carries_its_embeds_too():
+    enricher, msg, channel = _setup(can_read=True)
+    linked = channel.fetch_message.return_value
+    linked.content = ""
+    linked.embeds = [_embed("Draft", "a reply waiting for moderation")]
+    out = asyncio.run(enricher.resolve_message_links(msg))
+    assert "a reply waiting for moderation" in out
+
+
+def test_a_quoted_embed_is_capped():
+    enricher = ContextEnricher(MagicMock())
+    big = SimpleNamespace(embeds=[_embed("t", "x" * 20_000)])
+    assert len(enricher._with_embeds("hi", big)) < ce.QUOTED_EMBED_CHARS + 10

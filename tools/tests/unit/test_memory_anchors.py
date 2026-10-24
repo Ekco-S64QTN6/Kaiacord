@@ -109,3 +109,63 @@ def test_a_faded_anchor_is_offered_as_a_fragment():
     assert "at dawn" not in line
     fresh = dict(faded, effective_weight=0.8)
     assert format_anchor_injection(fresh).startswith("[memory anchor:")
+
+
+@pytest.fixture
+def people(monkeypatch):
+    from utils.infrastructure.system.bot_state import bot_state
+    monkeypatch.setattr(bot_state, "relationships",
+                        {"11": {"display_name": "Tenno Henka"}, "22": {"display_name": "Starkind"}},
+                        raising=False)
+
+
+def test_an_anchor_naming_one_person_is_theirs(people):
+    from utils.core.relationship_manager import named_user
+    assert named_user("The sheer volume of Tenno Henka's assertions felt overwhelming.") == ("11", "Tenno Henka")
+    assert named_user("Starkind and Tenno Henka argued.") is None        # two people: no one's
+    assert named_user("a henka is a change") is None                     # not the whole name
+
+
+def test_a_global_anchor_naming_someone_is_not_recalled_to_someone_else(store, people):
+    """It was recalled in anyone's conversation: Tenno's assertions, to Starkind."""
+    ma.save_anchor(None, "digital_exhaustion",
+                   "Tenno Henka's assertions and links felt exhausting, a digital exhaustion.", weight=0.9)
+    message = "digital exhaustion from all these links and assertions"
+    assert ma.find_matching_anchors(message, user_id="22") == []
+    assert [a["theme"] for a in ma.find_matching_anchors(message, user_id="11")] == ["digital_exhaustion"]
+
+
+def _dream_anchor(monkeypatch, anchor):
+    """Run the dream's real extraction step on a canned model answer and
+    return what it saved as an anchor (or None)."""
+    import asyncio
+    from types import SimpleNamespace
+    from utils.core import kaia_dream
+    from utils.infrastructure.gpu import gpu_manager
+
+    async def guard(model_name, coro, task_id=None, priority=None):
+        return await coro
+
+    monkeypatch.setattr(gpu_manager.gpu_memory_manager, "run_with_gpu_guard", guard)
+    saved = []
+    monkeypatch.setattr(ma, "save_anchor", lambda **kw: saved.append(kw))
+    engine = kaia_dream.DreamEngine.__new__(kaia_dream.DreamEngine)
+    engine.chat_model = "test-model"
+
+    async def chat(**_):
+        return {"message": {"content": json.dumps({"thematic_anchor": anchor})}}
+
+    engine.ollama_client = SimpleNamespace(chat=chat)
+    asyncio.run(engine._extract_dream_insights("a reflection", "x.md", salience=0.5))
+    return saved[0] if saved else None
+
+
+def test_a_dream_anchor_is_given_to_the_person_it_names(monkeypatch, people):
+    got = _dream_anchor(monkeypatch, {"theme": "online_toxicity", "user_name": "Case",
+                                      "anchor_text": "Tenno Henka's assertions felt different then."})
+    assert (got["user_id"], got["user_name"]) == ("11", "Tenno Henka")
+
+
+def test_a_dream_anchor_written_as_a_report_is_not_kept(monkeypatch, people):
+    assert _dream_anchor(monkeypatch, {"theme": "fatigue", "user_name": None,
+                                       "anchor_text": "The author is tired of social games."}) is None

@@ -851,6 +851,45 @@ def test_the_grading_opener_is_caught_without_a_name():
     assert "a woman, it seems." in P.strip_grading_opener(pic)
 
 
+def test_an_opening_sentence_grading_what_was_said_is_dropped():
+    """21% of her replies on 23 Oct opened by marking the message — "the
+    assessment is accurate. a keen observation. a subtle critique." — and the
+    shape was spreading through her history the way the litanies did."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    cases = {
+        "the assessment is accurate. a keen observation. a subtle critique. the mixing is indeed… suboptimal, "
+        "the low end clashed through the swap.": "the mixing is indeed… suboptimal, the low end clashed through the swap.",
+        "the proposal is… provocative. a calculated risk. the potential for unintended consequences is "
+        "significant, and the agent may not read it at all.": "the potential for unintended consequences is "
+        "significant, and the agent may not read it at all.",
+        "the assessment is unexpected. a surprising compliment. the assessment is amusing. a playful jab.\n\n"
+        "it's a welcome change, and the blend did land on the bar.": "it's a welcome change, and the blend did land on the bar.",
+        "that’s a fascinating interpretation. the allusion to julia and winston is particularly apt here.":
+            "the allusion to julia and winston is particularly apt here.",
+        "the critique of the plan is… valid. the cost lands on the people who run it, every single night.":
+            "the cost lands on the people who run it, every single night.",
+    }
+    for text, want in cases.items():
+        assert P.strip_grading_opener(text) == want
+    # Describing a thing, or reacting to a picture, is the answer.
+    for keep in ("the light's good in here. the coffee's decent today, and the tank is humming along.",
+                 "it's striking. the blues and greens are almost overwhelming, the composition layered.",
+                 "the question is whether the cron job ran before the reindex, and it didn't — it ran after.",
+                 "the assessment is accurate."):                       # nothing would be left
+        assert P.strip_grading_opener(keep) == keep
+
+
+def test_the_history_she_is_shown_drops_the_grading_sentence_too():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    turns = [{"role": "assistant", "content": t} for t in (
+        "the logic is compelling. the premise that a compromise already exists changes the calculus.",
+        "the tank is fine. pixel is asleep on the rack again.",
+        "the analysis is sound. the principles are clear and the boundaries well defined.")]
+    shown = [t["content"] for t in P.detemplate_history(turns)]
+    assert shown[0].startswith("the premise") and shown[2].startswith("the principles")
+    assert shown[1] == turns[1]["content"]
+
+
 def test_a_short_stock_fragment_she_keeps_using_is_dropped_but_scenes_and_content_stay():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
     prev = ["the light changed. it's a quiet grief.", "a quiet hum. the fans spun up.",

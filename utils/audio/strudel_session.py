@@ -138,7 +138,7 @@ class MusicSession:
                 if not self.vc.is_playing() and not self.vc.is_paused():
                     log_warning("[music] playback stopped; restarting source.")
                     try:
-                        self.vc.play(self.source)
+                        self.vc.play(self.source, signal_type="music")
                     except Exception as exc:
                         log_error(f"[music] restart failed: {exc}")
                         await self.stop()
@@ -329,6 +329,7 @@ async def start_session(channel, *, genre: str, requested_by: str,
     source = None
     vc = None
     connected_here = False
+    played_here = False
     session = None
     try:
         # Startup owns all resources from this point until the session is
@@ -362,7 +363,9 @@ async def start_session(channel, *, genre: str, requested_by: str,
 
         source = StrudelAudioSource(engine)
         settle("a live set")
-        vc.play(source, after=lambda e: log_error(f"[music] playback error: {e}") if e else None)
+        vc.play(source, after=lambda e: log_error(f"[music] playback error: {e}") if e else None,
+                signal_type="music")          # see records.OPUS_SIGNAL
+        played_here = True
 
         session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel)
         _sessions[guild_id] = session
@@ -379,7 +382,9 @@ async def start_session(channel, *, genre: str, requested_by: str,
             except BaseException as cleanup_exc:
                 log_warning(f"[music] startup cleanup of session failed: {cleanup_exc}")
         else:
-            if vc is not None:
+            # Only playback this call started: if free_voice() failed, a
+            # reused connection may still be playing the radio.
+            if played_here and vc is not None:
                 try:
                     if vc.is_playing():
                         vc.stop()
@@ -401,6 +406,7 @@ async def start_session(channel, *, genre: str, requested_by: str,
                 except BaseException as cleanup_exc:
                     log_warning(f"[music] startup voice disconnect failed: {cleanup_exc}")
         raise
+
 
 async def stop_all() -> None:
     for s in list(_sessions.values()):

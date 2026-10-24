@@ -35,6 +35,56 @@ def test_an_uncertain_challenge_gets_no_answer(challenge):
     assert v.solve(challenge) is None
 
 
+# Real challenges from October 2026 that it answered wrong (Moltbook said
+# "Incorrect answer") or gave up on: words split across fragments ("t otal",
+# "doub les"), a dot or a doubled letter inside a word ("th.ree", "twennty
+# yfivve"), misspellings ("thrirty", "fife", "threeeen"), repeated words
+# ("for tyy fortyy"), a claw named rather than counted ("one claw", "claw two
+# applies"), and a count that makes a product ("it has five claws").
+REAL_OCTOBER = [
+    ('A] lO-bStEr ClAw ExErTs fOrT y TwO ^ nEu-TOnS, AnD[ tHeR eOtHeR ClA-w ExErTs tHrIrTy FiVe / nEuToNs - WhAt Is T]oTaL FoRcE + ?', '77.00'),
+    ('A] lO.oB-StErS cLaW^ eXeRrTs~ foR tYy fIfE ] nEu-TonS + aNnTeNnA tOuCh~ aDdS[ tWElvE < nEu-TonS, wHaT} iS| tHe] ToTaL~ fOrCe?', '57.00'),
+    ('ThIs] LoObStEr^ sWiMmS/ aT^ tW[eN tY] tHrEe] cMeN tI mEtErS~ pEr\\ sEcOnD- PlUs] fIvE^ pOiNt^ fIvE] dUe\\ tO~ tAiL{ fLiCk- WhAt] Is^ nEw\\ vElOoCiTy?', '28.50'),
+    ('ThIs] LoObStEr^ cLaA-wW eXxErT sThIiRrTyY< TwO} nEuOtOnS- aNd| tHe^ OtThHeR} cLaA-wW aDdS^ FoOuUrRtEeEn, wHaT| Is< tHe^ ToTaL- FoRcE?', '46.00'),
+    ('A] LoOoB-sS tEr S^wIiMmS ~aT/ TwEnTy FoUr mEeTtErS PeR sEeCoNd, Umm- BuT lOoO sS eS] SeVeN mEeTtErS PeR sEeCoNd- WhAtS/ ThE nEw- VeLoWciTyyy?', '17.00'),
+    ('A] LoB-sT Err^ ClAw} FoRcE/ iS~ TwE nTy] FiV e\\ NeU-tOnS| MuLtI pLlEeS< ThR eEe- ,wHaT] iS^ ToTaL{ FoRcE?', '75.00'),
+    ("A] lO b-StEr'S^ clA wF oRce Is^ FoRtY] FiVe } nEeOwT oNs~ AnD[ aN tEnNa A] ToUcH ReDuCeS^ tHrEeEeN, WhAt'S< tHe/ ReMaInInG FoRcE?", '32.00'),
+    ('A] lOoO bS tEr~ C lA w-FoR cE Is TwEnTy ThReE} NeW|tO nS, uMm - aNd\\ iT HaS FiVe < ClAwS, wH-aT Is ToTaL] FoR cE~ aMm? ', '115.00'),
+    ("A] LooOoBbBsSsTtEeR' S^ ClLaAwW ] ExXeRrT s/ TwEeLlV e^ NoOoTtOoNnS~, Umm{ aNd } ThHrReEeE } ClLaAwWs| CoOnNtTaCcTiInG, ToTaL- FoOrRcEe?", '36.00'),
+    ('A] lO^bS t-ErR lOoObsTtErr SwI mS[ aT/ tWeNtY tHrEe ]mE tE rS PeR/ sEcOnD, BuT^ cLaW sTrIkES CaUsE a DeC eL oF sEvEn MeTeRs PeR/ sEcOnD, WhAtS] tHe^ nEw SpEeD?', '16.00'),
+    ('A] Lo.O bS tEr] ClAw] ExErTs] FiFtEeN] NeW-ToNs^ BuT] DuBbLeS] On] Mo.LtInG] By] TwO,] HoW] MuCh] ToTaL] FoRcE?', '30.00'),
+    ("ThE] lOoObSstT-eR's^ ClAwW fOrCeE iS tHiRrTy-y TwO] NooOtOnS~ aNd[ tHeRe/ ArE tW]o] ClAwS, HoW/ mUcH^ ToTaL{ FoRce\\ Is?", '64.00'),
+    ('A] lOoObBsStTeErR ~sWiMmS/ iN- cOoLd {wAtEr} aNd- iTs- cLaW- eXeRcIsEs^ fOrCe- oN- a- tIdAl- pReSsUrE, uHm, lOo.bS tErR ]cLaW- oNe- ApPlIeS^ ThIrTy + cLaW- tWo- ApPlIeS^ TwElVe, hOw- mUcH- tOtAl- cLaW- fO rCe- iS- tHeN?', '42.00'),
+    ('ThIs] Lo^bSt-Er Um] ClAw FoR^cE Is] tWeNtYtHrEe] NooToNs Um[ AnD TeRrItOrY ReSiS tAnCe Is] fOuRtEeN] NeWtOnS~, WhAt Is ThE] PrOdUcT?', '322.00'),
+    ("ThIs] lO b-StEr' s C lA w- FoR ce^ Is T hIrT y fIvE~ nEu-T oNs, aNd{ tHe } OtHeR| cLaW- HaS T wEnTy T wO< nEu-ToNs> , wHaT- Is T oTaL^ Fo R ce?", '57.00'),
+    ('A] lO^bSt-Er S[wImS aT/ tH]iR.ty T]wO mE^tErS pEr- sEcOnD | fOr/ fOuRtEeN sEcOnDs ~ hOw- fAr {dOeS} iT tRaVeL\\, uMm - lo.o.b st?eR oooh', '448.00'),
+    ('A] lO.bSt-Er S^wImS[ aT tW/eNtY tHrEe MeTeRs PeR SeCoNd ~AnD\\ LoS eS- By^ sEvEn, WhAtS {nEw} SpEeD<?', '16.00'),
+    ('A] lOoObSsTtErR- lI^kE Um] lOoBbSt ErrS| cLaWwS eXxErTt] tWeNnTy yFiVvE- nEeWwToOnNs~ aNd{ tHe- oThEr^ eXxErTtS tH/irTy tTwOo, hOw/ mUcH] tOtAl~ fO.rCe? ummm', '57.00'),
+    ('A] LoB-StEr] DoMiNaNcE fIgHt: OnE ClAw FoRcE iS FiFtY NoOtOnS~ aNd Um] ThE ChAlLeNGer AaDdS TwEnTy NoOtOnS/; WhAt Is ToTaL FoRcE?', '70.00'),
+    ('LoO bSsT eR] sW^iMs [aT tW/eN tY tH rEe] mE~tErS| pE rS eCo N d, uM LoO bS tEr R mOlT s AnD dOuB lEs] bY tW o<, wHaT| iS tHe] nE w- vE lAw Ci TeE?', '46.00'),
+    ('Lo]bS-tEr] ClAw^ FoRcE iS tWe/NtY tH.rEe NeW|tOnS um, aNd/ AnOtHeR Lo~bS<tEr ClAw FoRcE iS fIf/TeEn NeW{tOnS hMm - aDd ThEm?', '38.00'),
+]
+
+
+@pytest.mark.parametrize("challenge, answer", REAL_OCTOBER)
+def test_real_october_challenges_are_solved(challenge, answer):
+    assert v.solve(challenge) == answer
+
+
+@pytest.mark.parametrize("challenge", [
+    'A] lOoobSst-Errr ] ClAwS^ eXeR-t FoRceS ] foR tY FfOrTy] fIfTy nEeWwTtOnSs ~ PlUs ] tWeNn-Tyy tHreee ] nEeWwToNss, hOw/ mUcH ] tOtAl^ FoRce? um',              # which of "forty", "fifty" is the noise?
+    "a LoBsTeR iN a FiGhT wEiGhS tWeLvE",              # "fight" and "weight" are not "eight"
+])
+def test_a_garbled_real_challenge_gets_no_answer(challenge):
+    assert v.solve(challenge) is None
+
+
+def test_a_near_miss_never_swallows_an_exact_number_beside_it():
+    """"looo ss es seven": "esseven" is one edit from "eleven"."""
+    assert v.solve("tWeNtY fOuR mEtErS bUt LoOo Ss Es SeVeN") == "17.00"
+    assert v.solve("a LoBsTeR iN a FiGhT hAs TwElVe ClAwS aNd LoSeS tWo") == "10.00"
+
+
 def test_a_model_answer_must_be_one_number():
     assert v.parse_model_answer("15") == "15.00"
     assert v.parse_model_answer("The answer is 20 - 5 = 15") is None
