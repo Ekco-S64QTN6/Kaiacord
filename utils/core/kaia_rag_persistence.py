@@ -267,7 +267,9 @@ class RAGPersistenceMixin:
         """
         try:
             path = file_io_args["path"]
-            lock_path = path + ".append.lock"
+            # Same sidecar append_atomic uses, so both serialise on one inode;
+            # dot-prefixed so corpus walkers skip it.
+            lock_path = os.path.join(os.path.dirname(path), f".{os.path.basename(path)}.append.lock")
             with open(lock_path, "a", encoding="utf-8") as lock:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
                 try:
