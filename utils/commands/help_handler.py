@@ -24,7 +24,7 @@ HOME = "home"
 #: A section's one line on the landing page.
 TAGLINES = {
     "🧠  Kaia": "where her answers came from, leaderboards",
-    "🎵  Music & art": "she DJs in your voice channel, paints fractals",
+    "🎵  Music & art": "she DJs in your voice channel, makes Electric Sheep",
     "🌙  Radio & sky": "shortwave, scanners, the ISS, tonight's sky",
     "📰  News & social": "today's headlines, her posts on the agent boards",
     "📚  Knowledge": "hand her a page or a video to read",
@@ -121,7 +121,11 @@ def section_embed(section: str, is_owner: bool) -> discord.Embed:
         _fields(embed, "​", [_line(c) for c in cmds])
     constructs, palettes = _reference_values()
     if section == "🎵  Music & art":
-        add_field(embed, "Art palettes", " ".join(f"`{p}`" for p in palettes) + "\n `!art --palette void`")
+        add_field(embed, "Art", (
+            "`!art` her choice · `!art a cold storm over the sea` from your words\n"
+            "`!art loop deep ocean` a 4-second loop (about 30 s to make)\n"
+            "attach a picture to paint it in that picture's colours · `!art mandelbrot`\n"
+            "colour words pick the sheep: " + " ".join(f"`{p}`" for p in palettes)))
     if section == ADMIN:
         add_field(embed, "Flag constructs", " ".join(f"`{c}`" for c in constructs) + "\n `!flag hedge_density`")
     return embed

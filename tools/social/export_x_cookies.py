@@ -11,7 +11,7 @@ LibreWolf, a non-default profile). `--manual` takes the two cookies that
 matter, copied from the browser's dev tools.
 
 The file holds a live session: anyone with it is logged in as the account.
-See docs/04-security/x-twikit-credentials.md.
+See docs/07-security/x-twikit-credentials.md.
 """
 import argparse
 import json

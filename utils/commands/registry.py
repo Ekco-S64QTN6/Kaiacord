@@ -204,8 +204,9 @@ COMMANDS = (
     Command("quip", handle_quip_command, GROUP_NEWS,
             summary="Draft a social post (10-minute cooldown; owners exempt)"),
     Command("art", handle_art_command, GROUP_MUSIC, extra=RESPONDER,
-            usage="!art [what to make] [--seed N] [--palette NAME]",
-            summary="Kaia makes a fractal — from your words, her mood, or an attached image's colours"),
+            usage="!art [loop] [what to make] [--seed N] [--palette NAME] · !art mandelbrot [weirdly.net link]",
+            summary="Kaia makes an Electric Sheep — from your words, her mood, or an attached image's colours; "
+                    "`loop` posts it moving"),
     # Not owner_only: `!forum link <uid>` returns before the owner gate, so any
     # user can link their account. Every other subcommand is admin. Marking the
     # whole command admin hid the one part users are meant to reach.

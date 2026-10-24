@@ -534,6 +534,35 @@ At 12:00 PM (Noon) daily, a random dynamic world event is selected from the acti
 
 ---
 
+## Balance targets
+
+The budgets gear and monsters are held to. Change them deliberately: the DEF soft-cap and global cap in CLAUDE.md §4 depend on them.
+
+### Equipment stat budgets
+
+| Tier | Weapon ATK | Weapon DMG | Die | Proc | Drop Source |
+|---|---|---|---|---|---|
+| T1 | +0 | +0 | d6 | — | Shop + loot |
+| T2 | +1 | +0 | d8 | — | Shop + loot |
+| T3 | +1 | +1 | d8/d10 | 1d4 | Loot only |
+| T4 | +2 | +1 | d10 | 1d6 | Loot only |
+| T5 | +2 | +2 | d10/d12 | 1d8 | Boss loot |
+| T6 | +3 | +2 | d12 | 1d10 | Boss loot (deadly/boss) |
+| T7 | +3 | +3 | d12 | 1d12 | Boss loot only |
+
+Defensive gear DEF ranges: Armor max 8, Headgear max 3, Boots max 3, Accessories max 2. Armor stat bonuses capped at +1. The gear soft-cap (`min(10, raw) + max(0, raw-10)//2`) correctly prevents DEF stacking from becoming degenerate.
+
+### Power curve
+
+```
+Level  Player ATK (avg)  Player DEF (avg)  Monster HP (tier)        Monster Hit%     Verdict
+1-3    +1 to +3          11-13             6-20 (triv/easy)         50-60%           Balanced — 2-4 rounds
+4-6    +4 to +6          14-17             20-100 (medium)          45-55%           Balanced — gear matters
+7-9    +7 to +9          18-20             40-200 (hard/deadly)     50-60%           Well-tuned — DEF cap helps
+10-12  +8 to +10         20-22             80-300 (boss/deadly)     50-60%           Well-tuned — log scaling active
+13-15  +10 to +12        22-25             280-480 (boss)           50-65%           Challenging — T7 gear is rare
+```
+
 ## Progression
 
 | Level | XP Required | Level | XP Required |
