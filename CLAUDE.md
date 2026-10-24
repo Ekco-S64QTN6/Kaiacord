@@ -300,6 +300,12 @@ land. The full enriched message still goes to generation for that turn only.
 The 2000-character cap in `sanitize_prompt` applies to what the user typed. Enricher blocks
 carry their own caps (`url_max_content_length`); cutting the whole string cut the page.
 
+**What she says she did, she did.** "i'm adding this to my notes as `x.txt`" writes the note
+(`kaia_notes.py`); "i'm flagging that for review" / "i am logging this incident" records a row in
+`memory/review_flags.jsonl` and posts it to #kaia-opolis (`review_flags.py`, at most
+`MAX_POSTS_PER_DAY`; "for future reference" is recorded, not posted; never from a DM). Only her own act
+counts — "would be flagged", "do you want me to log it" are left alone.
+
 ### Direct messages stay private
 
 A DM is answered, but it is logged to `memory/dm_logs/<user id>.md` (`utils/core/dm_log.py`), never to
@@ -452,7 +458,12 @@ October); `collapse_litany` keeps the first two of a run of three or more "a …
 vocabulary, leaving verse, lists and anything ending on a likely finite verb ("a quiet machine hums.") alone.
 Reflow runs first, so a run split across short paragraphs is seen whole; the order lives in one place,
 `normalize_litany_paragraphs`, which the live path, `detemplate_history` and `clean_kaia_turns.py` all call.
-A reply that is *only* the address tag is suppressed (`strip_address_tag` returns empty) rather than sent
+From 18 Oct the grading came back as a whole sentence — "the assessment is accurate. a keen observation.",
+"the logic is compelling.", "the proposal is… provocative." — in 21% of her replies on 23 Oct;
+`_GRADED_SENTENCE` drops an opening sentence whose subject is something said (`_GRADED_NOUN`) and whose
+predicate is a grade (`_GRADE`), with the fragments that continue it, in what she sends and what she is
+shown (`_without_openers`). Both halves are vocabulary: "it's striking." alone is her reaction to a picture,
+and "the light's good" describes a room. A reply that is *only* the address tag is suppressed (`strip_address_tag` returns empty) rather than sent
 back as the leak — the one deliberate exception to the rule below. `reflow_paragraphs` changes no word (lists, headings, code,
 quotes and stage directions keep their lines) and runs in what she sends and in her history. **A history-side rule is
 not finished until the logs match it:** her logged turns are retrieved and her recent ones are the template, so
