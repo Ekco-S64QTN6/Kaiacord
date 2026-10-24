@@ -314,9 +314,30 @@ def first_audio(proc, timeout: float = 12.0) -> bool:
 
 
 def close_stream(proc) -> None:
-    if proc.poll() is None:
+    """Stop a receiver stream: SIGINT so rtl_fm or kiwirecorder lets go of the
+    dongle or the remote slot, then kill if it has not exited in 3 s.
+
+    A killed child is reaped with a second bounded wait; without it the process
+    stays a zombie for the life of the bot. stdout is deliberately left open:
+    discord.py's pipe reader may still be blocked on it, and it is meant to see
+    end-of-stream and exit on its own (`live.stop`)."""
+    if proc.poll() is not None:
+        return
+    try:
         proc.send_signal(signal.SIGINT)
-        try:
-            proc.wait(3)
-        except Exception:
-            proc.kill()
+        proc.wait(3)
+        return
+    except ProcessLookupError:
+        return
+    except Exception:
+        pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
+    except Exception as exc:
+        log_warning(f"[radio] could not kill the stream: {exc}")
+    try:
+        proc.wait(3)
+    except Exception as exc:
+        log_warning(f"[radio] stream did not exit after kill: {exc}")
