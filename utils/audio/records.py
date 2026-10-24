@@ -29,7 +29,7 @@ import subprocess
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Iterable, Optional
 
 import numpy as np
@@ -160,6 +160,9 @@ MAX_DRIFT_S = 0.025
 PREROLL_S = 1.0
 #: A gap between frame requests longer than this is counted as late.
 LATE_S = 0.06
+#: Shorter gaps than LATE_S that a listener's jitter buffer may still not
+#: hide when they repeat; counted apart, so "no late frames" is not the whole story.
+JITTER_S = 0.04
 
 
 #: The mixer's three bands: LOW under this, HIGH over MID_TOP_HZ, MID between.
@@ -330,6 +333,15 @@ class Deck:
             self._pump_thread.join(timeout=0.5)
             if self._pump_thread.is_alive():
                 log_warning("[records] decoder reader did not stop after cleanup")
+
+
+#: Opus told what it is encoding. Left on "auto" it guesses speech or music
+#: frame by frame and switches coding mode on a quiet bar or a breakdown,
+#: which is heard as a hiccup; a set is music throughout.
+OPUS_SIGNAL = "music"
+
+#: How long a NEXT or ▶ pressed during a booth load waits for it to land.
+LOAD_WAIT_S = 30.0
 
 
 @dataclass
@@ -562,22 +574,26 @@ def _ease(x):
     return 0.5 - 0.5 * np.cos(np.pi * np.clip(x, 0.0, 1.0))
 
 
-#: Where the mids sit while both records are playing: each record's mids
-#: are thinned so two sets of vocals and synths never stack at full.
-MID_SHARE = 0.55
+#: The incoming record's mids while the outgoing's are still up: low enough
+#: that its vocal stays out of the way (−14 dB), enough to keep its chords in
+#: the blend. The rest comes in at the handoff.
+MID_HOLD = 0.2
+#: The vocals change hands over this many beats, centred on the bass swap: the
+#: outgoing's phrase is let finish, the incoming's starts on the downbeat.
+MID_HANDOFF_BEATS = 2.0
 
 
 def gains(plan: Plan, t: np.ndarray) -> tuple:
     """(outgoing low, mid, high, incoming low, mid, high) gains at times t.
 
-    A blend staged the way DJs ride a long EQ mix: the incoming record comes
-    in from the top down — its highs (hats, air) over the first ramp, its mids
-    over the second while the outgoing's are thinned to make room — then the
-    ride, both records up and locked, with the basslines swapped on the bar
-    halfway, over one beat (never two basslines, never none). The outgoing
-    leaves from the bottom up: bass at the swap, its mids over the second-last
-    ramp, its highs over the last. `ramp` is a quarter of a short blend, so a
-    32- or 64-beat blend is in quarters; a long one rides for half its length."""
+    A blend staged the way DJs ride an EQ mix: the incoming record comes in
+    with its highs (hats, percussion) over the first ramp and its mids held at
+    MID_HOLD, while the outgoing plays on whole, vocal and all — the ride, both
+    up and locked. On the bar halfway the basslines swap over one beat (never
+    two, never none) and the mids hand over in MID_HANDOFF_BEATS around it, so
+    the outgoing's vocal phrase finishes and the incoming's starts on the one;
+    two vocals never play together at full. Then the outgoing's highs go over
+    the last ramp. `ramp` is a quarter of a short blend, an eighth of a long one."""
     if plan.kind == "cut":
         out = np.clip((plan.drop - t) / plan.length, 0.0, 1.0)
         inc = (t >= plan.drop).astype(np.float32)
@@ -605,10 +621,12 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
     swap = d + L / 2
     bass = np.clip((t - swap) / plan.beat, 0.0, 1.0)
     in_high = _ease((t - d) / r)
-    # Incoming mids: up to MID_SHARE over the second ramp, the rest at the swap.
-    in_mid = MID_SHARE * _ease((t - (d + r)) / r) + (1 - MID_SHARE) * bass
-    # Outgoing mids: thinned to MID_SHARE alongside, out over the second-last ramp.
-    out_mid = (1 - (1 - MID_SHARE) * _ease((t - (d + r)) / r)) * (1 - _ease((t - (d + L - 2 * r)) / r))
+    # The vocals change hands around the swap; until then the incoming's mids
+    # wait at MID_HOLD, brought up with its highs.
+    h = min(MID_HANDOFF_BEATS * plan.beat, r)
+    handoff = _ease((t - (swap - h / 2)) / h)
+    in_mid = MID_HOLD * _ease((t - d) / r) * (1 - handoff) + handoff
+    out_mid = 1.0 - handoff
     out_high = 1.0 - _ease((t - (d + L - r)) / r)
     return 1.0 - bass, out_mid, out_high, bass, in_mid, in_high
 
@@ -691,7 +709,9 @@ def kaia_hands(plan: Optional[Plan], t: np.ndarray, energy: float = 0.5, grid=No
             stage = 1 - (1 - STAGE) * inside
             for i in range(6):
                 f[i] = f[i] * stage
-            # Trading mids: one record leads each TRADE_BARS, the other steps back.
+            # Trading the highs: one record's hats lead each TRADE_BARS, the
+            # other's step back. Not the mids: those carry the vocals, and the
+            # outgoing's are let run until the handoff.
             depth = 0.12 + 0.18 * e
             phrase = TRADE_BARS * 4 * b
             k = np.floor((t - lo_w) / phrase)
@@ -699,10 +719,10 @@ def kaia_hands(plan: Optional[Plan], t: np.ndarray, energy: float = 0.5, grid=No
             prev = np.where(k >= 1, 1 - lead, lead)
             lead = prev + (lead - prev) * _ease((t - (lo_w + k * phrase)) / b)
             swing = depth * (2 * lead - 1) * inside
-            f[1] = f[1] * (1 - swing)
-            f[4] = f[4] * (1 + swing)
+            f[2] = f[2] * (1 - swing)
+            f[5] = f[5] * (1 + swing)
             if lo_w <= now < hi_w:
-                label = f"riding both, trading the mids — the {'new' if lead[-1] > 0.5 else 'old'} one leads"
+                label = f"riding both, trading the hats — the {'new' if lead[-1] > 0.5 else 'old'} one leads"
         if e >= 0.45:
             # The beat before the swap with no bass at all, then the new bassline lands.
             f[0] = f[0] * (1 - np.clip((t - (swap - b)) / (b / 8), 0.0, 1.0))
@@ -956,12 +976,21 @@ class CrossfadeSource(_AudioSource):
     def skip(self) -> None:
         """Bring the next record in at the next phrase it can land on. A blend
         planned for later (the end of the record) that has not started is
-        called off and planned again from here. With a deck playing by hand,
-        Kaia finishes that mix instead."""
+        called off and planned again from here; a skip already planned is kept.
+        With a deck playing by hand, Kaia finishes that mix instead."""
         if self.hand is not None:
             self.finish()
             return
         with self._lock:
+            # A skip already on its way stays on its way. Planned again from now,
+            # each press moved it a phrase later — and the planner's search and a
+            # fresh decoder ran again every time (24 Oct: six NEXTs in nine
+            # seconds, each pushing the echo 2 s on).
+            pending = self.plan if (self.plan is not None and not self.blend_started()) else None
+            if (pending is not None and pending.mode == "skip") or \
+                    (self._planning and self.planning_mode == "skip"):
+                log_debug("[records] skip pressed again; the one on its way stands")
+                return
             if self._call_off_plan():
                 log_debug("[records] the planned blend was called off for a skip")
         self._begin_planning("skip")
@@ -1068,11 +1097,13 @@ class CrossfadeSource(_AudioSource):
             return nxt
         from utils.audio import beatgrid
         g = self._grid_at(nxt.record, max(0.0, self.cue - 4.0), 30.0) or nxt.grid
+        # Everything else about the record is kept: rebuilt field by field, its
+        # source was lost, and a record loaded at the booth whose cue had been
+        # moved became one of her picks — swapped for another when it did not lock.
         if g is None:
-            return Next(nxt.record, nxt.seconds, nxt.gain, None, self.cue)
+            return replace(nxt, grid=None, lead=self.cue)
         c = self.snap(g, self.cue)
-        return Next(nxt.record, nxt.seconds, nxt.gain,
-                    beatgrid.Grid(g.bpm, c, g.contrast, bar_known=g.bar_known), c)
+        return replace(nxt, grid=beatgrid.Grid(g.bpm, c, g.contrast, bar_known=g.bar_known), lead=c)
 
     def play_hand(self) -> str:
         """Start the free deck by hand: at the record on air's tempo where it
@@ -1196,7 +1227,7 @@ class CrossfadeSource(_AudioSource):
             beat = g.beat / cur.ratio if g else 0.5
             drop = g.next_bar(cur.at() + 0.3, cur.ratio) if g else cur.at() + 0.3
             length = max(beat, min(FINISH_BARS * 4 * beat, cur.end - drop - 0.05))
-            nxt = self.hand_next or Next(hand.record, hand.total_frames / FRAMES_PER_S)
+            nxt = self.hand_next or Next(hand.record, hand.total_frames / FRAMES_PER_S, source="hand")
             plan = Plan("out", drop, drop, length, beat, hand.ratio, nxt, mode="skip", why="finishing the mix by hand")
             self.incoming, self.plan = hand, plan
             self._start_frame = 0 if self._hand_on else self._hand_k
@@ -1746,6 +1777,10 @@ class BufferedRecordsSource(_AudioSource):
         self.late_count = 0
         self.worst_late = 0.0
         self.underruns = 0
+        self.jitter_count = 0
+        #: The fewest frames ever waiting when the voice thread asked: how close
+        #: the mixer came to running dry.
+        self.low_water = self.buffer_frames
         self._thread = threading.Thread(
             target=self._produce, daemon=True, name="kaia-records-audio-buffer"
         )
@@ -1784,12 +1819,18 @@ class BufferedRecordsSource(_AudioSource):
     def read(self) -> bytes:
         """Return one complete frame immediately; never wait for the mixer."""
         now = time.perf_counter()
-        if self._last_read is not None and now - self._last_read > LATE_S:
+        if self._last_read is not None and now - self._last_read > JITTER_S:
             gap = now - self._last_read
-            self.late.append(gap)
-            self.late_count += 1
-            self.worst_late = max(self.worst_late, gap)
+            if gap > LATE_S:
+                self.late.append(gap)
+                self.late_count += 1
+                self.worst_late = max(self.worst_late, gap)
+            else:
+                self.jitter_count += 1
         self._last_read = now
+        depth = self._frames.qsize()
+        if depth < self.low_water and not self._eof.is_set():
+            self.low_water = depth
         try:
             return self._frames.get_nowait()
         except queue.Empty:
@@ -2233,8 +2274,23 @@ class RecordsSession:
                 return
 
     def skip(self) -> None:
-        if self.source:
-            self.source.skip()
+        self.after_load(lambda: self.source.skip() if self.source else None)
+
+    def after_load(self, fn) -> None:
+        """Run `fn` now, or once a record being loaded at the booth is on the
+        deck. Loading reads the record first (its beats, its loudness), which
+        can take seconds; a NEXT pressed meanwhile planned with nothing loaded
+        and mixed in her own pick."""
+        if not self.loading:
+            fn()
+            return
+
+        def wait():
+            deadline = time.time() + LOAD_WAIT_S
+            while self.loading and time.time() < deadline:
+                time.sleep(0.05)
+            fn()
+        threading.Thread(target=wait, daemon=True, name="kaia-records-after-load").start()
 
     async def stop(self, disconnect: bool = True) -> None:
         """End the set. `disconnect=False` when something else is taking the
@@ -2270,8 +2326,12 @@ class RecordsSession:
             details.append(f"voice callback late {late_count} times, worst {worst_late * 1000:.0f} ms")
         if underruns:
             details.append(f"{underruns} PCM buffer underruns")
+        vs = self.voice_source
+        tail = (f" {getattr(vs, 'jitter_count', 0)} gaps of {JITTER_S * 1000:.0f}–{LATE_S * 1000:.0f} ms; the "
+                f"buffer never fell below {getattr(vs, 'low_water', '?')} of {getattr(vs, 'buffer_frames', '?')} "
+                f"frames.") if vs else ""
         log_action(f"[records] set ended after {minutes:.1f} min, {len(self.names)} records; "
-                   + ("; ".join(details) if details else "no late frames or buffer underruns") + ".")
+                   + ("; ".join(details) if details else "no late frames or buffer underruns") + "." + tail)
         self._remember(minutes)
 
     def _remember(self, minutes: float) -> None:
@@ -2394,7 +2454,8 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
     if not primed:
         log_warning("[records] PCM buffer did not prime before playback; starting with underrun protection")
     try:
-        vc.play(session.voice_source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None)
+        vc.play(session.voice_source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None,
+                signal_type=OPUS_SIGNAL)
     except BaseException:
         # The deck, mixer, and PCM producer already own threads/processes at
         # this point, but the session is not registered until play succeeds.

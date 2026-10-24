@@ -452,8 +452,12 @@ class _Handler(BaseHTTPRequestHandler):
             ok = slot in (1, 2)
             if ok and src.current is not None and slot == src.current.slot:
                 src.paused.symmetric_difference_update({slot})
+            elif ok and src.hand is not None:
+                ok = src.stop_hand()
+            elif ok and s.loading:
+                s.after_load(src.play_hand)          # ▶ on a record still loading plays it once it lands
             elif ok:
-                ok = src.stop_hand() if src.hand is not None else src.play_hand() == "starting"
+                ok = src.play_hand() == "starting"
         elif self.path == "/cue":
             # CUE on the free deck: with "pos", move the cue point there; with
             # none, a deck playing by hand stops back at its cue point.
