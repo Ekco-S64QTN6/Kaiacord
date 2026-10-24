@@ -159,10 +159,16 @@ def _deck(d, state: str) -> dict:
             "grid": _grid(g), "buffering": not d.ready(5), "key_now": d.key, "semitones": d.semitones}
 
 
+#: How many times the booth has been launched (`open_window`, once per
+#: `!music records`). A page already open reloads when it changes, so every
+#: launch shows a fresh portrait of her even in a window that stayed open.
+_launch = 0
+
+
 def snapshot(session) -> dict:
     """The booth as it stands: both decks, the mixer, the set."""
     if session is None or session.source is None:
-        return {"live": False, "t": time.time()}
+        return {"live": False, "t": time.time(), "launch": _launch}
     from utils.audio.records import ramp
     src = session.source
     cur, inc, plan, queued, hand = src.current, src.incoming, src.plan, src._queued, src.hand
@@ -225,6 +231,7 @@ def snapshot(session) -> dict:
     return {
         "live": True, "t": time.time(), "channel": session.channel_name, "by": session.requested_by,
         "started": session.started_at, "played": len(session.names), "listeners": session._humans(),
+        "launch": _launch,
         "decks": decks, "channels": channels, "master": src.levels["master"], "mix": mix,
         "planning": src.planning_mode, "late": {"count": late_count, "worst_ms": round(worst_late * 1000)},
         "history": src.history[-12:], "names": session.names[-30:], "mood": _mood(),
@@ -541,9 +548,10 @@ def viewers() -> int:
 def open_window() -> None:
     """Pop the booth out as an app window (blocking: run it off the loop) —
     unless a booth page is already connected, which then simply shows the set."""
-    global _window, _profile_dir
+    global _window, _profile_dir, _launch
     if not _cfg("dj_dashboard", True) or not serve():
         return
+    _launch += 1
     # Just after the server (re)starts, an open booth page is still
     # reconnecting (EventSource retries every few seconds): give it the chance.
     deadline = _served_at + 6.0

@@ -998,8 +998,12 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   the TUNED span (FOLLOW KAIA; a zoom or drag hands the view to you). Zoomed inside one band it draws
   that band's own panorama. Waterfalls are WebGL2 ring textures (`Falls` in the page), which WebKitGTK
   runs. Kaia herself is the shared codec avatar in `assets/kaia-avatar/` (served at `/kaia/`; the
-  same engine as Kaia's and Kaiagotchi's dashboards — keep the copies identical, put states in the
-  page via `KaiaAnimator.registerMood`). `tools/maintenance/rx_preview.py` runs the real `Watcher`
+  same engine as Kaia's and Kaiagotchi's dashboards — keep the copies identical (Kaiagotchi's is
+  `kaiagotchi/ui/web/static/js/kaia/`; change the engine in both, byte for byte), put states in the
+  page via `KaiaAnimator.registerMood`). Both pages mount her with `portrait: "random"` — one of
+  `KaiaCodec.PORTRAITS`, never the one that browser showed last (`KaiaCodec.randomPortrait`) — and every
+  launch (`open_window`, i.e. each `!music records` and `!scanner dash`) bumps `launch` in the page's
+  stream; an open page reloads when it changes, because the window is usually reused, not reopened. `tools/maintenance/rx_preview.py` runs the real `Watcher`
   against a simulated sky in real time and serves the page — use it to look at a change, not the bot.
   Write-up: `docs/reports/investigations/2026-10-10-kaia-avatar-rx-and-booth.md` (local, git-ignored).
   `!scanner history` lists voice and data and folds bare carriers into one line; every catch is in

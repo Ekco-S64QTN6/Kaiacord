@@ -412,6 +412,7 @@ function connect() {
   const es = new EventSource("/events");
   es.onmessage = (e) => {
     S = JSON.parse(e.data);
+    kaiaRelaunch(S.launch);
     if (!bands.length && S.bands.length) {
       bands = S.bands; OV = S.overview; buildSegs();
       fetch("/overview").then((r) => r.json()).then((w) => { if (w.rows) pushOv(b64(w.data), w.rows); }).catch(() => {});
@@ -537,7 +538,16 @@ function kaiaState() {
     default: return "RxIdle";
   }
 }
-KaiaCodec.mount($("kaia-stage"), { assets: "/kaia/portraits", maxFps: 30 }).then((c) => { codec = c; }).catch((e) => console.error("[rx] Kaia:", e));
+// A different portrait of her on every launch (`portrait: "random"` in the
+// engine never repeats the last one); the page reloads when the server counts
+// a new launch, since the window is often reused rather than reopened.
+var kaiaLaunch = null;
+function kaiaRelaunch(n) {
+  if (n == null) return;
+  if (kaiaLaunch === null) kaiaLaunch = n;
+  else if (n !== kaiaLaunch) location.reload();
+}
+KaiaCodec.mount($("kaia-stage"), { assets: "/kaia/portraits", portrait: "random", maxFps: 30 }).then((c) => { codec = c; }).catch((e) => console.error("[rx] Kaia:", e));
 let typed = null;
 function sayLine(line) {
   if (line === lastLine) return;
