@@ -49,6 +49,12 @@ RELATED_TESTS = {
     "utils/core/sanitizer.py": ("tools/tests/unit/test_reactions_and_logging.py",),
     "utils/core/safety_pipeline.py": ("tools/tests/unit/test_response_filters.py",),
     "utils/admin/sources.py": ("tools/tests/unit/test_admin_dashboard.py",),
+    "utils/audio/process_lifecycle.py": (
+        "tools/tests/unit/test_records.py",
+        "tools/tests/unit/test_strudel_source_restart.py",
+        "tools/tests/unit/test_radio_close_stream.py",
+    ),
+    "utils/audio/strudel_engine.py": ("tools/tests/unit/test_strudel_source_restart.py",),
     "utils/radio/kiwi.py": (
         "tools/tests/unit/test_radio_close_stream.py",
         "tools/tests/unit/test_radio_listening.py",

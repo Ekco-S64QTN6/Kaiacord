@@ -297,42 +297,11 @@ class Deck:
                 return
             self._closed = True
         self._room.release()
-        proc = self._proc
-        poll = getattr(proc, "poll", None)
-        kill = getattr(proc, "kill", None)
-        try:
-            if callable(kill) and (not callable(poll) or poll() is None):
-                kill()
-        except Exception as exc:
-            log_debug(f"[records] decoder kill failed: {exc}")
-
-        wait = getattr(proc, "wait", None)
-        if callable(wait):
-            try:
-                # Reap ffmpeg even when it exited naturally at EOF.
-                wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                try:
-                    if callable(kill):
-                        kill()
-                except Exception:
-                    pass
-                try:
-                    wait(timeout=1.0)
-                except Exception as exc:
-                    log_warning(f"[records] decoder did not exit after kill: {exc}")
-            except Exception as exc:
-                log_debug(f"[records] decoder wait failed: {exc}")
-
-        stdout = getattr(proc, "stdout", None)
-        if stdout is None and hasattr(proc, "read"):
-            stdout = proc
-        try:
-            close_stdout = getattr(stdout, "close", None)
-            if callable(close_stdout):
-                close_stdout()
-        except Exception as exc:
-            log_debug(f"[records] decoder pipe close failed: {exc}")
+        # Kill (a retired decoder has nothing to flush), reap even one that
+        # exited at EOF, close its stdout — or the stream itself when a test
+        # factory hands one over: utils/audio/process_lifecycle.
+        from utils.audio.process_lifecycle import stop
+        stop(self._proc, "decoder")
         if self._pump_thread.is_alive() and threading.current_thread() is not self._pump_thread:
             self._pump_thread.join(timeout=0.5)
             if self._pump_thread.is_alive():
