@@ -111,3 +111,27 @@ def test_failed_voice_play_cleans_pcm_mixer_deck_and_connection(monkeypatch):
         assert guild_id not in R._sessions
     finally:
         R._sessions.pop(guild_id, None)
+
+
+def test_a_second_start_while_one_is_starting_is_refused(monkeypatch):
+    """Two overlapping starts share one voice client; the one that failed
+    would tear it down under the one that played."""
+    gate = asyncio.Event()
+
+    async def slow_start(*args, **kwargs):
+        await gate.wait()
+        return "session"
+
+    monkeypatch.setattr(R, "_start_records", slow_start)
+    channel = SimpleNamespace(guild=SimpleNamespace(id=55))
+
+    async def run():
+        first = asyncio.create_task(R.start_records(channel, [], None, requested_by="a"))
+        await asyncio.sleep(0)
+        with pytest.raises(R.AlreadyStarting):
+            await R.start_records(channel, [], None, requested_by="b")
+        gate.set()
+        assert await first == "session"
+        assert 55 not in R._starting               # released for the next start
+
+    asyncio.run(run())

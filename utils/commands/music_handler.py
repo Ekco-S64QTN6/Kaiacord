@@ -20,7 +20,9 @@ nothing with the inference path, so the chat model keeps its VRAM.
 
 from __future__ import annotations
 
+import asyncio
 import time
+import traceback
 
 import discord
 
@@ -78,7 +80,6 @@ async def handle_music_command(ctx, msg, send_kaia_response):
     crate_session = get_records(msg.guild.id)
     if len(parts) > 1 and parts[1].lower() in _BOOTH:                 # with or without a set running
         from utils.audio import dj_dashboard
-        import asyncio
         await asyncio.to_thread(dj_dashboard.open_window)
         return await msg.channel.send(embed=notice(
             f"the booth is open on my screen — {dj_dashboard.url() or 'the server would not start'}"))
@@ -206,12 +207,12 @@ async def handle_music_command(ctx, msg, send_kaia_response):
             "the music engine won't start — assets or audio sink are missing. "
             "`tools/maintenance/fetch_music_assets.py` sets them up.", error=True))
         return
-    except discord.ClientException as exc:
-        log_warning(f"[music] join failed: {exc}")
+    except (discord.ClientException, asyncio.TimeoutError) as exc:
+        log_warning(f"[music] join failed: {_why(exc)}")
         await msg.channel.send(embed=notice("i couldn't get into that channel.", error=True))
         return
     except Exception as exc:
-        log_error(f"[music] start failed: {exc}")
+        log_error(f"[music] start failed: {_why(exc)}\n{traceback.format_exc()}")
         await msg.channel.send(embed=notice("something went wrong starting the sound.", error=True))
         return
 
@@ -221,6 +222,11 @@ async def handle_music_command(ctx, msg, send_kaia_response):
     await msg.channel.send(embed=embed)
     log_action(f"[music] {msg.author.display_name} started a set; kaia picked {genre}"
                + (f" ({why})" if why else ""))
+
+
+def _why(exc: BaseException) -> str:
+    """An exception for the log: a timeout's message is empty, so name it."""
+    return f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
 
 
 def _records_status(session) -> discord.Embed:
@@ -246,7 +252,6 @@ async def _records(msg, query: str) -> None:
     if not (perms.connect and perms.speak):
         return await msg.channel.send(embed=notice(f"i can't speak in {channel.name}.", error=True))
 
-    import asyncio
     crate = await asyncio.to_thread(library.load, config.get("music.library_catalog", "") or "")
     if not crate:
         return await msg.channel.send(embed=notice(
@@ -279,11 +284,13 @@ async def _records(msg, query: str) -> None:
                 mix_beats=int(config.get("music.records_mix_beats", 64)),
                 alone_grace_s=float(config.get("music.alone_grace_seconds", 120)),
                 set_list=chosen if not query and chosen and first.path == chosen[0] else None)
-    except discord.ClientException as exc:
-        log_warning(f"[records] join failed: {exc}")
+    except records.AlreadyStarting:
+        return await msg.channel.send(embed=notice("i'm already starting a set — give it a moment."))
+    except (discord.ClientException, asyncio.TimeoutError) as exc:
+        log_warning(f"[records] join failed: {_why(exc)}")
         return await msg.channel.send(embed=notice("i couldn't get into that channel.", error=True))
     except Exception as exc:
-        log_error(f"[records] start failed: {exc}")
+        log_error(f"[records] start failed: {_why(exc)}\n{traceback.format_exc()}")
         return await msg.channel.send(embed=notice("the records wouldn't start; the log has why.", error=True))
     meta = " · ".join(x for x in (f"{first.bpm:g} bpm" if first.bpm else "", first.key or "") if x)
     await msg.channel.send(embed=box(
