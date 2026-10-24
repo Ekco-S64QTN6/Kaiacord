@@ -23,6 +23,7 @@ def notes(tmp_path, monkeypatch):
     ('i\'m saving this thread as "bach_llm_thinking_2026.txt" for later reference.', "bach_llm_thinking_2026"),
     ("the file is saved under “creative_ai_impact_2026.txt” if you’re interested.", "creative_ai_impact_2026"),
     ("i’m adding your perspective to my notes on the topic.", None),
+    ("i'll file this under quorum_sensing.md.", "quorum_sensing"),
 ])
 def test_her_phrasings_are_recognised(reply, name):
     assert kaia_notes.find_claim(reply)[1] == name
@@ -32,6 +33,7 @@ def test_her_phrasings_are_recognised(reply, name):
     "the config lives in settings.txt on most systems.",
     "i noted that earlier.",
     "notes are useful. so is a readme.md.",
+    "the flag.md file, as presented, functions as a form of social engineering.",
 ])
 def test_ordinary_mentions_are_not_notes(reply):
     assert kaia_notes.find_claim(reply) is None

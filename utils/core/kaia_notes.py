@@ -32,8 +32,10 @@ FOLLOW_ON_S = 3600
 # A filename she names: "ppg_worm_analysis_2026.txt", `notes.md`, “x.txt”.
 _FILENAME = re.compile(r"[\"'`“‘]?\b([A-Za-z0-9][A-Za-z0-9_\-]{2,80})\.(?:txt|md)\b[\"'`”’]?")
 # The act of keeping it, in the sentence that names the file or on its own.
+# "file" counts only as a verb with an object: "the flag.md file, as
+# presented" is someone else's file, and was kept as a note of hers.
 _KEEPING = re.compile(
-    r"\b(?:add(?:ing|ed)?|sav(?:e|ing|ed)|fil(?:e|ing|ed)|put(?:ting)?|log(?:ging|ged)?|"
+    r"\b(?:add(?:ing|ed)?|sav(?:e|ing|ed)|fil(?:ing|ed)|file\s+(?:this|that|it|them)|put(?:ting)?|log(?:ging|ged)?|"
     r"stor(?:e|ing|ed)|keep(?:ing)?|jot(?:ting)?)\b[^.!?\n]{0,60}?\b(?:notes?|file|saved|under|as)\b",
     re.IGNORECASE)
 _NOTES_NO_NAME = re.compile(

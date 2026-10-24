@@ -255,7 +255,8 @@ def test_the_logging_call_sites_strip():
     for line in src.splitlines():
         if "log_user_interaction_async(" in line and "def " not in line:
             block_start = src.index(line)
-            window = src[block_start:block_start + 400]
+            # The stripped text may be built just before the call.
+            window = src[max(0, block_start - 600):block_start + 400]
             assert "summarize_link_context" in window, f"unstripped log call: {line.strip()}"
 
 
@@ -396,3 +397,18 @@ def test_a_fully_cleaned_reply_still_logs_the_users_turn(tmp_path):
         args = obj._sanitize_and_prepare(str(tmp_path / "log.md"), "hello kaia",
                                          "<recorded_knowledge> leak", "Starkind", 519557167779676160)
     assert "Starkind: hello kaia" in args["text"]
+
+
+def test_a_picture_alone_is_logged_as_a_citation_not_an_empty_turn():
+    """Image-only messages in a watched channel were logged as "GuardNGnowm: "."""
+    from types import SimpleNamespace
+    from utils.core.sanitizer import attachment_citations
+    msg = SimpleNamespace(
+        attachments=[SimpleNamespace(content_type="image/png", filename="IMG_2231.png"),
+                     SimpleNamespace(content_type=None, filename="photo.JPG"),
+                     SimpleNamespace(content_type="application/pdf", filename="my secret plans.pdf")],
+        stickers=[object()])
+    out = attachment_citations(msg)
+    assert out == "[shared image] [shared image] [shared file] [sticker]"
+    assert "secret" not in out                       # the sender's filename is not kept
+    assert attachment_citations(SimpleNamespace(attachments=[], stickers=[])) == ""

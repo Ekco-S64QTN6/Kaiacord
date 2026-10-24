@@ -336,17 +336,20 @@ class MessageProcessor:
                     except Exception:
                         pass
 
-                    # Background RAG log — observation only (empty response)
+                    # Background RAG log — observation only (empty response).
+                    # A picture or sticker alone is logged as a citation, not
+                    # as an empty turn.
                     try:
-                        if self.rag:
-                            from utils.core.sanitizer import summarize_link_context
+                        from utils.core.sanitizer import attachment_citations, summarize_link_context
+                        observed = " ".join(x for x in (summarize_link_context(msg.content or "").strip(),
+                                                        attachment_citations(msg)) if x)
+                        if self.rag and observed:
                             author_display = msg.author.display_name or msg.author.name
                             task_registry.register(
                                 f"observe_log_{uuid.uuid4().hex[:6]}",
                                 asyncio.create_task(
                                     self.rag.log_user_interaction_async(
-                                        msg.author.id, author_display,
-                                        summarize_link_context(msg.content), ""
+                                        msg.author.id, author_display, observed, ""
                                     )
                                 ))
                     except Exception:
