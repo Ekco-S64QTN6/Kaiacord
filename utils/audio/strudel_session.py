@@ -326,41 +326,86 @@ async def start_session(channel, *, genre: str, requested_by: str,
 
     loop = asyncio.get_running_loop()
     engine = StrudelEngine(show_window=bool(_cfg("show_window", False)))
-    # Playwright's sync API blocks; keep it off the event loop entirely.
-    await loop.run_in_executor(None, engine.start)
-    from utils.audio.strudel_patterns import warmup_program
-    await loop.run_in_executor(None, engine.warm_up, warmup_program())
-    if _cfg("monitor_on_speakers", False):
-        monitor_to_speakers(True)
-
-    perf = build_for_mood(genre)
-    await loop.run_in_executor(None, engine.play, perf.code())
-    # Let the first section come up before Discord starts pulling frames.
-    await asyncio.sleep(float(_cfg("prime_seconds", 6.0)))
-
-    # Radio (a live receiver, the scanner's listen-along, a clip) gives way to
-    # music: one voice connection per guild, and a second play() raises.
+    source = None
+    vc = None
+    connected_here = False
+    played_here = False
+    session = None
     try:
-        from utils.radio import live
-        await live.free_voice(channel.guild)
-    except Exception as e:
-        log_error(f"[music] could not stop the radio: {e}")
+        # Startup owns all resources from this point until the session is
+        # published. If any intermediate step fails, release only what was
+        # acquired here; a previously shared voice connection stays connected.
+        await loop.run_in_executor(None, engine.start)
+        from utils.audio.strudel_patterns import warmup_program
+        await loop.run_in_executor(None, engine.warm_up, warmup_program())
+        if _cfg("monitor_on_speakers", False):
+            monitor_to_speakers(True)
 
-    vc = channel.guild.voice_client
-    if vc and vc.is_connected():
-        await vc.move_to(channel)
-    else:
-        vc = await channel.connect(timeout=30.0, reconnect=True)
+        perf = build_for_mood(genre)
+        await loop.run_in_executor(None, engine.play, perf.code())
+        # Let the first section come up before Discord starts pulling frames.
+        await asyncio.sleep(float(_cfg("prime_seconds", 6.0)))
 
-    source = StrudelAudioSource(engine)
-    settle("a live set")
-    vc.play(source, after=lambda e: log_error(f"[music] playback error: {e}") if e else None,
-            signal_type="music")              # see records.OPUS_SIGNAL
+        # Radio (a live receiver, the scanner's listen-along, a clip) gives way
+        # to music: one voice connection per guild, and a second play() raises.
+        try:
+            from utils.radio import live
+            await live.free_voice(channel.guild)
+        except Exception as e:
+            log_error(f"[music] could not stop the radio: {e}")
 
-    session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel)
-    _sessions[guild_id] = session
-    log_action(f"[music] '{genre}' started in {channel.name} for {requested_by}.")
-    return session
+        vc = channel.guild.voice_client
+        if vc and vc.is_connected():
+            await vc.move_to(channel)
+        else:
+            vc = await channel.connect(timeout=30.0, reconnect=True)
+            connected_here = True
+
+        source = StrudelAudioSource(engine)
+        settle("a live set")
+        vc.play(source, after=lambda e: log_error(f"[music] playback error: {e}") if e else None,
+                signal_type="music")          # see records.OPUS_SIGNAL
+        played_here = True
+
+        session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel)
+        _sessions[guild_id] = session
+        log_action(f"[music] '{genre}' started in {channel.name} for {requested_by}.")
+        return session
+    except BaseException:
+        # A constructor or network operation can fail after Chromium, the local
+        # HTTP server, FFmpeg capture, or Discord voice has already been started.
+        # Tear these down before propagating the original startup exception.
+        if session is not None:
+            _sessions.pop(guild_id, None)
+            try:
+                await session.stop()
+            except BaseException as cleanup_exc:
+                log_warning(f"[music] startup cleanup of session failed: {cleanup_exc}")
+        else:
+            # Only playback this call started: if free_voice() failed, a
+            # reused connection may still be playing the radio.
+            if played_here and vc is not None:
+                try:
+                    if vc.is_playing():
+                        vc.stop()
+                except BaseException as cleanup_exc:
+                    log_debug(f"[music] startup playback cleanup failed: {cleanup_exc}")
+            if source is not None:
+                try:
+                    source.cleanup()
+                except BaseException as cleanup_exc:
+                    log_warning(f"[music] startup source cleanup failed: {cleanup_exc}")
+            try:
+                await loop.run_in_executor(None, engine.close)
+            except BaseException as cleanup_exc:
+                log_warning(f"[music] startup engine cleanup failed: {cleanup_exc}")
+            if connected_here and vc is not None:
+                try:
+                    if vc.is_connected():
+                        await vc.disconnect(force=True)
+                except BaseException as cleanup_exc:
+                    log_warning(f"[music] startup voice disconnect failed: {cleanup_exc}")
+        raise
 
 
 async def stop_all() -> None:
