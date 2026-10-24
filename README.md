@@ -285,17 +285,25 @@ See [`docs/ttrpg/aethelgard_system.md`](docs/ttrpg/aethelgard_system.md).
 
 ### Art
 
-`!art` renders a fractal flame in the style of Electric Sheep, on the CPU at 1080². Kaia decides
-the piece before it is drawn: from your words, her mood or the colours of an attached image, she
-picks a palette, symmetry, shapes and a title from the renderer's own options, and remembers what
-she made. `!art mandelbrot` renders the Mandelbrot set, and a
+`!art` makes Electric Sheep: real flock genomes from the public sheep server, rendered by
+[flam3](https://github.com/scottdraves/flam3), the renderer Electric Sheep itself uses. Kaia decides
+the piece before it is drawn: your words' colours and complexity pick the sheep, now and then she
+breeds two into one of her own, an attached image repaints it in that picture's colours, and she
+titles it and remembers it. `!art loop` posts the piece as a rotating loop, the way the screensaver
+plays it. `!art mandelbrot` renders the Mandelbrot set, and a
 [weirdly.net](http://weirdly.net/webtoys/mandelbrot/) link reproduces those exact coordinates.
 
 ```
 !art                               her choice
 !art a cold storm over the sea     she reads the brief
+!art loop deep ocean               a 4-second loop (about 30 s to render)
 !art mandelbrot --palette void --seed 42
 ```
+
+Setup, once: `venv/bin/python3 tools/maintenance/fetch_art_flock.py --build-flam3 --count 300 --gate`
+builds flam3 into `~/.local/bin` and fetches 300 genomes into `memory/art/flock/`. Without them
+`!art` falls back to the old NumPy renderer. Sheep are CC BY-NC 3.0: every post credits "artwork by
+Scott Draves and the Electric Sheep" and names the sheep ([licence](https://electricsheep.org/license/)).
 
 ### Music
 

@@ -4,8 +4,15 @@
     !art                         whatever she feels like making
     !art <words>                 a piece from a prompt: "!art a lighthouse at the end of the world"
     !art  + an attached image    painted in that picture's colours
+    !art loop [<words>]          the piece as a rotating loop, the way Electric Sheep plays
     !art mandelbrot | <weirdly.net link>
     !art --seed N --palette NAME reproduce or force a render
+
+Flames are Electric Sheep genomes rendered by flam3 (`kaia_sheep`); the
+prompt's colour and complexity words pick the sheep, and she sometimes breeds
+two into one of her own. Without flam3 or a flock it falls back to the old
+NumPy renderer (`kaia_art.FractalFlameRenderer`). Every sheep is credited:
+CC BY-NC, https://electricsheep.org/license/.
 
 She decides the piece before it is drawn (`kaia_art_intent.decide`), titles it,
 says what she sees in the result, and remembers having made it.
@@ -37,7 +44,7 @@ def parse_args(content: str) -> dict:
     """Split `!art ...` into flags, a link, a type and the free-text prompt."""
     args = content.strip().split()[1:]
     out = {"type": "flame", "seed": None, "palette": None, "viewport": None,
-           "bad_url": False, "bad_seed": False, "prompt": ""}
+           "bad_url": False, "bad_seed": False, "prompt": "", "loop": False}
     words = []
     i = 0
     while i < len(args):
@@ -50,6 +57,8 @@ def parse_args(content: str) -> dict:
                 out["bad_url"] = True
         elif arg in ("mandelbrot", "flame") and not words:
             out["type"] = arg
+        elif arg in ("loop", "animate", "animated", "video", "--loop") and not words:
+            out["loop"] = True
         elif arg in ("--seed", "-s") and i + 1 < len(args):
             i += 1
             try:
@@ -77,6 +86,9 @@ def _title_for(intent, params) -> str:
 
 
 def _footer_for(params) -> str:
+    if params.get("type") == "sheep":
+        # The licence asks for the credit, a link and the sheep's number.
+        return f"{params.get('credit', '')} · {params.get('render_time_s', '?')}s"
     if params.get("type") == "mandelbrot":
         return (f"{params.get('location', '?')} · {params.get('zoom', '?')}x · "
                 f"{params.get('max_iter', '?')} iterations · {params.get('palette', '?')} · "
@@ -91,6 +103,23 @@ def _comment_prompt(params, intent, viewport) -> str:
                 f"magnification {params.get('zoom', 'unknown')}, palette {params.get('palette', 'unknown')}. "
                 f"{'the coordinates came from a link someone shared with you. ' if viewport else ''}"
                 "describe what you see in it in one or two sentences. be specific and a little strange.")
+    if params.get("type") == "sheep":
+        why = ""
+        if intent is not None:
+            if intent.prompt:
+                why += f'someone asked for "{intent.prompt}". '
+            elif getattr(intent, "about", ""):
+                why += f"you made it about {intent.about}. "
+            if intent.title:
+                why += f'you titled it "{intent.title}". '
+            if intent.lut is not None:
+                why += "you repainted it in the colours of a picture they sent. "
+        bred = ("you bred it yourself from two sheep in the flock. " if params.get("bred")
+                else "you picked it from the electric sheep flock. ")
+        moving = "it is a loop that turns slowly. " if params.get("frames") else ""
+        return (f"you just made this — the picture is attached; look at it. {bred}{moving}{why}"
+                "in one or two sentences, say what you actually see in it and what it has to do with "
+                "what you made it about. be specific and a little strange; don't explain the maths.")
     shapes = set()
     for t in params.get("transforms", []):
         shapes.update(t.get("variations", []))
@@ -176,13 +205,30 @@ async def _image_palette(msg):
     return None
 
 
-def _save(image, params, intent) -> None:
+def _save(image, params, intent, video: Optional[Path] = None) -> None:
     """Keep the piece and what went into it. Blocking."""
+    import shutil
     from utils.core.atomic_write import write_atomic
     ART_DIR.mkdir(parents=True, exist_ok=True)
     file_id = uuid.uuid4().hex[:12]
     image.save(str(ART_DIR / f"{file_id}.png"), format="PNG")
+    if video is not None and video.exists():
+        shutil.copyfile(video, ART_DIR / f"{file_id}.mp4")
     write_atomic(ART_DIR / f"{file_id}.json", json.dumps(params, indent=2, default=str))
+
+
+#: One flam3 render at a time: it uses every core but two, and a second
+#: render alongside would only make both slower.
+_render_lock = asyncio.Lock()
+
+
+def _sheep_ready() -> bool:
+    try:
+        from utils.core import kaia_sheep
+        return kaia_sheep.available()
+    except Exception as e:
+        log_warning(f"[art] electric sheep unavailable: {e}")
+        return False
 
 
 async def handle_art_command(ctx, msg, send_kaia_response):
@@ -210,6 +256,7 @@ async def handle_art_command(ctx, msg, send_kaia_response):
         pass
 
     intent = None
+    video = None
     renderer = FractalFlameRenderer()
     try:
         if opts["type"] == "mandelbrot":
@@ -232,8 +279,25 @@ async def handle_art_command(ctx, msg, send_kaia_response):
                         f"making *{clean(intent.title, 80)}*..." if intent.title else "drawing it..."))
                 except Exception:
                     pass
-            image, params = await asyncio.to_thread(
-                renderer.generate, seed=opts["seed"], palette_name=opts["palette"], intent=intent)
+            if _sheep_ready():
+                from utils.core import kaia_sheep
+                if opts["palette"]:
+                    intent.palette = opts["palette"]
+                if opts["loop"] and placeholder:
+                    try:
+                        await placeholder.edit(embed=notice(
+                            f"rendering *{clean(intent.title, 80) or 'it'}* as a loop — about a minute..."))
+                    except Exception:
+                        pass
+                async with _render_lock:
+                    image, video, params = await asyncio.to_thread(
+                        kaia_sheep.make, intent, seed=opts["seed"], lut=intent.lut, loop=opts["loop"])
+            else:
+                if opts["loop"]:
+                    await msg.channel.send(embed=notice(
+                        "loops need flam3 and the sheep flock — making a still instead."))
+                image, params = await asyncio.to_thread(
+                    renderer.generate, seed=opts["seed"], palette_name=opts["palette"], intent=intent)
     except Exception as e:
         log_error(f"[art] Render failed: {e}")
         await msg.channel.send(embed=notice("something went wrong rendering. try again?", error=True))
@@ -243,7 +307,7 @@ async def handle_art_command(ctx, msg, send_kaia_response):
         return
 
     try:
-        await asyncio.to_thread(_save, image, params, intent)
+        await asyncio.to_thread(_save, image, params, intent, video)
     except Exception as e:
         log_warning(f"[art] Failed to save art to disk: {e}")
 
@@ -251,13 +315,17 @@ async def handle_art_command(ctx, msg, send_kaia_response):
     title = _title_for(intent, params)
 
     try:
-        buf = io.BytesIO()
-        await asyncio.to_thread(image.save, buf, "PNG")
-        buf.seek(0)
         embed = box(f"🎨  {clean(title, 200)}", clean(comment, 900) if comment else "",
                     COLOR_ART, footer=_footer_for(params))
-        embed.set_image(url="attachment://kaia_art.png")
-        await msg.channel.send(embed=embed, file=discord.File(buf, filename="kaia_art.png"))
+        if video is not None:
+            # An embed cannot hold a video; the MP4 goes alongside and plays inline.
+            await msg.channel.send(embed=embed, file=discord.File(str(video), filename="kaia_art.mp4"))
+        else:
+            buf = io.BytesIO()
+            await asyncio.to_thread(image.save, buf, "PNG")
+            buf.seek(0)
+            embed.set_image(url="attachment://kaia_art.png")
+            await msg.channel.send(embed=embed, file=discord.File(buf, filename="kaia_art.png"))
     except discord.errors.DiscordServerError as e:
         log_warning(f"[art] Discord server error posting art: {e}")
         await msg.channel.send(embed=notice("discord choked on the upload. it's saved locally though.", error=True))
@@ -277,4 +345,9 @@ async def handle_art_command(ctx, msg, send_kaia_response):
         try:
             await placeholder.delete()
         except Exception:
+            pass
+    if video is not None:
+        try:
+            video.unlink()
+        except OSError:
             pass

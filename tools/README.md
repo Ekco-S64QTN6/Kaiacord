@@ -67,6 +67,7 @@ nobody is talking to her.
 | `reindex_rag.py` | `--trigger` asks the running bot to refresh; `--clear` rebuilds from scratch (bot stopped). |
 | `health_check.py` | That it runs in the project venv, packages (including `davey`), the GPU from `nvidia-smi`, Ollama models, token, config, permissions. |
 | `fetch_music_assets.py` | Fetches Strudel and the samples `!music` needs. Run once after cloning. |
+| `fetch_art_flock.py` | `!art` setup: `--build-flam3` builds flam3 into `~/.local/bin`, `--count N` fetches Electric Sheep genomes into `memory/art/flock/`, `--gate` preview-checks them. Run once after cloning. |
 | `fetch_radio_assets.py` | Fetches kiwiclient for `!radio`. Run once. |
 | `audition_tracks.py` | Plays each `!music` track and measures every part; `--calibrate` writes `levels.json`. |
 | `band_notebook.py` | The local scanner's ledger as a notebook, one entry per frequency; `--write` updates the git-ignored `docs/reports/reference/local_band_notebook.md`, keeping its "My notes". Runs after every watch. |
