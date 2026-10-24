@@ -685,7 +685,8 @@ a mix that sounded wrong:
 - **A blend takes its time and is staged per band** (`gains`): 64 beats by default; the booth offers
   32 / 64 / 256. The incoming comes in with its highs over one `ramp` and its mids held at `MID_HOLD`
   (−14 dB) while the outgoing plays on whole, vocal and all — the *ride*, both up and locked. On the
-  halfway bar the basslines swap and the mids hand over in `MID_HANDOFF_BEATS` centred on it, so the
+  halfway bar the basslines swap (one beat, S-curve) and the mids hand over in `MID_HANDOFF_BEATS` (a bar)
+  centred on it, so the
   outgoing's vocal phrase finishes and the incoming's starts on the one; then the outgoing's highs go.
   Until 24 Oct both records' mids sat at 55% through the middle: two vocals stacked, and the outgoing's
   was cut mid-phrase at the swap. A ramp is a quarter of a
@@ -772,9 +773,12 @@ a mix that sounded wrong:
   over 0 dBTP, and capping cuts by peak made the spread worse than mean volume did.
 - **Kaia rides the mixer** (`kaia_hands`, `music.records_kaia_hands`, the booth's HANDS): multipliers on
   the automix, locked to bars and scaled by her energy — both records -1.5 dB in a ride (gain staging),
-  the hats traded every 8 bars in a long ride (never the mids: they carry the vocals), no bass for the
-  beat before the swap; alone, one EQ gesture into the end
-  of a 16-bar phrase, released on the one. Which gesture is a hash of record and phrase, never random.
+  the hats traded gently every 8 bars in a long ride (never the mids: they carry the vocals), the old
+  record's air eased back a little into the swap; alone, a small EQ gesture into the end of a 16-bar
+  phrase at most every second phrase (every eighth when calm), let go over the first bar of the next.
+  Which gesture is a hash of record and phrase, never random. Until 24 Oct she killed the bass for the
+  beat before every swap and gestured into every phrase, snapping back on the one — Ekco: "first five
+  minutes with a mixer". Subtle is the rule: a move she makes every time is a habit, not a move.
 - **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
   mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is not proposed as a
   blend (it goes out as an echo). Steadiness only proposes a blend; `mixcheck` decides it.

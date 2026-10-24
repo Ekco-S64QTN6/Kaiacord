@@ -603,8 +603,9 @@ def _ease(x):
 #: the blend. The rest comes in at the handoff.
 MID_HOLD = 0.2
 #: The vocals change hands over this many beats, centred on the bass swap: the
-#: outgoing's phrase is let finish, the incoming's starts on the downbeat.
-MID_HANDOFF_BEATS = 2.0
+#: outgoing's phrase is let finish, the incoming's starts on the downbeat. Two
+#: beats with the bass changing too slammed the whole record in at once.
+MID_HANDOFF_BEATS = 4.0
 
 
 def gains(plan: Plan, t: np.ndarray) -> tuple:
@@ -643,7 +644,8 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
     L, d = plan.length, plan.drop
     r = ramp(plan)
     swap = d + L / 2
-    bass = np.clip((t - swap) / plan.beat, 0.0, 1.0)
+    # The basslines change over one beat on an S-curve, not a straight line.
+    bass = _ease((t - swap) / plan.beat)
     in_high = _ease((t - d) / r)
     # The vocals change hands around the swap; until then the incoming's mids
     # wait at MID_HOLD, brought up with its highs.
@@ -736,7 +738,7 @@ def kaia_hands(plan: Optional[Plan], t: np.ndarray, energy: float = 0.5, grid=No
             # Trading the highs: one record's hats lead each TRADE_BARS, the
             # other's step back. Not the mids: those carry the vocals, and the
             # outgoing's are let run until the handoff.
-            depth = 0.12 + 0.18 * e
+            depth = 0.06 + 0.06 * e
             phrase = TRADE_BARS * 4 * b
             k = np.floor((t - lo_w) / phrase)
             lead = (k % 2 == 1).astype(np.float32)                   # 1: the incoming leads
@@ -748,20 +750,22 @@ def kaia_hands(plan: Optional[Plan], t: np.ndarray, energy: float = 0.5, grid=No
             if lo_w <= now < hi_w:
                 label = f"riding both, trading the hats — the {'new' if lead[-1] > 0.5 else 'old'} one leads"
         if e >= 0.45:
-            # The beat before the swap with no bass at all, then the new bassline lands.
-            f[0] = f[0] * (1 - np.clip((t - (swap - b)) / (b / 8), 0.0, 1.0))
-            f[3] = f[3] * (1 - np.clip((t - (swap - b)) / (b / 8), 0.0, 1.0) * (t < swap))
-            # The old record's air pulled back over the bar into it.
-            bump = _ease((t - (swap - 4 * b)) / (3 * b)) * (1 - _ease((t - swap) / b))
-            f[2] = f[2] * (1 - 0.35 * e * bump)
+            # The old record's air eased back a little over the bar into the
+            # swap. No bass kill: a beat with no bass at all, every blend, was a
+            # trick played as a habit, and with the handoff it slammed the new
+            # record in.
+            bump = _ease((t - (swap - 4 * b)) / (3 * b)) * (1 - _ease((t - swap) / (2 * b)))
+            f[2] = f[2] * (1 - 0.12 * e * bump)
             if swap - 4 * b <= now < swap:
-                label = "pulling the old one's air back — bass out for the beat before the swap"
+                label = "easing the old one's air back into the swap"
     elif plan is None and grid is not None and getattr(grid, "bar_known", False) and e > 0.15:
         bar = 4 * grid.beat / ratio
         bi = (t - grid.downbeat / ratio) / bar + grid.bar0
         ph = int(np.floor(float(bi[-1]) / PHRASE_BARS))
-        every = 1 if e > 0.7 else 2 if e > 0.4 else 4
-        depth = 0.6 + 0.4 * e
+        # Rare and small: a move into every phrase, released on the one, was
+        # a beginner riding the EQ for something to do.
+        every = 2 if e > 0.7 else 4 if e > 0.4 else 8
+        depth = 0.3 + 0.2 * e
 
         def gesture(n):
             import zlib
@@ -780,9 +784,15 @@ def kaia_hands(plan: Optional[Plan], t: np.ndarray, energy: float = 0.5, grid=No
         elif g == "scoop":
             f[1] = 1 - 0.22 * depth * _ease((pos - 12) / 2)
             label = "scooping the mids into the phrase"
-        if gesture(ph) == "air":                                    # let the last lift down gently
-            f[2] = f[2] * (1 + 0.18 * depth * (1 - _ease(pos / 2)))
-        if float(pos[-1]) < 12 and not (gesture(ph) == "air" and float(pos[-1]) < 2):
+        # Let the last one go over the first bar of the phrase, not on the one.
+        let_go = 1 - _ease(pos)
+        if gesture(ph) == "air":
+            f[2] = f[2] * (1 + 0.18 * depth * let_go)
+        elif gesture(ph) == "tension":
+            f[0] = f[0] * (1 - 0.4 * depth * let_go)
+        elif gesture(ph) == "scoop":
+            f[1] = f[1] * (1 - 0.22 * depth * let_go)
+        if float(pos[-1]) < 12 and not (gesture(ph) and float(pos[-1]) < 2):
             label = ""
     return tuple(f), label
 

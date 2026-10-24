@@ -372,11 +372,12 @@ def test_a_blend_comes_in_from_the_top_and_hands_the_vocals_over_at_the_swap():
     at = lambda x: [float(v[0]) for v in gains(plan, np.array([x]))]
     ol, om, oh, il, im, ih = at(plan.drop + q)                        # end of Q1
     assert ih == pytest.approx(1) and im == pytest.approx(R.MID_HOLD) and il == 0 and om == 1
-    ol, om, oh, il, im, ih = at(swap - b)                              # a beat before the swap
+    h = R.MID_HANDOFF_BEATS * b
+    ol, om, oh, il, im, ih = at(swap - h / 2)                          # where the handoff begins
     assert om == pytest.approx(1) and im == pytest.approx(R.MID_HOLD) and ol == 1 and il == 0
     ol, om, oh, il, im, ih = at(swap)                                  # on the one: halfway through the handoff
     assert om == pytest.approx(0.5, abs=0.01) and im > om
-    ol, om, oh, il, im, ih = at(swap + b * 1.01)                       # handed over
+    ol, om, oh, il, im, ih = at(swap + h / 2 * 1.01)                   # handed over
     assert om == pytest.approx(0) and im == pytest.approx(1) and ol == 0 and il == 1 and oh == 1
     ol, om, oh, il, im, ih = at(plan.drop + 3.5 * q)
     assert 0.1 < oh < 0.9                                              # the outgoing's highs on their way out
@@ -470,7 +471,7 @@ def test_a_cue_moved_on_her_own_pick_is_where_it_comes_in():
     assert src.plan.offset == pytest.approx(6.0 - R.PREROLL_S)          # from the cue, not the top
 
 
-def test_kaia_trades_the_hats_in_a_long_ride_and_kills_the_bass_into_the_swap():
+def test_kaia_trades_the_hats_in_a_long_ride_and_never_kills_the_bass():
     g125 = Grid(bpm=125.0, downbeat=0.0, contrast=8.0)
     plan = plan_transition(3.0, 1.0, g125, 600.0, nxt(g125, seconds=600.0), "skip", 256, lead=2.0)
     r, b, swap = R.ramp(plan), plan.beat, plan.drop + plan.length / 2
@@ -479,23 +480,29 @@ def test_kaia_trades_the_hats_in_a_long_ride_and_kills_the_bass_into_the_swap():
     assert first[2] > first[5] and second[5] > second[2]                    # the lead changes hands
     assert first[1] == pytest.approx(R.STAGE) and first[4] == pytest.approx(R.STAGE)   # vocals untouched
     assert first[0] < 1 and first[0] == pytest.approx(R.STAGE)              # both a touch down
-    kill = at(swap - b / 2)
-    assert kill[0] == 0 and kill[3] == 0                                    # no bass for the beat before
-    assert at(swap + 2 * b)[3] == pytest.approx(R.STAGE)                    # the new bassline lands
-    calm = [float(f[0]) for f in R.kaia_hands(plan, np.array([swap - b / 2]), energy=0.2)[0]]
-    assert calm[0] > 0                                                      # low energy: no kill
+    into = at(swap - b / 2)
+    assert into[0] > 0.5 and into[3] > 0                                    # no bass kill into the swap
+    assert 0.7 < into[2] / R.STAGE < 1.0                                    # the old air eased back, a little
+    assert at(swap + 4 * b)[3] == pytest.approx(R.STAGE)                    # the new bassline as staged
 
 
-def test_alone_she_gestures_into_a_phrase_and_lets_go_on_the_one():
+def test_alone_she_gestures_rarely_and_lets_go_over_a_bar():
+    """A move into every phrase, snapped back on the one, was a beginner riding
+    the EQ: now at most every second phrase, small, eased off over a bar."""
     g = Grid(bpm=120.0, downbeat=0.0, contrast=8.0)          # bar 2 s, phrase 32 s
     seen = set()
     for seed in range(12):
-        f_in, label = R.kaia_hands(None, np.array([31.9]), 0.9, g, 1.0, seed)    # last of a phrase
-        f_on, _ = R.kaia_hands(None, np.array([32.05]), 0.9, g, 1.0, seed)       # the one
-        moved = [abs(float(x[0]) - 1) > 0.01 for x in f_in[:3]]
-        assert sum(moved) == 1 and label
-        seen.add(moved.index(True))
-        assert abs(float(f_on[0][0]) - 1) < 1e-6 and abs(float(f_on[1][0]) - 1) < 1e-6   # bass, mids back
+        f_in, label = R.kaia_hands(None, np.array([63.9]), 0.9, g, 1.0, seed)    # last of phrase 2
+        f_on, _ = R.kaia_hands(None, np.array([64.05]), 0.9, g, 1.0, seed)       # the one
+        f_bar, _ = R.kaia_hands(None, np.array([66.1]), 0.9, g, 1.0, seed)       # a bar later
+        moved = [abs(float(x[0]) - 1) for x in f_in[:3]]
+        assert sum(m > 0.01 for m in moved) == 1 and label and max(moved) <= 0.2
+        seen.add(max(range(3), key=lambda i: moved[i]))
+        k = max(range(3), key=lambda i: moved[i])
+        assert abs(float(f_on[k][0]) - 1) > 0.5 * moved[k]                  # not snapped back on the one
+        assert abs(float(f_bar[k][0]) - 1) < 0.02                           # back by the end of the bar
+        lone, _ = R.kaia_hands(None, np.array([31.9]), 0.9, g, 1.0, seed)  # the phrase before: no move
+        assert all(abs(float(x[0]) - 1) < 1e-9 for x in lone[:3])
     assert seen == {0, 1, 2}                                 # all three gestures turn up
     quiet = R.kaia_hands(None, np.array([31.9]), 0.1, g, 1.0, 3)[0]
     assert all(abs(float(x[0]) - 1) < 1e-9 for x in quiet)   # no energy, no hands
