@@ -2303,10 +2303,31 @@ class RecordsSession:
                 "uptime_min": round((time.time() - self.started_at) / 60), "listeners": len(self._humans())}
 
 
-async def start_records(channel, crate: list[library.Record], first: library.Record, *,
-                        requested_by: str, text_channel=None, mix_beats: int = MIX_BEATS,
-                        alone_grace_s: float = 120.0, set_list: Optional[list] = None) -> RecordsSession:
-    """Join `channel` and start the set at `first`. Stops whatever was playing there."""
+class AlreadyStarting(RuntimeError):
+    """A records start is already under way in this guild."""
+
+
+_starting: set[int] = set()
+
+
+async def start_records(channel, crate: list[library.Record], first: library.Record, **kw) -> RecordsSession:
+    """Join `channel` and start the set at `first`. Stops whatever was playing there.
+
+    One start at a time per guild: two overlapping starts share one voice
+    client, and the one that fails tears it down under the one that played."""
+    guild_id = channel.guild.id
+    if guild_id in _starting:
+        raise AlreadyStarting()
+    _starting.add(guild_id)
+    try:
+        return await _start_records(channel, crate, first, **kw)
+    finally:
+        _starting.discard(guild_id)
+
+
+async def _start_records(channel, crate: list[library.Record], first: library.Record, *,
+                         requested_by: str, text_channel=None, mix_beats: int = MIX_BEATS,
+                         alone_grace_s: float = 120.0, set_list: Optional[list] = None) -> RecordsSession:
     guild = channel.guild
     if (old := _sessions.get(guild.id)):
         await old.stop()

@@ -290,7 +290,10 @@ quoting Kaia's own lines back as theirs, and memory anchors injecting "you remem
 **What is persisted is what the user typed.** Channel history, the user log and the fine-tune
 corpus all store `sanitizer.summarize_link_context(ctx.sanitized_content)`: the `[REPLYING_TO]`
 prefix is dropped and each enricher block becomes a fixed citation — `[shared link: <host>]`,
-`[shared embed]`, `[shared Discord message]`. A page's title is not kept either: it is text the
+`[shared embed]`, `[shared Discord message]`; a picture, file or sticker is `[shared image]`,
+`[shared file]`, `[sticker]` (`sanitizer.attachment_citations`), never its filename. A quoted or
+linked message is shown to her with its embeds: every command of hers answers in one, and a reply
+to it otherwise quoted her as "Kaia:" and nothing else. A page's title is not kept either: it is text the
 page controls, and history read back as conversation is where an injected instruction would
 land. The full enriched message still goes to generation for that turn only.
 
@@ -608,7 +611,9 @@ music-only null sink, so anything of theirs that played sound went nowhere audib
 every exit path: `close_capture` and `Deck.close` terminate, wait, kill and wait again (a `kill()`
 alone leaves a zombie), close the pipe, and a capture restart racing a shutdown is serialised by
 `StrudelAudioSource._capture_lock`. A records start that fails after its threads exist
-tears them down and leaves the voice channel before re-raising.
+tears them down and leaves the voice channel before re-raising — so only one start runs per guild
+(`records.AlreadyStarting`): two overlapping starts share one voice client, and the one that failed
+would disconnect it under the one that played.
 
 **A track is arranged, not accumulated.** Every part is in the program from bar one; a
 `.mask("<…>")` and per-bar automation sequences (`lpf`, `gain`, roll speed) decide what sounds in
@@ -1483,6 +1488,9 @@ belief must be a position the reflection takes, not a source's ("the author beli
 it up — the model had answered 0.9 for 94 of 100. A relationship insight is what passed between them, never a
 diagnosis (`DIAGNOSIS`: "likely driven by a desire for control", "on the edge of a meltdown"). A global anchor
 (no resolvable person) about an unnamed "he"/"she" is not kept: it is recalled in anyone's conversation.
+An anchor whose text names one person she knows is theirs, whatever the model put in its user field,
+and retrieval never recalls a global anchor naming someone else to the person she is talking to; an
+anchor written as a report of a source ("The author is struck by…") is not kept.
 
 `knowledge_base/kaia_dreams/` is its own RAG index, and `context_optimizer` labels what is
 retrieved from it **INTERNAL REFLECTION (DREAM)** — as something Kaia thought — except an

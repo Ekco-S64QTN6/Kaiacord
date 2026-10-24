@@ -13,6 +13,9 @@ from utils.core.sanitizer import is_safe_url, public_only_connector, read_capped
 MAX_PAGE_BYTES = 2_000_000
 # Entries older than the TTL are dropped once a cache grows past this.
 CACHE_MAX_ENTRIES = 256
+# A quoted or linked message's embeds are kept up to this many characters:
+# a !help page is a few thousand, and the quote is context, not the subject.
+QUOTED_EMBED_CHARS = 4000
 _TRAILING_PUNCT = '.,;:!?)]}\'"'
 
 
@@ -208,7 +211,8 @@ class ContextEnricher:
                 author = target_msg.author.display_name
                 # Resolve any <@ID> mentions in the replied-to message's content
                 # so Kaia sees "@Ekco" not "<@177011971818782721>"
-                resolved_content = await self.resolve_mentions(target_msg.content, target_msg)
+                resolved_content = self._with_embeds(
+                    await self.resolve_mentions(target_msg.content, target_msg), target_msg)
                 
                 # If target message was sent by the bot, determine whom the bot was addressing
                 if target_msg.author.id == self.bot.user.id:
@@ -223,9 +227,19 @@ class ContextEnricher:
             
         return ""
 
+    def _with_embeds(self, content: str, msg) -> str:
+        """A quoted message's text with its embeds. Every command of hers
+        answers in an embed with no message text, so without them a reply to
+        one quoted her as "Kaia:" and nothing else."""
+        embeds = self.extract_embed_text(msg)
+        if not embeds:
+            return content
+        embeds = embeds[:QUOTED_EMBED_CHARS]
+        return f"{content}\n{embeds}" if (content or "").strip() else embeds
+
     def extract_embed_text(self, msg: discord.Message) -> str:
         """Extract titles, descriptions, and fields from Discord embeds."""
-        if not msg.embeds:
+        if not getattr(msg, "embeds", None):
             return ""
             
         texts = []
@@ -327,7 +341,7 @@ class ContextEnricher:
             timestamp, cached_msg = self._message_cache[message_id]
             if now - timestamp < self._cache_ttl:
                 author = cached_msg.author.display_name
-                return f"Message from {author} in #{channel.name}:\n{cached_msg.content}"
+                return f"Message from {author} in #{channel.name}:\n{self._with_embeds(cached_msg.content, cached_msg)}"
 
         try:
             linked_msg = await channel.fetch_message(message_id)
@@ -335,7 +349,7 @@ class ContextEnricher:
                 self._prune(self._message_cache, now)
                 self._message_cache[message_id] = (now, linked_msg)
                 author = linked_msg.author.display_name
-                return f"Message from {author} in #{channel.name}:\n{linked_msg.content}"
+                return f"Message from {author} in #{channel.name}:\n{self._with_embeds(linked_msg.content, linked_msg)}"
         except Exception as e:
             log_debug(f"Failed to fetch message {message_id}: {e}")
             

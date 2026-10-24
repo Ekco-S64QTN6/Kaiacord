@@ -212,6 +212,14 @@ def _evict(anchors: List[Dict], now: float) -> List[Dict]:
     return [a for a in anchors if id(a) not in drop]
 
 
+def _named(text: str):
+    try:
+        from utils.core.relationship_manager import named_user
+        return named_user(text)
+    except Exception:
+        return None
+
+
 def find_matching_anchors(
     message_text: str,
     user_id: Optional[str] = None,
@@ -252,6 +260,12 @@ def find_matching_anchors(
             # shared with its text matched a tenth of all chat.
             if len(overlap) < MIN_OVERLAP or not (overlap & _tokenize(anchor.get('theme', ''))):
                 continue
+            # A global anchor that names someone is about them; recalled
+            # while she talks to someone else, it is gossip.
+            if not anchor.get('user_id'):
+                named = _named(anchor.get('anchor_text', ''))
+                if named and named[0] != str(user_id):
+                    continue
 
             # Share of the anchor's words the message touches
             score = len(overlap) / max(len(anchor_keywords), 1)

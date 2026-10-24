@@ -946,8 +946,15 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     anchor_user_id = resolve_user_id(anchor_user)
                     if not anchor_user_id:
                         # A book character or a stranger: not someone she
-                        # "remembers talking about" anything.
-                        anchor_user = None
+                        # "remembers talking about" anything — unless the
+                        # text itself names someone she knows.
+                        from utils.core.relationship_manager import named_user
+                        anchor_user_id, anchor_user = named_user(anchor.get('anchor_text', '')) or (None, None)
+                    if self.REPORTED_INSIGHT.match(anchor.get('anchor_text', '')):
+                        # "The author is struck by…" is a summary of a source,
+                        # recalled to her as something she thought.
+                        log_info(f"⚓ Anchor not kept: reads as a report ({anchor.get('anchor_text', '')[:60]!r})")
+                        return
                     if not anchor_user_id and self.UNNAMED_PERSON.search(anchor.get('anchor_text', '')):
                         # A global anchor is recalled in anyone's conversation; one
                         # about an unnamed "he" ("he seems to be sabotaging himself")
