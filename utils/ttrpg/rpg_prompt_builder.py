@@ -205,86 +205,44 @@ Lowercase only. No meta-commentary.
 [END WORLD EVENT]"""
 
 
-def build_event_narration_prompt(sheet: dict, event_title: str, narration_hook: str) -> str:
-    """Build the ground-truth block for a forest event narration."""
-    return f"""[TTRPG GROUND TRUTH — NARRATE THIS EVENT EXACTLY AS DESCRIBED]
-WORLD SETTING: Medieval fantasy. Pre-industrial. No modern technology.
-CHARACTER: {sheet['character_name']} ({sheet.get('class', 'Unknown')} Lv.{sheet.get('level', 1)})
-HP: {sheet['hp']['current']}/{sheet['hp']['max']}
-LOCATION: {sheet.get('location', 'unknown')}
-
-EVENT: {event_title}
-WHAT HAPPENED: {narration_hook}
-
-YOUR TASK: Narrate this event in 2-3 sentences. Ground it in the senses — light, sound, smell.
-Do NOT invent HP changes, items, XP, or outcomes beyond what is stated above.
-Do NOT reference dice, game mechanics, or damage numbers.
-Speak as Kaia — the GM narrator. Lowercase, grounded, specific. No purple prose.
-[END GROUND TRUTH]"""
-
-
-def build_combat_summary_prompt(sheet: dict, combat_log: list, player_won: bool) -> str:
-    """Build a ground-truth block for end-of-combat summary narration."""
+def build_outing_summary_prompt(sheet: dict, outing: dict, reason: str) -> str:
+    """Ground truth for one paragraph about a whole trip out (utils/ttrpg/outing.py):
+    every fight and event since the player set out, told once when they come back."""
+    from utils.ttrpg.world import LOCATION_DATA
     char_name = sheet.get("character_name", "The adventurer")
-    char_class = sheet.get("class", "warrior")
-    char_level = sheet.get("level", 1)
-    hp_cur = sheet["hp"]["current"]
-    hp_max = sheet["hp"]["max"]
+    zones = [LOCATION_DATA.get(z, {}).get("name", z.replace("_", " ")) for z in outing.get("zones", [])]
+    fights = outing.get("fights", [])
+    by_monster: dict = {}
+    for f in fights:
+        m = by_monster.setdefault(f["monster"], {"n": 0, "won": 0, "close": 0, "desc": f.get("desc", "")})
+        m["n"] += 1
+        m["won"] += f["won"]
+        m["close"] += f["taken"] >= max(1, f["dealt"]) * 0.6
+    fight_lines = "\n".join(
+        f"  - {name}: fought {m['n']}x, won {m['won']}"
+        + (f", {m['close']} close call(s)" if m["close"] else "")
+        + (f" — {m['desc']}" if m["desc"] else "")
+        for name, m in sorted(by_monster.items(), key=lambda kv: -kv[1]["n"]))
+    hardest = max(fights, key=lambda f: f["taken"], default=None)
+    event_lines = "\n".join(f"  - {e['title']}: {e['hook']}" for e in outing.get("events", []))
+    died = any(f.get("died") for f in fights)
+    loot = outing.get("loot", [])
+    levels = outing.get("levels", [])
+    return f"""[TTRPG GROUND TRUTH — ONE OUTING — DO NOT CONTRADICT]
+CHARACTER: {char_name} ({sheet.get('class', 'adventurer')} Lv.{sheet.get('level', 1)})
+WHERE: {' → '.join(dict.fromkeys(zones)) or 'the wilds'}
+HOW IT ENDED: {char_name} {reason}.
+FIGHTS ({outing.get('fight_count', len(fights))} total, {outing.get('wins', 0)} won, {outing.get('losses', 0)} lost):
+{fight_lines or '  - none'}
+HARDEST FIGHT: {f"{hardest['monster']} ({hardest['rounds']} rounds, {hardest['taken']} damage taken)" if hardest else 'none'}
+EVENTS:
+{event_lines or '  - none'}
+LOOT: {', '.join(loot[:12]) + (f' and {len(loot) - 12} more' if len(loot) > 12 else '') if loot else 'nothing of note'}
+{f"LEVELLED UP: reached level {max(levels)}" if levels else ""}
+{f"[CRITICAL] {char_name} WAS KNOCKED OUT on this trip and woke at the Shrine. Do not describe the trip as a clean victory." if died else ""}
 
-    rounds = len(combat_log)
-    monster_name = combat_log[-1]["monster_name"] if combat_log else "the enemy"
-    monster_desc = combat_log[-1]["monster_desc"] if combat_log else ""
-
-    player_hits   = sum(1 for r in combat_log if r["player_hit"] and not r["player_fumble"])
-    player_crits  = sum(1 for r in combat_log if r["player_crit"])
-    player_misses = sum(1 for r in combat_log if not r["player_hit"])
-    total_dealt   = sum(r["player_damage"] for r in combat_log)
-    monster_hits  = sum(1 for r in combat_log if r["monster_hit"])
-    total_taken   = sum(r["monster_damage"] for r in combat_log)
-
-    outcome = "VICTORY — player defeated the monster" if player_won else "DEFEAT — player was knocked out"
-
-    # Build outcome lock block — explicit negative constraints to prevent LLM "hero wins" bias
-    if not player_won:
-        outcome_lock = (
-            f"\n\n[CRITICAL — PLAYER LOST THIS FIGHT]\n"
-            f"{char_name} was DEFEATED. They LOST. They did NOT win. The {monster_name} was NOT defeated.\n"
-            f"Do NOT describe {char_name} as victorious, triumphant, standing, or healthy.\n"
-            f"Do NOT describe the {monster_name} as falling, collapsing, dying, or being defeated.\n"
-            f"Describe {char_name} going down — pain, darkness, collapse. The {monster_name} won.\n"
-            f"[END CRITICAL]"
-        )
-    else:
-        outcome_lock = (
-            f"\n\n[CRITICAL — PLAYER WON THIS FIGHT]\n"
-            f"{char_name} DEFEATED the {monster_name}. The {monster_name} is dead/destroyed.\n"
-            f"Do NOT describe {char_name} as losing, falling, collapsing, or being defeated.\n"
-            f"Describe the {monster_name}'s final moments and {char_name}'s state after the fight.\n"
-            f"[END CRITICAL]"
-        )
-
-    ending = (
-        f"the monster falling" if player_won
-        else f"{char_name} going down — darkness, collapse, the end"
-    )
-
-    return f"""[TTRPG GROUND TRUTH — COMBAT SUMMARY — DO NOT CONTRADICT]
-CHARACTER: {char_name} ({char_class} Lv.{char_level})
-HP AFTER FIGHT: {hp_cur}/{hp_max}
-OPPONENT: {monster_name}
-MONSTER DESCRIPTION: {monster_desc}
-
-FIGHT STATS ({rounds} round{'s' if rounds != 1 else ''}):
-  Player: {player_hits} hit(s), {player_crits} crit(s), {player_misses} miss(es), {total_dealt} total damage dealt
-  Monster: {monster_hits} hit(s), {total_taken} total damage dealt to player
-OUTCOME: {outcome}
-{outcome_lock}
-
-YOUR TASK: Write a 2–4 sentence summary of this fight as if recalling it just after it ended.
-Capture the feel of the whole encounter — was it close? Dominant? Sloppy? Lucky?
-Reference the monster by name and use its description for flavor.
-Speak as Kaia — lowercase, specific, grounded. No blow-by-blow. No dice. No numbers.
-End on the outcome: {ending}.
-REMINDER: The outcome is {outcome}. Do NOT contradict it.
+YOUR TASK: One paragraph, 4–6 sentences, recalling the whole trip as it ended.
+Give it a shape: how it started, what wore on them, the hardest moment, how it ended.
+Name the creatures they met most and use their descriptions for texture. Mention an event if there was one.
+No numbers, no dice, no blow-by-blow, no list. Do not invent fights, kills, items or deaths that are not above.
 [END GROUND TRUTH]"""
-

@@ -199,8 +199,13 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return await no_character(msg)
 
     if sheet.get("location") != "housing_district":
+        came_from = sheet.get("location")
         sheet["location"] = "housing_district"
         await save(sheet)
+        # Going home from the hunting grounds ends the trip (utils/ttrpg/outing.py).
+        from utils.ttrpg import outing
+        if outing.is_hunting_ground(came_from):
+            await outing.close(ctx, msg.channel, uid, uname, sheet, reason="went home")
 
     housing = load_housing(uid)
 

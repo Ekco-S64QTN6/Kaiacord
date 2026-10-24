@@ -52,6 +52,124 @@ _BOSS_TIER_BY_LEVEL = {
     13: "boss", 14: "boss", 15: "boss",
 }
 
+def _advanced_bonuses(sheet: dict):
+    """The bonuses of the player's advanced class, or None without one."""
+    adv = sheet.get("advanced_class", "")
+    if not adv:
+        return None
+    from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+    for opts in ADVANCED_CLASSES.values():
+        if adv in opts:
+            return opts[adv].get("bonuses", {})
+    return None
+
+
+def _apply_victory_hp_effects(sheet: dict, special_day, adv_bonuses, player_alive: bool) -> None:
+    """The healing side of a dungeon kill, in its original order: the day's
+    calendar effect first, then the advanced class's heal. They change HP only,
+    never the rewards, which `_dungeon_reward_amounts` computes."""
+    if special_day:
+        buff, bv = special_day.get("buff"), special_day.get("buff_value", 0)
+        if buff == "long_fire":
+            if player_alive:
+                sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + bv)
+        elif buff == "winter_resolve":
+            if not sheet.get("_winter_resolve_applied"):
+                sheet["hp"]["max"] += bv
+                sheet["hp"]["current"] += bv
+                sheet["_winter_resolve_applied"] = True
+        elif buff == "new_year_resolve":
+            if not sheet.get("_new_year_applied"):
+                sheet["hp"]["current"] = sheet["hp"]["max"]
+                sheet["_new_year_applied"] = True
+    heal = (adv_bonuses or {}).get("heal_on_combat_end", 0)
+    if heal > 0 and sheet["hp"]["current"] > 0:
+        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + heal)
+
+
+def _dungeon_reward_amounts(monster: dict, *, is_boss: bool, world: dict, special_day=None,
+                            adv_bonuses=None, in_forest: bool = False, spent_buffs=(),
+                            xp_boosted: bool = False, pet: dict = None) -> tuple:
+    """(xp, gil) for a dungeon kill. Pure. The order is part of the rule: every
+    step truncates with int(), so world mult → calendar → advanced class →
+    golden tongue → Experience Tonic → pet is not the same as any other order
+    (`test_dungeon_reward_order_is_pinned`)."""
+    mult = 2 if is_boss else 1
+    xp = int(monster.get("xp", 25) * mult * world.get("xp_mult", 1.0))
+    gil = int(monster.get("gil", 5) * mult * world.get("gil_mult", 1.0))
+    if special_day:
+        buff, bv = special_day.get("buff"), special_day.get("buff_value", 0)
+        if buff == "harvest_strength":
+            gil += harvest_bonus(gil, bv)
+        elif buff == "remembrance":
+            xp = int(xp * bv)
+    if adv_bonuses is not None:
+        xp = int(xp * (1.0 + adv_bonuses.get("xp_bonus_pct", 0.0)))
+        if adv_bonuses.get("forest_xp_bonus") and in_forest:
+            xp = int(xp * (1.0 + adv_bonuses["forest_xp_bonus"]))
+        gil = int(gil * (1.0 + adv_bonuses.get("gil_bonus_pct", 0.0)))
+    if "golden_tongue" in (spent_buffs or ()):
+        gil += golden_tongue_bonus(gil)
+    if xp_boosted:                                   # Experience Tonic, +25%
+        xp = int(xp * 1.25)
+    pet = pet or {}
+    if pet.get("gil_bonus_pct"):
+        gil = int(gil * (1.0 + pet["gil_bonus_pct"]))
+    if pet.get("xp_bonus_pct"):
+        xp = int(xp * (1.0 + pet["xp_bonus_pct"]))
+    return xp, gil
+
+
+def _grant_drop(sheet: dict, state: dict, item_key: str, icon: str) -> str:
+    """Give one drop if the bag has room. Returns the line to show either way."""
+    from utils.ttrpg.character_manager import INVENTORY_LIMIT
+    item = find_item(item_key)
+    name = item["name"] if item else item_key
+    if len(set(sheet.get("inventory", [])) | {item_key}) <= INVENTORY_LIMIT:
+        sheet.setdefault("inventory", []).append(item_key)
+        state.setdefault("loot_gained", []).append(item_key)
+        return f"{icon} {name}"
+    return f"🎒 **[Inventory Full]** Left behind: {name}"
+
+
+def _roll_dungeon_loot(sheet: dict, state: dict, tier: str, is_boss: bool) -> str:
+    """Roll and grant a dungeon kill's drops; returns the loot line for the embed.
+
+    Boss: a guaranteed gear drop (up to six rolls to find one), a 40% second,
+    a consumable, and 25 gil if all of that came up empty. Normal: 40% gear and
+    a consumable. Drops are granted in that order, each against the bag as the
+    previous one left it."""
+    from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
+
+    def gear_until_found():
+        gear = get_gear_loot(tier)
+        attempts = 0
+        while not gear and attempts < 5:
+            gear = get_gear_loot(tier)
+            attempts += 1
+        return gear
+
+    lines = []
+    if is_boss:
+        if (gear := gear_until_found()):
+            lines.append(_grant_drop(sheet, state, gear, "⚔️"))
+        if secrets.randbelow(10) < 4 and (gear2 := gear_until_found()):
+            lines.append(_grant_drop(sheet, state, gear2, "⚔️"))
+        if (cons := get_consumable_loot(tier)):
+            lines.append(_grant_drop(sheet, state, cons, "🧪"))
+        if lines:
+            return "\n🎁 **Boss drops:**\n" + "\n".join(lines)
+        bonus_gil = 25
+        sheet["gil"] = sheet.get("gil", 0) + bonus_gil
+        state["gil_gained"] = state.get("gil_gained", 0) + bonus_gil
+        return f"\n💰 No material loot, but the corpse yields **{bonus_gil} gil**."
+    if secrets.randbelow(10) < 4 and (gear := get_gear_loot(tier)):
+        lines.append(_grant_drop(sheet, state, gear, "⚔️"))
+    if (cons := get_consumable_loot(tier)):
+        lines.append(_grant_drop(sheet, state, cons, "🧪"))
+    return ("\n🎁 " + ", ".join(lines)) if lines else ""
+
+
 # Same load / resolve / await / save shape as the overworld handlers,
 # reached from the dungeon view's Attack button — so the same race.
 @serialize_combat_action
@@ -149,159 +267,33 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         # Clear combat, mark room cleared
         del state["active_combat"]
         state["rooms"][room_key]["cleared"] = True
+        loot_before = len(state.get("loot_gained", []))
+        # Rewards: HP effects, then the amounts (pure, order pinned), then loot.
         # The day's multipliers (weather, world events) apply to a dungeon kill
         # as they do to one in the overworld.
-        xp_gain = int(monster.get("xp", 25) * (2 if is_boss else 1) * world_state.get("xp_mult", 1.0))
-        gil_gain = int(monster.get("gil", 5) * (2 if is_boss else 1) * world_state.get("gil_mult", 1.0))
-        
-        # ── Calendar Special Day Buffs ─────────────────────────────────────
         from utils.ttrpg.calendar import get_special_day
-        _sp_dungeon = get_special_day()
-        if _sp_dungeon:
-            _buff = _sp_dungeon.get("buff")
-            _bv = _sp_dungeon.get("buff_value", 0)
-            if _buff == "long_fire":
-                if res["player_alive"]:
-                    sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _bv)
-            elif _buff == "harvest_strength":
-                gil_gain += harvest_bonus(gil_gain, _bv)
-            elif _buff == "remembrance":
-                xp_gain = int(xp_gain * _bv)
-            elif _buff == "winter_resolve":
-                if not sheet.get("_winter_resolve_applied"):
-                    sheet["hp"]["max"] += _bv
-                    sheet["hp"]["current"] += _bv
-                    sheet["_winter_resolve_applied"] = True
-            elif _buff == "new_year_resolve":
-                if not sheet.get("_new_year_applied"):
-                    sheet["hp"]["current"] = sheet["hp"]["max"]
-                    sheet["_new_year_applied"] = True
-                    
-        # Advanced class bonuses
-        _adv = sheet.get("advanced_class", "")
-        if _adv:
-            from utils.ttrpg.class_advancement import ADVANCED_CLASSES, FOREST_LOCATIONS
-            for _opts in ADVANCED_CLASSES.values():
-                if _adv in _opts:
-                    _b = _opts[_adv].get("bonuses", {})
-                    xp_gain  = int(xp_gain  * (1.0 + _b.get("xp_bonus_pct",  0.0)))
-                    if _b.get("forest_xp_bonus") and sheet.get("location") in FOREST_LOCATIONS:
-                        xp_gain = int(xp_gain * (1.0 + _b["forest_xp_bonus"]))
-                    gil_gain = int(gil_gain * (1.0 + _b.get("gil_bonus_pct", 0.0)))
-                    _heal = _b.get("heal_on_combat_end", 0)
-                    if _heal > 0 and sheet["hp"]["current"] > 0:
-                        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _heal)
-                    break
-
-        if "golden_tongue" in res.get("spent_buffs", ()):
-            gil_gain += golden_tongue_bonus(gil_gain)
-
-        # Experience Tonic bonus (+25% XP, consumed on use)
-        if "xp_boosted" in sheet.get("conditions", []):
-            xp_gain = int(xp_gain * 1.25)
-            sheet["conditions"].remove("xp_boosted")
-        
-        # Pet reward bonuses: gil (Cat, Tomb Bat), XP (Wisp Lantern)
-        from utils.ttrpg.housing import load_housing_async
-        from utils.ttrpg.pets import get_pet_passive
-        housing_rewards = await load_housing_async(uid)
-        pet_rewards = get_pet_passive(housing_rewards) if housing_rewards else {}
-        if pet_rewards.get("gil_bonus_pct"):
-            gil_gain = int(gil_gain * (1.0 + pet_rewards["gil_bonus_pct"]))
-        if pet_rewards.get("xp_bonus_pct"):
-            xp_gain = int(xp_gain * (1.0 + pet_rewards["xp_bonus_pct"]))
+        from utils.ttrpg.class_advancement import FOREST_LOCATIONS
+        special_day = get_special_day()
+        adv_bonuses = _advanced_bonuses(sheet)
+        _apply_victory_hp_effects(sheet, special_day, adv_bonuses, res["player_alive"])
+        xp_boosted = "xp_boosted" in sheet.get("conditions", [])
+        if xp_boosted:
+            sheet["conditions"].remove("xp_boosted")          # the tonic is spent on this kill
+        # Pet reward bonuses (Cat, Tomb Bat: gil; Wisp Lantern: XP), from the
+        # housing loaded with the combat modifiers: the same player's.
+        xp_gain, gil_gain = _dungeon_reward_amounts(
+            monster, is_boss=is_boss, world=world_state, special_day=special_day,
+            adv_bonuses=adv_bonuses, in_forest=sheet.get("location") in FOREST_LOCATIONS,
+            spent_buffs=res.get("spent_buffs", ()), xp_boosted=xp_boosted, pet=_pet_bonuses)
 
         sheet["xp"] = sheet.get("xp", 0) + xp_gain
         sheet["gil"] = sheet.get("gil", 0) + gil_gain
         state["xp_gained"] = state.get("xp_gained", 0) + xp_gain
         state["gil_gained"] = state.get("gil_gained", 0) + gil_gain
 
-        # Loot — split gear and consumable pools
-        from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
-        from utils.ttrpg.character_manager import INVENTORY_LIMIT
         level = sheet.get("level", 1)
-        if is_boss:
-            tier = _BOSS_TIER_BY_LEVEL.get(level, "boss")
-        else:
-            tier = _get_dungeon_loot_tier(level, False)
-        if is_boss:
-            drops = []
-            # First gear drop: guaranteed
-            gear = get_gear_loot(tier)
-            attempts = 0
-            while not gear and attempts < 5:
-                gear = get_gear_loot(tier)
-                attempts += 1
-            if gear:
-                if len(set(sheet.get("inventory", [])) | {gear}) <= INVENTORY_LIMIT:
-                    sheet.setdefault("inventory", []).append(gear)
-                    item = find_item(gear)
-                    drops.append(f"⚔️ {item['name'] if item else gear}")
-                    state.setdefault("loot_gained", []).append(gear)
-                else:
-                    item = find_item(gear)
-                    drops.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear}")
-            # Second gear drop: 40% chance
-            if secrets.randbelow(10) < 4:
-                gear2 = get_gear_loot(tier)
-                attempts = 0
-                while not gear2 and attempts < 5:
-                    gear2 = get_gear_loot(tier)
-                    attempts += 1
-                if gear2:
-                    if len(set(sheet.get("inventory", [])) | {gear2}) <= INVENTORY_LIMIT:
-                        sheet.setdefault("inventory", []).append(gear2)
-                        item = find_item(gear2)
-                        drops.append(f"⚔️ {item['name'] if item else gear2}")
-                        state.setdefault("loot_gained", []).append(gear2)
-                    else:
-                        item = find_item(gear2)
-                        drops.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear2}")
-            # Consumable drop: always
-            cons = get_consumable_loot(tier)
-            if cons:
-                if len(set(sheet.get("inventory", [])) | {cons}) <= INVENTORY_LIMIT:
-                    sheet.setdefault("inventory", []).append(cons)
-                    item = find_item(cons)
-                    drops.append(f"🧪 {item['name'] if item else cons}")
-                    state.setdefault("loot_gained", []).append(cons)
-                else:
-                    item = find_item(cons)
-                    drops.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else cons}")
-            if drops:
-                loot_text = f"\n🎁 **Boss drops:**\n" + "\n".join(drops)
-            else:
-                # Guaranteed fallback: gil payout if loot table still produces nothing
-                bonus_gil = 25
-                sheet["gil"] = sheet.get("gil", 0) + bonus_gil
-                state["gil_gained"] = state.get("gil_gained", 0) + bonus_gil
-                loot_text = f"\n💰 No material loot, but the corpse yields **{bonus_gil} gil**."
-        else:
-            # Normal dungeon kill: 40% gear + always consumable
-            drop_lines = []
-            if secrets.randbelow(10) < 4:
-                gear = get_gear_loot(tier)
-                if gear:
-                    if len(set(sheet.get("inventory", [])) | {gear}) <= INVENTORY_LIMIT:
-                        sheet.setdefault("inventory", []).append(gear)
-                        item = find_item(gear)
-                        drop_lines.append(f"⚔️ {item['name'] if item else gear}")
-                        state.setdefault("loot_gained", []).append(gear)
-                    else:
-                        item = find_item(gear)
-                        drop_lines.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear}")
-            cons = get_consumable_loot(tier)
-            if cons:
-                if len(set(sheet.get("inventory", [])) | {cons}) <= INVENTORY_LIMIT:
-                    sheet.setdefault("inventory", []).append(cons)
-                    item = find_item(cons)
-                    drop_lines.append(f"🧪 {item['name'] if item else cons}")
-                    state.setdefault("loot_gained", []).append(cons)
-                else:
-                    item = find_item(cons)
-                    drop_lines.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else cons}")
-            if drop_lines:
-                loot_text = f"\n🎁 " + ", ".join(drop_lines)
+        tier = _BOSS_TIER_BY_LEVEL.get(level, "boss") if is_boss else _get_dungeon_loot_tier(level, False)
+        loot_text = _roll_dungeon_loot(sheet, state, tier, is_boss)
 
         leveled, new_level = check_level_up(sheet)
         if leveled:
@@ -331,20 +323,22 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                     prog.append(task)
                     exchange_text += f"\n📜 *Quest Progress: {q['name']}*"
 
+        # The fight joins the trip's record (utils/ttrpg/outing.py); the trip
+        # is told when the player leaves, finishes or falls in the dungeon.
+        fight_rounds = state.get("dungeon_combat_log", [])
+        state["dungeon_combat_log"] = []
         await save(sheet)
         await save_func(uid, state)
+        from utils.ttrpg import outing
+        dropped = []
+        for key in state.get("loot_gained", [])[loot_before:]:
+            item = find_item(key)
+            dropped.append(item["name"] if item else key)
+        await outing.record_fight(uid, state.get("theme_name") or loc, fight_rounds,
+                                  xp=xp_gain, gil=gil_gain, loot=dropped,
+                                  level=new_level if leveled else None)
 
         if is_boss and not state.get("is_spine"):
-            # Boss dead — fire summary narration then finalize
-            combat_log = state.get("dungeon_combat_log", [])
-            state["dungeon_combat_log"] = []
-            if combat_log:
-                task_registry.register(f"combat_narration_{uid}", asyncio.create_task(
-                    _narrate_combat_summary(
-                        ctx_obj, interaction.channel, uid, uname, sheet,
-                        combat_log, player_won=True
-                    )
-                ))
             await _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
                                     state, sheet, leveled, new_level)
         else:
@@ -379,11 +373,17 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                     if current_floor in lore_drops:
                         lore_item = lore_drops[current_floor]
                         if lore_item not in sheet.setdefault("spine_boss_loots", []):
-                            sheet["spine_boss_loots"].append(lore_item)
-                            sheet.setdefault("inventory", []).append(lore_item)
+                            from utils.ttrpg.character_manager import INVENTORY_LIMIT
                             item_data = find_item(lore_item)
                             i_name = item_data["name"] if item_data else lore_item
-                            exchange_text += f"\n\n📜 **Special Drop:** {i_name} added to inventory!"
+                            # The same capacity rule as every other drop. Not marked as
+                            # taken when left behind: the guardian respawns and can drop it again.
+                            if len(set(sheet.get("inventory", [])) | {lore_item}) <= INVENTORY_LIMIT:
+                                sheet["spine_boss_loots"].append(lore_item)
+                                sheet.setdefault("inventory", []).append(lore_item)
+                                exchange_text += f"\n\n📜 **Special Drop:** {i_name} added to inventory!"
+                            else:
+                                exchange_text += f"\n\n🎒 **[Inventory Full]** Left behind: {i_name} (it will be there next time)"
 
                 await save(sheet)
 
@@ -407,8 +407,22 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         sheet["xp"] = max(0, sheet["xp"] - xp_loss)
         sheet["gil"] = max(0, sheet["gil"] - gil_loss)
         await save(sheet)
-        from utils.ttrpg.dungeon import clear_dungeon
-        await clear_dungeon(uid)
+        fight_rounds = state.get("dungeon_combat_log", [])
+        state["dungeon_combat_log"] = []
+        if state.get("is_spine"):
+            # The Spine keeps its progress: the guardians beaten (and so the
+            # Resonance Lift's stops) live on the sheet and are untouched. The
+            # floor itself restocks and the run ends; the next visit starts
+            # from the lift, not mid-fight. This used to call clear_dungeon(),
+            # which deletes the *regular* dungeon's save, and never saved the
+            # spine floor, so it still held the fight.
+            from utils.ttrpg.spine_dungeon import respawn_monsters
+            state = respawn_monsters(state)
+            state["active"] = False
+            await save_func(uid, state)
+        else:
+            from utils.ttrpg.dungeon import clear_dungeon
+            await clear_dungeon(uid)
         embed = discord.Embed(
             title="💀 Defeated",
             description=f"{exchange_text}\n\n*You collapsed in the dark. Someone dragged you back to the Shrine.*\n-{xp_loss} XP · -{gil_loss} Gil",
@@ -431,16 +445,11 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         death_embed.set_footer(text=f"Level {sheet.get('level', 1)} {sheet.get('class', '?')}")
         await _broadcast_world_event(ctx_obj, death_embed)
 
-        # End-of-dungeon-combat summary on player death
-        combat_log = state.get("dungeon_combat_log", [])
-        state["dungeon_combat_log"] = []
-        if combat_log:
-            task_registry.register(f"combat_narration_{uid}", asyncio.create_task(
-                _narrate_combat_summary(
-                    ctx_obj, interaction.channel, uid, uname, sheet,
-                    combat_log, player_won=False
-                )
-            ))
+        # The trip ends here; Kaia tells it once (utils/ttrpg/outing.py).
+        from utils.ttrpg import outing
+        await outing.record_fight(uid, state.get("theme_name") or loc, fight_rounds)
+        await outing.close(ctx_obj, interaction.channel, uid, uname, sheet,
+                           reason=f"fell in {state.get('theme_name', 'the dungeon')} and woke at the Shrine")
 
     else:
         # Combat continues — update monster HP in state
@@ -944,8 +953,10 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     else:
         s["monsters"][monster_idx] = monster
 
-    # Accumulate combat log for end-of-combat summary narration
+    # Accumulate the fight's rounds; the outing record takes them when it ends.
+    # Tagged with the player: the session (and so this log) is the channel's.
     s.setdefault("combat_log", []).append({
+        "uid": uid,
         "monster_name": monster.get("name", "enemy"),
         "monster_desc": monster.get("desc", monster.get("description", "")),
         "player_hit": res["player_hit"],
@@ -963,6 +974,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     await save_session(s)
     
     xp_gain, gil_gain, level_up_msg, loot_msg, streak_msg = 0, 0, "", "", ""
+    loot_lines = []
     if res["monster_defeated"]:
         xp_gain = int(monster.get("xp", 10) * state.get("xp_mult", 1.0))
         gil_gain = int(monster.get("gil", 5) * state.get("gil_mult", 1.0))
@@ -1220,16 +1232,23 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     else:
         await msg.channel.send(embed=embed)
 
-        # End-of-combat summary narration
+        # The fight goes into the trip's record and is told once, when the
+        # trip ends (utils/ttrpg/outing.py). An LLM call here, per kill, made
+        # every fight wait on prose before the next button appeared.
         combat_ended = res["monster_defeated"] or not res["player_alive"]
         if combat_ended:
-            combat_log = s.get("combat_log", [])
-            s["combat_log"] = []
+            from utils.ttrpg import outing
+            log_all = s.get("combat_log", [])
+            mine = [r for r in log_all if r.get("uid", uid) == uid]
+            s["combat_log"] = [r for r in log_all if r.get("uid", uid) != uid]
             await save_session(s)
-            await _narrate_combat_summary(
-                ctx, msg.channel, uid, uname, sheet,
-                combat_log, player_won=res["monster_defeated"]
-            )
+            taken = [line.split(" ", 1)[1] for line in loot_lines
+                     if line.startswith(("⚔", "🧪")) and " " in line]
+            await outing.record_fight(uid, loc, mine, xp=xp_gain, gil=gil_gain, loot=taken,
+                                      level=n_lvl if leveled else None)
+            if not res["player_alive"]:
+                await outing.close(ctx, msg.channel, uid, uname, sheet,
+                                   reason="was knocked out and woke at the Shrine")
 
         if not res["player_alive"]:
             view = _make_status_view(ctx, msg, uid, uname, is_owner)
@@ -1533,7 +1552,7 @@ def _dungeon_room_color(room_type):
     }.get(room_type, 0x888888)
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
-    """Apply a forest event's mechanical effects and trigger Kaia narration."""
+    """Apply a forest event's mechanical effects; its story joins the trip's (outing.py)."""
 
     if sheet.get("advanced_class") == "Shaman" and sheet["hp"]["current"] > 0 and sheet["hp"]["current"] < sheet["hp"]["max"]:
         from utils.ttrpg.class_advancement import ADVANCED_CLASSES
@@ -1617,54 +1636,12 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
         lv_embed.set_footer(text=f"{sheet.get('advanced_class') or sheet.get('class', '?')} · World Event")
         await _broadcast_world_event(ctx, lv_embed)
 
-    # Kaia narrates
+    # The event is told with the rest of the trip, when it ends
+    # (utils/ttrpg/outing.py): narrating it here held up the hunt.
     if result.get("narration_hook"):
-        from utils.ttrpg.rpg_prompt_builder import build_event_narration_prompt
-        from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
-        from utils.infrastructure.system.yaml_config import config
-        import uuid as _uuid
-
-        prompt = build_event_narration_prompt(
-            sheet=sheet,
-            event_title=result["title"],
-            narration_hook=result["narration_hook"],
-        )
-        persona = await load_persona_async()
-        from utils.ttrpg.rpg_prompt_builder import TTRPG_NARRATOR_OVERRIDE
-        messages = [
-            {"role": "system", "content": f"{persona}{TTRPG_NARRATOR_OVERRIDE}{prompt}"},
-            {"role": "user",   "content": f"{uname} is in the {sheet.get('location', 'forest')}."}
-        ]
-        gpu_manager = OllamaGPUManager(config.chat_model)
-        opts = gpu_manager.get_gpu_options(for_chat=True)
-        opts["num_predict"] = 120
-        opts["temperature"] = 0.9
-
-        async with msg.channel.typing():
-            try:
-                resp = await gpu_memory_manager.run_with_gpu_guard(
-                    model_name=config.chat_model,
-                    priority=GPUTaskPriority.CHAT,
-                    coro=asyncio.wait_for(
-                        ctx.ollama_client.chat(
-                            model=config.chat_model,
-                            messages=messages,
-                            options=opts,
-                            keep_alive=-1
-                        ),
-                        timeout=45.0
-                    ),
-                    task_id=f"rpg_event_{_uuid.uuid4().hex[:8]}"
-                )
-                narration = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
-                if narration:
-                    embed = discord.Embed(
-                        description=f"*{narration}*",
-                        color=0x4488cc
-                    )
-                    await msg.channel.send(embed=embed)
-            except Exception as e:
-                log_error(f"[rpg event narration] {e}")
+        from utils.ttrpg import outing
+        await outing.record_event(str(sheet.get("user_id", "")), sheet.get("location", "whisperwood_edge"),
+                                  result.get("title", "something happened"), result["narration_hook"])
 
 
 
@@ -1694,6 +1671,9 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
 
     await save(sheet)
     await clear_dungeon(uid)
+    from utils.ttrpg import outing
+    await outing.close(ctx_obj, interaction.channel, uid, uname, sheet,
+                       reason=f"cleared {state.get('theme_name', 'the dungeon')}")
 
     xp   = state.get("xp_gained",  0) + bonus_xp
     gil  = state.get("gil_gained", 0) + bonus_gil

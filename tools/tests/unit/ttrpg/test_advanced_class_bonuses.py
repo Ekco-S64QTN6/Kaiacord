@@ -35,8 +35,16 @@ def test_every_advertised_bonus_is_read():
 
 
 def test_shaman_forest_xp_applies_only_in_the_forest():
+    # Overworld kills: the inline guard.
     src = Path("utils/ttrpg/rpg_combat_handler.py").read_text(encoding="utf-8")
-    assert src.count('_b.get("forest_xp_bonus") and sheet.get("location") in FOREST_LOCATIONS') == 2
+    assert src.count('_b.get("forest_xp_bonus") and sheet.get("location") in FOREST_LOCATIONS') == 1
+    assert 'in_forest=sheet.get("location") in FOREST_LOCATIONS' in src
+    # Dungeon kills: the reward helper, by behaviour.
+    from utils.ttrpg.rpg_combat_handler import _dungeon_reward_amounts
+    adv = {"forest_xp_bonus": 0.5}
+    kw = dict(is_boss=False, world={}, adv_bonuses=adv)
+    assert _dungeon_reward_amounts({"xp": 40}, in_forest=True, **kw)[0] == 60
+    assert _dungeon_reward_amounts({"xp": 40}, in_forest=False, **kw)[0] == 40
 
 
 # ── Pets ────────────────────────────────────────────────────────────

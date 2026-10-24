@@ -578,14 +578,16 @@ HUD title format: `(Title) Class Lv.N` — e.g. `(Channeler) Mage Lv.3`
 
 ## Narration System
 
-Kaia (the bot's persona) narrates all game events via LLM. Ground-truth blocks are injected into prompts so Kaia never decides outcomes — she only narrates what Python already resolved.
+Kaia (the bot's persona) narrates via LLM. Ground-truth blocks are injected into prompts so Kaia never decides outcomes — she only narrates what Python already resolved.
+
+**Fights and forest events are told once per trip, not once each** (`utils/ttrpg/outing.py`). A fight or event in the hunting grounds or a dungeon is *recorded* (per player, `memory/ttrpg/outings/<uid>.json`) and play goes straight on. When the trip ends — arriving somewhere without hunting (town, the Shrine, home), dying, or leaving or finishing a dungeon — Kaia writes one paragraph about the whole trip (`build_outing_summary_prompt`), in the background. Moving between hunting grounds is one trip. An LLM call per kill made grinding wait on prose.
 
 Prompt builders in `rpg_prompt_builder.py`:
 - `build_combat_prompt()` — Hunt/dungeon combat narration
+- `build_outing_summary_prompt()` — one paragraph for a whole trip out
 - `build_action_prompt()` — Skill check narration
 - `build_npc_prompt()` — NPC dialogue (with CHA context)
 - `build_event_prompt()` — Admin-triggered world events
-- `build_event_narration_prompt()` — Forest event narration
 - `build_levelup_prompt()` — Level-up flavor text
 
 All LLM calls are GPU-guarded via `gpu_memory_manager.run_with_gpu_guard()` and wrapped in try/except — narration is always best-effort, game state is never dependent on LLM success.
