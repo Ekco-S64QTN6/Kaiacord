@@ -339,7 +339,7 @@ tab("kaia", "KAIA", (root, x) => {
   const sm = self["kaia_self_model.md"];
   x.claims.sub(sm ? `self-model rewritten ${Fmt.ago(sm.mtime)} · ${Fmt.n(sm.chars)} chars` : "");
   x.claims.source(self);
-  const chk = [...checks.self_corrections.map(c => [c[0], "correction: " + (c[1] || "?")]), ...checks.security.map(s => [s[0], "security: " + (s[2] || s[1])]), ...checks.hallucination.map(h => [h[0], "hallucination flag"])].filter(e => e[0]);
+  const chk = [...checks.self_corrections.map(c => [c[0], "correction: " + (c[1] || "?")]), ...checks.security.map(s => [s[0], "security: " + (s[2] || s[1])]), ...checks.hallucination.map(h => [h[0], "hallucination flag"]), ...(checks.review_flags || []).map(f => [f[0], "review flag"])].filter(e => e[0]);
   const cb = byDay(chk, e => e[0], e => e[1], rank(chk, e => e[1]), r);
   x.cChk.set(cb.cats, cb.series); x.chk.legend(cb.series); x.chk.source(checks);
   x.chk.table([{ h: "time" }, { h: "kind" }], chk.filter(e => inRange(e[0], r)).sort((a, b) => a[0] - b[0]).map(e => [Fmt.ts(e[0]), e[1]]));

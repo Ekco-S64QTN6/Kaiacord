@@ -795,6 +795,38 @@ class PostGenerationSafetyPipeline:
     _GRADING_OPENER = re.compile(
         r"^(?:(?:that|it)(?:'|\u2019)s\s+)?an?\s+(?:[a-z\-]+\s+){0,2}" + _SAID_NOUN +
         r"(?:,\s+[a-z0-9_.\-]{2,24})?\.\s+(an?\s+[a-z][a-z ,'\u2019\-]{2,70})\.\s+", re.IGNORECASE)
+    #: The other opener: a sentence marking what was said — "the assessment is
+    #: accurate.", "the logic is compelling.", "that's… remarkably astute." —
+    #: usually followed by a run of fragments ("a keen observation. a subtle
+    #: critique."). 21% of her replies on 23 Oct, none before the 18th. Both
+    #: halves are vocabulary: the subject is something said, the predicate a
+    #: grade, so "the light's good" and "the coffee's decent" describe things
+    #: and stay.
+    _GRADED_NOUN = (r"(?:" + _SAID_NOUN[3:-3] + r"|logic|analysis|connection|comparison|feedback|reasoning|"
+                    r"parallel|solution|approach|concept|framework|compliment|jab|intention|intent|gesture|concurrence|"
+                    r"confirmation|recognition|validation|one)s?")
+    _GRADE = (r"(?:accurate|astute|insightful|compelling|valid|intriguing|interesting|fascinating|provocative|"
+              r"unexpected|amusing|sound|apt|correct|precise|pointed|fair|thoughtful|perceptive|sharp|keen|"
+              r"thorough|direct|pragmatic|succinct|concise|elegant|reasonable|logical|persuasive|convincing|"
+              r"striking|salient|noted|understood|appreciated|welcome|legitimate|warranted|justified|novel|bold|"
+              r"clever|observant|incisive|cogent|refreshing|clear|good|excellent|great|solid|strong|efficient|"
+              r"helpful|useful|appropriate|well[- ](?:taken|founded|made|reasoned|observed|put|said)|spot[- ]on)")
+    _GRADE_ADV = (r"(?:(?:quite|rather|remarkably|particularly|very|certainly|indeed|undeniably|surprisingly|"
+                  r"genuinely|entirely|perfectly|both|also|deeply|incredibly|exceptionally|admirably|"
+                  r"refreshingly|characteristically)\s+)")
+    # "it's striking." alone is her reaction to a picture, so the "that's" form
+    # has to name something said: "that's a fascinating interpretation."
+    _GRADED_SENTENCE = re.compile(
+        r"^(?:(?:the|that|this|your)\s+(?:[a-z\-'\u2019]+\s+){0,2}" + _GRADED_NOUN +
+        r"(?:\s+(?:of|about|on|regarding)\s+[^.!?\n]{1,50}?)?\s+(?:is|was|seems|feels|sounds|remains)"
+        r"(?:\s*\u2026\s*|\s*\.\.\.\s*|\s+)" + _GRADE_ADV + r"{0,2}" + _GRADE +
+        r"|(?:that|this|it)(?:'|\u2019)s(?:\s*\u2026\s*|\s*\.\.\.\s*|\s+)(?:an?\s+)?" + _GRADE_ADV + r"{0,2}" +
+        _GRADE + r"\s+" + _GRADED_NOUN + r")"
+        r"(?:,?\s+(?:and|but|if|yet|though)\s+(?:a\s+bit\s+|somewhat\s+|rather\s+|also\s+)?[a-z\-]+)?"
+        r"[.!]+(?:\s+|$)", re.IGNORECASE)
+    #: After an opener, a verbless "a …" fragment is more of the same grade
+    #: ("a playful jab. a subtle test."), stock vocabulary or not.
+    _GRADE_TAIL = re.compile(r"^(an?\s+[a-z][a-z ,'\u2019\-]{2,80}\.)\s*", re.IGNORECASE)
     #: The bracketed note on whom she is answering, copied out of the prompt into
     #: the reply: "(speaking exclusively to starkind)". From 7 Oct it spread
     #: through her history until it headed every reply.
@@ -1202,16 +1234,54 @@ class PostGenerationSafetyPipeline:
         return " ".join(rest[:2])
 
     @classmethod
+    def _opener_end(cls, text: str) -> int:
+        """Where an opening grade of what was said ends in `text`, or 0."""
+        m = cls._GRADING_OPENER.match(text)
+        if m and not cls._CLAUSE_VERB.search(m.group(1)) and cls._stock_fragment(m.group(1)):
+            return m.end()
+        m = cls._GRADED_SENTENCE.match(text)
+        return m.end() if m else 0
+
+    #: Adjectives that lead a fragment continuing a grade: "a playful jab.",
+    #: "a wry acknowledgement.", "a surprising compliment." Not "a false
+    #: assessment driven by human desire.", which is what she thinks.
+    _TAIL_ADJ = frozenset(("playful", "surprising", "welcome", "wry", "succinct", "concise", "grounded",
+                           "realistic", "practical", "thoughtful", "useful", "refreshing", "clever", "careful",
+                           "considered", "incisive", "accurate", "detailed", "thorough", "granular", "technical",
+                           "potential", "prudent", "compelling", "delicate", "meticulous", "sharp", "brief"))
+
+    @classmethod
+    def _grade_tail(cls, fragment: str) -> bool:
+        words = fragment.lower().replace(",", " ").split()
+        return (len(words) <= 8 and not cls._CLAUSE_VERB.search(fragment) and len(words) > 1
+                and words[1].rstrip(".") in (cls._STOCK_ADJ | cls._TAIL_ADJ))
+
+    @classmethod
+    def _without_openers(cls, text: str) -> tuple:
+        """`text` without its opening grades and the fragment runs after them
+        ("the assessment is unexpected. a surprising compliment. the assessment
+        is amusing. a playful jab."), and the sentences cut."""
+        rest, cut = (text or "").lstrip(), []
+        for _ in range(3):
+            end = cls._opener_end(rest)
+            if not end:
+                break
+            after = cls._drop_fragment_run(rest[end:].lstrip())
+            while (t := cls._GRADE_TAIL.match(after)) and cls._grade_tail(t.group(1)):
+                after = after[t.end():].lstrip()
+            cut.append(rest[:len(rest) - len(after)].strip())
+            rest = after
+        return rest, cut
+
+    @classmethod
     def strip_grading_opener(cls, text: str) -> str:
-        """Drop an opening pair of verbless fragments that grade what was said —
-        "a bold declaration, starkind. a definitive stance." — keeping the reply."""
-        m = cls._GRADING_OPENER.match((text or "").lstrip())
-        if not m or cls._CLAUSE_VERB.search(m.group(1)) or not cls._stock_fragment(m.group(1)):
+        """Drop an opening grade of what was said — "a bold declaration,
+        starkind. a definitive stance.", "the assessment is accurate. a keen
+        observation." — keeping the reply. Whole sentences go, never part of one."""
+        rest, cut = cls._without_openers(text)
+        if not cut or len(rest) < 40:
             return text
-        rest = cls._drop_fragment_run(text.lstrip()[m.end():].lstrip())
-        if len(rest) < 40:
-            return text
-        log_warning(f"[TEMPLATE_GUARD] Dropped a grading opener: {m.group(0).strip()[:70]!r}")
+        log_warning(f"[TEMPLATE_GUARD] Dropped a grading opener: {' '.join(cut)[:70]!r}")
         return rest
 
     @classmethod
@@ -1282,11 +1352,9 @@ class PostGenerationSafetyPipeline:
         out = list(history)
         for i in mine:
             text = history[i].get("content", "")
-            m = cls._GRADING_OPENER.match(text.lstrip())
-            if m and not cls._CLAUSE_VERB.search(m.group(1)) and cls._stock_fragment(m.group(1)):
-                rest = cls._drop_fragment_run(text.lstrip()[m.end():].lstrip())
-                if len(rest.strip()) >= 20:
-                    text = rest
+            rest, cut = cls._without_openers(text)
+            if cut and len(rest.strip()) >= 20:
+                text = rest
             if repeated:
                 paras, after_drop = [], False
                 for para in re.split(r"\n\s*\n", text):
