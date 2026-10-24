@@ -169,6 +169,7 @@ def snapshot(session) -> dict:
     """The booth as it stands: both decks, the mixer, the set."""
     if session is None or session.source is None:
         return {"live": False, "t": time.time(), "launch": _launch}
+    from utils.audio import records as R
     from utils.audio.records import ramp
     src = session.source
     cur, inc, plan, queued, hand = src.current, src.incoming, src.plan, src._queued, src.hand
@@ -234,6 +235,8 @@ def snapshot(session) -> dict:
         "launch": _launch,
         "decks": decks, "channels": channels, "master": src.levels["master"], "mix": mix,
         "planning": src.planning_mode, "late": {"count": late_count, "worst_ms": round(worst_late * 1000)},
+        # frames a decoder was behind and played as silence this set
+        "starved": R.DECKS_STARVED - getattr(session, "starved_at_start", R.DECKS_STARVED),
         "history": src.history[-12:], "names": session.names[-30:], "mood": _mood(),
         "chatter": list(getattr(session, "chatter", []))[-14:],
         # The last half second of per-frame levels (20 ms each): the meters play

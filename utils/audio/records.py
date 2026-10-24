@@ -249,7 +249,11 @@ class Deck:
                 self.played += 1
                 self._room.release()
                 return self._frames.popleft()
-        return None if self._eof else SILENCE
+        if self._eof:
+            return None
+        global DECKS_STARVED
+        DECKS_STARVED += 1
+        return SILENCE
 
     def at(self, frames: Optional[int] = None) -> float:
         """Seconds into the record as played (stretched) at the start of frame `frames`."""
@@ -333,6 +337,26 @@ class Deck:
             self._pump_thread.join(timeout=0.5)
             if self._pump_thread.is_alive():
                 log_warning("[records] decoder reader did not stop after cleanup")
+
+
+#: Frames any deck has had to fill with silence because its decoder was
+#: behind, across the process; a set reports what it added. The voice
+#: thread's meters cannot see this: the frame is on time, and empty.
+DECKS_STARVED = 0
+
+#: Decoded frames the first record must have ready before a set starts (0.5 s).
+FIRST_DECK_FRAMES = 25
+
+
+def _wait_deck(deck, frames: int, timeout: float) -> bool:
+    """Wait (off the event loop) until `deck` has `frames` decoded, or `timeout`."""
+    ready = getattr(deck, "ready", None)
+    if ready is None:
+        return True
+    deadline = time.monotonic() + timeout
+    while not ready(frames) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return ready(frames)
 
 
 #: Opus told what it is encoding. Left on "auto" it guesses speech or music
@@ -1908,6 +1932,7 @@ class RecordsSession:
         self.requested_by = requested_by
         self.text_channel = text_channel
         self.started_at = time.time()
+        self.starved_at_start = DECKS_STARVED
         self.played: list[str] = []
         self.names: list[str] = []
         self.listeners_seen: set[str] = set()
@@ -2327,6 +2352,9 @@ class RecordsSession:
         if underruns:
             details.append(f"{underruns} PCM buffer underruns")
         vs = self.voice_source
+        starved = DECKS_STARVED - getattr(self, "starved_at_start", DECKS_STARVED)
+        if starved:
+            details.append(f"decoders behind for {starved} frames ({starved * 20} ms of silence)")
         tail = (f" {getattr(vs, 'jitter_count', 0)} gaps of {JITTER_S * 1000:.0f}–{LATE_S * 1000:.0f} ms; the "
                 f"buffer never fell below {getattr(vs, 'low_water', '?')} of {getattr(vs, 'buffer_frames', '?')} "
                 f"frames.") if vs else ""
@@ -2444,6 +2472,10 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
         session.source.tempo_glide = bool(config.get("music.records_tempo_glide", True))
     except Exception as e:
         log_debug(f"[records] records_kaia_hands not read: {e}")
+    # The first record's decoder has to be ahead before the voice thread
+    # starts asking: a set started while it was still spinning up (rubberband,
+    # a busy machine) opened on frames of silence.
+    await asyncio.to_thread(_wait_deck, deck, FIRST_DECK_FRAMES, 3.0)
     settle("a records set")
     from utils.infrastructure.system.yaml_config import config
     buffer_frames = int(config.get("music.records_audio_buffer_frames", 15))

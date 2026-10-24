@@ -130,3 +130,15 @@ def test_the_profile_writer_does_not_shadow_its_own_import():
     tree = ast.parse(inspect.getsource(g.generate_profile))
     local = [n for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and any(a.name == "write_atomic" for a in n.names)]
     assert not local
+
+
+def test_a_refresh_asked_for_during_records_waits_as_a_trigger(records_playing, monkeypatch):
+    """The boot refresh and the news refresh ran into a set started 30 s after
+    boot (24 Oct); with indices loaded, a refresh under the music is left for
+    the maintenance sweep."""
+    from utils.core import kaia_rag_indexer, rag_utils
+    asked = []
+    monkeypatch.setattr(rag_utils, "request_reindex", lambda: asked.append(1) or True)
+    fake = types.SimpleNamespace(indices={"logs": object()}, _index_lock=None)
+    asyncio.run(kaia_rag_indexer.RAGIndexerMixin.refresh_knowledge_base(fake))
+    assert asked == [1]                        # deferred: never reached the lock
