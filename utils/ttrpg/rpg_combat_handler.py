@@ -52,6 +52,124 @@ _BOSS_TIER_BY_LEVEL = {
     13: "boss", 14: "boss", 15: "boss",
 }
 
+def _advanced_bonuses(sheet: dict):
+    """The bonuses of the player's advanced class, or None without one."""
+    adv = sheet.get("advanced_class", "")
+    if not adv:
+        return None
+    from utils.ttrpg.class_advancement import ADVANCED_CLASSES
+    for opts in ADVANCED_CLASSES.values():
+        if adv in opts:
+            return opts[adv].get("bonuses", {})
+    return None
+
+
+def _apply_victory_hp_effects(sheet: dict, special_day, adv_bonuses, player_alive: bool) -> None:
+    """The healing side of a dungeon kill, in its original order: the day's
+    calendar effect first, then the advanced class's heal. They change HP only,
+    never the rewards, which `_dungeon_reward_amounts` computes."""
+    if special_day:
+        buff, bv = special_day.get("buff"), special_day.get("buff_value", 0)
+        if buff == "long_fire":
+            if player_alive:
+                sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + bv)
+        elif buff == "winter_resolve":
+            if not sheet.get("_winter_resolve_applied"):
+                sheet["hp"]["max"] += bv
+                sheet["hp"]["current"] += bv
+                sheet["_winter_resolve_applied"] = True
+        elif buff == "new_year_resolve":
+            if not sheet.get("_new_year_applied"):
+                sheet["hp"]["current"] = sheet["hp"]["max"]
+                sheet["_new_year_applied"] = True
+    heal = (adv_bonuses or {}).get("heal_on_combat_end", 0)
+    if heal > 0 and sheet["hp"]["current"] > 0:
+        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + heal)
+
+
+def _dungeon_reward_amounts(monster: dict, *, is_boss: bool, world: dict, special_day=None,
+                            adv_bonuses=None, in_forest: bool = False, spent_buffs=(),
+                            xp_boosted: bool = False, pet: dict = None) -> tuple:
+    """(xp, gil) for a dungeon kill. Pure. The order is part of the rule: every
+    step truncates with int(), so world mult → calendar → advanced class →
+    golden tongue → Experience Tonic → pet is not the same as any other order
+    (`test_dungeon_reward_order_is_pinned`)."""
+    mult = 2 if is_boss else 1
+    xp = int(monster.get("xp", 25) * mult * world.get("xp_mult", 1.0))
+    gil = int(monster.get("gil", 5) * mult * world.get("gil_mult", 1.0))
+    if special_day:
+        buff, bv = special_day.get("buff"), special_day.get("buff_value", 0)
+        if buff == "harvest_strength":
+            gil += harvest_bonus(gil, bv)
+        elif buff == "remembrance":
+            xp = int(xp * bv)
+    if adv_bonuses is not None:
+        xp = int(xp * (1.0 + adv_bonuses.get("xp_bonus_pct", 0.0)))
+        if adv_bonuses.get("forest_xp_bonus") and in_forest:
+            xp = int(xp * (1.0 + adv_bonuses["forest_xp_bonus"]))
+        gil = int(gil * (1.0 + adv_bonuses.get("gil_bonus_pct", 0.0)))
+    if "golden_tongue" in (spent_buffs or ()):
+        gil += golden_tongue_bonus(gil)
+    if xp_boosted:                                   # Experience Tonic, +25%
+        xp = int(xp * 1.25)
+    pet = pet or {}
+    if pet.get("gil_bonus_pct"):
+        gil = int(gil * (1.0 + pet["gil_bonus_pct"]))
+    if pet.get("xp_bonus_pct"):
+        xp = int(xp * (1.0 + pet["xp_bonus_pct"]))
+    return xp, gil
+
+
+def _grant_drop(sheet: dict, state: dict, item_key: str, icon: str) -> str:
+    """Give one drop if the bag has room. Returns the line to show either way."""
+    from utils.ttrpg.character_manager import INVENTORY_LIMIT
+    item = find_item(item_key)
+    name = item["name"] if item else item_key
+    if len(set(sheet.get("inventory", [])) | {item_key}) <= INVENTORY_LIMIT:
+        sheet.setdefault("inventory", []).append(item_key)
+        state.setdefault("loot_gained", []).append(item_key)
+        return f"{icon} {name}"
+    return f"🎒 **[Inventory Full]** Left behind: {name}"
+
+
+def _roll_dungeon_loot(sheet: dict, state: dict, tier: str, is_boss: bool) -> str:
+    """Roll and grant a dungeon kill's drops; returns the loot line for the embed.
+
+    Boss: a guaranteed gear drop (up to six rolls to find one), a 40% second,
+    a consumable, and 25 gil if all of that came up empty. Normal: 40% gear and
+    a consumable. Drops are granted in that order, each against the bag as the
+    previous one left it."""
+    from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
+
+    def gear_until_found():
+        gear = get_gear_loot(tier)
+        attempts = 0
+        while not gear and attempts < 5:
+            gear = get_gear_loot(tier)
+            attempts += 1
+        return gear
+
+    lines = []
+    if is_boss:
+        if (gear := gear_until_found()):
+            lines.append(_grant_drop(sheet, state, gear, "⚔️"))
+        if secrets.randbelow(10) < 4 and (gear2 := gear_until_found()):
+            lines.append(_grant_drop(sheet, state, gear2, "⚔️"))
+        if (cons := get_consumable_loot(tier)):
+            lines.append(_grant_drop(sheet, state, cons, "🧪"))
+        if lines:
+            return "\n🎁 **Boss drops:**\n" + "\n".join(lines)
+        bonus_gil = 25
+        sheet["gil"] = sheet.get("gil", 0) + bonus_gil
+        state["gil_gained"] = state.get("gil_gained", 0) + bonus_gil
+        return f"\n💰 No material loot, but the corpse yields **{bonus_gil} gil**."
+    if secrets.randbelow(10) < 4 and (gear := get_gear_loot(tier)):
+        lines.append(_grant_drop(sheet, state, gear, "⚔️"))
+    if (cons := get_consumable_loot(tier)):
+        lines.append(_grant_drop(sheet, state, cons, "🧪"))
+    return ("\n🎁 " + ", ".join(lines)) if lines else ""
+
+
 # Same load / resolve / await / save shape as the overworld handlers,
 # reached from the dungeon view's Attack button — so the same race.
 @serialize_combat_action
@@ -150,159 +268,32 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         del state["active_combat"]
         state["rooms"][room_key]["cleared"] = True
         loot_before = len(state.get("loot_gained", []))
+        # Rewards: HP effects, then the amounts (pure, order pinned), then loot.
         # The day's multipliers (weather, world events) apply to a dungeon kill
         # as they do to one in the overworld.
-        xp_gain = int(monster.get("xp", 25) * (2 if is_boss else 1) * world_state.get("xp_mult", 1.0))
-        gil_gain = int(monster.get("gil", 5) * (2 if is_boss else 1) * world_state.get("gil_mult", 1.0))
-        
-        # ── Calendar Special Day Buffs ─────────────────────────────────────
         from utils.ttrpg.calendar import get_special_day
-        _sp_dungeon = get_special_day()
-        if _sp_dungeon:
-            _buff = _sp_dungeon.get("buff")
-            _bv = _sp_dungeon.get("buff_value", 0)
-            if _buff == "long_fire":
-                if res["player_alive"]:
-                    sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _bv)
-            elif _buff == "harvest_strength":
-                gil_gain += harvest_bonus(gil_gain, _bv)
-            elif _buff == "remembrance":
-                xp_gain = int(xp_gain * _bv)
-            elif _buff == "winter_resolve":
-                if not sheet.get("_winter_resolve_applied"):
-                    sheet["hp"]["max"] += _bv
-                    sheet["hp"]["current"] += _bv
-                    sheet["_winter_resolve_applied"] = True
-            elif _buff == "new_year_resolve":
-                if not sheet.get("_new_year_applied"):
-                    sheet["hp"]["current"] = sheet["hp"]["max"]
-                    sheet["_new_year_applied"] = True
-                    
-        # Advanced class bonuses
-        _adv = sheet.get("advanced_class", "")
-        if _adv:
-            from utils.ttrpg.class_advancement import ADVANCED_CLASSES, FOREST_LOCATIONS
-            for _opts in ADVANCED_CLASSES.values():
-                if _adv in _opts:
-                    _b = _opts[_adv].get("bonuses", {})
-                    xp_gain  = int(xp_gain  * (1.0 + _b.get("xp_bonus_pct",  0.0)))
-                    if _b.get("forest_xp_bonus") and sheet.get("location") in FOREST_LOCATIONS:
-                        xp_gain = int(xp_gain * (1.0 + _b["forest_xp_bonus"]))
-                    gil_gain = int(gil_gain * (1.0 + _b.get("gil_bonus_pct", 0.0)))
-                    _heal = _b.get("heal_on_combat_end", 0)
-                    if _heal > 0 and sheet["hp"]["current"] > 0:
-                        sheet["hp"]["current"] = min(sheet["hp"]["max"], sheet["hp"]["current"] + _heal)
-                    break
-
-        if "golden_tongue" in res.get("spent_buffs", ()):
-            gil_gain += golden_tongue_bonus(gil_gain)
-
-        # Experience Tonic bonus (+25% XP, consumed on use)
-        if "xp_boosted" in sheet.get("conditions", []):
-            xp_gain = int(xp_gain * 1.25)
-            sheet["conditions"].remove("xp_boosted")
-        
-        # Pet reward bonuses: gil (Cat, Tomb Bat), XP (Wisp Lantern)
-        from utils.ttrpg.housing import load_housing_async
-        from utils.ttrpg.pets import get_pet_passive
-        housing_rewards = await load_housing_async(uid)
-        pet_rewards = get_pet_passive(housing_rewards) if housing_rewards else {}
-        if pet_rewards.get("gil_bonus_pct"):
-            gil_gain = int(gil_gain * (1.0 + pet_rewards["gil_bonus_pct"]))
-        if pet_rewards.get("xp_bonus_pct"):
-            xp_gain = int(xp_gain * (1.0 + pet_rewards["xp_bonus_pct"]))
+        from utils.ttrpg.class_advancement import FOREST_LOCATIONS
+        special_day = get_special_day()
+        adv_bonuses = _advanced_bonuses(sheet)
+        _apply_victory_hp_effects(sheet, special_day, adv_bonuses, res["player_alive"])
+        xp_boosted = "xp_boosted" in sheet.get("conditions", [])
+        if xp_boosted:
+            sheet["conditions"].remove("xp_boosted")          # the tonic is spent on this kill
+        # Pet reward bonuses (Cat, Tomb Bat: gil; Wisp Lantern: XP), from the
+        # housing loaded with the combat modifiers: the same player's.
+        xp_gain, gil_gain = _dungeon_reward_amounts(
+            monster, is_boss=is_boss, world=world_state, special_day=special_day,
+            adv_bonuses=adv_bonuses, in_forest=sheet.get("location") in FOREST_LOCATIONS,
+            spent_buffs=res.get("spent_buffs", ()), xp_boosted=xp_boosted, pet=_pet_bonuses)
 
         sheet["xp"] = sheet.get("xp", 0) + xp_gain
         sheet["gil"] = sheet.get("gil", 0) + gil_gain
         state["xp_gained"] = state.get("xp_gained", 0) + xp_gain
         state["gil_gained"] = state.get("gil_gained", 0) + gil_gain
 
-        # Loot — split gear and consumable pools
-        from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
-        from utils.ttrpg.character_manager import INVENTORY_LIMIT
         level = sheet.get("level", 1)
-        if is_boss:
-            tier = _BOSS_TIER_BY_LEVEL.get(level, "boss")
-        else:
-            tier = _get_dungeon_loot_tier(level, False)
-        if is_boss:
-            drops = []
-            # First gear drop: guaranteed
-            gear = get_gear_loot(tier)
-            attempts = 0
-            while not gear and attempts < 5:
-                gear = get_gear_loot(tier)
-                attempts += 1
-            if gear:
-                if len(set(sheet.get("inventory", [])) | {gear}) <= INVENTORY_LIMIT:
-                    sheet.setdefault("inventory", []).append(gear)
-                    item = find_item(gear)
-                    drops.append(f"⚔️ {item['name'] if item else gear}")
-                    state.setdefault("loot_gained", []).append(gear)
-                else:
-                    item = find_item(gear)
-                    drops.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear}")
-            # Second gear drop: 40% chance
-            if secrets.randbelow(10) < 4:
-                gear2 = get_gear_loot(tier)
-                attempts = 0
-                while not gear2 and attempts < 5:
-                    gear2 = get_gear_loot(tier)
-                    attempts += 1
-                if gear2:
-                    if len(set(sheet.get("inventory", [])) | {gear2}) <= INVENTORY_LIMIT:
-                        sheet.setdefault("inventory", []).append(gear2)
-                        item = find_item(gear2)
-                        drops.append(f"⚔️ {item['name'] if item else gear2}")
-                        state.setdefault("loot_gained", []).append(gear2)
-                    else:
-                        item = find_item(gear2)
-                        drops.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear2}")
-            # Consumable drop: always
-            cons = get_consumable_loot(tier)
-            if cons:
-                if len(set(sheet.get("inventory", [])) | {cons}) <= INVENTORY_LIMIT:
-                    sheet.setdefault("inventory", []).append(cons)
-                    item = find_item(cons)
-                    drops.append(f"🧪 {item['name'] if item else cons}")
-                    state.setdefault("loot_gained", []).append(cons)
-                else:
-                    item = find_item(cons)
-                    drops.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else cons}")
-            if drops:
-                loot_text = f"\n🎁 **Boss drops:**\n" + "\n".join(drops)
-            else:
-                # Guaranteed fallback: gil payout if loot table still produces nothing
-                bonus_gil = 25
-                sheet["gil"] = sheet.get("gil", 0) + bonus_gil
-                state["gil_gained"] = state.get("gil_gained", 0) + bonus_gil
-                loot_text = f"\n💰 No material loot, but the corpse yields **{bonus_gil} gil**."
-        else:
-            # Normal dungeon kill: 40% gear + always consumable
-            drop_lines = []
-            if secrets.randbelow(10) < 4:
-                gear = get_gear_loot(tier)
-                if gear:
-                    if len(set(sheet.get("inventory", [])) | {gear}) <= INVENTORY_LIMIT:
-                        sheet.setdefault("inventory", []).append(gear)
-                        item = find_item(gear)
-                        drop_lines.append(f"⚔️ {item['name'] if item else gear}")
-                        state.setdefault("loot_gained", []).append(gear)
-                    else:
-                        item = find_item(gear)
-                        drop_lines.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else gear}")
-            cons = get_consumable_loot(tier)
-            if cons:
-                if len(set(sheet.get("inventory", [])) | {cons}) <= INVENTORY_LIMIT:
-                    sheet.setdefault("inventory", []).append(cons)
-                    item = find_item(cons)
-                    drop_lines.append(f"🧪 {item['name'] if item else cons}")
-                    state.setdefault("loot_gained", []).append(cons)
-                else:
-                    item = find_item(cons)
-                    drop_lines.append(f"🎒 **[Inventory Full]** Left behind: {item['name'] if item else cons}")
-            if drop_lines:
-                loot_text = f"\n🎁 " + ", ".join(drop_lines)
+        tier = _BOSS_TIER_BY_LEVEL.get(level, "boss") if is_boss else _get_dungeon_loot_tier(level, False)
+        loot_text = _roll_dungeon_loot(sheet, state, tier, is_boss)
 
         leveled, new_level = check_level_up(sheet)
         if leveled:
