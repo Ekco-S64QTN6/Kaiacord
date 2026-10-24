@@ -87,6 +87,7 @@ nobody is talking to her.
 |:--|:--|
 | `generate_self_model.py` | Kaia's first-person self-model from her recent conversations with everyone she talks to, and her dreams' text. |
 | `build_spine_layouts.py` | Regenerates `utils/ttrpg/spine_layouts.json`, the 77 Spine of the World floors. Random per run. |
+| `art_gallery.py` | A fixed, versioned gallery of `!art` renders (prompt, seed and palette per case) as a labelled contact sheet; `--against DIR` puts each case before and after a change. `--fast` for quick checks. Issue #48, step 1. |
 
 ## social/
 
