@@ -184,9 +184,13 @@ async def _stop(proc: asyncio.subprocess.Process, grace: float = 8.0) -> None:
     except (asyncio.TimeoutError, ProcessLookupError):
         try:
             proc.kill()
-            await proc.wait()
+            # Bounded: an unbounded wait here could hang the caller on a child
+            # the kernel cannot reap (issue #46).
+            await asyncio.wait_for(proc.wait(), 5.0)
         except ProcessLookupError:
             pass
+        except asyncio.TimeoutError:
+            log_warning(f"[radio] recorder pid {proc.pid} did not exit after kill")
 
 
 async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_dir: Path,
@@ -315,29 +319,11 @@ def first_audio(proc, timeout: float = 12.0) -> bool:
 
 def close_stream(proc) -> None:
     """Stop a receiver stream: SIGINT so rtl_fm or kiwirecorder lets go of the
-    dongle or the remote slot, then kill if it has not exited in 3 s.
+    dongle or the remote slot, kill if it has not exited in 3 s, and reap it
+    either way (utils/audio/process_lifecycle, the "receiver" policy).
 
-    A killed child is reaped with a second bounded wait; without it the process
-    stays a zombie for the life of the bot. stdout is deliberately left open:
-    discord.py's pipe reader may still be blocked on it, and it is meant to see
-    end-of-stream and exit on its own (`live.stop`)."""
-    if proc.poll() is not None:
-        return
-    try:
-        proc.send_signal(signal.SIGINT)
-        proc.wait(3)
-        return
-    except ProcessLookupError:
-        return
-    except Exception:
-        pass
-    try:
-        proc.kill()
-    except ProcessLookupError:
-        return
-    except Exception as exc:
-        log_warning(f"[radio] could not kill the stream: {exc}")
-    try:
-        proc.wait(3)
-    except Exception as exc:
-        log_warning(f"[radio] stream did not exit after kill: {exc}")
+    stdout is deliberately left open: discord.py's pipe reader may still be
+    blocked on it, and it is meant to see end-of-stream and exit on its own
+    (`live.stop`)."""
+    from utils.audio.process_lifecycle import stop
+    stop(proc, "receiver")
