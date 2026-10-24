@@ -662,6 +662,9 @@ a mix that sounded wrong:
 
 - **Stretch with rubberband, not `atempo`.** `atempo` puts every onset ~20 ms early (measured on
   click tracks); rubberband is within 1 ms. The atempo fallback is compensated (`stretch_latency`).
+  A key shift keeps formants and uses the quality pitch path, and both channels are processed together
+  (`stretch_filter`): a semitone up without it chipmunked the vocal (Der Kommissar, 24 Oct). Measured on
+  a click track, neither moves an onset.
 - **The bar is counted, never guessed from accents.** Accents on a log-energy onset curve barely
   differ, and the guess put the incoming bar on beat 2, 3 or 4 — kicks on kicks, claps on the wrong
   beats. Bar one is a record's first strong beat; `grid_at` counts beats from it and keeps the bar
@@ -680,9 +683,12 @@ a mix that sounded wrong:
   Judge a mix the same way: render both decks paired by the mixer's own read counter, not by a second
   beat tracker or that band's energy.
 - **A blend takes its time and is staged per band** (`gains`): 64 beats by default; the booth offers
-  32 / 64 / 256. The incoming comes in from the top down — highs over one `ramp`, mids over the next
-  while both records' mids are thinned (`MID_SHARE`) — then the *ride*, both up and locked, the bass
-  swapped on the halfway bar; the outgoing leaves bottom-up, mids then highs. A ramp is a quarter of a
+  32 / 64 / 256. The incoming comes in with its highs over one `ramp` and its mids held at `MID_HOLD`
+  (−14 dB) while the outgoing plays on whole, vocal and all — the *ride*, both up and locked. On the
+  halfway bar the basslines swap and the mids hand over in `MID_HANDOFF_BEATS` centred on it, so the
+  outgoing's vocal phrase finishes and the incoming's starts on the one; then the outgoing's highs go.
+  Until 24 Oct both records' mids sat at 55% through the middle: two vocals stacked, and the outgoing's
+  was cut mid-phrase at the swap. A ramp is a quarter of a
   short blend and an eighth of a long one, so EPIC (256) rides for a minute; the ride is the point of
   a long blend, not the bridge to the next record. A blend must leave the incoming `IN_LEFT_S` to play
   alone, and a cue set at the booth is honoured whoever lined the record up. It starts on an 8-bar phrase at the end of a record (4
@@ -715,7 +721,14 @@ a mix that sounded wrong:
 - **Nothing locks: an echo-out, never a bare cut** (`as_echo`, `echo_tail`). Her own pick that locks
   nowhere is swapped for one that does (`RecordsSession._alternatives`: its measured partners, then
   records in stretch of the tempo, those with partners of their own first, `ALTERNATIVE_S`); a record
-  loaded at the booth or asked for (`Next.source` "hand"/"request") is never swapped. What still locks
+  loaded at the booth or asked for (`Next.source` "hand"/"request") is never swapped — so anything that
+  rebuilds a `Next` uses `dataclasses.replace` (`_cued` rebuilt it field by field, dropped the source,
+  and a booth load whose cue had been moved was swapped for her pick). A NEXT or ▶ pressed while a crate
+  pick is still being read (`RecordsSession.loading`) waits for it (`after_load`). A NEXT pressed while a
+  skip is already planned leaves it alone: each press used to plan it again from now, a phrase later,
+  and rerun the search (six presses in nine seconds pushed one echo 8 s on). A booth load or a request
+  is searched only from its start or a phrase in (`setlist.HAND_CUES`); scrubbed 32 bars in, Urgent came
+  in a minute into the song. What still locks
   nowhere goes out on the bar with its last beat (mids and highs) repeating, `ECHO_FEEDBACK` quieter
   each beat, under the incoming's bar one. On 9 Oct, 40 of 71 planned transitions were cuts — 36 of
   them pairs the graph had never measured (skips and hand loads), which nothing tried to rescue.
@@ -759,7 +772,8 @@ a mix that sounded wrong:
   over 0 dBTP, and capping cuts by peak made the spread worse than mean volume did.
 - **Kaia rides the mixer** (`kaia_hands`, `music.records_kaia_hands`, the booth's HANDS): multipliers on
   the automix, locked to bars and scaled by her energy — both records -1.5 dB in a ride (gain staging),
-  the mids traded every 8 bars, no bass for the beat before the swap; alone, one EQ gesture into the end
+  the hats traded every 8 bars in a long ride (never the mids: they carry the vocals), no bass for the
+  beat before the swap; alone, one EQ gesture into the end
   of a 16-bar phrase, released on the one. Which gesture is a hash of record and phrase, never random.
 - **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
   mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is not proposed as a
@@ -770,8 +784,9 @@ a mix that sounded wrong:
 - **Nothing slow on the voice thread — not even the mix.** `CrossfadeSource.read()` (band filters,
   gain curves, NumPy) runs on a renderer worker; discord.py reads `BufferedRecordsSource`, which only
   dequeues a finished 20 ms frame and returns silence on an empty queue — it never waits for the mixer,
-  logs or touches disk (late reads are counted in memory and reported at set end, `[records] voice
-  thread`). The queue is `music.records_audio_buffer_frames` (15 frames ≈ 300 ms, clamped 3–50): every
+  logs or touches disk (late reads are counted in memory and reported at set end, `[records] set ended`:
+  gaps over `LATE_S`, the shorter ones over `JITTER_S`, and the buffer's low-water mark). Opus is told the
+  stream is music (`OPUS_SIGNAL`): on "auto" it switched coding mode on quiet bars. The queue is `music.records_audio_buffer_frames` (15 frames ≈ 300 ms, clamped 3–50): every
   booth control and Kaia's hands are heard that much later, so keep it small. The incoming ffmpeg is
   started and buffered by the planner thread. `records-audio-tests.yml` runs `test_records.py` in CI on
   any change to `records.py`.
