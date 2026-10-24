@@ -983,3 +983,40 @@ def test_a_record_loaded_by_hand_is_not_scrubbed_a_minute_in_to_find_a_lock(monk
         setlist.find_blend(10.0, "/o.mp3", 1.0, STEADY, 200.0, nxt, "skip", 32,
                            verify_fn=lambda *a: (None, 0.0), lengths=[32])
         assert set(tried) <= allowed and (32 in tried) == (source == "partner")
+
+
+def test_a_decoder_behind_is_counted_not_hidden():
+    """A deck whose decoder is behind plays silence; the voice thread's meters
+    see a frame on time and nothing else."""
+    import threading
+    gate = threading.Event()
+
+    class SlowPipe:
+        def read(self, n):
+            gate.wait(2.0)
+            return b""
+
+    before = R.DECKS_STARVED
+    deck = Deck(rec("slow", 120, "8A"), 1.0, 10.0, stream_factory=lambda *a, **k: SlowPipe())
+    try:
+        assert deck.frame() == R.SILENCE and deck.frame() == R.SILENCE
+        assert R.DECKS_STARVED - before == 2 and deck.played == 0
+    finally:
+        gate.set()
+        deck.close()
+
+
+def test_a_set_waits_for_its_first_record_to_buffer():
+    import threading
+    calls = {"n": 0}
+
+    class FakeDeck:
+        def ready(self, frames):
+            calls["n"] += 1
+            return calls["n"] > 3
+    assert R._wait_deck(FakeDeck(), 25, 1.0) is True and calls["n"] >= 4
+    class Never:
+        def ready(self, frames):
+            return False
+    t0 = time.monotonic()
+    assert R._wait_deck(Never(), 25, 0.1) is False and time.monotonic() - t0 < 0.5

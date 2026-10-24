@@ -1072,6 +1072,22 @@ class RAGIndexerMixin:
 
     async def refresh_knowledge_base(self, max_concurrent_files: int = 2):
         """Refresh knowledge base with concurrent file processing and batch persistence."""
+        # Indexing and persisting hold the GIL long enough to make the voice
+        # thread late, and the boot refresh and the news refresh ran straight
+        # into a records set started 30 s after boot. While she is playing, the
+        # refresh is left as a trigger for the maintenance sweep, which waits
+        # for the music. Indices not yet loaded are not deferred.
+        if self.indices:
+            try:
+                from utils.audio import voice_busy
+                busy = voice_busy.playing()
+            except Exception:
+                busy = ""
+            if busy:
+                from utils.core.rag_utils import request_reindex
+                request_reindex()
+                log_info(f"RAG refresh deferred until the music stops: {busy} is playing")
+                return
         if not self._index_lock.acquire(blocking=False):
             log_info("RAG refresh already in progress, marking as pending.")
             self._refresh_pending = True

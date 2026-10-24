@@ -786,7 +786,9 @@ a mix that sounded wrong:
   dequeues a finished 20 ms frame and returns silence on an empty queue — it never waits for the mixer,
   logs or touches disk (late reads are counted in memory and reported at set end, `[records] set ended`:
   gaps over `LATE_S`, the shorter ones over `JITTER_S`, and the buffer's low-water mark). Opus is told the
-  stream is music (`OPUS_SIGNAL`): on "auto" it switched coding mode on quiet bars. The queue is `music.records_audio_buffer_frames` (15 frames ≈ 300 ms, clamped 3–50): every
+  stream is music (`OPUS_SIGNAL`): on "auto" it switched coding mode on quiet bars. A deck whose decoder is behind plays
+  silence — on time, so no meter saw it; `DECKS_STARVED` counts those frames (the booth's `starved`, the
+  set summary), and a set waits for its first record to have `FIRST_DECK_FRAMES` decoded before playing. The queue is `music.records_audio_buffer_frames` (15 frames ≈ 300 ms, clamped 3–50): every
   booth control and Kaia's hands are heard that much later, so keep it small. The incoming ffmpeg is
   started and buffered by the planner thread. `records-audio-tests.yml` runs `test_records.py` in CI on
   any change to `records.py`.
@@ -1071,7 +1073,9 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
 every 20 ms and anything in this process holding the GIL makes it late; a records set started into the dream
 cycle came back 60–170 ms late fifteen times in five minutes. The dream (and inside it, between reflections, the
 self-model and profile refreshes), dream curation, the evening reflection, metadata enrichment and the corpus
-audit `wait_until_quiet` — past their window if need be; the RAG sweep defers and keeps its trigger; the
+audit `wait_until_quiet` — past their window if need be; the RAG sweep defers and keeps its trigger,
+and any other refresh (the boot refresh, the news refresh) is left as that trigger while she plays
+(`refresh_knowledge_base`) — both ran into a set started 30 s after boot on 24 Oct; the
 scanner's nightly sweep pauses (a tuned channel, a net, an asked-for scan or a listen-along do not) and new
 shortwave listens wait. The night is spread out relative to `dream_mode.schedule_start_hour`: enrichment at
 −1:30, the dream (never within 20 minutes of a boot), curation at +4, the corpus audit at +5.
