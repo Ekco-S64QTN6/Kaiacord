@@ -198,7 +198,7 @@ def self_docs() -> dict:
 
 
 def checks() -> dict:
-    """Self-corrections, grounded-claim checks, hallucination flags, security trips."""
+    """Self-corrections, grounded-claim checks, hallucination flags, security trips, review flags."""
     sc = _jsonl(MEM / "self_corrections.jsonl")
     sec = _jsonl(MEM / "security_dogtag_replay.jsonl")
     return {"self_corrections": [[_ts(r.get("ts")), r.get("verdict"), (r.get("claim") or "")[:160]] for r in sc],
@@ -206,7 +206,10 @@ def checks() -> dict:
             "security": [[_ts(r.get("timestamp")), r.get("trigger_type"), re.sub(r":\d{6,}$", "", str(r.get("matched_rule") or ""))]
                          for r in sec],
             "hallucination": [[_ts(r.get("timestamp")), (r.get("response_snippet") or "")[:160]]
-                              for r in _jsonl(MEM / "hallucination_log.jsonl")]}
+                              for r in _jsonl(MEM / "hallucination_log.jsonl")],
+            # what she said she was flagging for review (utils/core/review_flags.py)
+            "review_flags": [[_ts(r.get("ts")), r.get("author"), (r.get("claim") or "")[:160]]
+                             for r in _jsonl(MEM / "review_flags.jsonl")]}
 
 
 def generation() -> dict:
