@@ -360,21 +360,29 @@ def test_a_deck_started_part_way_keeps_its_clock():
 
 
 
-def test_a_blend_comes_in_from_the_top_and_leaves_from_the_bottom():
-    """The staging DJs use for a long EQ blend: incoming highs first, then
-    mids (each record's thinned while both play), bass on the halfway bar;
-    the outgoing loses bass at the swap, mids next, highs last."""
+def test_a_blend_comes_in_from_the_top_and_hands_the_vocals_over_at_the_swap():
+    """The DJ's EQ blend: the incoming's highs first with its mids held low,
+    the outgoing playing on whole — vocal and all — until the bar halfway,
+    where the basslines swap and the mids change hands around the downbeat;
+    the outgoing's highs last. Both records' mids at 55% through the middle
+    put two vocals on top of each other, and the outgoing's was cut mid-phrase."""
     plan = plan_transition(3.0, 1.0, STEADY, 120.0, nxt(), "skip", 64, lead=2.0)
-    q = plan.length / 4
-    at = lambda f: gains(plan, np.array([plan.drop + q * f]))
-    ol, om, oh, il, im, ih = (float(x[0]) for x in at(1.0))           # end of Q1
-    assert ih == pytest.approx(1) and im == pytest.approx(0) and il == 0 and om == pytest.approx(1)
-    ol, om, oh, il, im, ih = (float(x[0]) for x in at(1.99))          # just before the swap
-    assert im + om < 1.25 and il == 0 and ol == 1                      # thinned mids, one bassline
-    ol, om, oh, il, im, ih = (float(x[0]) for x in at(2.6))           # after the swap
-    assert ol == 0 and il == 1 and im == pytest.approx(1) and oh == pytest.approx(1) and om < 0.5
-    ol, om, oh, il, im, ih = (float(x[0]) for x in at(3.5))
-    assert om == pytest.approx(0, abs=1e-6) and 0.1 < oh < 0.9
+    q, b = plan.length / 4, plan.beat
+    swap = plan.drop + plan.length / 2
+    at = lambda x: [float(v[0]) for v in gains(plan, np.array([x]))]
+    ol, om, oh, il, im, ih = at(plan.drop + q)                        # end of Q1
+    assert ih == pytest.approx(1) and im == pytest.approx(R.MID_HOLD) and il == 0 and om == 1
+    ol, om, oh, il, im, ih = at(swap - b)                              # a beat before the swap
+    assert om == pytest.approx(1) and im == pytest.approx(R.MID_HOLD) and ol == 1 and il == 0
+    ol, om, oh, il, im, ih = at(swap)                                  # on the one: halfway through the handoff
+    assert om == pytest.approx(0.5, abs=0.01) and im > om
+    ol, om, oh, il, im, ih = at(swap + b * 1.01)                       # handed over
+    assert om == pytest.approx(0) and im == pytest.approx(1) and ol == 0 and il == 1 and oh == 1
+    ol, om, oh, il, im, ih = at(plan.drop + 3.5 * q)
+    assert 0.1 < oh < 0.9                                              # the outgoing's highs on their way out
+    t = np.arange(plan.drop, plan.done, 0.001)
+    _, om_, _, _, im_, _ = gains(plan, t)
+    assert not np.any((om_ > 0.6) & (im_ > 0.6))                       # never two vocals near full
 
 
 def test_a_blend_plays_both_records_together_for_half_its_length():
@@ -448,7 +456,7 @@ def test_an_epic_blend_rides_both_records_up_together_for_a_minute():
     assert plan.kind == "blend" and plan.length == pytest.approx(256 * 0.48)
     t = np.arange(plan.drop, plan.done, 0.01)
     ol, om, oh, il, im, ih = gains(plan, t)
-    both = (om >= R.MID_SHARE - 1e-3) & (im >= R.MID_SHARE - 1e-3) & (oh > 0.99) & (ih > 0.99)
+    both = (oh > 0.99) & (ih > 0.99) & (np.maximum(om, im) > 0.99)        # both up, one vocal at full
     assert both.sum() * 0.01 >= 60.0
     assert np.allclose(ol + il, 1.0)                     # one bassline throughout
 
@@ -462,13 +470,14 @@ def test_a_cue_moved_on_her_own_pick_is_where_it_comes_in():
     assert src.plan.offset == pytest.approx(6.0 - R.PREROLL_S)          # from the cue, not the top
 
 
-def test_kaia_trades_the_mids_in_a_long_ride_and_kills_the_bass_into_the_swap():
+def test_kaia_trades_the_hats_in_a_long_ride_and_kills_the_bass_into_the_swap():
     g125 = Grid(bpm=125.0, downbeat=0.0, contrast=8.0)
     plan = plan_transition(3.0, 1.0, g125, 600.0, nxt(g125, seconds=600.0), "skip", 256, lead=2.0)
     r, b, swap = R.ramp(plan), plan.beat, plan.drop + plan.length / 2
     at = lambda x: [float(f[0]) for f in R.kaia_hands(plan, np.array([x]), energy=0.8)[0]]
     first, second = at(plan.drop + 2 * r + 4 * b), at(plan.drop + 2 * r + 36 * b)   # two trade phrases
-    assert first[1] > first[4] and second[4] > second[1]                    # the lead changes hands
+    assert first[2] > first[5] and second[5] > second[2]                    # the lead changes hands
+    assert first[1] == pytest.approx(R.STAGE) and first[4] == pytest.approx(R.STAGE)   # vocals untouched
     assert first[0] < 1 and first[0] == pytest.approx(R.STAGE)              # both a touch down
     kill = at(swap - b / 2)
     assert kill[0] == 0 and kill[3] == 0                                    # no bass for the beat before
@@ -880,3 +889,97 @@ def test_deck_close_reaps_ffmpeg_and_closes_its_pipe():
     assert decoder.stdout.closed
     assert not deck._pump_thread.is_alive()
 
+
+
+def test_a_cued_record_keeps_who_chose_it_and_its_bassline():
+    """Moving the cue rebuilt the record field by field and dropped its source:
+    a record loaded at the booth then counted as her pick, and a replan swapped
+    it for one that locked (22 Oct: DVRST loaded, Dirty Laundry mixed in)."""
+    from types import SimpleNamespace
+    from utils.audio import beatgrid
+    rec = R.library.Record(path="/m/a.mp3", artist="A", title="a", bpm=120, key="8A", genre="House")
+    nxt = R.Next(rec, 240.0, -1.0, beatgrid.Grid(120.0, 0.5, 6.0, bar_known=True), 0.5, bass_in=16, source="hand")
+    fake = SimpleNamespace(cue=32.3, snap=R.CrossfadeSource.snap,
+                           _grid_at=lambda *a, **k: beatgrid.Grid(120.0, 0.5, 6.0, bar_known=True))
+    out = R.CrossfadeSource._cued(fake, nxt)
+    assert out.source == "hand" and out.bass_in == 16 and out.gain == -1.0
+    assert abs(out.lead - 32.5) < 1e-9 and out.grid.downbeat == out.lead      # snapped to a bar
+    fake_none = SimpleNamespace(cue=10.0, snap=R.CrossfadeSource.snap, _grid_at=lambda *a, **k: None)
+    assert R.CrossfadeSource._cued(fake_none, R.Next(rec, 240.0, source="hand")).source == "hand"
+
+
+def test_next_pressed_while_a_booth_load_is_reading_waits_for_it():
+    """A NEXT during the seconds a crate pick is being read planned with
+    nothing loaded, and she mixed in her own record instead."""
+    import threading
+    import time as _t
+    from types import SimpleNamespace
+    calls = []
+    session = R.RecordsSession.__new__(R.RecordsSession)
+    session.loading = "Cam Wales — Ambulance"
+    session.source = SimpleNamespace(skip=lambda: calls.append(("skip", session.loading)))
+    session.skip()
+    _t.sleep(0.15)
+    assert calls == []                                   # still reading: nothing planned yet
+    session.loading = None
+    for _ in range(40):
+        if calls:
+            break
+        _t.sleep(0.05)
+    assert calls == [("skip", None)]
+    session.skip()                                       # nothing loading: at once
+    assert calls[-1] == ("skip", None) and len(calls) == 2
+
+
+def test_short_gaps_and_the_buffer_low_water_are_counted_too():
+    """"No late frames" counted only gaps over LATE_S; what a listener's jitter
+    buffer may not hide, and how close the mixer came to running dry, were
+    invisible."""
+    renderer = _SlowRenderer([b"a", b"b", b"c", b"d"], delay=0.001)
+    source = R.BufferedRecordsSource(renderer, buffer_frames=4)
+    try:
+        assert source.wait_ready(4, timeout=1.0)
+        assert source.read() == b"a"
+        time.sleep((R.JITTER_S + R.LATE_S) / 2)
+        assert source.read() == b"b"
+        assert source.jitter_count == 1 and source.late_count == 0
+    finally:
+        source.cleanup()
+    slow = R.BufferedRecordsSource(_SlowRenderer([b"x"] * 40, delay=0.05), buffer_frames=4)
+    try:
+        assert slow.wait_ready(4, timeout=2.0)
+        for _ in range(4):                     # faster than the mixer refills
+            slow.read()
+        assert slow.low_water <= 2
+    finally:
+        slow.cleanup()
+
+
+def test_a_key_shift_keeps_the_voice_and_both_channels_move_together(monkeypatch):
+    from utils.audio import beatgrid
+    monkeypatch.setattr(beatgrid, "has_rubberband", lambda: True)
+    shifted = beatgrid.stretch_filter(0.95, 1)
+    assert "formant=preserved" in shifted and "pitchq=quality" in shifted
+    assert "channels=together" in beatgrid.stretch_filter(0.95)
+    assert "formant" not in beatgrid.stretch_filter(0.95)            # nothing to keep without a shift
+
+
+def test_a_record_loaded_by_hand_is_not_scrubbed_a_minute_in_to_find_a_lock(monkeypatch):
+    """Cued 32 bars in, Urgent came in mid-song (24 Oct). A booth load or a
+    request comes in from its start or a phrase in; her own picks may still be
+    scrubbed further."""
+    from utils.audio import setlist
+    tried = []
+
+    def fake_plan(*a, in_bars=None, **k):
+        tried.append(in_bars)
+        return R.Plan("cut", 0.0, 0.0, 0.5, 0.5, 1.0, a[4], fallback="bar")     # not a blend; try the next cue
+
+    monkeypatch.setattr(R, "plan_transition", fake_plan)
+    record = rec("hand", 120, "8A")
+    for source, allowed in (("hand", set(setlist.HAND_CUES)), ("partner", set(setlist.CUES))):
+        tried.clear()
+        nxt = Next(record, 200.0, source=source)
+        setlist.find_blend(10.0, "/o.mp3", 1.0, STEADY, 200.0, nxt, "skip", 32,
+                           verify_fn=lambda *a: (None, 0.0), lengths=[32])
+        assert set(tried) <= allowed and (32 in tried) == (source == "partner")

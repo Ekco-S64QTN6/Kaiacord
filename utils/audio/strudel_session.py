@@ -138,7 +138,7 @@ class MusicSession:
                 if not self.vc.is_playing() and not self.vc.is_paused():
                     log_warning("[music] playback stopped; restarting source.")
                     try:
-                        self.vc.play(self.source)
+                        self.vc.play(self.source, signal_type="music")
                     except Exception as exc:
                         log_error(f"[music] restart failed: {exc}")
                         await self.stop()
@@ -354,7 +354,8 @@ async def start_session(channel, *, genre: str, requested_by: str,
 
     source = StrudelAudioSource(engine)
     settle("a live set")
-    vc.play(source, after=lambda e: log_error(f"[music] playback error: {e}") if e else None)
+    vc.play(source, after=lambda e: log_error(f"[music] playback error: {e}") if e else None,
+            signal_type="music")              # see records.OPUS_SIGNAL
 
     session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel)
     _sessions[guild_id] = session

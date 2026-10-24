@@ -158,8 +158,14 @@ def stretch_filter(ratio: float, semitones: int = 0) -> Optional[str]:
     if abs(ratio - 1.0) <= 1e-4 and not semitones:
         return None
     if has_rubberband():
-        pitch = f":pitch={2 ** (semitones / 12):.6f}" if semitones else ""
-        return f"rubberband=tempo={ratio:.5f}{pitch}:transients=crisp:detector=percussive"
+        # A key shift keeps the voice's formants (a semitone up otherwise
+        # sounds chipmunked) and uses the quality pitch path; both channels are
+        # processed together so the stereo image does not smear. Measured on a
+        # click track: onsets unmoved by either (channels together: 0.00 ms; the
+        # pitched path sits 1.8 ms off a plain stretch with or without them).
+        pitch = (f":pitch={2 ** (semitones / 12):.6f}:formant=preserved:pitchq=quality"
+                 if semitones else "")
+        return f"rubberband=tempo={ratio:.5f}{pitch}:transients=crisp:detector=percussive:channels=together"
     return f"atempo={ratio:.5f}"
 
 
