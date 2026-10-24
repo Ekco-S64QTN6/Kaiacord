@@ -86,6 +86,26 @@ def resolve_user_id(display_name: Optional[str]) -> Optional[str]:
     return fallback
 
 
+def named_user(text: str) -> Optional[tuple[str, str]]:
+    """(user id, display name) of the one known person `text` names by their
+    whole display name, or None if it names nobody or more than one.
+
+    A dream anchor often names its person in the text while its user field
+    holds a book character or nothing ("The sheer volume of Tenno Henka's
+    assertions…"); stored as global, it was recalled in anyone's conversation."""
+    try:
+        from utils.infrastructure.system.bot_state import bot_state
+        relationships = getattr(bot_state, 'relationships', {}) or {}
+    except Exception:
+        return None
+    found = {}
+    for uid, rel in relationships.items():
+        name = str((rel or {}).get('display_name', '') or '').strip()
+        if len(name) >= 3 and re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text or "", re.IGNORECASE):
+            found[str(uid)] = name
+    return next(iter(found.items())) if len(found) == 1 else None
+
+
 def load_events(user_id: str) -> List[RelationshipEvent]:
     """Load all relationship events for a user."""
     path = _user_file(user_id)

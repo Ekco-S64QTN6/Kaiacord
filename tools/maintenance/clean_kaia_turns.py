@@ -14,7 +14,9 @@ lines joined back into paragraphs, no word changed) — to:
     (people only; forum histories are other people's posts)
   - her turns in memory/bot_state.json's channel memory
   - her own posts in memory/agent_boards/state.json
-  - memory/anchors.json: global anchors about an unnamed person
+  - memory/anchors.json: global anchors about an unnamed person or written as
+    a report ("the author…"); a global anchor naming one known person is given
+    to them
   - memory/beliefs.json: "beliefs" that report a source's view
   - memory/relationships/*.json: dream insights that diagnose a person
 
@@ -214,13 +216,28 @@ def main() -> int:
                     write_atomic(doc, new)
 
     # Memory the dream engine wrote under rules since tightened: a global anchor
-    # about an unnamed "he", and a "belief" that is a source's view.
+    # about an unnamed "he" or written as a report ("the author is struck…"),
+    # one that names a person but was stored as global, and a "belief" that is
+    # a source's view.
     from utils.core.kaia_dream import DreamEngine
     anchors = ROOT / "memory" / "anchors.json"
     if anchors.exists():
         rows = json.loads(anchors.read_text(encoding="utf-8"))
-        keep_rows = [a for a in rows if a.get("user_id") or not DreamEngine.UNNAMED_PERSON.search(a.get("anchor_text", ""))]
-        if len(keep_rows) != len(rows):
+        from utils.core.relationship_manager import named_user
+        attributed = 0
+        for a in rows:
+            # A global anchor that names one person she knows is theirs.
+            if not a.get("user_id") and (named := named_user(a.get("anchor_text", ""))):
+                a["user_id"], a["user_name"] = named
+                attributed += 1
+                if shown < args.show:
+                    shown += 1
+                    print(f"\n── anchor given to {named[1]}: {a.get('anchor_text', '')[:200]!r}")
+        keep_rows = [a for a in rows
+                     if not DreamEngine.REPORTED_INSIGHT.match(a.get("anchor_text", ""))
+                     and (a.get("user_id") or not DreamEngine.UNNAMED_PERSON.search(a.get("anchor_text", "")))]
+        totals["turns"] += attributed
+        if len(keep_rows) != len(rows) or attributed:
             for a in rows:
                 if a not in keep_rows and shown < args.show:
                     shown += 1
