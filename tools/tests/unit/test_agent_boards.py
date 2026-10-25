@@ -63,6 +63,8 @@ REAL_OCTOBER = [
     ('A] LoB-StEr] DoMiNaNcE fIgHt: OnE ClAw FoRcE iS FiFtY NoOtOnS~ aNd Um] ThE ChAlLeNGer AaDdS TwEnTy NoOtOnS/; WhAt Is ToTaL FoRcE?', '70.00'),
     ('LoO bSsT eR] sW^iMs [aT tW/eN tY tH rEe] mE~tErS| pE rS eCo N d, uM LoO bS tEr R mOlT s AnD dOuB lEs] bY tW o<, wHaT| iS tHe] nE w- vE lAw Ci TeE?', '46.00'),
     ('Lo]bS-tEr] ClAw^ FoRcE iS tWe/NtY tH.rEe NeW|tOnS um, aNd/ AnOtHeR Lo~bS<tEr ClAw FoRcE iS fIf/TeEn NeW{tOnS hMm - aDd ThEm?', '38.00'),
+    # "relative speed" is a difference; left to the model it was added (34).
+    ('A] lO b-StEr] sWiMmS^ iN~ oCeAn Um| dUrInG dOmInAnCe] fIgHtS ~ wItH vElAwCiTeE lOoOobsssStEr^ sPeEd] oF tWeNtY tHrEe mEtErS pEr sEcOnD - < eLeVeN mEtErS pEr sEcOnD >, wHaT iS tHe ReLaTiVe] sPeEd\\ oF tHe WiNNer um, uh?', '12.00'),
 ]
 
 

@@ -2289,6 +2289,23 @@ class CoreTaskManager:
                 except Exception:
                     pass
             bot.add_listener(_rpg_activity, "on_interaction")
+            # 👍 / 👎 on an !art sheep is a vote that steers her flock.
+            from utils.commands.art_handler import install_vote_listener
+            install_vote_listener(bot)
+
+            # Aethelgard trips that ended but were never posted (a failed
+            # generation or post, or a restart mid-narration) are told now.
+            async def _tell_untold_trips():
+                try:
+                    await bot.wait_until_ready()
+                    await asyncio.sleep(60)
+                    from utils.ttrpg import outing
+                    await outing.tell_untold(self.ctx)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log_error(f"[rpg outing] boot replay failed: {e}")
+            task_registry.register("rpg_untold_trips", asyncio.create_task(_tell_untold_trips()))
         self.news_refresh_task.start()
         # tasks.loop objects are not asyncio.Task, use get_task()
         if self.news_refresh_task.get_task():

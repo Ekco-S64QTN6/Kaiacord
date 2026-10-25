@@ -30,7 +30,7 @@ _OPS = [
     ("*", r"\b(?:times|multipl\w*|product|doubl\w*|dubbl\w*|tripl\w*|scaled\s+by|repeat\w*|"
           r"impulse|how\s+far)\b"),
     ("/", r"\b(?:divid\w*|split\w*\s+(?:into|among|between)|shared?\s+(?:among|between)|per\s+each|ratio)\b"),
-    ("-", r"\b(?:minus|subtract\w*|less|loses?|lost|slows|slowed|slow\w*\s+by|decel\w*|decreas\w*|reduc\w*|drops?|dropped|"
+    ("-", r"\b(?:minus|subtract\w*|relativ\w*|differen\w*|less|loses?|lost|slows|slowed|slow\w*\s+by|decel\w*|decreas\w*|reduc\w*|drops?|dropped|"
           r"falls?|fell|sheds?|gives?\s+away|eats?|spends?|fewer|lower\w*\s+by|takes?\s+away|remov\w*)\b"),
     ("+", r"\b(?:plus|add\w*|gains?|gained|increas\w*|speeds?\s+up|faster|accelerat\w*|more|grows?|grew|"
           r"rais\w*|joins?|joined|finds?|found|gets?|another|extra|total|sum|combined|together)\b"),
@@ -43,7 +43,7 @@ _OPS = [
 _OPS_JOINED = [
     ("*", r"multipl|product|doubl|dubl|repeat|impulse|howfar"),
     ("/", r"divid"),
-    ("-", r"subtract|decreas|reduc|decel|(?<!c)loses|minus"),
+    ("-", r"subtract|relativ|decreas|reduc|decel|(?<!c)loses|minus"),
     ("+", r"increas|accelerat|(?<!a)gains|total|plus|another|together|combined"),
 ]
 

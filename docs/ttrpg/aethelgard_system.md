@@ -611,6 +611,8 @@ Kaia (the bot's persona) narrates via LLM. Ground-truth blocks are injected into
 
 **Fights and forest events are told once per trip, not once each** (`utils/ttrpg/outing.py`). A fight or event in the hunting grounds or a dungeon is *recorded* (per player, `memory/ttrpg/outings/<uid>.json`) and play goes straight on. When the trip ends — arriving somewhere without hunting (town, the Shrine, home), dying, or leaving or finishing a dungeon — Kaia writes one paragraph about the whole trip (`build_outing_summary_prompt`), in the background. Moving between hunting grounds is one trip. An LLM call per kill made grinding wait on prose.
 
+The paragraph is posted to **#aethelgard** (`discord.rpg_channel`), whichever channel the trip was played in, so every player can follow what the others did that day; its footer names the character and the trip's totals. A closed trip waits in `memory/ttrpg/outings/untold/` — with its paragraph, once written — until the post succeeds; a failed generation or post, or a restart mid-narration, is told at the next boot. The prompt carries what the per-fight narrator had: each creature's description, how each fight felt (close calls, clean wins, lucky strikes), the HP they came home with, the senses, and Kaia's lowercase GM voice.
+
 Prompt builders in `rpg_prompt_builder.py`:
 - `build_combat_prompt()` — Hunt/dungeon combat narration
 - `build_outing_summary_prompt()` — one paragraph for a whole trip out

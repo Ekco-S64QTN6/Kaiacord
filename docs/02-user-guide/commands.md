@@ -7,7 +7,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | Command | Description | Access |
 |:---|:---|:---|
 | `!scores` / `!stats` | Gamified memory analytics & affinity leaderboards | All |
-| `!art [loop] [words]` | An Electric Sheep piece, chosen from your words; `loop` posts it moving | All |
+| `!art [loop] [words]` | An Electric Sheep piece, chosen from your words; `loop` posts it moving; `breed`, `mutate`, `morph`, `flock`, `help` | All |
 | `!music` | Perform a live-coded set in your voice channel | All |
 | `!rpg` | Open the Aethelgard TTRPG HUD and play | All |
 | `!help [section \| command]` | A button panel: a page per section (owners also get Admin); `!help music` explains one command | All |
@@ -65,6 +65,17 @@ repaints it in that picture's colours. She titles it and says what she sees.
 - `!art loop deep ocean` — a 4-second rotating loop (about 30 s to render)
 - `!art mandelbrot` · `!art <weirdly.net link>` — the Mandelbrot set, or those exact coordinates
 - `--seed N` reproduces a piece; `--palette NAME` is a colour word (`ember`, `deep_ocean`, `void`…)
+- `!art help` — all of this, in the channel
+
+**Kaia's flock.** Electric Sheep evolves by votes, and so does hers. Every sheep she breeds or mutates
+is kept as her own (`kaia.1`, `kaia.2`…) with its parents and the Electric Sheep it descends from.
+
+- `!art breed` — two of her choosing · `!art breed 541 k3` — two you name
+- `!art mutate last` — a mutation of the last piece in this channel
+- `!art morph k2 k5` — one sheep turning into another, the screensaver's transition
+- `!art sheep k3 loop` — any sheep by name · `!art flock` — hers, and the most loved
+- Sheep are named `kaia.3` / `k3`, by flock number (`541`), or `last`
+- 👍 / 👎 under any piece is a vote: loved sheep are picked and bred more; one voted down to −2 leaves for good
 
 Every post credits "artwork by Scott Draves and the Electric Sheep" and names the sheep (CC BY-NC 3.0).
 Setup: `tools/maintenance/fetch_art_flock.py --build-flam3 --count 300 --gate`.

@@ -2471,6 +2471,8 @@ async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
         return
 
     # Fleeing costs 1 hunt and sends you back one step (just clear combat, stay in room)
+    from utils.ttrpg import outing
+    await outing.note(uid, "fled", (state["active_combat"].get("monster") or {}).get("name", "something"))
     del state["active_combat"]
     await save_func(uid, state)
 

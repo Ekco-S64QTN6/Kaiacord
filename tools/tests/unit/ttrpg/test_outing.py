@@ -46,16 +46,21 @@ def test_closing_with_nothing_recorded_tells_nothing(in_tmp):
     assert asyncio.run(outing.close(None, None, "nobody", "x", {}, reason="came back")) is False
 
 
+def _fake_model(monkeypatch):
+    from utils.infrastructure.gpu import gpu_manager
+
+    async def guard(model_name, coro, task_id=None, priority=None):
+        return await (coro() if callable(coro) else coro)
+    monkeypatch.setattr(gpu_manager.gpu_memory_manager, "run_with_gpu_guard", guard)
+    import utils.social.kaia_social_responder as responder
+    monkeypatch.setattr(responder, "load_persona_async", AsyncMock(return_value="persona"))
+
+
 def test_closing_narrates_once_in_the_background_and_clears_the_record(in_tmp, monkeypatch):
     from utils.infrastructure.gpu import gpu_manager
     from utils.ttrpg import rpg_prompt_builder
 
-    async def guard(model_name, priority, coro, task_id):
-        return await coro
-    monkeypatch.setattr(gpu_manager.gpu_memory_manager, "run_with_gpu_guard", guard)
-    monkeypatch.setattr(gpu_manager.OllamaGPUManager, "get_gpu_options", lambda self, for_chat=True: {})
-    import utils.social.kaia_social_responder as responder
-    monkeypatch.setattr(responder, "load_persona_async", AsyncMock(return_value="persona"))
+    _fake_model(monkeypatch)
     prompts = []
     real_builder = rpg_prompt_builder.build_outing_summary_prompt
     monkeypatch.setattr(rpg_prompt_builder, "build_outing_summary_prompt",
@@ -72,7 +77,7 @@ def test_closing_narrates_once_in_the_background_and_clears_the_record(in_tmp, m
         assert await outing.close(ctx, channel, "u1", "Ash", sheet, reason="came back to Oakhaven") is True
         assert await outing.peek("u1") is None                    # cleared at once
         for _ in range(50):                                        # the narration runs in the background
-            if channel.send.await_count:
+            if channel.send.await_count and not outing._telling:
                 break
             await asyncio.sleep(0.01)
     asyncio.run(go())
@@ -80,8 +85,78 @@ def test_closing_narrates_once_in_the_background_and_clears_the_record(in_tmp, m
     assert chat.await_count == 1                                   # one call for the whole trip
     embed = channel.send.await_args.kwargs["embed"]
     assert "the bats kept coming" in embed.description
-    assert "3 fights" in embed.title and "+30 XP" in embed.footer.text
+    fields = {f.name: f.value for f in embed.fields}
+    assert "ASH" in embed.title and "Whisperwood" in embed.title
+    assert fields["⚔️ Fights"].startswith("3 won") and "+30 XP" in fields["✨ Earned"]
     assert "cave bat: fought 3x, won 3" in prompts[0] and "came back to Oakhaven" in prompts[0]
+    assert "Ranger Lv.3" in embed.footer.text
+    assert os.listdir(outing.UNTOLD_DIR) == []                     # told, so no longer waiting
+
+
+class _Bot:
+    """A bot whose guild has #aethelgard, and the channel the trip was played in."""
+    def __init__(self, fail=False):
+        async def send(**kw):
+            if fail:
+                raise RuntimeError("discord said no")
+            self.posted.append(kw["embed"])
+            return SimpleNamespace(id=1)
+        self.posted = []
+        self.aethelgard = SimpleNamespace(name="aethelgard", id=7, send=send)
+
+    def get_all_channels(self):
+        return [SimpleNamespace(name="general", id=3), self.aethelgard]
+
+    def get_channel(self, cid):
+        return None
+
+
+async def _hunt_and_return(ctx, channel, uid="u1"):
+    await outing.record_fight(uid, "whisperwood_edge", [_round(won=True)], xp=10)
+    await outing.close(ctx, channel, uid, "Ash", {"user_id": uid, "character_name": "Ash", "level": 3},
+                       reason="came back to Oakhaven")
+    for _ in range(100):
+        await asyncio.sleep(0.01)
+        if not outing._telling:
+            break
+
+
+def test_the_trip_is_posted_to_aethelgard_not_the_play_channel(in_tmp, monkeypatch):
+    _fake_model(monkeypatch)
+    bot = _Bot()
+    ctx = SimpleNamespace(bot=bot, ollama_client=SimpleNamespace(
+        chat=AsyncMock(return_value={"message": {"content": "the edge was quiet."}})))
+    play = SimpleNamespace(id=99, send=AsyncMock())
+    asyncio.run(_hunt_and_return(ctx, play))
+    assert len(bot.posted) == 1 and "the edge was quiet" in bot.posted[0].description
+    play.send.assert_not_awaited()                                 # a button's follow-up is not the channel
+
+
+def test_an_unposted_trip_waits_and_is_told_at_the_next_boot_without_rewriting(in_tmp, monkeypatch):
+    _fake_model(monkeypatch)
+    chat = AsyncMock(return_value={"message": {"content": "the edge was quiet."}})
+    ctx = SimpleNamespace(bot=_Bot(fail=True), ollama_client=SimpleNamespace(chat=chat))
+    asyncio.run(_hunt_and_return(ctx, None))
+    [waiting] = os.listdir(outing.UNTOLD_DIR)                       # the post failed: kept, text and all
+    assert json.load(open(os.path.join(outing.UNTOLD_DIR, waiting)))["text"] == "the edge was quiet."
+
+    ctx.bot = _Bot()                                               # the restart
+    assert asyncio.run(outing.tell_untold(ctx)) == 1
+    assert chat.await_count == 1                                   # posted what was written, not a new one
+    assert len(ctx.bot.posted) == 1 and os.listdir(outing.UNTOLD_DIR) == []
+
+
+def test_a_failed_narration_is_kept_for_the_next_boot(in_tmp, monkeypatch):
+    _fake_model(monkeypatch)
+    ctx = SimpleNamespace(bot=_Bot(), ollama_client=SimpleNamespace(chat=AsyncMock(side_effect=TimeoutError())))
+    asyncio.run(_hunt_and_return(ctx, None))
+    assert len(os.listdir(outing.UNTOLD_DIR)) == 1 and not ctx.bot.posted
+    ctx.ollama_client.chat = AsyncMock(return_value={"message": {"content": "it came back to her."}})
+    assert asyncio.run(outing.tell_untold(ctx)) == 1
+
+
+def test_outings_written_by_the_suite_never_reach_the_live_store():
+    assert outing.OUTING_DIR.endswith(".test") and outing.UNTOLD_DIR.startswith(outing.OUTING_DIR)
 
 
 def test_a_knockout_is_not_told_as_a_clean_victory():
@@ -170,3 +245,42 @@ def test_a_regular_dungeon_death_still_ends_that_run(in_tmp, monkeypatch):
     closed = asyncio.run(_dungeon_death(monkeypatch, spine=False))
     assert not os.path.exists("memory/ttrpg/dungeons/u1.json")
     assert closed and "fell" in closed[0]
+
+
+def test_quests_escapes_and_potions_join_the_trip_and_its_box(in_tmp):
+    async def go():
+        await outing.note("u1", "used", "Healing Herb")             # in town: no trip, not recorded
+        assert await outing.peek("u1") is None
+        await outing.note("u1", "quest", "Wolf Trouble", start=True)  # a kill's quest progress opens it
+        await outing.record_fight("u1", "whisperwood_deep", [_round("wolf", won=True)], xp=20)
+        await outing.note("u1", "fled", "Thornback Boar")
+        await outing.note("u1", "used", "Healing Herb")
+        await outing.note("u1", "used", "Healing Herb")
+        await outing.note("u1", "quest_done", "Wolf Trouble", start=True)
+        return await outing.peek("u1")
+    data = asyncio.run(go())
+    data.update(text="the wolves came at dusk.", reason="came back to Oakhaven",
+                sheet={"character_name": "Ash", "class": "Ranger", "level": 3, "hp": {"current": 9, "max": 12}})
+    fields = {f.name: f.value for f in outing._embed(data).fields}
+    assert fields["📜 Quests"] == "✅ Wolf Trouble"                 # finished, not also "moved on"
+    assert "🏃 fled a Thornback Boar" in fields["🗺️ Along the way"]
+    assert "🧪 Healing Herb ×2" in fields["🗺️ Along the way"]
+    assert "```ansi" in fields["❤️ HP home"]
+
+    from utils.ttrpg.rpg_prompt_builder import build_outing_summary_prompt
+    prompt = build_outing_summary_prompt(data["sheet"], data, data["reason"])
+    assert "QUEST FINISHED: Wolf Trouble" in prompt and "QUEST MOVED ON" not in prompt
+    assert "RAN FROM: Thornback Boar" in prompt and "DRANK OR USED: Healing Herb x2" in prompt
+
+
+def test_what_did_not_happen_is_neither_boxed_nor_prompted():
+    from utils.ttrpg.rpg_prompt_builder import build_outing_summary_prompt
+    data = {"zones": ["whisperwood_edge"], "fight_count": 1, "wins": 1, "losses": 0, "xp": 5, "gil": 0,
+            "loot": [], "levels": [], "events": [], "notes": {},
+            "fights": [outing.summarize_rounds([_round(won=True)])],
+            "text": "a bat, and home.", "reason": "came back to Oakhaven", "sheet": {"character_name": "Ash"}}
+    names = {f.name for f in outing._embed(data).fields}
+    assert names == {"⚔️ Fights", "✨ Earned", "🐾 Met"}
+    prompt = build_outing_summary_prompt(data["sheet"], data, data["reason"])
+    for absent in ("EVENTS", "LOOT", "QUEST", "RAN FROM", "DRANK", "LEVELLED", "none", "nothing of note"):
+        assert absent not in prompt.split("YOUR TASK")[0], absent
