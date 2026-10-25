@@ -205,44 +205,114 @@ Lowercase only. No meta-commentary.
 [END WORLD EVENT]"""
 
 
+def _first_sentences(text: str, limit: int = 320) -> str:
+    """A monster's description, cut at a sentence end rather than mid-word."""
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+    return cut[:end + 1] if end > 0 else cut.rsplit(" ", 1)[0] + "…"
+
+
 def build_outing_summary_prompt(sheet: dict, outing: dict, reason: str) -> str:
     """Ground truth for one paragraph about a whole trip out (utils/ttrpg/outing.py):
     every fight and event since the player set out, told once when they come back."""
+    from utils.core import pronouns
     from utils.ttrpg.world import LOCATION_DATA
     char_name = sheet.get("character_name", "The adventurer")
+    char_class = sheet.get("advanced_class") or sheet.get("class", "adventurer")
     zones = [LOCATION_DATA.get(z, {}).get("name", z.replace("_", " ")) for z in outing.get("zones", [])]
     fights = outing.get("fights", [])
     by_monster: dict = {}
     for f in fights:
-        m = by_monster.setdefault(f["monster"], {"n": 0, "won": 0, "close": 0, "desc": f.get("desc", "")})
+        m = by_monster.setdefault(f["monster"], {"n": 0, "won": 0, "close": 0, "clean": 0, "crits": 0,
+                                                 "desc": f.get("desc", "")})
         m["n"] += 1
         m["won"] += f["won"]
         m["close"] += f["taken"] >= max(1, f["dealt"]) * 0.6
-    fight_lines = "\n".join(
-        f"  - {name}: fought {m['n']}x, won {m['won']}"
-        + (f", {m['close']} close call(s)" if m["close"] else "")
-        + (f" — {m['desc']}" if m["desc"] else "")
-        for name, m in sorted(by_monster.items(), key=lambda kv: -kv[1]["n"]))
+        m["clean"] += bool(f["won"] and not f["taken"])
+        m["crits"] += f.get("crits", 0)
+    fight_lines = []
+    for name, m in sorted(by_monster.items(), key=lambda kv: -kv[1]["n"]):
+        feel = [f"{m['close']} close call(s)" if m["close"] else "",
+                f"{m['clean']} without a scratch" if m["clean"] else "",
+                f"{m['crits']} lucky strike(s)" if m["crits"] else ""]
+        line = f"  - {name}: fought {m['n']}x, won {m['won']}" + "".join(f", {x}" for x in feel if x)
+        desc = _first_sentences(m["desc"])
+        fight_lines.append(line + (f"\n    DESCRIPTION: {desc}" if desc else ""))
     hardest = max(fights, key=lambda f: f["taken"], default=None)
-    event_lines = "\n".join(f"  - {e['title']}: {e['hook']}" for e in outing.get("events", []))
     died = any(f.get("died") for f in fights)
     loot = outing.get("loot", [])
     levels = outing.get("levels", [])
+    notes = outing.get("notes", {})
+    hp = sheet.get("hp") or {}
+
+    def counted(items):
+        seen: dict = {}
+        for x in items:
+            seen[x] = seen.get(x, 0) + 1
+        return ", ".join(f"{k}{f' x{n}' if n > 1 else ''}" for k, n in seen.items())
+
+    # One line per thing that happened, and none for what didn't: a "none" line
+    # is read back as something to say ("no quests were advanced").
+    facts = []
+    if hp.get("max"):
+        facts.append(f"HP COMING HOME: {hp.get('current')}/{hp.get('max')}")
+    if fights:
+        facts.append(f"FIGHTS ({outing.get('fight_count', len(fights))} total, {outing.get('wins', 0)} won, "
+                     f"{outing.get('losses', 0)} lost):\n" + "\n".join(fight_lines))
+        facts.append(f"HARDEST FIGHT: {hardest['monster']} ({hardest['rounds']} rounds, {hardest['taken']} damage taken)")
+        big = [f["monster"] for f in fights if f.get("tier") in ("deadly", "boss")]
+        if big:
+            facts.append(f"THE BIG ONES: {counted(big)}")
+    if outing.get("events"):
+        facts.append("EVENTS:\n" + "\n".join(f"  - {e['title']}: {e['hook']}" for e in outing["events"]))
+    done = list(dict.fromkeys(notes.get("quest_done", [])))
+    moved = [q for q in dict.fromkeys(notes.get("quest", [])) if q not in done]
+    if done:
+        facts.append(f"QUEST FINISHED: {', '.join(done)}")
+    if moved:
+        facts.append(f"QUEST MOVED ON: {', '.join(moved)}")
+    if notes.get("fled"):
+        facts.append(f"RAN FROM: {counted(notes['fled'])}")
+    if notes.get("used"):
+        facts.append(f"DRANK OR USED: {counted(notes['used'])}")
+    if loot:
+        facts.append(f"LOOT: {', '.join(loot[:12])}" + (f" and {len(loot) - 12} more" if len(loot) > 12 else ""))
+    if levels:
+        facts.append(f"LEVELLED UP: reached level {max(levels)}")
+    if outing.get("started") and outing.get("ended"):
+        minutes = (outing["ended"] - outing["started"]) / 60
+        if minutes < 10:
+            facts.append("LENGTH: a quick trip")
+        elif minutes > 45:
+            facts.append("LENGTH: a long time out")
+    if died:
+        outcome = (f"[CRITICAL — {char_name.upper()} WAS KNOCKED OUT ON THIS TRIP]\n"
+                   f"{char_name} went down and woke at the Shrine. Do NOT tell the trip as a clean victory, "
+                   f"and do NOT describe whatever beat them as falling or dying.\n"
+                   f"End on {char_name} going down — pain, darkness, the Shrine's cold floor.\n[END CRITICAL]\n")
+    else:
+        outcome = "End on the return itself, in your own words — never repeat the HOW IT ENDED line.\n"
+    # A one-fight trip told in six sentences gets padded with things that never happened.
+    n = outing.get("fight_count", len(fights)) + len(outing.get("events", []))
+    length = "2–3 sentences" if n <= 2 else "3–5 sentences" if n <= 6 else "4–6 sentences"
+    nl = "\n"
     return f"""[TTRPG GROUND TRUTH — ONE OUTING — DO NOT CONTRADICT]
-CHARACTER: {char_name} ({sheet.get('class', 'adventurer')} Lv.{sheet.get('level', 1)})
+WORLD SETTING: Medieval fantasy. Pre-industrial. No modern technology.
+CHARACTER: {char_name} ({char_class} Lv.{sheet.get('level', 1)})
+{pronouns.line([char_name])}
 WHERE: {' → '.join(dict.fromkeys(zones)) or 'the wilds'}
 HOW IT ENDED: {char_name} {reason}.
-FIGHTS ({outing.get('fight_count', len(fights))} total, {outing.get('wins', 0)} won, {outing.get('losses', 0)} lost):
-{fight_lines or '  - none'}
-HARDEST FIGHT: {f"{hardest['monster']} ({hardest['rounds']} rounds, {hardest['taken']} damage taken)" if hardest else 'none'}
-EVENTS:
-{event_lines or '  - none'}
-LOOT: {', '.join(loot[:12]) + (f' and {len(loot) - 12} more' if len(loot) > 12 else '') if loot else 'nothing of note'}
-{f"LEVELLED UP: reached level {max(levels)}" if levels else ""}
-{f"[CRITICAL] {char_name} WAS KNOCKED OUT on this trip and woke at the Shrine. Do not describe the trip as a clean victory." if died else ""}
-
-YOUR TASK: One paragraph, 4–6 sentences, recalling the whole trip as it ended.
+{nl.join(facts)}
+{outcome}
+YOUR TASK: One paragraph, {length}, recalling the whole trip as it ended.
 Give it a shape: how it started, what wore on them, the hardest moment, how it ended.
-Name the creatures they met most and use their descriptions for texture. Mention an event if there was one.
+Capture the feel of it — was it close? dominant? sloppy? lucky?
+Name the creatures they met most and use their descriptions for texture. Ground it in the senses — light, sound, smell.
+Work in what else is listed above — an event, a quest finished, a fight they ran from, a potion — as part of the story, not as a list.
+Tell only what is above. Never mention something that did not happen: no "no quests", no "without a potion".
+Speak as Kaia — the GM narrator. Lowercase, grounded, specific. No purple prose.
 No numbers, no dice, no blow-by-blow, no list. Do not invent fights, kills, items or deaths that are not above.
 [END GROUND TRUTH]"""

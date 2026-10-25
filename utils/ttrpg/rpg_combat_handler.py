@@ -240,6 +240,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     # Accumulate for end-of-combat summary
     state.setdefault("dungeon_combat_log", []).append({
         "monster_name": monster.get("name", "enemy"),
+        "monster_tier": "boss" if is_boss else monster.get("tier"),
         "monster_desc": monster.get("desc", monster.get("description", "")),
         "player_hit": res["player_hit"],
         "player_crit": res["player_crit"],
@@ -322,6 +323,8 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                 if task not in prog:
                     prog.append(task)
                     exchange_text += f"\n📜 *Quest Progress: {q['name']}*"
+                    from utils.ttrpg import outing
+                    await outing.note(uid, "quest", q["name"], start=True)
 
         # The fight joins the trip's record (utils/ttrpg/outing.py); the trip
         # is told when the player leaves, finishes or falls in the dungeon.
@@ -353,6 +356,8 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                             if "complete_dungeon" not in prog:
                                 prog.append("complete_dungeon")
                                 exchange_text += f"\n📜 *Quest Progress: {q['name']}*"
+                                from utils.ttrpg import outing
+                                await outing.note(uid, "quest", q["name"], start=True)
 
             if state.get("is_spine"):
                 from utils.ttrpg.spine_dungeon import STAIR_GUARDIANS
@@ -958,6 +963,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     s.setdefault("combat_log", []).append({
         "uid": uid,
         "monster_name": monster.get("name", "enemy"),
+        "monster_tier": monster.get("tier"),
         "monster_desc": monster.get("desc", monster.get("description", "")),
         "player_hit": res["player_hit"],
         "player_crit": res["player_crit"],
@@ -1139,7 +1145,10 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                         prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
                         if task_id not in prog:
                             prog.append(task_id)
-                            if all(t in prog for t in q["tasks"]):
+                            from utils.ttrpg import outing
+                            done = all(t in prog for t in q["tasks"])
+                            await outing.note(uid, "quest_done" if done else "quest", q["name"], start=True)
+                            if done:
                                 xp_reward  = q["rewards"].get("xp", 0)
                                 gil_reward = q["rewards"].get("gil", 0)
                                 sheet["xp"]  = sheet.get("xp",  0) + xp_reward
@@ -1304,6 +1313,8 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
 
     for _cb in ["embered", "fortified"]:
         if _cb in sheet.get("conditions", []): sheet["conditions"].remove(_cb)
+    from utils.ttrpg import outing
+    await outing.note(uid, "fled", s["monsters"][to_flee].get("name", "something"))
     s["monsters"].pop(to_flee)
     if not s["monsters"]: s["combat_active"] = False
     await save_session(s)

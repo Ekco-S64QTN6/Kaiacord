@@ -1557,6 +1557,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     item = find_item(item_key)
     if not item or item["category"] != "consumable":
         return await msg.channel.send(embed=discord.Embed(description=f"You can't use `{item_key}`.", color=0xcc4444))
+    had = sheet["inventory"].count(item_key)
         
     if "hp_restore" in item and item["hp_restore"] > 0:
         before = sheet["hp"]["current"]
@@ -1664,6 +1665,9 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         ))
     else:
         await msg.channel.send(embed=discord.Embed(description=f"**{item['name']}** can't be used. Try selling it: `!rpg sell {item_key}`", color=0xcc4444))
+    if sheet.get("inventory", []).count(item_key) < had:
+        from utils.ttrpg import outing                     # drunk on a trip: part of its story
+        await outing.note(uid, "used", item["name"])
 
 
 async def _handle_purify(ctx, msg, send, rest, uid, uname, is_owner):

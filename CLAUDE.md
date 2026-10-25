@@ -181,6 +181,9 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
 - **No LLM call per fight.** Fights and forest events are recorded in the player's outing
   (`utils/ttrpg/outing.py`) and told once, when the trip ends (back to town, death, leaving or
   clearing a dungeon). A call per kill held every hunt behind up to 45 s of typing indicator.
+  The paragraph goes to #aethelgard (`discord.rpg_channel`) so everyone can follow the day, never
+  through a button's follow-up; a closed trip waits in `outings/untold/` with its text until the
+  post succeeds, and the boot tells whatever is still waiting.
 - **A Spine death keeps progress.** Beaten guardians (and so the Resonance Lift's stops) live on
   the sheet; dying restocks the floor and ends the run. It must never call `dungeon.clear_dungeon()`,
   which deletes the *regular* dungeon's save (`test_outing.py` pins both).
