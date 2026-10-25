@@ -229,4 +229,4 @@ def test_the_docs_match_the_classifier_that_exists():
 
     assert "dual-path classifier" not in readme, \
         "README still claims a dual-path classifier"
-    assert "regex only" in claude or "regex matchers" in readme
+    assert "Intent is matched by regex" in claude or "regex matchers" in readme
