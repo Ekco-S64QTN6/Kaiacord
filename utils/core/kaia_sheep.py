@@ -20,7 +20,9 @@ sheep's generation and serial number. Every piece posted carries `credit()`.
 
 Kaia still chooses: the prompt's colour and complexity words steer which
 sheep she picks, she sometimes breeds two sheep into one of her own
-(flam3-genome cross), and an attached picture recolours the piece.
+(flam3-genome cross), and an attached picture recolours the piece. Her own
+sheep, breeding on request, mutation and the votes that steer both are
+`kaia_flock`; a morph from one sheep into another is `render_transition`.
 """
 from __future__ import annotations
 
@@ -194,7 +196,8 @@ def add_genomes(text: str, index: dict) -> int:
     for name, block in split_flames(text).items():
         if not name.startswith("electricsheep.") or name in index:
             continue
-        (FLOCK_DIR / f"{name}.flam3").write_text(block)
+        from utils.core.atomic_write import write_atomic
+        write_atomic(FLOCK_DIR / f"{name}.flam3", block)
         index[name] = describe(block)
         added += 1
     return added
@@ -284,6 +287,8 @@ class Piece:
     parents: list[str]
     bred: bool = False
     notes: dict = field(default_factory=dict)
+    method: str = ""        # "bred" or "mutated" for a child of hers
+    name: str = ""          # the sheep shown: an Electric Sheep's name, or kaia.<n> once adopted
 
 
 def _preview_ok(genome: str, strict: bool = False) -> bool:
@@ -318,12 +323,14 @@ def _preview_ok(genome: str, strict: bool = False) -> bool:
 
 def choose(rng: random.Random, intent=None, *, breed_chance: Optional[float] = None) -> Piece:
     """A sheep from the flock, or now and then a cross of two of them."""
+    from utils.core import kaia_flock
     sheep = flock()
     if not sheep:
         raise RuntimeError("the flock is empty — run tools/maintenance/fetch_art_flock.py")
     pool = candidates(sheep, intent)
-    first = rng.choice(pool)
-    genome = (FLOCK_DIR / f"{first}.flam3").read_text()
+    # Votes steer the pick: liked sheep (hers included) come up more, culled ones never.
+    first = kaia_flock.pick(rng, intent)
+    genome = kaia_flock.genome_of(first)
     # Rare on purpose: a flock sheep is a design a crowd chose; a cross is a gamble.
     chance = float(_cfg("breed_chance", 0.15)) if breed_chance is None else breed_chance
     if len(sheep) > 1 and rng.random() < chance:
@@ -331,11 +338,11 @@ def choose(rng: random.Random, intent=None, *, breed_chance: Optional[float] = N
         try:
             child = _cross(genome, (FLOCK_DIR / f"{second}.flam3").read_text(), rng)
             if child and _preview_ok(child, strict=True):
-                return Piece(child, [first, second], bred=True)
+                return Piece(child, [first, second], bred=True, method="bred")
             log_debug(f"[art] cross of {first} and {second} came out degenerate; using {first}")
         except Exception as e:
             log_warning(f"[art] breeding failed ({e}); using {first}")
-    return Piece(genome, [first])
+    return Piece(genome, [first], name=first)
 
 
 def _cross(a: str, b: str, rng: random.Random) -> Optional[str]:
@@ -410,31 +417,117 @@ def render_loop(genome: str, out_path: Path, *, width: Optional[int] = None,
             "render_time_s": round(time.time() - t0, 1), "bytes": out_path.stat().st_size}
 
 
+def render_transition(a: str, b: str, out_path: Path, *, width: Optional[int] = None,
+                      frames: Optional[int] = None, fps: int = 24, quality: Optional[float] = None):
+    """One sheep turning into another, the way the screensaver moves between
+    sheep: flam3-genome's `sequence` over the pair with no loops is the
+    interpolation alone. Both ends are rendered at the first one's size.
+    Returns (the middle frame as a PIL image, params)."""
+    from PIL import Image
+    width = int(width or _cfg("loop_width", 640))
+    frames = int(frames or _cfg("morph_frames", 120))
+    quality = float(quality or _cfg("loop_quality", 120))
+    sa = resize(a, width, quality=quality, supersample=2, temporal_samples=1)
+    sb = resize(b, width, quality=quality, supersample=2, temporal_samples=1)
+    size = re.search(r'size="\d+ \d+"', sa)
+    if size:
+        sb = re.sub(r'size="\d+ \d+"', size.group(0), sb, count=1)
+    t0 = time.time()
+    with tempfile.TemporaryDirectory() as tmp:
+        pair = Path(tmp) / "pair.flam3"
+        pair.write_text(f"<pair>\n{sa}\n{sb}\n</pair>\n")
+        seq = _run("flam3-genome", {"sequence": pair, "nframes": frames, "loops": 0}, timeout=60)
+        if seq.stdout.count("<flame") < 2:
+            raise RuntimeError(f"flam3-genome made no transition: {seq.stderr.strip()[-200:]}")
+        seq_path = Path(tmp) / "seq.flam3"
+        seq_path.write_text(re.sub(r'temporal_samples="[\d.]+"', 'temporal_samples="1"', seq.stdout))
+        last = seq.stdout.count("<flame") - 1
+        _run("flam3-animate", {"in": seq_path, "prefix": f"{tmp}/f", "format": "png",
+                               "nthreads": _threads(), "begin": 0, "end": last, "verbose": 0},
+             timeout=float(_cfg("loop_timeout_s", 420)))
+        middle = Path(tmp) / f"f{last // 2:05d}.png"
+        if not middle.exists():
+            raise RuntimeError("flam3-animate produced no frames")
+        image = Image.open(middle).convert("RGB")
+        image.load()
+        enc = subprocess.run(["ffmpeg", "-v", "error", "-y", "-framerate", str(fps),
+                              "-i", f"{tmp}/f%05d.png", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                              "-crf", "20", "-movflags", "+faststart", str(out_path)],
+                             capture_output=True, text=True, timeout=120, check=False)
+        if enc.returncode or not out_path.exists():
+            raise RuntimeError(f"ffmpeg failed: {enc.stderr.strip()[-200:]}")
+    return image, {"width": width, "frames": last + 1, "fps": fps, "quality": quality,
+                   "render_time_s": round(time.time() - t0, 1), "bytes": out_path.stat().st_size}
+
+
 def credit(piece: Piece) -> str:
     names = " × ".join(piece.parents)
     how = "bred from " if piece.bred else ""
     return f"{how}{names} · {CREDIT}"
 
 
+#: What `make` can be asked to do: her pick, a named sheep, a child, a morph.
+ACTIONS = ("pick", "sheep", "breed", "mutate", "morph")
+
+
 def make(intent=None, *, seed: Optional[int] = None, lut=None, loop: bool = False,
-         out_path: Optional[Path] = None):
-    """Choose, colour and render a piece. Blocking: run it in a thread.
+         out_path: Optional[Path] = None, action: str = "pick", names=()):
+    """Choose (or breed, mutate, morph), colour and render a piece. Blocking:
+    run it in a thread. `names` are sheep someone named, already resolved
+    (`kaia_flock.resolve`); anything not named she picks herself.
 
     Returns (image or None, video path or None, params)."""
+    from utils.core import kaia_flock
     rng = random.Random(seed)
-    piece = choose(rng, intent)
+    names = [n for n in (names or ()) if n]
+    if action == "morph":
+        a = names[0] if names else kaia_flock.pick(rng, intent)
+        b = names[1] if len(names) > 1 else kaia_flock.pick(rng, intent, exclude=(a,))
+        ga, gb = kaia_flock.genome_of(a), kaia_flock.genome_of(b)
+        if not ga or not gb:
+            raise RuntimeError(f"no such sheep: {a if not ga else b}")
+        if lut is not None:
+            ga, gb = recolor(ga, lut), recolor(gb, lut)
+        out_path = out_path or Path(tempfile.mkstemp(suffix=".mp4")[1])
+        image, info = render_transition(ga, gb, out_path)
+        params = {"type": "sheep", "action": "morph", "seed": seed, "sheep": [a, b], "shown": [a, b],
+                  "bred": False, "recoloured": lut is not None, "credit": kaia_flock.credit([a, b]),
+                  **describe(ga), **info}
+        log_info(f"[art] morph {a} → {b} in {params['render_time_s']}s")
+        return image, out_path, params
+
+    if action == "breed":
+        a, b = (names + [None, None])[:2]
+        piece = kaia_flock.breed(rng, a, b, intent=intent)
+        if piece is None:
+            raise RuntimeError("no child of theirs survived the preview")
+    elif action == "mutate":
+        piece = kaia_flock.mutate(rng, names[0] if names else None, intent=intent)
+        if piece is None:
+            raise RuntimeError("no mutation of it survived the preview")
+    elif action == "sheep":
+        genome = kaia_flock.genome_of(names[0]) if names else None
+        if not genome:
+            raise RuntimeError("no such sheep")
+        piece = Piece(genome, [names[0]], name=names[0])
+    else:
+        piece = choose(rng, intent)
+    if piece.bred:
+        piece.name = kaia_flock.adopt(piece.genome, piece.parents, piece.method or "bred")
+    name = piece.name or piece.parents[0]
     genome = recolor(piece.genome, lut) if lut is not None else piece.genome
-    params = {"type": "sheep", "seed": seed, "sheep": piece.parents, "bred": piece.bred,
-              "recoloured": lut is not None, "credit": credit(piece),
+    params = {"type": "sheep", "action": action, "seed": seed, "sheep": piece.parents, "name": name,
+              "shown": [name], "bred": piece.bred, "method": piece.method,
+              "recoloured": lut is not None, "credit": kaia_flock.credit([name]),
               **describe(genome)}
     if loop:
         out_path = out_path or Path(tempfile.mkstemp(suffix=".mp4")[1])
         params.update(render_loop(genome, out_path))
         # A still of the first frame, for her to look at and for the archive.
         image, _ = render_still(genome, width=900, quality=400)
-        log_info(f"[art] sheep loop {params['sheep']} in {params['render_time_s']}s")
+        log_info(f"[art] sheep loop {name} in {params['render_time_s']}s")
         return image, out_path, params
     image, info = render_still(genome)
     params.update(info)
-    log_info(f"[art] sheep {params['sheep']}{' (bred)' if piece.bred else ''} in {params['render_time_s']}s")
+    log_info(f"[art] sheep {name}{f' ({piece.method})' if piece.bred else ''} in {params['render_time_s']}s")
     return image, None, params

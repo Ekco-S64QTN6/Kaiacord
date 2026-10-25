@@ -121,11 +121,9 @@ def section_embed(section: str, is_owner: bool) -> discord.Embed:
         _fields(embed, "​", [_line(c) for c in cmds])
     constructs, palettes = _reference_values()
     if section == "🎵  Music & art":
-        add_field(embed, "Art", (
-            "`!art` her choice · `!art a cold storm over the sea` from your words\n"
-            "`!art loop deep ocean` a 4-second loop (about 30 s to make)\n"
-            "attach a picture to paint it in that picture's colours · `!art mandelbrot`\n"
-            "colour words pick the sheep: " + " ".join(f"`{p}`" for p in palettes)))
+        from utils.commands.art_handler import ART_HELP, FLOCK_HELP
+        add_field(embed, "Art", ART_HELP + "\ncolour words pick the sheep: " + " ".join(f"`{p}`" for p in palettes))
+        add_field(embed, "Kaia's flock", FLOCK_HELP)
     if section == ADMIN:
         add_field(embed, "Flag constructs", " ".join(f"`{c}`" for c in constructs) + "\n `!flag hedge_density`")
     return embed

@@ -2289,6 +2289,9 @@ class CoreTaskManager:
                 except Exception:
                     pass
             bot.add_listener(_rpg_activity, "on_interaction")
+            # 👍 / 👎 on an !art sheep is a vote that steers her flock.
+            from utils.commands.art_handler import install_vote_listener
+            install_vote_listener(bot)
 
             # Aethelgard trips that ended but were never posted (a failed
             # generation or post, or a restart mid-narration) are told now.

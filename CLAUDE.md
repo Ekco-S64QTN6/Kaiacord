@@ -895,6 +895,15 @@ of two sheep can wash out to pale fog, so crosses are rare (15%) and pass a stri
 each palette entry by brightness rank onto the picture's ramp, keeping the sheep's light and shade. The
 licence (CC BY-NC, credit and sheep number on every post) is why the credit is in the footer: keep it.
 
+**Her flock evolves by votes** (`kaia_flock`), as Electric Sheep's does. Every child she breeds or mutates
+(`!art breed`, `!art mutate`, and the 15% cross in her own pick) is kept as `kaia.<n>` in `memory/art/kaia_flock/`
+with its parents, depth and the Electric Sheep it descends from — a child is a derivative, so its credit names
+those. 👍 / 👎 under a posted sheep is a vote (`memory/art/votes.json`, once per person, a morph counts for both
+ends): votes weight every pick and every unnamed parent, and a sheep at `CULL_AT` is never used again.
+`!art morph a b` is the screensaver's transition: flam3-genome `sequence` over the pair with `loops=0` is the
+interpolation alone, both ends at the first's size. `!art help` and `!help`'s art section share one text
+(`ART_HELP`, `FLOCK_HELP`).
+
 **`!art` is decided before it is drawn.** `kaia_art_intent.decide` turns a prompt, her mood or an
 attached image into an `ArtIntent` — palette (or a colour ramp from the image), symmetry, lead
 shapes, complexity, title. Her own choice comes from one short model call that picks *from the
