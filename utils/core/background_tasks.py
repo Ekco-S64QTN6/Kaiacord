@@ -931,6 +931,12 @@ class CoreTaskManager:
                 if not os.path.exists(characters_dir):
                     return
 
+                # Publish one combined report for each player who hunted yesterday,
+                # before resetting hunts_today so the digest retains the finished-day counts.
+                from utils.ttrpg import outing
+                yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+                await outing.flush_daily(self.ctx, day=yesterday)
+
                 # Tick World State
                 state = load_world_state()
                 from utils.ttrpg.calendar import get_weather
