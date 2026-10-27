@@ -34,7 +34,8 @@ def _path(uid: str) -> str:
 
 
 def _local_day(timestamp: Optional[float] = None) -> str:
-    return time.strftime("%Y-%m-%d", time.localtime(timestamp) if timestamp is not None else None)
+    return (time.strftime("%Y-%m-%d", time.localtime(timestamp))
+            if timestamp is not None else time.strftime("%Y-%m-%d"))
 
 
 def _daily_path(uid: str, day: str) -> str:
