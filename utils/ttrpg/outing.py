@@ -1,26 +1,9 @@
-"""One narrated paragraph per trip out, not one per fight.
+"""Accumulate hunts per player and publish one digest per in-game day.
 
-Every overworld fight used to end in an LLM call (up to 45 s behind a typing
-indicator) before the next button appeared, and so did every forest event:
-grinding a bat meant waiting on prose. Now a fight or an event is *recorded*
-here, instantly, and Kaia tells the whole trip once, when it ends:
-
-    an outing opens   the first fight or event in hunting grounds (a location
-                      with `hunting` in LOCATION_DATA) or in a dungeon
-    it continues      moving between hunting grounds (forest edge to deep
-                      forest is one trip)
-    it closes         arriving somewhere without hunting (town, the Shrine),
-                      dying, or leaving or finishing a dungeon
-
-The record is per player (memory/ttrpg/outings/<uid>.json), not per channel
-session: two people hunting in one channel each get their own story. The
-narration runs as a background task and never blocks play.
-
-A closed trip is moved to `untold/` and stays there, with its paragraph once
-written, until the post to #aethelgard (`discord.rpg_channel`) succeeds: a
-failed generation or post is retried at the next boot (`tell_untold`), never
-dropped. #aethelgard so every player can follow what the others did that day;
-the channel the trip was played in is the fallback.
+Individual outings close when a player returns from hunting, dies, or leaves a
+dungeon, but closing an outing only merges it into that player's daily record.
+At midnight the dawn task rolls up any still-open outing and posts one combined
+report to #aethelgard. Failed posts remain in `untold/` and are retried at boot.
 """
 from __future__ import annotations
 
@@ -36,6 +19,7 @@ from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
 OUTING_DIR = telemetry_path(os.path.join("memory", "ttrpg", "outings"))
 UNTOLD_DIR = os.path.join(OUTING_DIR, "untold")
+DAILY_DIR = os.path.join(OUTING_DIR, "daily")
 MAX_FIGHTS = 60          # beyond this only the totals grow; the prompt stays short
 _lock = threading.Lock()
 
@@ -49,6 +33,91 @@ def _path(uid: str) -> str:
     return os.path.join(OUTING_DIR, f"{uid}.json")
 
 
+def _local_day(timestamp: Optional[float] = None) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(timestamp) if timestamp is not None else None)
+
+
+def _daily_path(uid: str, day: str) -> str:
+    return os.path.join(DAILY_DIR, f"{day}_{uid}.json")
+
+
+def _has_activity(data: dict) -> bool:
+    return bool(data.get("fights") or data.get("events") or data.get("notes"))
+
+
+def _merge_daily_sync(trip: dict) -> None:
+    """Idempotently merge a closed outing into its player's daily digest.
+
+    The outing ID guards against re-merging if the process dies between writing
+    the daily file and removing the open outing file.
+    """
+    from utils.core.atomic_write import write_atomic
+
+    uid = str(trip.get("uid", ""))
+    day = trip.get("day") or _local_day(trip.get("started"))
+    os.makedirs(DAILY_DIR, exist_ok=True)
+    path = _daily_path(uid, day)
+    current = _load_path_sync(path)
+    if current is None:
+        current = {
+            "uid": uid, "day": day, "zones": [], "fights": [], "events": [],
+            "fight_count": 0, "wins": 0, "losses": 0, "xp": 0, "gil": 0,
+            "loot": [], "levels": [], "notes": {}, "trips": 0, "trip_ids": [],
+            "started": trip.get("started", time.time()), "ended": trip.get("ended", time.time()),
+            "duration_seconds": 0, "had_knockout": False,
+        }
+
+    trip_id = str(trip.get("outing_id") or f"{uid}:{trip.get('started', 0)}")
+    if trip_id in current.setdefault("trip_ids", []):
+        return
+
+    current["trip_ids"].append(trip_id)
+    current["trips"] = int(current.get("trips", 0)) + 1
+    current["started"] = min(float(current.get("started", trip.get("started", time.time()))),
+                             float(trip.get("started", time.time())))
+    current["ended"] = max(float(current.get("ended", trip.get("ended", time.time()))),
+                           float(trip.get("ended", time.time())))
+    current["duration_seconds"] = float(current.get("duration_seconds", 0)) + max(
+        0, float(trip.get("ended", time.time())) - float(trip.get("started", time.time())))
+    for zone in trip.get("zones", []):
+        if zone not in current["zones"]:
+            current["zones"].append(zone)
+    for fight in trip.get("fights", []):
+        if len(current["fights"]) < MAX_FIGHTS:
+            current["fights"].append(fight)
+    for event in trip.get("events", []):
+        if len(current["events"]) < 20:
+            current["events"].append(event)
+    for key in ("fight_count", "wins", "losses", "xp", "gil"):
+        current[key] = int(current.get(key, 0)) + int(trip.get(key, 0) or 0)
+    current["loot"].extend(str(x) for x in trip.get("loot", []))
+    current["levels"].extend(trip.get("levels", []))
+    for kind, items in (trip.get("notes") or {}).items():
+        bucket = current.setdefault("notes", {}).setdefault(kind, [])
+        bucket.extend(str(x) for x in items[:max(0, 20 - len(bucket))])
+
+    trip_reason = str(trip.get("reason", ""))
+    knocked_out = ("knocked out" in trip_reason.lower() or "fell in " in trip_reason.lower()
+                   or any(f.get("died") for f in trip.get("fights", [])))
+    current["had_knockout"] = bool(current.get("had_knockout")) or knocked_out
+    if knocked_out:
+        current["reason"] = "was knocked out during the day's hunts and woke at the Shrine"
+    elif current["had_knockout"]:
+        current["reason"] = "finished the day's hunts after recovering from a knockout"
+    else:
+        current["reason"] = "finished the day's hunts"
+
+    # Keep the latest sheet/channel snapshot, especially the hunt count just
+    # before reset, while retaining the start and totals from earlier outings.
+    current["uid"] = uid
+    current["uname"] = trip.get("uname", current.get("uname", uid))
+    current["channel_id"] = trip.get("channel_id", current.get("channel_id"))
+    current["sheet"] = trip.get("sheet", current.get("sheet", {}))
+    current["hunts"] = trip.get("hunts", current.get("hunts"))
+    current["daily_summary"] = True
+    write_atomic(path, json.dumps(current, indent=1))
+
+
 def _load_sync(uid: str) -> Optional[dict]:
     try:
         with open(_path(uid)) as fh:
@@ -60,32 +129,142 @@ def _load_sync(uid: str) -> Optional[dict]:
 def _update_sync(uid: str, fn) -> dict:
     from utils.core.atomic_write import write_atomic
     with _lock:
-        data = _load_sync(uid) or {"started": time.time(), "zones": [], "fights": [],
-                                    "events": [], "fight_count": 0, "wins": 0, "losses": 0,
-                                    "xp": 0, "gil": 0, "loot": [], "levels": []}
+        data = _load_sync(uid) or {"uid": str(uid), "outing_id": f"{uid}_{time.time_ns()}",
+                                    "day": _local_day(), "started": time.time(), "zones": [],
+                                    "fights": [], "events": [], "fight_count": 0, "wins": 0,
+                                    "losses": 0, "xp": 0, "gil": 0, "loot": [], "levels": []}
+        data.setdefault("uid", str(uid))
+        data.setdefault("outing_id", f"{uid}_{time.time_ns()}")
+        data.setdefault("day", _local_day(data.get("started")))
         fn(data)
         os.makedirs(OUTING_DIR, exist_ok=True)
         write_atomic(_path(uid), json.dumps(data, indent=1))
         return data
 
 
-def _take_sync(uid: str, tale: dict) -> Optional[str]:
-    """Close the open record into `untold/` with what telling it needs; the
-    path of the untold trip, or None when there was nothing to tell."""
+def _take_sync(uid: str, tale: dict) -> bool:
+    """Close the open outing into the durable per-player daily accumulator."""
     from utils.core.atomic_write import write_atomic
     with _lock:
         data = _load_sync(uid)
+        if not data:
+            return False
+        if not _has_activity(data):
+            try:
+                os.remove(_path(uid))
+            except OSError:
+                pass
+            return False
+        data.update(tale)
+        data.setdefault("day", _local_day(data.get("started")))
+        # Write the daily aggregate before dropping the open outing. The outing
+        # ID makes this safe if a crash happens between these two operations.
+        _merge_daily_sync(data)
         try:
             os.remove(_path(uid))
         except OSError:
             pass
-        if not data or not (data.get("fights") or data.get("events") or data.get("notes")):
-            return None
-        data.update(tale)
-        os.makedirs(UNTOLD_DIR, exist_ok=True)
-        path = os.path.join(UNTOLD_DIR, f"{uid}_{int(tale['ended'] * 1000)}.json")
-        write_atomic(path, json.dumps(data, indent=1))
-        return path
+        return True
+
+
+def _take_open_outings_sync(through_day: str) -> int:
+    """Move any outing left open at dawn into the correct day's accumulator."""
+    from utils.ttrpg.character_manager import _load_sync as load_sheet_sync
+    moved = 0
+    with _lock:
+        try:
+            names = [n for n in os.listdir(OUTING_DIR) if n.endswith(".json")
+                     and os.path.isfile(os.path.join(OUTING_DIR, n))]
+        except OSError:
+            return 0
+        for name in names:
+            uid = name[:-5]
+            data = _load_sync(uid)
+            if not data:
+                continue
+            day = data.get("day") or _local_day(data.get("started"))
+            if day > through_day:
+                continue
+            try:
+                sheet = load_sheet_sync(uid) or {}
+            except Exception:
+                sheet = {}
+            try:
+                from utils.ttrpg.progression import get_max_hunts
+                hunts = [int(sheet.get("hunts_today", 0)), int(get_max_hunts(sheet))]
+            except Exception:
+                hunts = None
+            tale = {
+                "uid": uid,
+                "uname": sheet.get("character_name", uid),
+                "reason": "finished the day's hunts",
+                "ended": time.time(),
+                "hunts": hunts,
+                "channel_id": None,
+                "sheet": {k: sheet.get(k) for k in _SHEET_KEYS if k in sheet},
+                "day": day,
+            }
+            data.update(tale)
+            if _has_activity(data):
+                _merge_daily_sync(data)
+                moved += 1
+            try:
+                os.remove(_path(uid))
+            except OSError:
+                pass
+    return moved
+
+
+def _finalize_daily_sync(through_day: str) -> list:
+    """Move completed daily aggregates to untold storage before attempting posts."""
+    from utils.core.atomic_write import write_atomic
+    ready = []
+    os.makedirs(UNTOLD_DIR, exist_ok=True)
+    try:
+        names = sorted(n for n in os.listdir(DAILY_DIR) if n.endswith(".json"))
+    except OSError:
+        return ready
+    with _lock:
+        for name in names:
+            day = name[:10]
+            if len(day) != 10 or day > through_day:
+                continue
+            src = os.path.join(DAILY_DIR, name)
+            data = _load_path_sync(src)
+            if not data:
+                continue
+            uid = str(data.get("uid") or name[11:-5])
+            target = os.path.join(UNTOLD_DIR, f"daily_{day}_{uid}.json")
+            data["daily_summary"] = True
+            # Keep the file pending if the same day's report is already waiting;
+            # never replace a generated paragraph that failed to post.
+            if not os.path.exists(target):
+                write_atomic(target, json.dumps(data, indent=1))
+            try:
+                os.remove(src)
+            except OSError:
+                pass
+            ready.append(target)
+    return ready
+
+
+async def flush_daily(ctx, day: Optional[str] = None) -> int:
+    """Publish at most one combined summary per player/day, oldest day first.
+
+    Called by the midnight task before it resets hunts, so the footer retains
+    the completed day's hunt count. An explicit `day` is useful in tests.
+    """
+    if day is None:
+        from datetime import date, timedelta
+        day = (date.today() - timedelta(days=1)).isoformat()
+    await asyncio.to_thread(_take_open_outings_sync, day)
+    paths = await asyncio.to_thread(_finalize_daily_sync, day)
+    posted = 0
+    for path in paths:
+        posted += bool(await tell(ctx, path))
+    if posted:
+        log_info(f"[rpg outing] posted {posted} daily hunt digest(s) through {day}")
+    return int(posted)
 
 
 def _untold_sync() -> list:
@@ -196,8 +375,7 @@ _telling: set = set()      # untold trips being told now, so a boot replay never
 
 
 async def close(ctx, channel, uid: str, uname: str, sheet: dict, *, reason: str) -> bool:
-    """End the outing and narrate it in the background. Returns whether there
-    was anything to tell. Safe to call when nothing was recorded."""
+    """Close one outing into the daily accumulator; do not post until dawn."""
     hunts = None
     try:
         from utils.ttrpg.progression import get_max_hunts
@@ -207,17 +385,7 @@ async def close(ctx, channel, uid: str, uname: str, sheet: dict, *, reason: str)
     tale = {"uid": str(uid), "uname": uname, "reason": reason, "ended": time.time(), "hunts": hunts,
             "channel_id": getattr(channel, "id", None),
             "sheet": {k: sheet.get(k) for k in _SHEET_KEYS if k in (sheet or {})}}
-    path = await asyncio.to_thread(_take_sync, str(uid), tale)
-    if not path:
-        return False
-    try:
-        from utils.infrastructure.monitoring.async_task_registry import task_registry
-        task_registry.register(f"outing_narration_{uid}_{int(time.time())}",
-                               asyncio.create_task(tell(ctx, path, channel=channel)))
-    except Exception as e:
-        log_error(f"[rpg outing] could not schedule the narration (kept for the next boot): {e}")
-        return False
-    return True
+    return bool(await asyncio.to_thread(_take_sync, str(uid), tale))
 
 
 async def tell_untold(ctx) -> int:
@@ -352,7 +520,12 @@ def _embed(data: dict):
     foot = [f"{sheet.get('advanced_class') or sheet.get('class') or 'Adventurer'} Lv.{sheet.get('level', '?')}"]
     if data.get("hunts"):
         foot.append(f"🎯 {data['hunts'][0]}/{data['hunts'][1]} hunts today")
-    minutes = int((data.get("ended", 0) - data.get("started", 0)) // 60) if data.get("started") else 0
+    if data.get("daily_summary") and data.get("trips", 1) > 1:
+        foot.append(f"{data['trips']} trips")
+    elapsed = data.get("duration_seconds")
+    if elapsed is None:
+        elapsed = data.get("ended", 0) - data.get("started", 0)
+    minutes = int(max(0, elapsed) // 60) if data.get("started") else 0
     if minutes >= 1:
         foot.append(f"out {minutes} min" if minutes < 120 else f"out {minutes // 60} h")
     embed.set_footer(text=" · ".join(foot))
