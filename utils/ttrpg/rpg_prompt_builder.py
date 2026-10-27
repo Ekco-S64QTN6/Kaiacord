@@ -244,8 +244,6 @@ def build_outing_summary_prompt(sheet: dict, outing: dict, reason: str) -> str:
     hardest = max(fights, key=lambda f: f["taken"], default=None)
     daily_summary = bool(outing.get("daily_summary"))
     died = any(f.get("died") for f in fights)
-    if daily_summary and died:
-        facts.append("KNOCKED OUT DURING THE DAY: the character recovered or was brought back; this was not necessarily the final outcome.")
     loot = outing.get("loot", [])
     levels = outing.get("levels", [])
     notes = outing.get("notes", {})
@@ -260,6 +258,8 @@ def build_outing_summary_prompt(sheet: dict, outing: dict, reason: str) -> str:
     # One line per thing that happened, and none for what didn't: a "none" line
     # is read back as something to say ("no quests were advanced").
     facts = []
+    if daily_summary and died:
+        facts.append("KNOCKED OUT DURING THE DAY: the character recovered or was brought back; this was not necessarily the final outcome.")
     if hp.get("max"):
         facts.append(f"HP COMING HOME: {hp.get('current')}/{hp.get('max')}")
     if fights:
@@ -286,7 +286,10 @@ def build_outing_summary_prompt(sheet: dict, outing: dict, reason: str) -> str:
     if levels:
         facts.append(f"LEVELLED UP: reached level {max(levels)}")
     if outing.get("started") and outing.get("ended"):
-        minutes = (outing["ended"] - outing["started"]) / 60
+        elapsed = outing.get("duration_seconds")
+        if elapsed is None:
+            elapsed = outing["ended"] - outing["started"]
+        minutes = max(0, elapsed) / 60
         if minutes < 10:
             facts.append("LENGTH: a quick trip")
         elif minutes > 45:
