@@ -113,8 +113,10 @@ def _merge_daily_sync(trip: dict) -> None:
     current["uid"] = uid
     current["uname"] = trip.get("uname", current.get("uname", uid))
     current["channel_id"] = trip.get("channel_id", current.get("channel_id"))
-    current["sheet"] = trip.get("sheet", current.get("sheet", {}))
-    current["hunts"] = trip.get("hunts", current.get("hunts"))
+    if trip.get("sheet"):
+        current["sheet"] = trip["sheet"]
+    if trip.get("hunts") is not None:
+        current["hunts"] = trip["hunts"]
     current["daily_summary"] = True
     write_atomic(path, json.dumps(current, indent=1))
 
@@ -145,7 +147,6 @@ def _update_sync(uid: str, fn) -> dict:
 
 def _take_sync(uid: str, tale: dict) -> bool:
     """Close the open outing into the durable per-player daily accumulator."""
-    from utils.core.atomic_write import write_atomic
     with _lock:
         data = _load_sync(uid)
         if not data:
