@@ -77,7 +77,7 @@ def test_closing_narrates_once_in_the_background_and_clears_the_record(in_tmp, m
         assert os.listdir(outing.DAILY_DIR)                       # not narrated or posted yet
         assert await outing.flush_daily(ctx, day=outing._local_day()) == 1
         for _ in range(50):                                        # wait for the posting guard to release
-            if channel.send.await_count and not outing._telling:
+            if ctx.bot.posted and not outing._telling:
                 break
             await asyncio.sleep(0.01)
     asyncio.run(go())
