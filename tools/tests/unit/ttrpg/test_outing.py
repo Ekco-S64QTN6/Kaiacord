@@ -1,6 +1,4 @@
-"""Trips out are told once, when they end (utils/ttrpg/outing.py), and a Spine
-death keeps the player's progress. The dungeon tests drive the real
-`_dungeon_combat_round`; only combat resolution, broadcasts and Discord are faked."""
+"""Daily hunt digests combine each player's outings before the dawn reset."""
 import asyncio
 import json
 import os
@@ -67,28 +65,30 @@ def test_closing_narrates_once_in_the_background_and_clears_the_record(in_tmp, m
                         lambda *a: prompts.append(real_builder(*a)) or prompts[-1])
 
     chat = AsyncMock(return_value={"message": {"content": "the bats kept coming until the light failed."}})
-    ctx = SimpleNamespace(ollama_client=SimpleNamespace(chat=chat))
-    channel = SimpleNamespace(send=AsyncMock())
+    ctx = SimpleNamespace(bot=_Bot(), ollama_client=SimpleNamespace(chat=chat))
+    channel = SimpleNamespace(id=99, send=AsyncMock())
     sheet = {"user_id": "u1", "character_name": "Ash", "class": "Ranger", "level": 3}
 
     async def go():
         for _ in range(3):                                         # three bats, one round each
             await outing.record_fight("u1", "whisperwood_edge", [_round(won=True)], xp=10)
         assert await outing.close(ctx, channel, "u1", "Ash", sheet, reason="came back to Oakhaven") is True
-        assert await outing.peek("u1") is None                    # cleared at once
-        for _ in range(50):                                        # the narration runs in the background
-            if channel.send.await_count and not outing._telling:
+        assert await outing.peek("u1") is None                    # outing cleared into the daily accumulator
+        assert os.listdir(outing.DAILY_DIR)                       # not narrated or posted yet
+        assert await outing.flush_daily(ctx, day=outing._local_day()) == 1
+        for _ in range(50):                                        # wait for the posting guard to release
+            if ctx.bot.posted and not outing._telling:
                 break
             await asyncio.sleep(0.01)
     asyncio.run(go())
 
     assert chat.await_count == 1                                   # one call for the whole trip
-    embed = channel.send.await_args.kwargs["embed"]
+    embed = ctx.bot.posted[0]
     assert "the bats kept coming" in embed.description
     fields = {f.name: f.value for f in embed.fields}
     assert "ASH" in embed.title and "Whisperwood" in embed.title
     assert fields["⚔️ Fights"].startswith("3 won") and "+30 XP" in fields["✨ Earned"]
-    assert "cave bat: fought 3x, won 3" in prompts[0] and "came back to Oakhaven" in prompts[0]
+    assert "cave bat: fought 3x, won 3" in prompts[0] and "finished the day's hunts" in prompts[0]
     assert "Ranger Lv.3" in embed.footer.text
     assert os.listdir(outing.UNTOLD_DIR) == []                     # told, so no longer waiting
 
@@ -115,10 +115,66 @@ async def _hunt_and_return(ctx, channel, uid="u1"):
     await outing.record_fight(uid, "whisperwood_edge", [_round(won=True)], xp=10)
     await outing.close(ctx, channel, uid, "Ash", {"user_id": uid, "character_name": "Ash", "level": 3},
                        reason="came back to Oakhaven")
+    await outing.flush_daily(ctx, day=outing._local_day())  # tests simulate the midnight publisher
     for _ in range(100):
         await asyncio.sleep(0.01)
         if not outing._telling:
             break
+
+
+
+def test_multiple_returns_are_combined_into_one_daily_digest(in_tmp, monkeypatch):
+    _fake_model(monkeypatch)
+    bot = _Bot()
+    ctx = SimpleNamespace(bot=bot, ollama_client=SimpleNamespace(
+        chat=AsyncMock(return_value={"message": {"content": "a long day in the wilds."}})))
+    play = SimpleNamespace(id=99, send=AsyncMock())
+    sheet = {"user_id": "u1", "character_name": "Ash", "class": "Ranger", "level": 3,
+             "hunts_today": 2}
+
+    async def go():
+        await outing.record_fight("u1", "whisperwood_edge", [_round("cave bat", won=True)], xp=10, gil=4,
+                                  loot=["Bat Wing"])
+        assert await outing.close(ctx, play, "u1", "Ash", sheet, reason="came back to Oakhaven")
+        await outing.record_fight("u1", "whisperwood_deep", [_round("thornback boar", won=True)], xp=20, gil=6,
+                                  loot=["Boar Tusk"])
+        sheet["hunts_today"] = 4
+        assert await outing.close(ctx, play, "u1", "Ash", sheet, reason="came back to Oakhaven")
+        assert not bot.posted                                   # returning to town never posts a trip
+        daily_files = [n for n in os.listdir(outing.DAILY_DIR) if n.endswith(".json")]
+        assert len(daily_files) == 1
+        digest = json.load(open(os.path.join(outing.DAILY_DIR, daily_files[0])))
+        assert digest["trips"] == 2 and digest["fight_count"] == 2
+        assert digest["xp"] == 30 and digest["gil"] == 10
+        assert digest["loot"] == ["Bat Wing", "Boar Tusk"]
+        assert await outing.flush_daily(ctx, day=outing._local_day()) == 1
+        assert await outing.flush_daily(ctx, day=outing._local_day()) == 0  # idempotent same-day flush
+
+    asyncio.run(go())
+    assert len(bot.posted) == 1
+    fields = {field.name: field.value for field in bot.posted[0].fields}
+    assert fields["⚔️ Fights"].startswith("2 won")
+    assert "+30 XP" in fields["✨ Earned"] and "+10 Gil" in fields["✨ Earned"]
+    assert "Bat Wing" in fields["🎒 Loot"] and "Boar Tusk" in fields["🎒 Loot"]
+    assert "2 trips" in bot.posted[0].footer.text
+    assert play.send.await_count == 0
+
+
+def test_midnight_flush_includes_a_player_who_is_still_out(in_tmp, monkeypatch):
+    _fake_model(monkeypatch)
+    bot = _Bot()
+    ctx = SimpleNamespace(bot=bot, ollama_client=SimpleNamespace(
+        chat=AsyncMock(return_value={"message": {"content": "the forest darkened around them."}})))
+
+    async def go():
+        await outing.record_fight("u1", "whisperwood_edge", [_round("cave bat", won=True)], xp=10)
+        # No outing.close(): the player is still away when dawn arrives.
+        assert await outing.flush_daily(ctx, day=outing._local_day()) == 1
+        assert await outing.peek("u1") is None
+
+    asyncio.run(go())
+    assert len(bot.posted) == 1
+    assert "cave bat" in bot.posted[0].fields[[f.name for f in bot.posted[0].fields].index("🐾 Met")].value
 
 
 def test_the_trip_is_posted_to_aethelgard_not_the_play_channel(in_tmp, monkeypatch):

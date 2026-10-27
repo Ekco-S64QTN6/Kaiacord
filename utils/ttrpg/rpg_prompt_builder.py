@@ -242,6 +242,7 @@ def build_outing_summary_prompt(sheet: dict, outing: dict, reason: str) -> str:
         desc = _first_sentences(m["desc"])
         fight_lines.append(line + (f"\n    DESCRIPTION: {desc}" if desc else ""))
     hardest = max(fights, key=lambda f: f["taken"], default=None)
+    daily_summary = bool(outing.get("daily_summary"))
     died = any(f.get("died") for f in fights)
     loot = outing.get("loot", [])
     levels = outing.get("levels", [])
@@ -257,6 +258,8 @@ def build_outing_summary_prompt(sheet: dict, outing: dict, reason: str) -> str:
     # One line per thing that happened, and none for what didn't: a "none" line
     # is read back as something to say ("no quests were advanced").
     facts = []
+    if daily_summary and died:
+        facts.append("KNOCKED OUT DURING THE DAY: the character recovered or was brought back; this was not necessarily the final outcome.")
     if hp.get("max"):
         facts.append(f"HP COMING HOME: {hp.get('current')}/{hp.get('max')}")
     if fights:
@@ -283,16 +286,21 @@ def build_outing_summary_prompt(sheet: dict, outing: dict, reason: str) -> str:
     if levels:
         facts.append(f"LEVELLED UP: reached level {max(levels)}")
     if outing.get("started") and outing.get("ended"):
-        minutes = (outing["ended"] - outing["started"]) / 60
+        elapsed = outing.get("duration_seconds")
+        if elapsed is None:
+            elapsed = outing["ended"] - outing["started"]
+        minutes = max(0, elapsed) / 60
         if minutes < 10:
             facts.append("LENGTH: a quick trip")
         elif minutes > 45:
             facts.append("LENGTH: a long time out")
-    if died:
+    if died and not daily_summary:
         outcome = (f"[CRITICAL — {char_name.upper()} WAS KNOCKED OUT ON THIS TRIP]\n"
                    f"{char_name} went down and woke at the Shrine. Do NOT tell the trip as a clean victory, "
                    f"and do NOT describe whatever beat them as falling or dying.\n"
                    f"End on {char_name} going down — pain, darkness, the Shrine's cold floor.\n[END CRITICAL]\n")
+    elif daily_summary:
+        outcome = "End on the character's final state at the close of the day, not on an intermediate outing.\n"
     else:
         outcome = "End on the return itself, in your own words — never repeat the HOW IT ENDED line.\n"
     # A one-fight trip told in six sentences gets padded with things that never happened.
