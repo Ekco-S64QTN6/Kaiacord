@@ -13,7 +13,8 @@ class StatsTracker:
         self._save_seq = 0
         self._written_seq = 0
         self.stats = {
-            'users': 0,
+            'users': 0,                 # len(known_users)
+            'known_users': set(),       # every author id that has messaged her
             'active_users': set(),
             'user_last_seen': {}, # user_id -> timestamp
             'messages': 0,
@@ -41,7 +42,8 @@ class StatsTracker:
             if os.path.exists(stats_file):
                 with open(stats_file, 'r') as f:
                     saved_stats = json.load(f)
-                    self.stats['users'] = saved_stats.get('total_users', 0)
+                    self.stats['known_users'] = {str(u) for u in saved_stats.get('user_ids', [])}
+                    self.stats['users'] = len(self.stats['known_users'])
                     self.stats['messages'] = saved_stats.get('total_messages', 0)
                     self.stats['forum_drafts'] = saved_stats.get('forum_drafts', 0)
                     self.stats['forum_approved'] = saved_stats.get('forum_approved', 0)
@@ -58,7 +60,8 @@ class StatsTracker:
             
             with self.lock:
                 save_data = {
-                    'total_users': self.stats['users'],
+                    'total_users': len(self.stats['known_users']),
+                    'user_ids': sorted(self.stats['known_users']),
                     'total_messages': self.stats['messages'],
                     'forum_drafts': self.stats.get('forum_drafts', 0),
                     'forum_approved': self.stats.get('forum_approved', 0),
@@ -110,22 +113,15 @@ class StatsTracker:
             self.stats['last_update'] = time.time()
         self.save_stats()
     
-    def increment_users(self, user_id=None):
-        """Increment user count"""
-        with self.lock:
-            self.stats['users'] += 1
-            if user_id:
-                self.stats['active_users'].add(user_id)
-                self.stats['user_last_seen'][user_id] = time.time()
-                self.stats['active_channels'] = len(self.stats['active_users'])
-            self.stats['last_update'] = time.time()
-        self.save_stats()
-    
     def increment_messages(self, user_id=None):
         """Increment message count"""
         with self.lock:
             self.stats['messages'] += 1
             if user_id:
+                # total_users counts distinct authors. It used to come from
+                # increment_users(), which nothing called, so it read 0.
+                self.stats['known_users'].add(str(user_id))
+                self.stats['users'] = len(self.stats['known_users'])
                 self.stats['interactions_by_user'][user_id] += 1
                 self.stats['user_last_seen'][user_id] = time.time()
                 
