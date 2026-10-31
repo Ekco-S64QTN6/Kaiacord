@@ -162,7 +162,13 @@ def _what(freq: int, ch: dict, evs: list[dict], prof: dict | None) -> str:
         return (f"a digital data burst ({prof['signal_s']:.1f} s of carrier, energy filling 0–{prof['edge_hz'] / 1000:.1f} kHz; "
                 "not AFSK packet, not voice) — a data modem: telemetry, an alarm link, fleet location or a pager")
     if kinds["voice"]:
-        return "voice traffic" + (f" — {ch['label']}" if ch.get("label") else "")
+        label = f" — {ch['label']}" if ch.get("label") else ""
+        # 462.150 read "voice traffic" on 7 voice catches among 934, the rest
+        # 3 s data bursts: say which it mostly is.
+        if len(evs) >= 50 and kinds["voice"] / len(evs) < 0.1:
+            return (f"mostly short bursts with no voice; voice now and then "
+                    f"({kinds['voice']} of {len(evs)} catches)" + label)
+        return "voice traffic" + label
     if kinds["data"]:
         return "digital (broadband: DMR, P25, NXDN or similar)"
     if secs and max(secs) >= 55 and len(evs) <= 3:
