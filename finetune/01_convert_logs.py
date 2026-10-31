@@ -66,6 +66,10 @@ OUTPUT_DIR = HERE / "dataset"
 WINDOW = 3
 SESSION_GAP_MIN = 30
 EVAL_SHARE = 10          # percent of sessions held out
+# Most a single person may make of the train targets. Starkind was 49% of them
+# (30 Oct): the adapter would learn the register of one person's conversations
+# as her voice with everyone. Whole windows are dropped, reviewed ones last.
+MAX_PERSON_SHARE = 0.35
 
 SYSTEM_PROMPT = (
     "kaia. late 30s. grew up on library terminals and dial-up. learned systems by breaking them. "
@@ -186,6 +190,44 @@ def render(window: list[tuple[str, str]]) -> list[dict]:
     return msgs
 
 
+def cap_person_share(windows_in: list[tuple[str, str, list]], reviewed: set[str],
+                     stats: Counter) -> list[tuple[str, str, list]]:
+    """Drop whole train windows of anyone above MAX_PERSON_SHARE of the targets.
+
+    The order is stable (a hash of the window's id), so a rebuild drops the same
+    windows; windows holding a reviewed target go last. The kept share is solved
+    against everyone else's targets, so dropping one person's windows cannot
+    push another over.
+    """
+    totals: Counter = Counter()
+    for person, _wid, w in windows_in:
+        totals[person] += len(w)
+    over: dict[str, int] = {}
+    for person, n in totals.items():
+        others = sum(totals.values()) - n
+        allowed = int(MAX_PERSON_SHARE / (1 - MAX_PERSON_SHARE) * others)
+        if others and n > allowed:
+            over[person] = allowed
+    if not over:
+        return windows_in
+
+    def priority(item):
+        _person, wid, w = item
+        return (any(t in reviewed for _u, t in w), zlib.crc32(wid.encode()))
+
+    keep_ids: set[str] = set()
+    for person, allowed in over.items():
+        mine = sorted((x for x in windows_in if x[0] == person), key=priority, reverse=True)
+        kept = 0
+        for _p, wid, w in mine:
+            if kept + len(w) > allowed:
+                stats["dropped_person_cap"] += len(w)
+                continue
+            keep_ids.add(wid)
+            kept += len(w)
+    return [x for x in windows_in if x[0] not in over or x[1] in keep_ids]
+
+
 def build(reviewed_only: bool = False) -> tuple[list[dict], list[dict], dict]:
     reviews = q.load_reviews()
     stats: Counter = Counter()
@@ -193,6 +235,9 @@ def build(reviewed_only: bool = False) -> tuple[list[dict], list[dict], dict]:
     near = q.NearDuplicates()
     exact: set[str] = set()
     train, evaluation = [], []
+
+    train_windows: list[tuple[str, str, list]] = []   # (person, window id, window)
+    reviewed_targets: set[str] = set()
 
     for path in log_files():
         person = path.parent.name.rsplit("_", 1)[0]
@@ -218,6 +263,8 @@ def build(reviewed_only: bool = False) -> tuple[list[dict], list[dict], dict]:
                     elif decision and decision["decision"] == "edit":
                         target = decision["text"].strip()
                         stats["edited_by_review"] += 1
+                    if decision and decision["decision"] in ("keep", "edit"):
+                        reviewed_targets.add(target)
                     elif not decision and reviewed_only:
                         target, why = None, "not_yet_reviewed"
                 if target is not None:
@@ -239,13 +286,20 @@ def build(reviewed_only: bool = False) -> tuple[list[dict], list[dict], dict]:
                 runs.append(run)
 
             held_out = zlib.crc32(session_id.encode()) % 100 < EVAL_SHARE
-            for r in runs:
+            for r_idx, r in enumerate(runs):
                 ws = windows(r)
-                for w in ws:
-                    (evaluation if held_out else train).append({"messages": render(w)})
-                    stats["targets_eval" if held_out else "targets_train"] += len(w)
-                    per_person[person] += len(w)
+                for w_idx, w in enumerate(ws):
+                    if held_out:
+                        evaluation.append({"messages": render(w)})
+                        stats["targets_eval"] += len(w)
+                    else:
+                        train_windows.append((person, f"{session_id}/{r_idx}/{w_idx}", w))
                 stats["dropped_over_token_window"] += len(r) - sum(len(w) for w in ws)
+
+    for person, _wid, w in cap_person_share(train_windows, reviewed_targets, stats):
+        train.append({"messages": render(w)})
+        stats["targets_train"] += len(w)
+        per_person[person] += len(w)
 
     for prompt, answer in IDENTITY:
         train.append({"messages": [{"role": "system", "content": SYSTEM_PROMPT},

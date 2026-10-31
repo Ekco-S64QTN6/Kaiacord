@@ -21,6 +21,9 @@ BASELINE = (
 
 # Modules whose tests are intentionally named by behavior rather than filename.
 RELATED_TESTS = {
+    **{f"finetune/{name}": ("tools/tests/unit/test_finetune_dataset.py",)
+       for name in ("kaia_quality.py", "01_convert_logs.py", "01f_check_dataset.py",
+                    "05c_evaluate_persona.py")},
     "utils/core/context_enricher.py": (
         "tools/tests/unit/test_context_enricher_files.py",
         "tools/tests/unit/test_context_enricher_links.py",

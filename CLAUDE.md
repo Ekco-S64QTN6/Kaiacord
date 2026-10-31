@@ -1840,6 +1840,20 @@ by the builder, the check and `05c`, so add a rule there, once. `01g_review.py` 
 person's keep/drop/rewrite per target and every rebuild honours it. Never edit
 `dataset/*.jsonl` by hand: a rebuild would undo it and the check would fail on it.
 
+Two rules added 31 Oct, each measured before it went in — keep both:
+
+- **`fragment_litany`** (`kaia_quality.litany`): a target with three or more stock fragments
+  anywhere in it is dropped. A fragment is the runtime's own `_frag_key` definition (verbless
+  `a/an/the …` from her stock adjectives and abstract nouns), so it is a vocabulary rule like the
+  rest, and plain terse speech ("cheap tip, bad angle, long night.") is kept. The runtime
+  collapse only catches three *in a row*; a "yes." between them broke the run, and 31% of the
+  late-October targets the gate kept were this register. Do not lower the threshold to 2 without
+  re-reading what it drops — at 2 it took 22% of all targets, most of them ordinary replies.
+- **`MAX_PERSON_SHARE`** (`01_convert_logs.py`, 0.35): no one person is more than that share of
+  the *train* targets. Starkind was 49%. Whole windows are dropped in a stable hash order, windows
+  holding a reviewed target last, so a rebuild drops the same ones. `targets_by_person` in
+  `build_report.json` counts train targets only, after the cap.
+
 Only `*.py`, `Modelfile` and the directory skeletons are tracked. `dataset/`, `output/`,
 `checkpoints/`, `llama.cpp/` and every `.gguf`/`.safetensors` are git-ignored — the corpus is real
 user messages.
