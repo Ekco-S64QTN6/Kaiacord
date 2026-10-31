@@ -332,7 +332,7 @@ MIN_CATCH_S = 1.5
 # trigger: nothing is transcribed or kept, and it's ledgered as noise. A
 # channel configured `mode: digital` is exempt: its audio is hiss-shaped. The
 # 463.5125's data bursts hold 0.1–0.3 s of carrier; static held 0.0.
-STATIC_BELOW_S = 0.1
+from utils.radio.waterfall import STATIC_CARRIER_S as STATIC_BELOW_S   # noqa: E402  (one threshold for both)
 
 
 def looks_like_speech(text: str) -> bool:

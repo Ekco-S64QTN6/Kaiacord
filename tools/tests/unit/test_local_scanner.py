@@ -266,6 +266,14 @@ class _SimDongle:
             off = f - self.center
             if abs(off) < w.FS / 2 and start < t[-1] and start + dur > t[0]:
                 on = (t >= start) & (t < start + dur)
+                if kind == ["static"]:
+                    # RF with no FM carrier: noise ~12 kHz wide on the channel
+                    # (a digital or spread-spectrum burst, a spur).
+                    k = int(w.FS / 12e3)
+                    nb = np.convolve(self.rng.standard_normal(n + k) + 1j * self.rng.standard_normal(n + k),
+                                     np.ones(k) / np.sqrt(k), "valid")[:n]
+                    x += (self.amp * on * nb * np.exp(2j * np.pi * off * t)).astype(np.complex64)
+                    continue
                 # A tone, or a voice: the same tone swelling and fading at a syllable rate.
                 dev = 3.75 * (0.1 + np.abs(np.sin(2 * np.pi * 2.5 * t))) if kind == ["voice"] else 3.75
                 x += (self.amp * on * np.exp(1j * (2 * np.pi * off * t + dev * np.sin(2 * np.pi * 800 * t)))).astype(np.complex64)
@@ -584,6 +592,27 @@ def test_a_pulse_train_is_let_go_and_left_alone(monkeypatch):
     mine = [c for c in caught if abs(c.freq_hz - 146_860_000) < 5000]
     assert len(mine) == 1 and mine[0].seconds < w.PULSED_DECIDE_S + 1
     assert not any(h.any() for h in heard)
+
+
+def test_rf_without_a_carrier_is_locked_out_not_held_every_pass(monkeypatch):
+    """464.9625 was held 750 times in ten nights and 902–928 MHz 2,252 times in a
+    month: RF over the floor with no FM carrier, ledgered as noise, then back
+    after the 3 s cooldown. One hold, then the pulse train's lockout; a real
+    over on the same channel after the lockout is still caught."""
+    from utils.radio import waterfall as w
+    bursts = [(146_860_000, 40 + 8 * k, 1.5, "static") for k in range(10)]
+    _, caught = _simulate(monkeypatch, bursts, 130, snr_db=25)
+    mine = [c for c in caught if abs(c.freq_hz - 146_860_000) < 5000]
+    assert mine, "the burst never triggered a hold: the simulation does not exercise the path"
+    assert all(w.carrier_seconds(c.audio) < w.STATIC_CARRIER_S for c in mine)
+    assert len(mine) == 1, f"held {len(mine)} times"
+    # After PULSED_COOLDOWN_S the channel is listened to again.
+    later = [(146_860_000, 40 + 8 * k, 1.5, "static") for k in range(3)]
+    later.append((146_860_000, 56 + w.PULSED_COOLDOWN_S + 10, 6))
+    _, caught = _simulate(monkeypatch, later, 56 + w.PULSED_COOLDOWN_S + 30, snr_db=25)
+    mine = [c for c in caught if abs(c.freq_hz - 146_860_000) < 5000]
+    assert len(mine) == 2, [round(c.started) for c in mine]
+    assert w.carrier_seconds(mine[0].audio) < w.STATIC_CARRIER_S < 3 < w.carrier_seconds(mine[1].audio)
 
 
 def test_the_sweep_is_silent_and_a_transmission_is_heard_from_its_start(monkeypatch):

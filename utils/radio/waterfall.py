@@ -77,6 +77,13 @@ GAP_S = 0.06
 # lockout does. The beacon above otherwise held the watch the whole minute.
 PULSED_DECIDE_S = 4.0
 PULSED_COOLDOWN_S = 5 * 60
+# A hold with less FM carrier than this was RF without a carrier — a digital
+# or spread-spectrum signal, a spur, a burst of interference — and is ledgered
+# as noise (scanner.STATIC_BELOW_S is this). Those spots used to get the plain
+# COOLDOWN_S and came straight back: 464.9625 was held 750 times in ten nights,
+# the 902–928 MHz hoppers 2,252 times in a month with not one voice or data
+# catch. They now get the pulse train's lockout, doubling on each return.
+STATIC_CARRIER_S = 0.1
 
 MHZ = 1_000_000
 #: The bands people talk on, visited every pass: (low, high) in Hz.
@@ -939,8 +946,10 @@ class Watcher:
                 self.sink(h)
         for side in sides:
             self._end_side(side)
+        static = (not (constant or pulsed or follow or live or exempt) and chunks
+                  and carrier_seconds(np.concatenate(chunks)) < STATIC_CARRIER_S)
         wait = COOLDOWN_S
-        if constant or pulsed:
+        if constant or pulsed or static:
             # Again within twice its last lockout, near the same spot: longer.
             # A pulse train stays put, so its lockout covers its own channel only.
             near = DRIFT_SPAN_HZ if constant else COOLDOWN_SPAN_HZ
