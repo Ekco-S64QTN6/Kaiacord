@@ -291,3 +291,85 @@ def test_a_rewrite_is_not_offered_for_review_again(tmp_path, monkeypatch):
     rv.main.__globals__["sys"].argv = ["01g_review.py"]
     rv.main()
     assert q.review_key("second pot, don't judge.") in q.load_reviews()
+
+
+# ── Fragment litanies and one person's share (30 Oct) ────────────────
+
+@pytest.mark.parametrize("text", [
+    # Her own replies (29 Oct), rejected by this rule and by no other.
+    "that's enough. a quiet presence is all that's needed. a silent acknowledgment. "
+    "it's a grounding. a reassurance. it's a welcome.",
+    "it is. a subtle vibration. a shared acknowledgement of something beyond words. "
+    "it's a comfort. a reassurance. a connection. it's\u2026 enough.",
+])
+def test_a_fragment_litany_is_not_a_target(text):
+    """The runtime collapses only three stock fragments in a row; a "yes." or a
+    sentence between them breaks the run, so the litany reached the logs whole."""
+    assert q.clean_target(text) == (None, "fragment_litany")
+
+
+@pytest.mark.parametrize("text", [
+    "a fair point. the flyback transformer is a particular hazard. a lesson learned the hard way, "
+    "back in '03. cheap tip, bad angle, long night.",
+    "second pot. the new machine pulls a decent shot, i'll give it that.",
+])
+def test_terse_speech_is_not_a_litany(text):
+    """Short sentences are her voice; only stock-vocabulary fragments count."""
+    assert not q.litany(text)
+
+
+_NOUNS = ("relay kettle fuse router lamp drive valve modem printer amp pump fan switch radio "
+          "sensor hinge clock dial cable socket boiler heater fridge kiosk tablet mouse speaker "
+          "battery charger antenna").split()
+_VERBS = ("stalled hummed clicked flickered rattled overheated reset buzzed froze drifted "
+          "squealed sagged").split()
+
+
+def _person_log(name, n, day="2026-09-20"):
+    """n exchanges whose replies share almost no wording, so none is a near-duplicate."""
+    lines = ["---", "summary: test", "---", ""]
+    for i in range(n):
+        seed = sum(map(ord, name)) * 31 + i * 17
+        a, b, c, d = (_NOUNS[(seed + k * 7) % len(_NOUNS)] for k in range(4))
+        v, w = _VERBS[seed % len(_VERBS)], _VERBS[(seed // 3 + 5) % len(_VERBS)]
+        t = f"{day} 10:{i:02d}:00"
+        lines.append(f"[{t}] {name}: what about the {a} today, round {i}?")
+        lines.append(f"[{t}] Kaia: {a} {v} twice near {name.lower()}'s {b}. "
+                     f"swap {c} for {d} if it {w} again, call it {i}.")
+    return "\n".join(lines) + "\n"
+
+
+def _cap_build(builder, tmp_path, monkeypatch, reviews=None):
+    monkeypatch.setattr(builder, "EVAL_SHARE", 0)
+    files = {"Big_1/interactions_20260920.md": _person_log("Big", 30),
+             "Ann_2/interactions_20260920.md": _person_log("Ann", 9),
+             "Bo_3/interactions_20260920.md": _person_log("Bo", 9)}
+    if reviews:
+        (tmp_path / "review.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in reviews), encoding="utf-8")
+    return _build(builder, tmp_path, monkeypatch, files)
+
+
+def test_no_person_is_more_than_the_cap_of_the_train_targets(builder, tmp_path, monkeypatch):
+    train, _, report = _cap_build(builder, tmp_path, monkeypatch)
+    by = report["targets_by_person"]
+    assert by["Big"] / sum(by.values()) <= builder.MAX_PERSON_SHARE
+    assert by["Ann"] == by["Bo"] == 9, "people under the cap lose nothing"
+    assert report["stages"]["dropped_person_cap"] == 30 - by["Big"]
+    assert sum(by.values()) == report["stages"]["targets_train"] == len(_targets(train))
+
+
+def test_the_cap_drops_the_same_windows_on_every_rebuild(builder, tmp_path, monkeypatch):
+    first = _targets(_cap_build(builder, tmp_path, monkeypatch)[0])
+    second = _targets(_cap_build(builder, tmp_path, monkeypatch)[0])
+    assert first == second
+
+
+def test_the_cap_keeps_reviewed_windows_first(builder, tmp_path, monkeypatch):
+    baseline = set(_targets(_cap_build(builder, tmp_path, monkeypatch)[0]))
+    big_all = [l.split("Kaia: ", 1)[1] for l in _person_log("Big", 30).splitlines() if "Kaia: " in l]
+    dropped = [t for t in big_all if t not in baseline]
+    assert dropped
+    reviews = [{"key": q.review_key(t), "decision": "keep", "at": 0} for t in dropped[:3]]
+    kept = set(_targets(_cap_build(builder, tmp_path, monkeypatch, reviews)[0]))
+    assert set(dropped[:3]) <= kept

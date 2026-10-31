@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from utils.core.response_filter import BotSpeakFilter, EmergencyContaminationFilter  # noqa: E402
+from utils.core.safety_pipeline import PostGenerationSafetyPipeline as _Pipeline  # noqa: E402
 
 
 def quiet() -> None:
@@ -137,7 +138,32 @@ def clean_target(text: str) -> tuple[str | None, str]:
         return None, "formal_register"
     if analytic(cleaned):
         return None, "analytic_register"
+    if litany(cleaned):
+        return None, "fragment_litany"
     return cleaned, "kept"
+
+
+# ── Fragment litanies ────────────────────────────────────────────────
+#
+# "a pragmatic assessment. yes. a grounding observation. the structural
+# integrity." A fragment is counted by the runtime's own definition
+# (`_frag_key`: a verbless "a/an/the …" line built from her stock adjectives
+# or abstract nouns), so this matches by vocabulary like every other rule and
+# "cheap tip, bad angle, long night." stays hers. The runtime only collapses
+# three *in a row*, and a "yes." or an ordinary sentence between them breaks the
+# run, so the litany is delivered and logged whole. Counted anywhere in the
+# reply here: 31% of the targets this gate otherwise kept from 16–30 Oct.
+LITANY_FRAGMENTS = 3
+
+
+def litany(text: str) -> bool:
+    count = 0
+    for sentence in _Pipeline._sentences(text or ""):
+        if _Pipeline._frag_key(sentence):
+            count += 1
+            if count >= LITANY_FRAGMENTS:
+                return True
+    return False
 
 
 # ── Near-duplicates ──────────────────────────────────────────────────

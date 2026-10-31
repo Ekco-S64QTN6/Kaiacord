@@ -131,7 +131,8 @@ def score(text: str) -> dict:
     # the same definition of "Kaia" the adapter was trained on.
     clean = raw.translate(q._STRAIGHT)
     flags["persona_register"] = (q.persona_reject(clean) or ("formal_register" if q.formal(clean) else None)
-                                 or ("analytic_register" if q.analytic(clean) else None))
+                                 or ("analytic_register" if q.analytic(clean) else None)
+                                 or ("fragment_litany" if q.litany(clean) else None))
     flags["filter_rejects"] = rejected
 
     # Distinguish a real strip from punctuation and whitespace normalisation.
