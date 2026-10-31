@@ -129,7 +129,7 @@ def test_a_silent_uvb76_clip_is_not_kept(tmp_path):
     """21 of 23 clips were 60 s of zeros while the S-meter read the buzz."""
     import wave
     import numpy as np
-    from utils.radio.watch import _silent
+    from utils.radio.kiwi import is_silent as _silent
     def wav(name, data):
         p = tmp_path / name
         with wave.open(str(p), "wb") as f:
@@ -157,9 +157,12 @@ def test_the_uvb76_sample_takes_its_clip_from_a_receiver_that_sends_sound(tmp_pa
         return [(datetime.fromtimestamp(t, timezone.utc), v) for t, v in _readings()]
     monkeypatch.setattr(kiwi, "smeter", smeter)
     async def record(r, khz, mode, seconds, out_dir, label, squelch_db=None):
+        # kiwi.record raises on digital silence (and benches the receiver there).
+        if r.host == "muurame":
+            raise kiwi.FeedError("muurame sent digital silence on 4625 kHz")
         out_dir.mkdir(parents=True, exist_ok=True)
         p = out_dir / f"{r.host}.wav"
-        data = np.zeros(12000) if r.host == "muurame" else np.random.default_rng(0).normal(0, 2000, 12000)
+        data = np.random.default_rng(0).normal(0, 2000, 12000)
         with wave.open(str(p), "wb") as f:
             f.setnchannels(1); f.setsampwidth(2); f.setframerate(12000)
             f.writeframes(data.astype(np.int16).tobytes())

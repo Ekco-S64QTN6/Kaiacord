@@ -95,6 +95,17 @@ class EmergencyContaminationFilter:
     #: those fuses two sentences, so they are left alone.
     NEVER_FINAL = (r"just|a|an|the|my|your|their|our|its|that['\u2019]s|it['\u2019]s|there['\u2019]s|"
                    r"what['\u2019]s|very|rather|somewhat")
+    #: Words a pause can follow mid-clause: prepositions, conjunctions,
+    #: comparatives, quantifiers. Wider than `NEVER_FINAL` because it is only
+    #: used where an ellipsis is still present and a lowercase word follows it,
+    #: so "less\u2026 pointless" is one clause paused, not two sentences. A full stop
+    #: there shipped "it makes it feel less. pointless." Text whose ellipsis is
+    #: already a full stop ("scared of. the dark") cannot be told apart from two
+    #: sentences, so `repair_cut_ellipsis` keeps the narrow list. Left out
+    #: because a phrase ends on them: on, in ("hold on…"), so ("i think so…"),
+    #: too ("me too…"), be ("let it be…"), this ("it's like this…").
+    JOIN_AFTER_ELLIPSIS = (r"more|less|little|bit|of|to|for|with|at|from|into|about|than|like|"
+                           r"and|or|not|still|even|some|kind|sort|being|feel")
 
     @classmethod
     def repair_cut_ellipsis(cls, text: str) -> str:
@@ -122,6 +133,8 @@ class EmergencyContaminationFilter:
         # "it's just. a signal." — a hole she then learned from her own history.
         response = re.sub(r'\b(' + cls.NEVER_FINAL + r')' + cls._ELLIPSIS + r'[ \t]*(?=\S)', r'\1 ', response,
                           flags=re.IGNORECASE)
+        response = re.sub(r'\b((?i:' + cls.JOIN_AFTER_ELLIPSIS + r'))' + cls._ELLIPSIS + r'[ \t]*(?=[a-z])', r'\1 ',
+                          response)
         # Anything still trailing off becomes a full stop.
         response = re.sub(r'(\w)' + cls._ELLIPSIS, r'\1.', response)
         response = re.sub(r'\.{2,}', '.', response)

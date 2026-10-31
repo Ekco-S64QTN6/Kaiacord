@@ -168,6 +168,34 @@ def test_rag_persistence_stays_dirty_when_a_write_fails():
     shutil.rmtree(base, ignore_errors=True)
 
 
+def test_shutdown_saves_only_what_changed_and_says_which():
+    """Shutdown called persist(True), rewriting every index (the knowledge store
+    is ~170 MB, 8 s+) when nothing had changed; on 31 Oct 2026 a second signal
+    cut that write short, and "RAG indices saved" was logged whatever happened."""
+    import inspect
+    import threading
+    from unittest.mock import MagicMock
+
+    from utils.core.kaia_rag_persistence import RAGPersistenceMixin
+    from utils.infrastructure.system import shutdown_fixed
+
+    obj = RAGPersistenceMixin.__new__(RAGPersistenceMixin)
+    obj._data_lock = threading.RLock()
+    obj.persist_needed = False
+    obj.persist_dir = "/tmp/claude-1000/ragtest-shutdown-pytest"
+    obj.indices = {"knowledge": MagicMock()}
+    assert obj.persist(shutdown=True) is None
+    obj.indices["knowledge"].storage_context.persist.assert_not_called()
+
+    obj.persist_needed = True
+    obj.indices["knowledge"].storage_context.persist.side_effect = OSError("disk full")
+    assert obj.persist(shutdown=True) is False and obj.persist_needed is True
+
+    src = inspect.getsource(shutdown_fixed)
+    assert "persist(shutdown=True)" in src and "persist, True" not in src
+    assert "if saved is None" in src, "shutdown reports success without checking the result"
+
+
 def test_the_watchdog_flags_capitulation_not_word_polarity(tmp_path, monkeypatch):
     """The old belief check compared love/hate words in her position with words
     in the reply; every production firing was false. It now flags only giving

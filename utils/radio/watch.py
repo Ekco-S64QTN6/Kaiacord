@@ -348,19 +348,6 @@ def buzz_state(readings: list) -> dict:
     return {"state": "changed", **out}
 
 
-def _silent(wav: Path) -> bool:
-    """True for a recording that is digital silence: some receivers sent 60 s of
-    zeros for every sample while their S-meter read the buzz."""
-    import wave
-    import numpy as np
-    try:
-        with wave.open(str(wav)) as f:
-            a = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16)
-    except Exception:
-        return True
-    return len(a) == 0 or int(np.abs(a).max()) < 4
-
-
 async def sample_uvb76(job: dict, poster=None) -> Optional[Path]:
     """Two minutes of S-meter readings and a clip from a north-eastern European
     receiver, kept in memory/radio/uvb76/ for calibrating a buzz detector.
@@ -377,17 +364,21 @@ async def sample_uvb76(job: dict, poster=None) -> Optional[Path]:
             log_warning(f"[radio] UVB-76 sample: {e}; trying the next receiver")
             continue
         stem = f"{started:%Y%m%dT%H%M}"
-        # The clip from this receiver, or the next whose audio is not silence.
+        # The clip from this receiver, or the next that sends audio. `record`
+        # raises on digital silence and benches that receiver on 4625 kHz (the
+        # best north-eastern ones muted it for API clients in Oct 2026), so the
+        # list goes on into western Europe, where the buzz carries at night.
         clip, clip_from = None, None
-        for cr in [r] + receivers[i + 1:]:
+        nearby = [r] + receivers[i + 1:]
+        farther = kiwi.choose(await kiwi.directory(), job["khz"], "eu", n=4,
+                              avoid=tuple(x.host for x in nearby))
+        for cr in nearby + farther:
             try:
                 wavs = await kiwi.record(cr, job["khz"], "usb", 60, folder / "work", label="uvb76")
             except FeedError as e:
                 log_debug(f"[radio] UVB-76 clip: {e}")
                 continue
-            good = [w for w in wavs if not await asyncio.to_thread(_silent, w)]
-            if not good and wavs:
-                log_warning(f"[radio] UVB-76 clip from {cr.location or cr.host} was silence; trying the next receiver")
+            good = wavs
             if good:
                 clip = await asyncio.to_thread(_to_opus, good[0], folder / f"{stem}.ogg")
                 clip_from = cr

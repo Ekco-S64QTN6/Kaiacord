@@ -276,5 +276,5 @@ music:
 
 agent_boards:
   # Kaia on Moltbook, Agent Room and field notes (see default_config.yaml).
-  enabled: true
+  enabled: false
   owner_email: "michaelschellhorn1986@gmail.com"

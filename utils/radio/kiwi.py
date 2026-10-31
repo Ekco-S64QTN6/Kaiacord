@@ -19,6 +19,7 @@ import json
 import re
 import signal
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -141,13 +142,111 @@ async def directory(force: bool = False) -> list[Receiver]:
 def choose(receivers: list[Receiver], khz: float, region: str = "na",
            avoid: tuple[str, ...] = (), n: int = 3) -> list[Receiver]:
     """The best few receivers for a frequency: in the region, covering it, with
-    a free slot, ranked by signal-to-noise then free slots."""
+    a free slot and not benched (`benched`), ranked by signal-to-noise then
+    free slots. A receiver that has worked for us before goes ahead of one
+    with a few dB more SNR that never has."""
     lat0, lat1, lon0, lon1 = REGIONS.get(region, REGIONS["na"])
+    health = _health()
+    now = time.time()
     pool = [r for r in receivers
             if lat0 <= r.lat <= lat1 and lon0 <= r.lon <= lon1
-            and r.covers(khz) and r.free >= 1 and r.host not in avoid]
-    pool.sort(key=lambda r: (r.snr, r.free), reverse=True)
+            and r.covers(khz) and r.free >= 1 and r.host not in avoid
+            and not benched(r, khz, health, now)]
+    pool.sort(key=lambda r: (r.snr + (PROVEN_BONUS_DB if health["hosts"].get(r.host, {}).get("ok") else 0),
+                             r.free), reverse=True)
     return pool[:n]
+
+
+# ── Receiver health ────────────────────────────────────────────────────────
+# The directory says a receiver is up and has a free slot; it does not say it
+# will talk to us. Ranked by SNR alone, the same few failed night after night:
+# from 12 Oct 2026 the two best north-eastern receivers (Muurame, Elimäki)
+# sent digital silence on 4625 kHz to API clients while their S-meter read the
+# buzz and other frequencies played normally — 49 UVB-76 clips in a row came
+# back empty. Every call through this module now records what happened.
+
+HEALTH_CACHE = "kiwi_health"
+#: A receiver that sent silence on a frequency is left alone there this long.
+SILENT_HOLD_S = 14 * 86400
+#: A refused or dropped connection benches the host this long, doubling with
+#: each consecutive failure up to REFUSED_MAX_S.
+REFUSED_HOLD_S = 6 * 3600
+REFUSED_MAX_S = 4 * 86400
+#: Ranking credit for a receiver that has delivered before.
+PROVEN_BONUS_DB = 6
+
+
+def _mute_key(host: str, khz: float) -> str:
+    return f"{host}@{khz:.0f}"
+
+
+def _health() -> dict:
+    h = read_cache(HEALTH_CACHE)
+    h.setdefault("hosts", {})
+    h.setdefault("muted", {})
+    return h
+
+
+def _save_health(h: dict) -> None:
+    now = time.time()
+    h["muted"] = {k: t for k, t in h["muted"].items() if t > now}
+    write_cache(HEALTH_CACHE, {"hosts": h["hosts"], "muted": h["muted"]})
+
+
+def benched(r: Receiver, khz: float, health: Optional[dict] = None, now: Optional[float] = None) -> bool:
+    h = health or _health()
+    now = now or time.time()
+    if h["muted"].get(_mute_key(r.host, khz), 0) > now:
+        return True
+    return h["hosts"].get(r.host, {}).get("until", 0) > now
+
+
+def note_ok(r: Receiver, khz: float) -> None:
+    h = _health()
+    rec = h["hosts"].setdefault(r.host, {})
+    rec.update(ok=rec.get("ok", 0) + 1, streak=0, until=0, last_ok=time.time())
+    h["muted"].pop(_mute_key(r.host, khz), None)
+    _save_health(h)
+
+
+def note_failed(r: Receiver, why: str) -> None:
+    h = _health()
+    rec = h["hosts"].setdefault(r.host, {})
+    streak = rec.get("streak", 0) + 1
+    hold = min(REFUSED_HOLD_S * 2 ** (streak - 1), REFUSED_MAX_S)
+    rec.update(fail=rec.get("fail", 0) + 1, streak=streak, until=time.time() + hold, last_fail=why[:160])
+    _save_health(h)
+    log_debug(f"[radio] {r.host} benched for {hold / 3600:.0f} h ({why})")
+
+
+def note_silent(r: Receiver, khz: float) -> None:
+    h = _health()
+    h["muted"][_mute_key(r.host, khz)] = time.time() + SILENT_HOLD_S
+    rec = h["hosts"].setdefault(r.host, {})
+    rec.update(silent=rec.get("silent", 0) + 1, last_fail=f"digital silence on {khz:g} kHz")
+    _save_health(h)
+    log_warning(f"[radio] {r.location or r.host} sends digital silence on {khz:g} kHz; "
+                f"not used there for {SILENT_HOLD_S // 86400} days")
+
+
+def is_silent(wav: Path) -> bool:
+    """True for digital silence: what a receiver sends when its owner has muted
+    a frequency for API clients (peaks under 4 of 32767)."""
+    import wave
+    import numpy as np
+    try:
+        with wave.open(str(wav)) as f:
+            a = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16)
+    except Exception:
+        return True
+    return len(a) == 0 or int(np.abs(a).max()) < 4
+
+
+def silent_pcm(data: bytes) -> bool:
+    """The same test on raw s16le audio from a live stream."""
+    import numpy as np
+    a = np.frombuffer(data[: len(data) // 2 * 2], dtype=np.int16)
+    return len(a) == 0 or int(np.abs(a).max()) < 4
 
 
 def available() -> bool:
@@ -219,10 +318,22 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
     await _stop(proc)
     written = sorted(set(out_dir.glob("*.wav")) - before)
     if refused and not written:
+        note_failed(receiver, refused)
         raise FeedError(f"{receiver.host} {refused}")
     if quit_early and not written:
         # kiwirecorder exits 0 even when a thread of it crashed.
+        note_failed(receiver, f"recorder stopped early: {last or 'no output'}")
         raise FeedError(f"{receiver.host} recorder stopped early: {last or 'no output'}")
+    # Without a squelch the recording runs regardless, so all of it silent is the
+    # receiver muting this frequency, not a quiet band. (Squelched openings only
+    # exist when something crossed the squelch.)
+    if squelch_db is None and written and all(is_silent(p) for p in written):
+        for p in written:
+            p.unlink(missing_ok=True)
+        note_silent(receiver, khz)
+        raise FeedError(f"{receiver.host} sent digital silence on {khz:g} kHz")
+    if written:
+        note_ok(receiver, khz)
     # Drop a squelch opening that is only noise-length — from disk too, or it
     # stays in work/ for good.
     kept = []
@@ -294,7 +405,9 @@ async def smeter(receiver: Receiver, khz: float, mode: str, seconds: float) -> l
             when = datetime.strptime(m.group(1), "%d-%b-%Y %H:%M:%S").replace(tzinfo=timezone.utc)
             readings.append((when, float(m.group(2))))
     if not readings:
+        note_failed(receiver, "returned no signal readings")
         raise FeedError(f"{receiver.host} returned no signal readings")
+    note_ok(receiver, khz)
     return readings
 
 
