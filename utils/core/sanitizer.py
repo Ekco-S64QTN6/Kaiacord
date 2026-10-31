@@ -43,7 +43,7 @@ RUNTIME_SCAFFOLDING = re.compile(
     # forty lines of article body attributed to the user. 249 such turns hold
     # 29% of all user-turn text in the corpus.
     r"\n*\[(?:CORE_DIRECTIVE|LINKED_WEB_CONTENT|LINKED_MESSAGE_CONTEXT|LINKED_MESSAGE"
-    r"|ATTACHED_EMBED_CONTEXT|SYSTEM WARNING)\b[^\]]*\]"
+    r"|ATTACHED_EMBED_CONTEXT|ATTACHED_FILE_CONTEXT|SYSTEM WARNING)\b[^\]]*\]"
     r"(?:(?!\n\[)[\s\S]*?(?=\n\[|\Z))?",
     re.IGNORECASE,
 )
@@ -73,6 +73,8 @@ def _shared_context_citation(marker: str, block: str) -> str:
         return f"[shared link: {host[:253]}]"
     if marker.upper() == "ATTACHED_EMBED_CONTEXT":
         return "[shared embed]"
+    if marker.upper() == "ATTACHED_FILE_CONTEXT":
+        return "[shared file]"
     if marker.upper() in ("LINKED_MESSAGE_CONTEXT", "LINKED_MESSAGE"):
         return "[shared Discord message]"
     return ""
