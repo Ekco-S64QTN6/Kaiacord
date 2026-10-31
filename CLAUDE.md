@@ -40,6 +40,15 @@ September 2026. Do not re-add a classification model without also consuming its 
 Configuration resolves **environment variables → `config/kaia.yaml` (your overrides) →
 `config/default_config.yaml` (defaults)**. Edit `kaia.yaml`; leave the defaults file alone.
 
+**Three subsystems also run standalone**, in sibling repos that carry byte-identical copies of
+their files: `../KaiaRX` (the radio: `utils/radio/`, KAIA//RX), `../KaiaBooth` (records and the
+DJ booth), `../KaiaStrudel` (live Strudel sets). Each has a `sync.json` listing the shared paths
+and a `sync.py`: work done there comes here with `sync.py push` (then run this suite and commit
+here), and changes made here go there with `sync.py pull`, run in that repo. So a shared file
+must keep working without the bot: an optional Kaiacord-only subsystem is imported inside a
+`try` (or `except ImportError`), as the music already does for the radio and Kaia's mood. Their
+CLAUDE.md files say which files are shared and which are theirs.
+
 ---
 
 ## 2. Running and Validating Code
