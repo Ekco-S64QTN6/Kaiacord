@@ -394,3 +394,21 @@ def test_every_booth_launch_is_counted_so_an_open_page_shows_a_new_portrait(monk
     D.open_window()
     D.open_window()
     assert D._launch == 2 and D.snapshot(None)["launch"] == 2
+
+
+def test_the_booth_opens_in_chromium_before_google_chrome(monkeypatch):
+    """A Chrome flatpak with wrappers on PATH was found first and opened in
+    place of the system Chromium Ekco uses (31 Oct)."""
+    installed = {"google-chrome-stable": "/opt/wrappers/google-chrome-stable",
+                 "google-chrome": "/opt/wrappers/google-chrome", "chromium": "/usr/bin/chromium"}
+    monkeypatch.setattr(D, "_chromium", None)
+    monkeypatch.setattr(D, "_cfg", lambda key, default=None: "" if key == "dj_browser" else default)
+    monkeypatch.setattr(D.shutil, "which", lambda name: installed.get(name))
+    assert D._browser() == "/usr/bin/chromium"
+
+
+def test_a_configured_booth_browser_still_wins(monkeypatch):
+    monkeypatch.setattr(D, "_chromium", None)
+    monkeypatch.setattr(D, "_cfg", lambda key, default=None: "/opt/brave/brave" if key == "dj_browser" else default)
+    monkeypatch.setattr(D.shutil, "which", lambda name: "/usr/bin/" + name)
+    assert D._browser() == "/opt/brave/brave"

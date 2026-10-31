@@ -168,9 +168,16 @@ def test_a_blend_swaps_the_bass_halfway_and_keeps_one_bassline():
     plan = plan_transition(3.0, 1.0, STEADY, 60.0, nxt(), "skip")
     t = np.arange(plan.drop - 1, plan.done + 1, 0.001)
     out_low, out_mid, out_high, in_low, in_mid, in_high = gains(plan, t)
-    assert np.allclose(out_low + in_low, 1.0)                       # never two basslines, never none
+    assert np.allclose(out_low ** 2 + in_low ** 2, 1.0)             # never none: the low end holds its power
     swap = plan.drop + plan.length / 2
-    assert np.all(in_low[t < swap] == 0) and np.all(in_low[t > swap + plan.beat] == 1)
+    w = min(R.BASS_SWAP_BEATS * plan.beat, plan.length / 4)
+    assert np.all(in_low[t < swap] == 0) and np.all(out_low[t < swap] == 1)
+    assert np.allclose(in_low[t > swap + w], 1) and np.allclose(out_low[t > swap + w], 0, atol=1e-12)
+    # Handed over across the window, not switched: halfway through it both basslines
+    # sound at -3 dB, and the window is longer than the one beat that was a switch.
+    mid = np.argmin(np.abs(t - (swap + w / 2)))
+    assert w >= 4 * plan.beat
+    assert in_low[mid] == pytest.approx(np.sqrt(0.5), abs=0.01) and out_low[mid] == pytest.approx(np.sqrt(0.5), abs=0.01)
     assert out_high[t <= plan.drop].min() == 1 and in_high[t >= plan.done].min() == pytest.approx(1)
 
 
@@ -377,8 +384,11 @@ def test_a_blend_comes_in_from_the_top_and_hands_the_vocals_over_at_the_swap():
     assert om == pytest.approx(1) and im == pytest.approx(R.MID_HOLD) and ol == 1 and il == 0
     ol, om, oh, il, im, ih = at(swap)                                  # on the one: halfway through the handoff
     assert om == pytest.approx(0.5, abs=0.01) and im > om
-    ol, om, oh, il, im, ih = at(swap + h / 2 * 1.01)                   # handed over
-    assert om == pytest.approx(0) and im == pytest.approx(1) and ol == 0 and il == 1 and oh == 1
+    ol, om, oh, il, im, ih = at(swap + h / 2 * 1.01)                   # vocals handed over
+    assert om == pytest.approx(0) and im == pytest.approx(1) and oh == 1
+    w = min(R.BASS_SWAP_BEATS * b, plan.length / 4)
+    ol, om, oh, il, im, ih = at(swap + w * 1.01)                       # bass handed over
+    assert ol == pytest.approx(0, abs=1e-9) and il == pytest.approx(1)
     ol, om, oh, il, im, ih = at(plan.drop + 3.5 * q)
     assert 0.1 < oh < 0.9                                              # the outgoing's highs on their way out
     t = np.arange(plan.drop, plan.done, 0.001)
@@ -397,7 +407,8 @@ def test_a_blend_plays_both_records_together_for_half_its_length():
     out_low, out_mid, out_high, in_low, in_mid, in_high = gains(plan, t)
     both = (in_high >= 0.999) & (out_high >= 0.999)
     assert both.tolist() == [False, False, True, True, True, True, True, False, False]
-    assert in_low[t < plan.drop + 2 * q].max() == 0 and out_low[t > plan.drop + 2 * q + plan.beat].max() == 0
+    w = min(R.BASS_SWAP_BEATS * plan.beat, plan.length / 4)
+    assert in_low[t < plan.drop + 2 * q].max() == 0 and out_low[t > plan.drop + 2 * q + w].max() < 1e-9
     assert 0.1 < in_high[1] < 0.9 and 0.1 < out_high[7] < 0.9          # eased in and out, not stepped
 
 
@@ -459,7 +470,7 @@ def test_an_epic_blend_rides_both_records_up_together_for_a_minute():
     ol, om, oh, il, im, ih = gains(plan, t)
     both = (oh > 0.99) & (ih > 0.99) & (np.maximum(om, im) > 0.99)        # both up, one vocal at full
     assert both.sum() * 0.01 >= 60.0
-    assert np.allclose(ol + il, 1.0)                     # one bassline throughout
+    assert np.allclose(ol ** 2 + il ** 2, 1.0)            # the low end's power held throughout
 
 
 def test_a_cue_moved_on_her_own_pick_is_where_it_comes_in():

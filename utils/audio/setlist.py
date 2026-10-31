@@ -426,6 +426,20 @@ def played_seconds(g: dict, path: list, live: dict) -> float:
     return total
 
 
+#: How long a measured pair can blend, as points added to the key and genre
+#: rank (lower is better): 0 for 64 beats or more, 1 for 32, 3 for 16. A 16-beat
+#: blend is ~7.5 s at 128 bpm — highs, bass swap and outgoing all inside two
+#: bars, a swap rather than a blend. 31% of locking pairs lock only there, and
+#: nothing preferred the long ones: 18 of the 24 16-beat end-of-record blends
+#: from 20-31 Oct were pairs that lock no longer. Added to the key rank rather
+#: than ranked ahead of it: ahead, the hour sets went from 88% to 72% key-
+#: compatible steps; added, 81%, with 16-beat steps 34% -> 3% and 64-beat
+#: 41% -> 82% (measured on the 31 Oct graph).
+def blend_rank(edge: Optional[dict]) -> int:
+    beats = (edge or {}).get("beats", 0)
+    return 0 if beats >= 64 else 1 if beats >= 32 else 3
+
+
 def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
     """Sets walked through the graph, about an hour each: every next record a
     measured lock from the one before, no song twice in a set (another file or
@@ -465,7 +479,8 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
             def score(b):
                 step = library.key_step(live[cur].key, live[b].key)
                 ahead = sum(1 for x in edges.get(b, {}) if x not in path)
-                return ((0 if step in (0, 1) else 1 if step == 2 else 2) + (0 if fam[b] == fam[start] else 2),
+                return (blend_rank(edges[cur][b])
+                        + (0 if step in (0, 1) else 1 if step == 2 else 2) + (0 if fam[b] == fam[start] else 2),
                         used.get(b, 0), -min(ahead, 6), rng.random())
             return sorted(out, key=score)[:5]
 

@@ -715,7 +715,8 @@ a mix that sounded wrong:
 - **A blend takes its time and is staged per band** (`gains`): 64 beats by default; the booth offers
   32 / 64 / 256. The incoming comes in with its highs over one `ramp` and its mids held at `MID_HOLD`
   (−14 dB) while the outgoing plays on whole, vocal and all — the *ride*, both up and locked. On the
-  halfway bar the basslines swap (one beat, S-curve) and the mids hand over in `MID_HANDOFF_BEATS` (a bar)
+  halfway bar the basslines hand over equal-power across `BASS_SWAP_BEATS` (two bars, at most a quarter of the
+  blend; one beat was a switch Ekco heard as "way too jerky", 31 Oct) and the mids hand over in `MID_HANDOFF_BEATS` (a bar)
   centred on it, so the
   outgoing's vocal phrase finishes and the incoming's starts on the one; then the outgoing's highs go.
   Until 24 Oct both records' mids sat at 55% through the middle: two vocals stacked, and the outgoing's
@@ -763,6 +764,13 @@ a mix that sounded wrong:
   nowhere goes out on the bar with its last beat (mids and highs) repeating, `ECHO_FEEDBACK` quieter
   each beat, under the incoming's bar one. On 9 Oct, 40 of 71 planned transitions were cuts — 36 of
   them pairs the graph had never measured (skips and hand loads), which nothing tried to rescue.
+- **She picks partners that blend long** (`setlist.blend_rank`). An edge records the longest blend that
+  locked: 31% of locking pairs lock only for 16 beats (~7.5 s at 128 bpm: highs, bass swap and outgoing
+  inside two bars — a swap, not a blend). Nothing preferred the long ones, and a third of the hour sets'
+  transitions were 16-beat ("mixes into the next song super quick", 31 Oct). The blend's length is
+  *added* to the key and genre rank (64 beats 0, 32 1, 16 3), in the sets and in `_partner`: ranked
+  ahead of key instead, compatible key steps fell from 88% to 72%; added, 81%, with 16-beat steps
+  34% → 3% and 64-beat 41% → 82%. After changing it, `records_graph.py --sets-only --apply`.
 - **She picks partners that lock** (`setlist`). `memory/records/graph.json` holds every tempo-compatible
   pair measured with `find_blend` at the outgoing's end; it is extended, never rebuilt — a new or changed
   record costs its own pairs (a file only retagged keeps them: `library.audio_signature` hashes the
@@ -884,8 +892,11 @@ title and window class, no browser around it. Chrome's app mode is the fallback 
 missing. WebKit's DMA-BUF renderer is off (`WEBKIT_DISABLE_DMABUF_RENDERER`): on this NVIDIA driver
 under Wayland it closed the window at once with a protocol error. WebKitGTK plays every sound through a
 GStreamer audio sink from `gst-plugins-good`; without it the window opened and played nothing (the
-receiver's monitor, the booth's PHONES), so `available()` also requires `autoaudiosink` and Chrome is used
-otherwise. The monitor plays through Web Audio and falls back to an endless WAV (`/monitor.wav`).
+receiver's monitor, the booth's PHONES), so `available()` also requires `autoaudiosink` and a browser is
+used otherwise. **On Ekco's machine `gst-plugins-good` is not installed (31 Oct), so both dashboards open in
+the browser fallback.** The booth's fallback (`dj_dashboard._browser`) tries Chromium, then Brave, then
+Google Chrome: Chrome came first, and a Chrome flatpak with wrappers in `~/.local/bin` was opened in place
+of the system Chromium Ekco uses. The monitor plays through Web Audio and falls back to an endless WAV (`/monitor.wav`).
 
 Records, a live set and the radio share one voice connection: whichever starts stops the others
 without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the channel it was
@@ -1056,8 +1067,10 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   runs. Kaia herself is the shared codec avatar in `assets/kaia-avatar/` (served at `/kaia/`; the
   same engine as Kaia's and Kaiagotchi's dashboards — keep the copies identical (Kaiagotchi's is
   `kaiagotchi/ui/web/static/js/kaia/`; change the engine in both, byte for byte), put states in the
-  page via `KaiaAnimator.registerMood`). Both pages mount her with `portrait: "random"` — one of
-  `KaiaCodec.PORTRAITS`, never the one that browser showed last (`KaiaCodec.randomPortrait`) — and every
+  page via `KaiaAnimator.registerMood`). Both pages mount her with `portrait: "random"` — the next of
+  `KaiaCodec.PORTRAITS` in a shuffled rotation, every one once before any repeats, a new shuffle never
+  opening on the last (`KaiaCodec.randomPortrait`; it was "any but the last", which Ekco saw as the same
+  face every launch; `test_kaia_avatar_portraits.py` runs the real file under Node) — and every
   launch (`open_window`, i.e. each `!music records` and `!scanner dash`) bumps `launch` in the page's
   stream; an open page reloads when it changes, because the window is usually reused, not reopened. `tools/maintenance/rx_preview.py` runs the real `Watcher`
   against a simulated sky in real time and serves the page — use it to look at a change, not the bot.

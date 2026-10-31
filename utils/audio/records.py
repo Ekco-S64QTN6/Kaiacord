@@ -577,14 +577,23 @@ MID_HOLD = 0.2
 MID_HANDOFF_BEATS = 4.0
 
 
+#: The basslines hand over across this many beats, starting on the halfway bar
+#: (where `bass_entry` puts the incoming's bassline), equal-power, and at most a
+#: quarter of the blend. One beat was a switch — the old bass gone and the new one
+#: in within half a second — which Ekco heard as "way too jerky" (31 Oct).
+#: Equal-power, not complementary amplitude: two different basslines add by
+#: power, and a linear pair dipped the low end 3 dB at its middle.
+BASS_SWAP_BEATS = 8.0
+
+
 def gains(plan: Plan, t: np.ndarray) -> tuple:
     """(outgoing low, mid, high, incoming low, mid, high) gains at times t.
 
     A blend staged the way DJs ride an EQ mix: the incoming record comes in
     with its highs (hats, percussion) over the first ramp and its mids held at
     MID_HOLD, while the outgoing plays on whole, vocal and all — the ride, both
-    up and locked. On the bar halfway the basslines swap over one beat (never
-    two, never none) and the mids hand over in MID_HANDOFF_BEATS around it, so
+    up and locked. From the bar halfway the basslines hand over equal-power across
+    BASS_SWAP_BEATS (never none) and the mids hand over in MID_HANDOFF_BEATS around it, so
     the outgoing's vocal phrase finishes and the incoming's starts on the one;
     two vocals never play together at full. Then the outgoing's highs go over
     the last ramp. `ramp` is a quarter of a short blend, an eighth of a long one."""
@@ -613,8 +622,10 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
     L, d = plan.length, plan.drop
     r = ramp(plan)
     swap = d + L / 2
-    # The basslines change over one beat on an S-curve, not a straight line.
-    bass = _ease((t - swap) / plan.beat)
+    # The basslines hand over from the swap bar across BASS_SWAP_BEATS, equal-power.
+    w = max(plan.beat, min(BASS_SWAP_BEATS * plan.beat, L / 4))
+    x = _ease((t - swap) / w)
+    out_low, in_low = np.cos(x * np.pi / 2), np.sin(x * np.pi / 2)
     in_high = _ease((t - d) / r)
     # The vocals change hands around the swap; until then the incoming's mids
     # wait at MID_HOLD, brought up with its highs.
@@ -623,7 +634,7 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
     in_mid = MID_HOLD * _ease((t - d) / r) * (1 - handoff) + handoff
     out_mid = 1.0 - handoff
     out_high = 1.0 - _ease((t - (d + L - r)) / r)
-    return 1.0 - bass, out_mid, out_high, bass, in_mid, in_high
+    return out_low, out_mid, out_high, in_low, in_mid, in_high
 
 
 def as_echo(plan: Plan) -> Plan:
@@ -2131,7 +2142,9 @@ class RecordsSession:
         else:
             self.set_list = next((s for s in self.graph.get("sets", []) if deck.record.path in s), self.set_list)
         onward = lambda p: len([x for x in setlist.partners(self.graph, p) if x not in played])
-        options.sort(key=lambda p: ({0: 0, 1: 0, 2: 1}.get(library.key_step(deck.record.key, self._by_path[p].key), 2),
+        # How long the pair can blend counts with the key, as it does in the sets.
+        options.sort(key=lambda p: (setlist.blend_rank(nbrs.get(p))
+                                    + {0: 0, 1: 0, 2: 1}.get(library.key_step(deck.record.key, self._by_path[p].key), 2),
                                     -min(onward(p), 6), self._rng.random()))
         for path in options[:4]:
             rec = self._by_path[path]
