@@ -95,15 +95,33 @@ class KaiaCodec {
 KaiaCodec.PORTRAITS = ['k60', 'k59', 'k28', 't1', 't2', 't3'];
 KaiaCodec.DEFAULT_PORTRAIT = 'k60';
 
-/** One of PORTRAITS at random, never the one last shown in this browser
- *  (remembered under `key`; storage may be unavailable, so best effort). */
+/** The next of PORTRAITS in a shuffled rotation: every one shown once before
+ *  any repeats, and a new shuffle never opens on the one just shown. "Any but
+ *  the last" was random, not a rotation — t3, t2, t1, k59, t2 over five booth
+ *  launches, and A-B-A runs often — so some faces came round again and again
+ *  while others rarely did. Remembered under `key` (last shown) and `key`-bag
+ *  (still to come); storage may be unavailable, so best effort. */
 KaiaCodec.randomPortrait = function (key = 'kaia-codec-portrait') {
   const all = KaiaCodec.PORTRAITS;
-  let last = null;
-  try { last = localStorage.getItem(key); } catch (e) { /* no storage */ }
-  const pool = all.length > 1 ? all.filter((p) => p !== last) : all;
-  const pick = pool[Math.floor(Math.random() * pool.length)];
-  try { localStorage.setItem(key, pick); } catch (e) { /* no storage */ }
+  let last = null, bag = [];
+  try {
+    last = localStorage.getItem(key);
+    bag = JSON.parse(localStorage.getItem(`${key}-bag`) || '[]');
+  } catch (e) { /* no storage, or a bad bag */ }
+  bag = Array.isArray(bag) ? bag.filter((p) => all.includes(p)) : [];
+  if (!bag.length) {
+    bag = all.slice();
+    for (let i = bag.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [bag[i], bag[j]] = [bag[j], bag[i]];
+    }
+    if (bag.length > 1 && bag[0] === last) bag.push(bag.shift());
+  }
+  const pick = bag.shift();
+  try {
+    localStorage.setItem(key, pick);
+    localStorage.setItem(`${key}-bag`, JSON.stringify(bag));
+  } catch (e) { /* no storage */ }
   return pick;
 };
 

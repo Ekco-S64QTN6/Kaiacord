@@ -522,7 +522,9 @@ _chromium: Optional[str] = None
 
 def _browser() -> Optional[str]:
     """The browser the booth opens in: `music.dj_browser` if set, else an
-    installed Chrome, Chromium, Brave or Edge, else Playwright's Chromium.
+    installed Chromium, Brave, Chrome or Edge — Chromium first: Ekco runs it
+    instead of Google's build, and a Chrome flatpak with wrappers on PATH was
+    found first and opened instead (31 Oct) — else Playwright's Chromium.
     Playwright's build is Chrome for Testing, which pins a "for testing"
     banner across the top of the window; a normal browser in app mode shows
     none."""
@@ -530,8 +532,8 @@ def _browser() -> Optional[str]:
     if _chromium is None:
         chosen = str(_cfg("dj_browser", "") or "").strip()
         if not chosen:
-            for name in ("google-chrome-stable", "google-chrome", "chromium", "chromium-browser",
-                         "brave-browser", "brave", "microsoft-edge-stable"):
+            for name in ("chromium", "chromium-browser", "brave-browser", "brave",
+                         "google-chrome-stable", "google-chrome", "microsoft-edge-stable"):
                 chosen = shutil.which(name) or ""
                 if chosen:
                     break
