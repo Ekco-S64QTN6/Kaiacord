@@ -1019,6 +1019,18 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   silence count, so it held the watch the whole minute and was reported as something keying up. A hold
   whose squelch has not opened in `PULSED_DECIDE_S` (4 s) is released and its own channel left alone
   for 5 minutes, doubling on return; channels configured `mode: digital` are exempt.
+- **RF without an FM carrier is locked out the same way.** A hold with under `STATIC_CARRIER_S` (0.1 s)
+  of carrier — the noise classification's own threshold (`scanner.STATIC_BELOW_S` is it) — got the
+  plain 3 s cooldown and came back every pass: 464.9625 750 times in ten nights, the 902–928 MHz hoppers
+  2,252 times in a month with no voice or data. It now takes the pulse train's lockout.
+
+**KiwiSDR receivers are judged by what they sent us, not by the directory.** `kiwi.py` keeps
+`memory/radio/kiwi_health.json`, fed by every `record`, `smeter` and live stream: digital silence on an
+unsquelched recording benches that receiver on that frequency for 14 days (the two best north-eastern
+receivers muted 4625 kHz for API clients from Oct 2026 while their S-meter read the buzz); a refusal,
+early stop or empty S-meter benches the host for 6 h, doubling; `choose()` skips benched receivers and
+ranks one that has worked before 6 dB up. A squelched recording with no openings is a quiet band, not a
+mute, and is not judged.
 - **A constant carrier is locked out, and the lockout grows.** A full-minute hold that is not speech
   locks ±75 kHz (drifting carriers wandered 55–130 kHz and cost a minute a step) for 30 minutes,
   doubling on each return to 4 h. That reach is a trade-off: roadmap R5d.
