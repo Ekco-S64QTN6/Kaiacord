@@ -926,6 +926,26 @@ def test_an_ellipsis_after_a_word_no_sentence_ends_on_joins_the_clause():
     assert E.repair_cut_ellipsis(kept) == kept
 
 
+def test_an_ellipsis_after_a_preposition_or_comparative_joins_the_clause():
+    """Sent on 31 Oct: "a more. immediate connection", "feel less. pointless" —
+    the raw replies had "more… immediate" and "less… pointless"."""
+    from utils.core.response_filter import EmergencyContaminationFilter as E
+    cases = {
+        "a more… immediate connection.": "a more immediate connection.",
+        "it makes it feel less… pointless.": "it makes it feel less pointless.",
+        "a normalization of… something.": "a normalization of something.",
+        "feeling a little… reflective.": "feeling a little reflective.",
+        "from the… everything.": "from the everything.",
+    }
+    for raw, sent in cases.items():
+        assert E.defuse_ellipsis_affect(raw) == sent
+    # A capital after the ellipsis starts a new sentence, and a word that can
+    # end one still becomes a full stop.
+    assert E.defuse_ellipsis_affect("i thought about it more… The rain stopped.") == \
+        "i thought about it more. The rain stopped."
+    assert E.defuse_ellipsis_affect("i'm not sure… maybe tomorrow.") == "i'm not sure. maybe tomorrow."
+
+
 def test_a_litany_of_fragments_keeps_its_first_two():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
     text = ("a pattern identified. a tendency observed. a habit acknowledged. a coping mechanism. "
