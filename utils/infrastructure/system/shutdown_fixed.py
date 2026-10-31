@@ -174,13 +174,20 @@ class CleanShutdown:
         if self.rag:
             try:
                 log_info("  💾 Persisting RAG indices...")
-                # Use async-friendly wait to prevent event loop stall
+                # Only what changed since the last save: every change is saved
+                # when it is made, and rewriting all indices (~170 MB) here took
+                # long enough to be cut short by a second signal.
                 try:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(self.rag.persist, True), 
+                    saved = await asyncio.wait_for(
+                        asyncio.to_thread(lambda: self.rag.persist(shutdown=True)),
                         timeout=15.0
                     )
-                    log_success("  ✅ RAG indices saved")
+                    if saved is None:
+                        log_info("  ✅ RAG indices already on disk (nothing changed since the last save)")
+                    elif saved:
+                        log_success("  ✅ RAG indices saved")
+                    else:
+                        log_warning("  ⚠️ RAG indices NOT fully saved (see the error above)")
                 except asyncio.TimeoutError:
                     log_warning("  ⚠️ RAG persistence taking too long, continuing...")
             except Exception as e:

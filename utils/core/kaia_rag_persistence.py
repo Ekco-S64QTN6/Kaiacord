@@ -361,9 +361,9 @@ class RAGPersistenceMixin:
             "top_sources": source_counts.most_common(10),
         }
 
-    async def persist_async(self, force: bool = False):
+    async def persist_async(self, force: bool = False, shutdown: bool = False) -> Optional[bool]:
         """Async wrapper for persist."""
-        await asyncio.to_thread(self.persist, force)
+        return await asyncio.to_thread(self.persist, force, shutdown)
 
     def _persist_index_atomic(self, itype: str) -> None:
         """Write one index beside its directory, then swap it in.
@@ -398,18 +398,26 @@ class RAGPersistenceMixin:
                 log_error(f"Could not restore {itype} index from {old_dir}: {restore_err}")
             raise
 
-    def persist(self, force: bool = False):
-        """Persist all hierarchical indices to storage if needed."""
-        # REQUIREMENT: Never wait on locks during shutdown
+    def persist(self, force: bool = False, shutdown: bool = False) -> Optional[bool]:
+        """Persist all hierarchical indices to storage if needed.
+
+        Returns True when every index was written, False when a write failed or
+        the lock could not be had, None when nothing was waiting to be saved.
+        `force` rewrites every index even if none changed. `shutdown` only
+        shortens the lock wait: every change is saved when it is made
+        (`_persist_updated_indices`), so a clean index is already on disk, and
+        rewriting all of them on the way out (the knowledge store alone is
+        ~170 MB, 8 s+) is what a second signal cut short on 31 Oct 2026.
+        """
         if not force and not self.persist_needed:
-            return
-            
-        # REQUIREMENT: Never wait indefinitely on locks during shutdown
-        lock_timeout = 5.0 if force else 30.0
+            return None
+
+        # Never wait long on the lock during shutdown.
+        lock_timeout = 5.0 if (force or shutdown) else 30.0
         acquired = self._data_lock.acquire(timeout=lock_timeout)
         if not acquired:
-            log_error(f"Failed to acquire data lock for RAG persistence{' (SHUTDOWN)' if force else ''}")
-            return
+            log_error(f"Failed to acquire data lock for RAG persistence{' (SHUTDOWN)' if (force or shutdown) else ''}")
+            return False
 
         persisted, failed = [], []
         try:
@@ -434,7 +442,8 @@ class RAGPersistenceMixin:
                 f"RAG persistence partial: {', '.join(persisted) or 'none'} saved; "
                 f"FAILED {', '.join(failed)}. Staying dirty so the next pass retries."
             )
-            return
+            return False
 
         self.persist_needed = False
         log_success(f"RAG indices persisted ({len(persisted)}).")
+        return True
