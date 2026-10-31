@@ -24,6 +24,12 @@ RELATED_TESTS = {
     **{f"finetune/{name}": ("tools/tests/unit/test_finetune_dataset.py",)
        for name in ("kaia_quality.py", "01_convert_logs.py", "01f_check_dataset.py",
                     "05c_evaluate_persona.py")},
+    "utils/core/response_filter.py": (
+        "tools/tests/unit/test_response_filters.py",
+        "tools/tests/unit/test_ellipsis_salvage.py",
+    ),
+    "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py",),
+    "utils/infrastructure/system/shutdown_fixed.py": ("tools/tests/unit/test_telemetry_honesty.py",),
     "utils/core/context_enricher.py": (
         "tools/tests/unit/test_context_enricher_files.py",
         "tools/tests/unit/test_context_enricher_links.py",
