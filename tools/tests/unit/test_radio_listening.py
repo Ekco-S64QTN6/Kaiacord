@@ -329,6 +329,8 @@ def test_a_failed_voice_join_closes_the_receiver_stream(monkeypatch):
     monkeypatch.setattr(kiwi, "choose", lambda *a, **k: [rec])
     monkeypatch.setattr(kiwi, "open_stream", lambda *a: MagicMock())
     monkeypatch.setattr(kiwi, "first_audio", lambda p: True)
+    monkeypatch.setattr(live, "_read_up_to", lambda pipe, n, timeout: b"\x00\x10" * 100)
+    monkeypatch.setattr(kiwi, "note_ok", lambda *a: None)
     monkeypatch.setattr(kiwi, "close_stream", lambda p: closed.append(p))
     monkeypatch.setattr(live, "free_voice", AsyncMock())
     channel = MagicMock()
@@ -346,11 +348,15 @@ out = args[args.index("-d") + 1]
 if "--crash" in open(os.path.join(os.path.dirname(__file__), "mode")).read():
     print("FileNotFoundError: no such directory", file=sys.stderr)
     sys.exit(0)
-with open(os.path.join(out, "20260925T000000Z_8423000_e11_usb.wav"), "wb") as f:
-    f.write(b"\\0" * 12000 * 2 * 5)
+import wave
+def _wav(name, seconds):
+    # Real audio, not zeros: digital silence is a muted receiver (kiwi.is_silent).
+    with wave.open(os.path.join(out, name), "wb") as f:
+        f.setnchannels(1); f.setsampwidth(2); f.setframerate(12000)
+        f.writeframes(b"\\x00\\x10" * 12000 * seconds)
+_wav("20260925T000000Z_8423000_e11_usb.wav", 5)
 if "--short" in open(os.path.join(os.path.dirname(__file__), "mode")).read():
-    with open(os.path.join(out, "20260925T000100Z_8423000_e11_usb.wav"), "wb") as f:
-        f.write(b"\\0" * 12000 * 2 * 1)
+    _wav("20260925T000100Z_8423000_e11_usb.wav", 1)
 '''
 
 

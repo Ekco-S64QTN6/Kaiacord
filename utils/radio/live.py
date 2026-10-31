@@ -32,15 +32,37 @@ STALL_S = 30
 
 class _CountingReader:
     """The stream's stdout, remembering when audio last arrived."""
-    def __init__(self, raw):
+    def __init__(self, raw, prefix: bytes = b""):
         self.raw = raw
+        self.prefix = prefix          # audio read while checking the stream, played first
         self.last = time.time()
 
     def read(self, n=-1):
+        if self.prefix:
+            data, self.prefix = (self.prefix, b"") if n < 0 or n >= len(self.prefix) \
+                else (self.prefix[:n], self.prefix[n:])
+            return data
         data = self.raw.read(n)
         if data:
             self.last = time.time()
         return data
+
+
+def _read_up_to(pipe, n: int, timeout: float) -> bytes:
+    """Up to n bytes from a pipe within `timeout` seconds (fewer if it stalls)."""
+    import os
+    import select
+    out, end = b"", time.time() + timeout
+    fd = pipe.fileno()
+    while len(out) < n:
+        left = end - time.time()
+        if left <= 0 or not select.select([fd], [], [], left)[0]:
+            break
+        chunk = os.read(fd, n - len(out))
+        if not chunk:
+            break
+        out += chunk
+    return out
 
 
 @dataclass
@@ -100,17 +122,29 @@ async def start(channel, khz: float, mode: str, region: str, label: str, request
         raise RuntimeError(f"no free receiver covers {khz:g} kHz right now")
     # Join voice only once a receiver is actually sending audio: one that
     # accepts the connection and never streams played silence into the channel.
+    # A receiver that muted the frequency for API clients streams zeros at once,
+    # so the first second is checked too and played afterwards.
     proc = receiver = None
+    head = b""
     for r in receivers:
         p = kiwi.open_stream(r, khz, mode)
         if await asyncio.to_thread(kiwi.first_audio, p):
-            proc, receiver = p, r
-            break
-        log_debug(f"[radio] {r.host} sent no audio; trying the next receiver")
+            head = await asyncio.to_thread(_read_up_to, p.stdout, kiwi.SAMPLE_RATE * 2, 4.0)
+            if head and not kiwi.silent_pcm(head):
+                proc, receiver = p, r
+                kiwi.note_ok(r, khz)
+                break
+            if head:
+                kiwi.note_silent(r, khz)
+            else:
+                kiwi.note_failed(r, "stream stalled after connecting")
+        else:
+            kiwi.note_failed(r, "sent no audio")
+        log_debug(f"[radio] {r.host} sent no usable audio; trying the next receiver")
         kiwi.close_stream(p)
     if proc is None:
         raise RuntimeError(f"none of {len(receivers)} receivers sent audio on {khz:g} kHz")
-    reader = _CountingReader(proc.stdout)
+    reader = _CountingReader(proc.stdout, prefix=head)
     try:
         # stderr to /dev/null: left alone, ffmpeg inherits the bot's real terminal
         # (fd 2, beneath the logging redirect) and its warnings land on the curses
