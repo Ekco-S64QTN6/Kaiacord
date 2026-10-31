@@ -350,7 +350,11 @@ async def start_session(channel, *, genre: str, requested_by: str,
         # to music: one voice connection per guild, and a second play() raises.
         try:
             from utils.radio import live
-            await live.free_voice(channel.guild)
+        except ImportError:
+            live = None                   # no radio in this install (KaiaStrudel): nothing to stop
+        try:
+            if live is not None:
+                await live.free_voice(channel.guild)
         except Exception as e:
             log_error(f"[music] could not stop the radio: {e}")
 
