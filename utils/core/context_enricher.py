@@ -18,6 +18,53 @@ CACHE_MAX_ENTRIES = 256
 QUOTED_EMBED_CHARS = 4000
 _TRAILING_PUNCT = '.,;:!?)]}\'"'
 
+# A text attachment is read into the prompt the way a linked page is. Discord
+# turns any paste over its message limit into "message.txt", so this is the
+# ordinary case, not an upload edge case. Without it a file was invisible and
+# a "summarize this" turn answered from whatever RAG happened to retrieve.
+MAX_FILE_BYTES = 1_000_000
+# ~4k tokens: room beside an ~11k-token system prompt within num_ctx.
+FILE_PROMPT_CHARS = 16_000
+MAX_FILES_PER_MESSAGE = 3
+# "summarize this file" sent after the file, in its own message.
+FILE_LOOKBACK_MESSAGES = 5
+FILE_LOOKBACK_SECONDS = 15 * 60
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+_TEXT_SUFFIXES = frozenset((
+    ".txt", ".md", ".markdown", ".rst", ".log", ".csv", ".tsv", ".json", ".jsonl",
+    ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".xml", ".html", ".htm",
+    ".srt", ".vtt", ".py", ".js", ".ts", ".sh", ".bash", ".c", ".h", ".cpp",
+    ".hpp", ".rs", ".go", ".java", ".kt", ".lua", ".rb", ".php", ".sql", ".css",
+    ".diff", ".patch",
+))
+_TEXT_CONTENT_TYPES = frozenset((
+    "application/json", "application/xml", "application/x-yaml", "application/yaml",
+    "application/toml", "application/javascript", "application/x-sh",
+    "application/sql", "application/x-subrip",
+))
+_FILE_REFERENCE = re.compile(
+    r"\b(?:file|attach(?:ed|ment)?|txt|document|paste|summari[sz]e|tl;?dr"
+    r"|read\s+(?:this|that|it))\b",
+    re.IGNORECASE,
+)
+# The pipeline splits enriched text on these markers, and RUNTIME_SCAFFOLDING
+# ends a block at the next line that opens with "[". File text is the sender's;
+# neither may be able to steer either.
+_MARKER_IN_FILE = re.compile(
+    r"\[(?=(?:USER_MESSAGE|REPLYING_TO|ORIGINAL_POST|CORE_DIRECTIVE|LINKED_|ATTACHED_"
+    r"|SYSTEM WARNING|VISUAL GROUNDING)\b)",
+    re.IGNORECASE,
+)
+
+
+def _human_size(size: int) -> str:
+    return f"{size} bytes" if size < 1024 else f"{size / 1024:.0f} KB"
+
+
+def _neutralise_markers(text: str) -> str:
+    text = _MARKER_IN_FILE.sub("(", text)
+    return re.sub(r"(?m)^\[", " [", text)
+
 
 class ContextEnricher:
     """
@@ -61,7 +108,12 @@ class ContextEnricher:
         embed_text = self.extract_embed_text(msg)
         if embed_text:
             content += f"\n\n[ATTACHED_EMBED_CONTEXT]\n{embed_text}"
-            
+
+        # 3b. Read attached text files (images go to the vision path instead)
+        file_text = await self.resolve_file_attachments(msg)
+        if file_text:
+            content += f"\n\n[ATTACHED_FILE_CONTEXT]\n{file_text}"
+
         # 4. Resolve Links
         linked_context = await self.resolve_message_links(msg)
         if linked_context:
@@ -193,6 +245,92 @@ class ContextEnricher:
             if name in known:
                 return first
         return None
+
+    @staticmethod
+    def _file_attachments(m) -> list:
+        """Attachments that are not images and can be downloaded (forum mocks cannot)."""
+        out = []
+        for att in getattr(m, "attachments", None) or []:
+            name = (getattr(att, "filename", "") or "").lower()
+            ctype = (getattr(att, "content_type", None) or "").split(";")[0].strip().lower()
+            if name.endswith(_IMAGE_SUFFIXES) or ctype.startswith("image/"):
+                continue
+            if not callable(getattr(att, "read", None)):
+                continue
+            out.append(att)
+        return out
+
+    async def resolve_file_attachments(self, msg) -> str:
+        """The text of files attached to this message — or, when the message asks
+        about a file it does not carry, to the message it replies to or to the
+        author's own recent messages."""
+        attachments = self._file_attachments(msg)
+
+        if not attachments and getattr(msg, "reference", None) is not None:
+            try:
+                target = msg.reference.resolved
+                if not isinstance(target, discord.Message) and msg.reference.message_id:
+                    target = await msg.channel.fetch_message(msg.reference.message_id)
+                if target is not None:
+                    attachments = self._file_attachments(target)
+            except Exception as e:
+                log_debug(f"Could not read replied-to attachments: {e}")
+
+        if (not attachments and _FILE_REFERENCE.search(getattr(msg, "content", "") or "")
+                and hasattr(getattr(msg, "channel", None), "history")):
+            try:
+                created = getattr(msg, "created_at", None)
+                async for prev in msg.channel.history(limit=FILE_LOOKBACK_MESSAGES, before=msg):
+                    if getattr(prev.author, "id", None) != getattr(msg.author, "id", None):
+                        continue
+                    if created and prev.created_at and \
+                            (created - prev.created_at).total_seconds() > FILE_LOOKBACK_SECONDS:
+                        break
+                    found = self._file_attachments(prev)
+                    if found:
+                        attachments = found
+                        break
+            except Exception as e:
+                log_debug(f"Could not scan recent messages for attachments: {e}")
+
+        blocks = []
+        for att in attachments[:MAX_FILES_PER_MESSAGE]:
+            block = await self._read_text_attachment(att)
+            if block:
+                blocks.append(block)
+        return "\n\n".join(blocks)
+
+    async def _read_text_attachment(self, att) -> str:
+        """One attachment as a block: a header line, then its text — or a plain
+        statement that its contents are unknown, so nothing invites a guess."""
+        name = getattr(att, "filename", "") or "file"
+        size = int(getattr(att, "size", 0) or 0)
+        ctype = (getattr(att, "content_type", None) or "").split(";")[0].strip().lower()
+        header = f"File: {name} ({_human_size(size)})"
+        suffix = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        textual = (ctype.startswith("text/") or ctype in _TEXT_CONTENT_TYPES
+                   or suffix in _TEXT_SUFFIXES)
+        if not textual:
+            kind = ctype or (suffix.lstrip(".") + " file" if suffix else "unknown type")
+            return f"{header}\nContents unknown: only plain-text files can be read, and this is {kind}."
+        if size > MAX_FILE_BYTES:
+            return f"{header}\nContents unknown: larger than {_human_size(MAX_FILE_BYTES)}, not read."
+        try:
+            data = await att.read()
+        except Exception as e:
+            log_warning(f"Could not download attachment ({_human_size(size)}): {e}")
+            return f"{header}\nContents unknown: the download failed."
+        if b"\x00" in data[:8192]:
+            return f"{header}\nContents unknown: it is binary, not text."
+        text = data.decode("utf-8-sig", errors="replace").strip()
+        if not text:
+            return f"{header}\nThe file is empty."
+        note = ""
+        if len(text) > FILE_PROMPT_CHARS:
+            note = f" — first {FILE_PROMPT_CHARS:,} of {len(text):,} characters"
+            text = text[:FILE_PROMPT_CHARS]
+        log_debug(f"Read text attachment: {_human_size(size)}, {len(text):,} chars into the prompt.")
+        return f"{header}{note}\n{_neutralise_markers(text)}"
 
     async def resolve_replies(self, msg: discord.Message) -> str:
         """Fetch the content of the message being replied to."""

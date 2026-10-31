@@ -563,6 +563,27 @@ called a bat, a kintsugi bowl called a globe, a bus emergency hammer called a ye
 each stated with full confidence, and that is what stopped the operator trusting the answer. The
 prompt asks her to name only what she can make out and to hedge rather than commit.
 
+### Files
+
+Text attachments are read by `ContextEnricher.resolve_file_attachments()` and reach the prompt as an
+`[ATTACHED_FILE_CONTEXT]` block (header line `File: <name> (<size>)`, then the text, up to
+`FILE_PROMPT_CHARS`). Discord turns any paste over its message limit into `message.txt`, so this is
+the common case. Until 30 Oct no non-image attachment was read at all: asked to "summarize this
+file", she summarised whatever RAG retrieved — an Oct 16 news brief, under a made-up `[file: …]`
+header. Rules that keep it safe, each with a test in `test_context_enricher_files.py`:
+
+- **The block is scaffolding, never the user's words.** `ATTACHED_FILE_CONTEXT` is in
+  `RUNTIME_SCAFFOLDING`; the user log and channel history keep only `[shared file]`. Without the
+  marker there, `sanitize_prompt` also cut the file at 2,000 characters with the typed text.
+- **File text cannot end or forge a block.** `RUNTIME_SCAFFOLDING` ends a block at the next line
+  opening with `[` (log timestamps, INI sections), which would leak the rest of the file into the
+  transcript and the fine-tune corpus; such lines are indented by a space, and pipeline markers
+  inside the text (`[USER_MESSAGE]` …) are defused.
+- **What cannot be read says so.** A PDF, archive, binary, or oversized file arrives as
+  `Contents unknown: …` — a fact, not an instruction, so she has nothing to guess from.
+- **"summarize this file" after the file** finds it on the replied-to message, or on the author's
+  own last 5 messages within 15 minutes. Images are not handled here; they stay on the vision path.
+
 ### Persona grounding facts
 
 - Ekco's **Lucky**, Starkind's **Nala** and **Marley** are living biological cats. Kaia's
