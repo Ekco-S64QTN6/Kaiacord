@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bring the scanner's ledger up to how catches are judged now.
 
-Two repairs, each a dry run unless --apply:
+Three repairs, each a dry run unless --apply:
 
   --clips   Every carrier catch that kept a clip is transcribed the way
             `scanner.classify` now would. Words: the catch becomes voice; a
@@ -15,6 +15,8 @@ Two repairs, each a dry run unless --apply:
             one (`ledger.merge`): pairs where both rows hold voice, and with
             --carriers a voiceless row beside one SHADOW_RATIO times busier.
             `--pair SRC=DST` (MHz) adds a pair measured some other way.
+  --streets Dispatch transcripts' misheard street names put right against
+            memory/radio/streets.json (`fetch_street_names.py`).
 
     python tools/maintenance/ledger_repair.py --clips --merge            # what it would do
     python tools/maintenance/ledger_repair.py --clips --merge --apply
@@ -138,6 +140,21 @@ def repair_splits(extra: list[tuple[int, int]], apply: bool, carriers: bool = Fa
     return len(pairs)
 
 
+def repair_streets(apply: bool) -> int:
+    """Voice transcripts on dispatch channels, street names put right as
+    classify now would (`scanner.fix_streets`)."""
+    from utils.radio import ledger, scanner
+    n = 0
+    for e in ledger.events_since(0, ("voice",)):
+        fixed = scanner.fix_streets(e.get("transcript") or "", e["freq_hz"])
+        if fixed != (e.get("transcript") or ""):
+            n += 1
+            print(f"streets {e['freq_hz'] / 1e6:.5f}  {fixed[:110]!r}")
+            if apply:
+                ledger.set_transcript(e["id"], fixed)
+    return n
+
+
 def _pair(text: str) -> tuple[int, int]:
     a, b = text.split("=")
     return round(float(a) * 1e6), round(float(b) * 1e6)
@@ -147,14 +164,16 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--clips", action="store_true", help="transcribe kept carrier clips; relabel or drop")
     ap.add_argument("--merge", action="store_true", help="fold split rows into one")
+    ap.add_argument("--streets", action="store_true",
+                    help="put misheard street names right in dispatch transcripts (needs streets.json)")
     ap.add_argument("--carriers", action="store_true",
                     help="with --merge: also voiceless rows beside one SHADOW_RATIO times busier")
     ap.add_argument("--pair", action="append", default=[], type=_pair, metavar="SRC=DST",
                     help="also merge this pair (MHz), e.g. 464.34375=464.3375")
     ap.add_argument("--apply", action="store_true", help="write; without it, only report")
     a = ap.parse_args(argv)
-    if not (a.clips or a.merge):
-        ap.error("nothing to do: give --clips and/or --merge")
+    if not (a.clips or a.merge or a.streets):
+        ap.error("nothing to do: give --clips, --merge and/or --streets")
     if a.apply:
         from utils.radio import scanner
         if scanner.within_hours():
@@ -165,6 +184,9 @@ def main(argv=None) -> int:
     if a.merge:
         n = repair_splits(a.pair, a.apply, a.carriers)
         print(("merged" if a.apply else "would merge") + f" {n} pair(s)")
+    if a.streets:
+        n = repair_streets(a.apply)
+        print(("corrected" if a.apply else "would correct") + f" street names in {n} transcript(s)")
     return 0
 
 

@@ -284,6 +284,18 @@ def _transcribe(audio, speech_only: bool = True, freq_hz: int = 0, any_language:
 ANY_LANGUAGE_MIN_WORDS = 6
 
 
+def fix_streets(text: str, freq_hz: int) -> str:
+    """Misheard street names in a dispatch transcript put right against the
+    local street list (`streets.correct`); ham bands are left as heard."""
+    if prompt_for(freq_hz) != DISPATCH_PROMPT:
+        return text
+    from utils.radio import streets
+    fixed, changes = streets.correct(text)
+    if changes:
+        log_debug(f"[scanner] streets on {freq_hz / MHZ:.4f}: " + ", ".join(f"{h} → {f}" for h, f in changes))
+    return fixed
+
+
 def hear(audio, freq_hz: int, speechlike: bool) -> str:
     """What Whisper hears in a catch, as classify takes it. The strict pass;
     for a speech-like catch it found nothing in, the plain pass (some real
@@ -485,7 +497,7 @@ def classify(catch) -> None:
             _transcribed[allowance] = _transcribed.get(allowance, 0) + 1
         text = hear(catch.audio, catch.freq_hz, speechlike)
         if looks_like_speech(text):
-            kind, transcript = "voice", text
+            kind, transcript = "voice", fix_streets(text, catch.freq_hz)
         said = text
     if kind == "data":
         # APRS packets and pages, when multimon-ng is installed (utils/radio/decode.py).

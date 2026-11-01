@@ -171,6 +171,19 @@ def relabel_voice(event_id: int, transcript: str) -> bool:
         return True
 
 
+def set_transcript(event_id: int, transcript: str) -> bool:
+    """Replace one event's transcript (a correction), and its channel's last
+    transcript if that was this one."""
+    with _lock, _db() as con:
+        e = con.execute("SELECT freq_hz, transcript FROM events WHERE id = ?", (int(event_id),)).fetchone()
+        if not e or e["transcript"] == transcript:
+            return False
+        con.execute("UPDATE events SET transcript = ? WHERE id = ?", (transcript, int(event_id)))
+        con.execute("UPDATE channels SET last_transcript = ? WHERE freq_hz = ? AND last_transcript = ?",
+                    (transcript, e["freq_hz"], e["transcript"]))
+        return True
+
+
 def channel(freq_hz: int) -> Optional[dict]:
     with _lock, _db() as con:
         row = con.execute("SELECT * FROM channels WHERE freq_hz = ?", (int(freq_hz),)).fetchone()
