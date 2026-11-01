@@ -26,9 +26,9 @@ def test_the_list_keeps_names_and_types_without_directions():
 
 
 try:
-    import nltk.corpus  # noqa: F401
-    _NLTK = True
-except ImportError:            # a standalone without the word list corrects phrases only
+    from nltk.corpus import words as _words
+    _NLTK = bool(_words.words())
+except Exception:              # no nltk, or no word-list data (CI): phrases only
     _NLTK = False
 _single = pytest.mark.skipif(not _NLTK, reason="single-word fixes need nltk's English word list")
 
