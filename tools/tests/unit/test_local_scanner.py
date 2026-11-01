@@ -342,6 +342,21 @@ def test_noise_alone_is_never_a_catch(monkeypatch):
     assert caught == []
 
 
+def test_a_catch_is_filed_on_its_carrier_and_one_transmitter_stays_one_channel(monkeypatch):
+    """The trigger's frequency is a smoothed peak rounded to 2.5 kHz; the
+    carrier is found from the hold. Dallas dispatch had been filed under
+    460.575 and 460.58125 (354 and 257 voice catches); the dongle reads ~2 ppm
+    high, so carriers sit a kilohertz off the grid."""
+    ledger.record(460_581_250, "voice", 30, 3000, 0.3, transcript="the shadow row from before")
+    txs = [(460_576_100, 40, 8, "voice"), (462_151_000, 70, 8, "voice"), (463_826_300, 100, 8, "voice")]
+    _, caught = _simulate(monkeypatch, txs, 125)
+    for f, *_ in txs:
+        c = next(c for c in caught if abs(c.freq_hz - f) < 7000)
+        assert abs(c.freq_hz - f) <= 500, (f, c.freq_hz)
+    filed = {scanner.snap_channel(c.freq_hz) for c in caught}
+    assert filed == {460_575_000, 462_150_000, 463_825_000}
+
+
 def test_a_weak_signal_is_confirmed_on_a_second_visit(monkeypatch):
     freqs, _ = _simulate(monkeypatch, [(443_850_000, 40, 10)], 70, snr_db=12)
     assert any(abs(f - 443_850_000) <= 5000 for f in freqs)

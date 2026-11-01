@@ -182,6 +182,28 @@ def _bin_freqs(center: int) -> np.ndarray:
     return center + (np.arange(NFFT) - NFFT // 2) * (FS / NFFT)
 
 
+CARRIER_SPAN_HZ = 6_000          # either side of the trigger, where a held channel's carrier is looked for
+
+
+def carrier_freq(power: np.ndarray, center: int, near: int) -> int:
+    """Where a held channel's carrier is, from its power summed over the
+    hold's carried chunks: the centroid of what stands over the noise within
+    CARRIER_SPAN_HZ, re-centred on itself. The trigger's frequency is the peak
+    of one 12 kHz-smoothed read rounded to 2.5 kHz, and a voice's deviation
+    moves that peak by kilohertz, so one transmitter was filed on two channels
+    6.25 kHz apart. FM's spectrum is symmetric about its carrier over a hold."""
+    f = _bin_freqs(center)
+    noise = float(np.median(power))
+    est = float(near)
+    for _ in range(3):
+        win = np.abs(f - est) <= CARRIER_SPAN_HZ
+        w = np.clip(power[win] - 2 * noise, 0, None)
+        if not w.sum() > 0:
+            return near
+        est = float((f[win] * w).sum() / w.sum())
+    return int(round(est)) if abs(est - near) <= CARRIER_SPAN_HZ else near
+
+
 def _valid_mask(center: int) -> np.ndarray:
     f = _bin_freqs(center) - center
     return (np.abs(f) <= FS * USABLE / 2) & (np.abs(f) >= DC_GUARD_HZ)
@@ -856,6 +878,7 @@ class Watcher:
         gate = self._gates(center)
         freqs = _bin_freqs(center)
         last_peek = started
+        keyed = np.zeros(NFFT)                              # power summed while the channel was keyed
         try:
             while not self.stop.is_set():
                 if self._poll():
@@ -863,10 +886,13 @@ class Watcher:
                 iq = source.read()
                 step = len(iq) / FS
                 audio = demod(iq)
-                rel = self._over(_smooth_spectrum(iq), floor, valid)
+                power = _power(iq)
+                rel = self._over(_db(power, 12_500), floor, valid)
                 level = rel[idx]
+                if level > GATE_DB:
+                    keyed += power
                 hot_runs = np.where((rel > gate) & valid, hot_runs + 1, 0)
-                self._sides(sides, iq, rel, hot_runs, freqs, freq, center, step)
+                self._sides(sides, iq, rel, hot_runs, freqs, freq, center, step, power)
                 if quiet >= SILENCE_S:
                     # Between overs only a full key-up, as the trigger takes, resumes.
                     if level > GATE_DB:
@@ -962,7 +988,10 @@ class Watcher:
         self.reach[freq] = DRIFT_SPAN_HZ if constant else COOLDOWN_SPAN_HZ
         s.persist = None
         audio = np.concatenate(chunks) if chunks else np.zeros(0, np.int16)
-        return Catch(freq, started, time.time() - started, peak_db, audio)
+        # Cooldowns stay on the trigger's frequency, which the next trigger
+        # rounds the same way. A tuned channel is filed where it was tuned.
+        heard = freq if live or not keyed.any() else carrier_freq(keyed, center, freq)
+        return Catch(heard, started, time.time() - started, peak_db, audio)
 
     def _peek(self, dongle, center: int) -> Optional[tuple]:
         """Visit the next PEEK_SLICES slices of the schedule (not `center`);
@@ -977,11 +1006,13 @@ class Watcher:
         return None
 
     def _sides(self, sides: list, iq: np.ndarray, rel: np.ndarray, hot_runs: np.ndarray, freqs: np.ndarray,
-               main: int, center: int, step: float) -> None:
+               main: int, center: int, step: float, power: Optional[np.ndarray] = None) -> None:
         """Record what else keys up in the held slice (SIDE_MAX at a time)."""
         now = time.time()
         for side in list(sides):
             a = side["demod"](iq)                          # demodulated either way: the filters keep their state
+            if power is not None and rel[side["idx"]] > GATE_DB:
+                side["keyed"] += power
             if side["quiet"] <= SILENCE_S:
                 side["chunks"].append(a)
             side["quiet"] = side["quiet"] + step if rel[side["idx"]] < GATE_DB - 3 else 0.0
@@ -1002,6 +1033,7 @@ class Watcher:
                 continue
             demod = NbfmDemod(f - center)
             sides.append({"freq": f, "idx": int(b), "demod": demod, "chunks": [demod(iq)], "quiet": 0.0,
+                          "center": center, "keyed": np.zeros(NFFT),
                           "started": now, "peak": float(rel[b])})
             if len(sides) >= SIDE_MAX:
                 return
@@ -1010,7 +1042,10 @@ class Watcher:
         audio = np.concatenate(side["chunks"]) if side["chunks"] else np.zeros(0, np.int16)
         self.cooldown[side["freq"]] = time.time() + (LONG_COOLDOWN_S if constant else COOLDOWN_S)
         if carrier_seconds(audio) >= SIDE_MIN_CARRIER_S:
-            self.catches.put(Catch(side["freq"], side["started"], time.time() - side["started"], side["peak"], audio))
+            keyed = side.get("keyed")
+            heard = carrier_freq(keyed, side["center"], side["freq"]) if keyed is not None and keyed.any() \
+                else side["freq"]
+            self.catches.put(Catch(heard, side["started"], time.time() - side["started"], side["peak"], audio))
 
     # ── sitting on one channel ───────────────────────────────────────
 
