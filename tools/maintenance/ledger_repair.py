@@ -42,13 +42,11 @@ def _audio(path: Path):
 
 
 def _words(audio, freq_hz: int) -> str:
-    """What classify() would hear, as it would take it: the strict pass, then
-    the plain one for a speech-like catch. Speech, or a short reply, or ""."""
+    """What classify() would hear (`scanner.hear`), as it would take it:
+    speech, or a short reply, or ""."""
     from utils.radio import scanner
     from utils.radio.waterfall import voice_like
-    text = scanner._transcribe(audio, freq_hz=freq_hz)
-    if not scanner.looks_like_speech(text) and voice_like(audio) and not scanner.morse_id(audio):
-        text = scanner._transcribe(audio, speech_only=False, freq_hz=freq_hz)
+    text = scanner.hear(audio, freq_hz, voice_like(audio))
     return text if scanner.looks_like_speech(text) or scanner.short_reply(text, freq_hz) else ""
 
 
