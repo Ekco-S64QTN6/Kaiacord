@@ -64,5 +64,6 @@ jobs:
       - name: Check dependency consistency
         run: python -m pip check
       - name: Run focused offline tests
-        timeout-minutes: 5
+        # A change across the radio modules runs the scanner simulator tests: ~6 min.
+        timeout-minutes: 10
         run: python .github/scripts/run_ci_tests.py
