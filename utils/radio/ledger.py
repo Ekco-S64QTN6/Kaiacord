@@ -156,6 +156,21 @@ def forget_clips(names: list[str]) -> None:
         con.executemany("UPDATE events SET clip = NULL WHERE clip = ?", [(n,) for n in names])
 
 
+def relabel_voice(event_id: int, transcript: str) -> bool:
+    """A carrier catch found to hold words: the event becomes voice and its
+    channel counts it. False if the event is gone or already voice."""
+    with _lock, _db() as con:
+        e = con.execute("SELECT freq_hz, ts, kind FROM events WHERE id = ?", (int(event_id),)).fetchone()
+        if not e or e["kind"] == "voice":
+            return False
+        con.execute("UPDATE events SET kind = 'voice', transcript = ? WHERE id = ?", (transcript, int(event_id)))
+        con.execute("UPDATE channels SET voice = voice + 1, data = data - ?, "
+                    "last_transcript = CASE WHEN COALESCE(last_transcribed, 0) <= ? THEN ? ELSE last_transcript END, "
+                    "last_transcribed = MAX(COALESCE(last_transcribed, 0), ?) WHERE freq_hz = ?",
+                    (1 if e["kind"] == "data" else 0, e["ts"], transcript, e["ts"], e["freq_hz"]))
+        return True
+
+
 def channel(freq_hz: int) -> Optional[dict]:
     with _lock, _db() as con:
         row = con.execute("SELECT * FROM channels WHERE freq_hz = ?", (int(freq_hz),)).fetchone()
