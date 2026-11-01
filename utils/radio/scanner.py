@@ -359,10 +359,30 @@ def looks_like_speech(text: str) -> bool:
         return False
     # Broadcast sign-offs Whisper writes onto a carrier: "We'll be right back."
     # came off 445.51 with nothing on it.
-    return low.rstrip(".!") not in ("thank you", "thanks for watching", "you", "we'll be right back",
-                                    "we will be right back", "stay tuned", "thanks for listening")
-TRANSCRIBE_PER_NIGHT = 60
-_transcribed = {"date": "", "count": 0}
+    return low.rstrip(".!") not in SIGN_OFFS
+
+
+SIGN_OFFS = ("thank you", "thanks for watching", "you", "we'll be right back", "we will be right back",
+             "stay tuned", "thanks for listening", "thanks", "bye")
+
+
+def short_reply(text: str, freq_hz: int = 0) -> bool:
+    """One or two words Whisper heard ("Yes, sir.", "All right." on 463.83125):
+    too short to call the catch voice, worth keeping to hear. Not a sign-off
+    Whisper writes onto a carrier, nor the vocabulary prompt read back ("EMS
+    dispatch." on 462.275's telemetry)."""
+    words = re.findall(r"[a-z0-9][a-z0-9'-]*", text.lower())
+    if not 0 < len(words) < 3 or " ".join(words) in SIGN_OFFS:
+        return False
+    prompt = prompt_for(freq_hz) if freq_hz else None
+    vocab = {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z-]+", prompt)} if prompt else set()
+    return not all(w in vocab for w in words)
+TRANSCRIBE_PER_NIGHT = 60       # for catches that don't sound like speech: finding a channel's first words
+# A catch that sounds like speech is transcribed out of its own allowance. A
+# transcription costs 2–10 s of CPU; under the shared 60 every night's dispatch
+# after about 01:30 was filed as bare carriers, 50–90 calls a night.
+SPEECH_PER_NIGHT = 400
+_transcribed = {"date": "", "count": 0, "speech": 0}
 
 
 QUIET_CHANNEL_HITS = 8       # catches with no voice before a channel is transcribed only now and then
@@ -422,30 +442,42 @@ def classify(catch) -> None:
     kind, transcript = ("data" if m.digital or packet else "carrier"), ""
     today = datetime.now().strftime("%Y-%m-%d")
     if _transcribed["date"] != today:
-        _transcribed.update(date=today, count=0)
+        _transcribed.update(date=today, count=0, speech=0)
     from utils.radio.waterfall import voice_like
     speechlike = voice_like(catch.audio)
-    if net or (not m.digital and not packet and not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT):
-        if not net:
-            _transcribed["count"] += 1
+    allowance = None
+    if not net and not m.digital and not packet:
+        if speechlike and _transcribed.get("speech", 0) < SPEECH_PER_NIGHT:
+            allowance = "speech"
+        elif not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT:
+            allowance = "count"
+    asked = net or allowance is not None
+    said = ""
+    if asked:
+        if allowance:
+            _transcribed[allowance] = _transcribed.get(allowance, 0) + 1
         text = _transcribe(catch.audio, freq_hz=catch.freq_hz)
         if not looks_like_speech(text) and speechlike and not morse_id(catch.audio):
             text = _transcribe(catch.audio, speech_only=False, freq_hz=catch.freq_hz)
         if looks_like_speech(text):
             kind, transcript = "voice", text
+        said = text
     if kind == "data":
         # APRS packets and pages, when multimon-ng is installed (utils/radio/decode.py).
         from utils.radio import decode
         if decode.available():
             transcript = decode.summary(decode.decode(catch.audio))
-    # Only what's worth hearing is kept: voice, a net, and a carrier that sounds
-    # like speech (a spoken or Morse ID, or words Whisper missed). Data bursts
-    # and bare carriers keep no clip; the ledger has their timing and hours. A
-    # Morse ID repeats every few minutes, so one is kept per channel per
-    # ID_CLIP_EVERY_S.
+    # Only what's worth hearing is kept: voice, a net, a Morse ID, and a carrier
+    # that sounds like speech when Whisper was not asked or heard a word or two
+    # in it. Once asked, a speech-like catch with no words is not speech: the
+    # 900 MHz hoppers and 462.275's telemetry pass the voice measure, and were
+    # kept and highlighted as "sounded like speech". Data bursts and bare
+    # carriers keep no clip; the
+    # ledger has their timing and hours. A Morse ID repeats every few minutes,
+    # so one is kept per channel per ID_CLIP_EVERY_S.
     keep = kind == "voice" or net
     if not keep and kind == "carrier" and speechlike:
-        keep = True
+        keep = not asked or short_reply(said, catch.freq_hz)
         if morse_id(catch.audio):
             recent = [f for f, t in _id_clips.items()
                       if abs(f - catch.freq_hz) <= 5000 and catch.started - t < ID_CLIP_EVERY_S]
