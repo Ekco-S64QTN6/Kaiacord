@@ -84,6 +84,13 @@ RELATED_TESTS = {
         "tools/tests/unit/test_radio_listening.py",
         "tools/tests/unit/test_radio_live_cleanup.py",
     ),
+    "utils/radio/scanner.py": ("tools/tests/unit/test_local_scanner.py", "tools/tests/unit/test_ledger_repair.py"),
+    "utils/radio/waterfall.py": ("tools/tests/unit/test_local_scanner.py",),
+    "utils/radio/ledger.py": (
+        "tools/tests/unit/test_local_scanner.py",
+        "tools/tests/unit/test_ledger_repair.py",
+        "tools/tests/unit/test_radio_ledger_concurrency.py",
+    ),
 }
 
 

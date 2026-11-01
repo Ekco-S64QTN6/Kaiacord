@@ -826,9 +826,13 @@ a mix that sounded wrong:
   Which gesture is a hash of record and phrase, never random. Until 24 Oct she killed the bass for the
   beat before every swap and gestured into every phrase, snapping back on the one — Ekco: "first five
   minutes with a mixer". Subtle is the rule: a move she makes every time is a habit, not a move.
-- **Blend only two steady beats** (`BLEND_CONTRAST`): four-on-the-floor measures ≥ 4.2 where it is
-  mixed, rock, breaks and sparse intros 1.8–3.3. Anything less, or an uncounted bar, is not proposed as a
-  blend (it goes out as an echo). Steadiness only proposes a blend; `mixcheck` decides it.
+- **Blend only two steady beats.** Both records' beats tracked (`Grid.tracked`, the Essentia ticks): any
+  beat whose ticks run straight is proposed, whatever its onset contrast or bar count — breakbeats included.
+  A record not yet ticked falls back to the onset grid: contrast under `BLEND_CONTRAST` (3.5;
+  four-on-the-floor measures ≥ 4.2 where it is mixed, rock, breaks and sparse intros 1.8–3.3) or an
+  uncounted bar goes out as an echo ("beat not steady enough", most often a fresh hand load). Steadiness
+  only proposes a blend; `mixcheck` decides it. The journal's `contrast`/`bar_known` are the onset grid's,
+  so a tracked blend there with contrast 1.5 is not a bypass.
 - **Check a change on click tracks** through the real `CrossfadeSource` (the incoming first kick must
   land on the planned bar, kicks within a few ms) — a beat detector on real music is not a reliable
   judge of another beat detector.
@@ -1017,9 +1021,24 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
   carriers and each spent a transcription. `waterfall.is_packet` (the 1200/2200 Hz pair in ≥ 45% of
   ≥ 10 carrier frames; off-air packets 52–62%, hiss 0%, voice at most 36%, a Morse ID too short)
   files them as `data` before Whisper is asked. The band notebook uses the same measure.
-- **Only what is worth hearing keeps a clip:** voice, a net, and a carrier that sounds like speech (a
-  spoken or Morse ID, or words Whisper missed). A Morse ID (`scanner.morse_id`) is kept once per
-  channel per six hours; 145.690's node sends one every few minutes.
+- **Only what is worth hearing keeps a clip:** voice, a net, a Morse ID, a reply too short to call voice
+  (`scanner.short_reply`: "Yes, sir."; not a sign-off Whisper invents, not the prompt read back), and a
+  speech-like carrier Whisper was *not asked* about. Asked and hearing nothing, it is not speech: the 900 MHz
+  hoppers and 462.275's telemetry pass `voice_like`, and were kept and highlighted as "sounded like speech".
+  A Morse ID (`scanner.morse_id`) is kept once per channel per six hours; 145.690's node sends one every few
+  minutes. Clips rotate at 300, so a junk clip pushes out a real one.
+- **Speech is transcribed out of its own allowance.** A catch `voice_like` passes spends `SPEECH_PER_NIGHT`
+  (400); everything else spends `TRANSCRIBE_PER_NIGHT` (60), which finds a channel's first words. One shared 60
+  ran out about 01:30 every night and the rest of the night's dispatch — 50–90 calls — went in as carriers.
+  A transcription costs 2–10 s of CPU.
+- **A catch is filed where its carrier is** (`waterfall.carrier_freq`): the centroid of the power summed
+  while the hold was keyed, not the trigger's smoothed peak rounded to 2.5 kHz, which a voice's deviation moves
+  by kilohertz. Nearly every busy channel had a "shadow" row 6.25 kHz up (Dallas dispatch: 354 voice catches on
+  460.575, 257 on 460.58125). Measured 31 Oct: 858 key-ups on both UHF spans at 293 Hz all sat within 470 Hz of
+  the busier row. Cooldowns stay keyed on the trigger frequency; a tuned channel is filed where it was tuned.
+  The dongle reads ~+2 ppm (NOAA 162.400/162.550, 460.575): under a kilohertz, so `radio.local.ppm` can stay 0.
+  `tools/maintenance/ledger_repair.py` (dry run unless `--apply`) folds split rows and re-judges kept carrier
+  clips after a change to either rule.
 - **Listeners hear a transmission, never the sweep.** Nothing is sent while hopping (a tick per hop
   played as pops), and a hold reaches the monitor and a listen-along through `waterfall.Squelch`: open
   only where a carrier ran `OPEN_S` (0.4 s), output delayed by that much so the over is heard from its

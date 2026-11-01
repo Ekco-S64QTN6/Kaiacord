@@ -193,6 +193,46 @@ def test_a_net_is_transcribed_and_clipped_whatever_the_nights_budget(monkeypatch
     assert calls == [1] and clips == [147_570_000]        # on the net: transcribed, and kept to listen to
 
 
+def _speechlike(monkeypatch, said: str):
+    from utils.radio import waterfall
+    calls, clips = [], []
+    monkeypatch.setattr(waterfall, "voice_like", lambda a: True)
+    monkeypatch.setattr(scanner, "morse_id", lambda a: False)
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: calls.append(1) or said)
+    monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
+    monkeypatch.setitem(scanner._transcribed, "date", datetime.now().strftime("%Y-%m-%d"))
+    monkeypatch.setitem(scanner._transcribed, "count", scanner.TRANSCRIBE_PER_NIGHT)
+    monkeypatch.setitem(scanner._transcribed, "speech", 0)
+    return calls, clips
+
+
+def test_speech_is_transcribed_after_the_exploring_allowance_is_spent(monkeypatch):
+    """Every night from about 01:30 dispatch was filed as bare carriers: the
+    shared 60 had gone on everything else."""
+    calls, clips = _speechlike(monkeypatch, "Alpha, medical emergency, rescue 22, cross of Main and Elm, map 45")
+    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
+    scanner.classify(_catch(460_575_000, audio, seconds=6))
+    row = ledger.recent(1)[0]
+    assert calls and row["kind"] == "voice" and clips == [460_575_000]
+
+
+def test_a_speechlike_catch_with_no_words_keeps_no_clip(monkeypatch):
+    """The 900 MHz hoppers and 462.275's telemetry pass the voice measure;
+    Whisper hears nothing in them, and they were kept and highlighted."""
+    calls, clips = _speechlike(monkeypatch, "")
+    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
+    scanner.classify(_catch(927_068_750, audio, seconds=6))
+    assert len(calls) == 2 and clips == [] and ledger.recent(1)[0]["kind"] == "carrier"   # both passes, no words
+
+
+def test_a_speechlike_catch_whisper_was_not_asked_about_is_kept(monkeypatch):
+    calls, clips = _speechlike(monkeypatch, "should not be called")
+    monkeypatch.setitem(scanner._transcribed, "speech", scanner.SPEECH_PER_NIGHT)
+    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
+    scanner.classify(_catch(460_575_000, audio, seconds=6))
+    assert calls == [] and clips == [460_575_000] and ledger.recent(1)[0]["kind"] == "carrier"
+
+
 def test_a_rotated_clip_is_not_named_by_the_ledger(tmp_path, monkeypatch):
     ledger.record(146_860_000, "voice", 5.0, 5000, 0.4, clip="old.ogg")
     ledger.forget_clips(["old.ogg"])
@@ -342,6 +382,21 @@ def test_noise_alone_is_never_a_catch(monkeypatch):
     assert caught == []
 
 
+def test_a_catch_is_filed_on_its_carrier_and_one_transmitter_stays_one_channel(monkeypatch):
+    """The trigger's frequency is a smoothed peak rounded to 2.5 kHz; the
+    carrier is found from the hold. Dallas dispatch had been filed under
+    460.575 and 460.58125 (354 and 257 voice catches); the dongle reads ~2 ppm
+    high, so carriers sit a kilohertz off the grid."""
+    ledger.record(460_581_250, "voice", 30, 3000, 0.3, transcript="the shadow row from before")
+    txs = [(460_576_100, 40, 8, "voice"), (462_151_000, 70, 8, "voice"), (463_826_300, 100, 8, "voice")]
+    _, caught = _simulate(monkeypatch, txs, 125)
+    for f, *_ in txs:
+        c = next(c for c in caught if abs(c.freq_hz - f) < 7000)
+        assert abs(c.freq_hz - f) <= 500, (f, c.freq_hz)
+    filed = {scanner.snap_channel(c.freq_hz) for c in caught}
+    assert filed == {460_575_000, 462_150_000, 463_825_000}
+
+
 def test_a_weak_signal_is_confirmed_on_a_second_visit(monkeypatch):
     freqs, _ = _simulate(monkeypatch, [(443_850_000, 40, 10)], 70, snr_db=12)
     assert any(abs(f - 443_850_000) <= 5000 for f in freqs)
@@ -460,19 +515,30 @@ def test_a_carrier_keyed_the_whole_minute_is_still_left_alone(monkeypatch):
     assert len(mine) == 1 and w.MAX_HOLD_S - 1 <= mine[0].seconds < w.MAX_HOLD_S + 2
 
 
-def test_a_data_burst_keeps_no_clip_and_a_spoken_id_does(monkeypatch):
-    """Data isn't worth hearing back; a repeater's ID, spoken or in Morse,
-    and voice Whisper missed are (448.775's ID transcribed to nothing)."""
+def test_a_data_burst_keeps_no_clip_and_a_short_reply_does(monkeypatch):
+    """Data isn't worth hearing back; a reply too short to count as voice
+    ("Yes, sir.") is. Speech-like audio Whisper hears nothing in, or only the
+    prompt in, is not kept (Morse IDs are kept by morse_id)."""
     from utils.radio import waterfall as w
-    clips = []
-    monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: "")
+    clips, said = [], {}
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, freq_hz=0, **k: said.get(freq_hz, ""))
     monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
+    monkeypatch.setattr(scanner, "morse_id", lambda a: False)
     burst = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 4)) * 3000).astype(np.int16)
     scanner.classify(_catch(462_275_000, burst, seconds=4))
     monkeypatch.setattr(w, "voice_like", lambda a: True)
-    scanner.classify(_catch(448_775_000, burst, seconds=4))
-    assert clips == [448_775_000]
-    assert [e["kind"] for e in ledger.recent(2)] == ["carrier", "carrier"]
+    said.update({463_831_250: "Yes, sir.", 462_281_250: "EMS dispatch.", 155_156_250: "Thank you."})
+    for f in (463_831_250, 462_281_250, 155_156_250, 927_068_750):
+        scanner.classify(_catch(f, burst, seconds=4))
+    assert clips == [463_831_250]
+    assert {e["kind"] for e in ledger.recent(5)} == {"carrier"}
+
+
+def test_short_replies_are_told_from_what_whisper_writes_onto_a_carrier():
+    assert scanner.short_reply("Yes, sir.", 463_831_250) and scanner.short_reply("All right.")
+    assert not scanner.short_reply("") and not scanner.short_reply("you") and not scanner.short_reply("Thank you.")
+    assert not scanner.short_reply("EMS dispatch.", 462_275_000)          # the dispatch prompt read back
+    assert not scanner.short_reply("one two three", 146_520_000)          # three words is looks_like_speech's
 
 
 def test_a_repeated_morse_id_is_kept_once_every_six_hours(monkeypatch):
