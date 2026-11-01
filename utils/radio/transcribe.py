@@ -1,6 +1,6 @@
 """Speech to text for HF voice, on the CPU.
 
-faster-whisper `large-v3` in float32. Measured on eam.watch recordings with a
+faster-whisper `large-v3` in int8. Measured on eam.watch recordings with a
 known human copy: small and medium models, and any model fed the raw audio or
 a voice-activity filter, produced hallucinations ("Alpha Alpha Alpha…",
 "Thanks for watching!"); large-v3 on band-passed, level-normalised 16 kHz audio
@@ -8,7 +8,7 @@ read EAMs at 97–100% of characters once the readbacks were merged
 (`phonetic.parse`).
 
 The GPU belongs to Ollama (CLAUDE.md §4): device is always "cpu". The model is
-~6 GB of RAM in float32, so it is loaded for a job and dropped after a quiet
+~2 GB of RAM in int8, so it is loaded for a job and dropped after a quiet
 spell, and only one job runs at a time.
 """
 from __future__ import annotations
@@ -24,10 +24,10 @@ from typing import Optional
 from utils.infrastructure.logging.kaia_logger import log_debug
 
 MODEL = "large-v3"
-# float32 over int8: on 24 dispatch clips it read real street names 29/37 against
-# 27/37 and fixed words int8 got wrong ("Marvin D. Love" for "Logs", "collision"
-# for "connected", "Pacific" for "Percival"), at about twice the CPU (9 s a clip).
-COMPUTE_TYPE = "float32"
+# int8, not float32: float32 reads dispatch slightly better (29/37 street names
+# against 27/37) but holds ~6 GB for the whole night, since a busy dispatch
+# channel never lets the idle unload fire. Twice the CPU, too.
+COMPUTE_TYPE = "int8"
 IDLE_UNLOAD_S = 15 * 60
 # Speech band, then even out HF fading. Enough on the test captures; noise
 # reduction (afftdn) did not rescue the one clip nothing could read.

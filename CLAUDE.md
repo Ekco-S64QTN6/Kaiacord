@@ -1030,9 +1030,9 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
 - **Speech is transcribed out of its own allowance.** A catch `voice_like` passes spends `SPEECH_PER_NIGHT`
   (400); everything else spends `TRANSCRIBE_PER_NIGHT` (60), which finds a channel's first words. One shared 60
   ran out about 01:30 every night and the rest of the night's dispatch — 50–90 calls — went in as carriers.
-  A transcription costs 4–20 s of CPU in float32 (`transcribe.COMPUTE_TYPE`: on 24 dispatch clips it read 29 of 37
-  street names as real streets against int8's 27 and fixed words int8 got wrong — "Marvin D. Love", "collision" —
-  for twice the time and ~6 GB of RAM while loaded).
+  A transcription costs 2–10 s of CPU in int8 (`transcribe.COMPUTE_TYPE`). float32 read dispatch slightly better
+  (29 of 37 street names against 27) but held ~6 GB all night — busy dispatch never lets the 15-minute idle unload
+  fire — and that RAM matters more than the street names (Ekco, 1 Nov).
 - **Dispatch street names are put right against a local street list** (`streets.correct`, via `scanner.fix_streets`;
   ham bands are not touched). The list is a deployment fact: `tools/maintenance/fetch_street_names.py "<area>"
   --write` builds git-ignored `memory/radio/streets.json` from OpenStreetMap; without it nothing changes. A name
