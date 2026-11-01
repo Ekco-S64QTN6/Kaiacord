@@ -1030,7 +1030,19 @@ it, and classifies it — voice, data, carrier or noise — into `memory/radio/l
 - **Speech is transcribed out of its own allowance.** A catch `voice_like` passes spends `SPEECH_PER_NIGHT`
   (400); everything else spends `TRANSCRIBE_PER_NIGHT` (60), which finds a channel's first words. One shared 60
   ran out about 01:30 every night and the rest of the night's dispatch — 50–90 calls — went in as carriers.
-  A transcription costs 2–10 s of CPU.
+  A transcription costs 4–20 s of CPU in float32 (`transcribe.COMPUTE_TYPE`: on 24 dispatch clips it read 29 of 37
+  street names as real streets against int8's 27 and fixed words int8 got wrong — "Marvin D. Love", "collision" —
+  for twice the time and ~6 GB of RAM while loaded).
+- **Dispatch street names are put right against a local street list** (`streets.correct`, via `scanner.fix_streets`;
+  ham bands are not touched). The list is a deployment fact: `tools/maintenance/fetch_street_names.py "<area>"
+  --write` builds git-ignored `memory/radio/streets.json` from OpenStreetMap; without it nothing changes. A name
+  the list lacks, right before its type, becomes the one street of that type it sounds like ("Cockroach Hill
+  Road" → Cockrell Hill Road ×8). Rules, each from reading every change over 659 real transcripts: never an
+  English word, a direction or a type word ("Avenue" → Avon, "First" → Vista); sound skeleton ≥ 0.8, mean of
+  sound and spelling ≥ 0.79; the same syllable count ("Condo" → Coronado, "Levar" → Lear are refused); no
+  spacing-only fix; lowercase comma-broken spans left alone. A known tail ("Hill") only blocks a fix of a
+  different length. Single-word fixes need nltk's word list; a standalone without it fixes phrases only.
+  `ledger_repair.py --streets` applies it to transcripts already logged.
 - **A catch is filed where its carrier is** (`waterfall.carrier_freq`): the centroid of the power summed
   while the hold was keyed, not the trigger's smoothed peak rounded to 2.5 kHz, which a voice's deviation moves
   by kilohertz. Nearly every busy channel had a "shadow" row 6.25 kHz up (Dallas dispatch: 354 voice catches on
