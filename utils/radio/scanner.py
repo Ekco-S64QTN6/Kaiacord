@@ -251,7 +251,7 @@ def prompt_echo(text: str, prompt: Optional[str]) -> bool:
     return len(words) >= 6 and sum(w in vocab for w in words) / len(words) >= ECHO_SHARE
 
 
-def _transcribe(audio, speech_only: bool = True, freq_hz: int = 0) -> str:
+def _transcribe(audio, speech_only: bool = True, freq_hz: int = 0, any_language: bool = False) -> str:
     """`speech_only` keeps only segments Whisper scores as speech, which is
     what stops it writing words onto a carrier; it also scores some real
     repeater voice low, so a strong, speech-like catch gets a second pass
@@ -264,16 +264,43 @@ def _transcribe(audio, speech_only: bool = True, freq_hz: int = 0) -> str:
     speech = speech_audio(audio)
     if len(speech) >= rtl.SAMPLE_RATE // 2:
         audio = speech
-    prompt = prompt_for(freq_hz) if freq_hz else None
+    prompt = prompt_for(freq_hz) if freq_hz and not any_language else None
+    # English, not auto-detect: on static, auto-detect picked Norwegian and
+    # Whisper produced a subtitle credit. radio.local.language overrides.
+    # `any_language` is for a speech-like catch English heard nothing in (`hear`).
+    language = None if any_language else _cfg("language", "en")
     with _wav(audio) as p:
-        # English, not auto-detect: on static, auto-detect picked Norwegian and
-        # Whisper produced a subtitle credit. radio.local.language overrides.
         run = transcribe.transcribe_speech if speech_only else transcribe.transcribe_file
-        text = run(p, language=_cfg("language", "en"), prompt=prompt).strip()
+        text = run(p, language=language, prompt=prompt).strip()
         if prompt_echo(text, prompt):
             log_debug(f"[scanner] the prompt came back as the transcript on {freq_hz / MHZ:.4f}; again without it")
-            text = run(p, language=_cfg("language", "en")).strip()
+            text = run(p, language=language).strip()
         return text
+
+
+#: Words an any-language pass must find before they count. Spanish on 462.150
+#: and dispatch English Whisper missed under `language: en` came back as 10+
+#: words; what it invents on a hopper ("I don't know.") is shorter.
+ANY_LANGUAGE_MIN_WORDS = 6
+
+
+def hear(audio, freq_hz: int, speechlike: bool) -> str:
+    """What Whisper hears in a catch, as classify takes it. The strict pass;
+    for a speech-like catch it found nothing in, the plain pass (some real
+    repeater voice scores low as speech); then one in any language and without
+    the prompt — forced English returned nothing for Spanish conversations on
+    462.150 and 463.825, and for two dispatch calls. Returns the words, or the
+    last pass's text (a short reply, a sign-off) when none was speech."""
+    text = _transcribe(audio, freq_hz=freq_hz)
+    if looks_like_speech(text) or not speechlike or morse_id(audio):
+        return text
+    text = _transcribe(audio, speech_only=False, freq_hz=freq_hz)
+    if looks_like_speech(text):
+        return text
+    other = _transcribe(audio, speech_only=False, freq_hz=freq_hz, any_language=True)
+    if looks_like_speech(other) and len(other.split()) >= ANY_LANGUAGE_MIN_WORDS:
+        return other
+    return text
 
 
 # A Morse ID keys fast on one tone: 150–257 key-downs a minute on 145.690's and
@@ -456,9 +483,7 @@ def classify(catch) -> None:
     if asked:
         if allowance:
             _transcribed[allowance] = _transcribed.get(allowance, 0) + 1
-        text = _transcribe(catch.audio, freq_hz=catch.freq_hz)
-        if not looks_like_speech(text) and speechlike and not morse_id(catch.audio):
-            text = _transcribe(catch.audio, speech_only=False, freq_hz=catch.freq_hz)
+        text = hear(catch.audio, catch.freq_hz, speechlike)
         if looks_like_speech(text):
             kind, transcript = "voice", text
         said = text

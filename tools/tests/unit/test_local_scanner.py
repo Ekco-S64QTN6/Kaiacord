@@ -222,7 +222,21 @@ def test_a_speechlike_catch_with_no_words_keeps_no_clip(monkeypatch):
     calls, clips = _speechlike(monkeypatch, "")
     audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
     scanner.classify(_catch(927_068_750, audio, seconds=6))
-    assert len(calls) == 2 and clips == [] and ledger.recent(1)[0]["kind"] == "carrier"   # both passes, no words
+    assert len(calls) == 3 and clips == [] and ledger.recent(1)[0]["kind"] == "carrier"   # every pass, no words
+
+
+def test_speech_english_misses_is_heard_in_any_language(monkeypatch):
+    """Forced English returned nothing for Spanish conversations on 462.150;
+    a short invention in the any-language pass ("I don't know.") is not voice."""
+    calls, clips = _speechlike(monkeypatch, "")
+    said = {True: "Bueno, que tenga las tapas ahí, que salga el agua, vamos", False: ""}
+    monkeypatch.setattr(scanner, "_transcribe", lambda a, any_language=False, **k: said[any_language])
+    audio = (np.sin(np.linspace(0, 2000 * np.pi, 12000 * 6)) * 3000).astype(np.int16)
+    scanner.classify(_catch(462_150_000, audio, seconds=6))
+    assert ledger.recent(1)[0]["kind"] == "voice" and clips == [462_150_000]
+    said[True] = "I don't know."
+    scanner.classify(_catch(927_068_750, audio, seconds=6))
+    assert ledger.recent(1)[0]["kind"] == "carrier" and clips == [462_150_000]
 
 
 def test_a_speechlike_catch_whisper_was_not_asked_about_is_kept(monkeypatch):

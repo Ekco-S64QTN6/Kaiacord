@@ -1166,7 +1166,11 @@ mute, and is not judged.
   Norwegian subtitle credit three times in an hour. The scanner transcribes in English through
   `transcribe.transcribe_speech`, which keeps only segments Whisper scores as speech. Human repeater
   voice has not yet been measured against the 90% bar; NOAA scored 100% on every sentence present in
-  the NWS text.
+  the NWS text. The passes live in one place, `scanner.hear` (classify and `ledger_repair.py` both call
+  it): strict, then plain for a speech-like catch, then — only if both heard nothing — any language
+  without the prompt, counted only at `ANY_LANGUAGE_MIN_WORDS` (6). Forced English returned nothing for
+  the Spanish conversations on 462.150/463.825; a short invention ("I don't know." on a 927 MHz hopper)
+  stays out.
 - **The Quansheng UV-K5** (`tools/maintenance/uvk5.py`) is a handheld, not an SDR: it demodulates one
   channel inside the radio and sends no IQ, so it cannot feed the scanner or KAIA//RX. The tool is
   read-only — find the cable, firmware version, EEPROM backup (calibration at 0x1E00–0x1FFF; take one
