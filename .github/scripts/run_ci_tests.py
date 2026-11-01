@@ -84,7 +84,10 @@ RELATED_TESTS = {
         "tools/tests/unit/test_radio_listening.py",
         "tools/tests/unit/test_radio_live_cleanup.py",
     ),
-    "utils/radio/scanner.py": ("tools/tests/unit/test_local_scanner.py", "tools/tests/unit/test_ledger_repair.py"),
+    "utils/radio/scanner.py": ("tools/tests/unit/test_local_scanner.py", "tools/tests/unit/test_ledger_repair.py",
+                               "tools/tests/unit/test_scanner_streets.py"),
+    "utils/radio/streets.py": ("tools/tests/unit/test_scanner_streets.py",),
+    "tools/maintenance/fetch_street_names.py": ("tools/tests/unit/test_scanner_streets.py",),
     "utils/radio/waterfall.py": ("tools/tests/unit/test_local_scanner.py",),
     "utils/radio/ledger.py": (
         "tools/tests/unit/test_local_scanner.py",
