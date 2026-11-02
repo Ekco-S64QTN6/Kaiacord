@@ -361,6 +361,24 @@ material — an earlier version matched any `retrieval_method in (vector, bm25, 
 true for nearly every turn and silently ran all conversation at 0.35, producing flat and
 sycophantic prose.
 
+### Repeat penalty
+
+**What she writes is sampled with `generation.repeat_penalty` (`gpu_manager.voice_sampling`).** Ollama's runner logs
+`repeat_penalty = 1.000` on every generation unless asked, which is off, and nothing else held a stock phrase or a run of
+fragments back. 144 replayed turns, persona only, 48 at each value (2 Nov):
+
+| Penalty | "a reminder that" | "a …" litany | "the …" run | short-sentence share | words |
+|:--|:--|:--|:--|:--|:--|
+| 1.00 | 31% | 12% | 6% | 0.61 | 118 |
+| 1.05 | 15% | 4% | 6% | 0.60 | 112 |
+| 1.10 | 4% | 0% | 2% | 0.54 | 110 |
+
+This is a sampling option, so it does not reload the runner (`journalctl -u ollama | grep "n_ctx  "` showed none across the
+run). Keep it off JSON extraction and exact recall (`test_voice_sampling.py`): at 1.10 a requested pattern of dots came out
+uneven and code ran longer, and the months and a repeat-after-me stayed right. The persona is not the carrier: a one-line
+system prompt gave the same short-sentence share (0.71 against 0.67), and swapping out "if you can say it in one sentence,
+do so" changed nothing (0.70 both). Guards stay the last resort for what sampling lets through.
+
 ### Output filters
 
 > [!IMPORTANT]

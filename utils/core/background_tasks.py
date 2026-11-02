@@ -148,7 +148,7 @@ class CoreTaskManager:
                         return
                     
                     from utils.social.kaia_social_responder import load_persona_async
-                    from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options
+                    from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options, voice_sampling
                     import uuid
                     
                     persona = await load_persona_async()
@@ -212,7 +212,7 @@ class CoreTaskManager:
                                         {"role": "system", "content": system_prompt},
                                         {"role": "user", "content": prompt}
                                     ],
-                                    options=chat_options(temperature=0.75),
+                                    options=chat_options(temperature=0.75, **voice_sampling()),
                                     keep_alive=-1
                                 ),
                                 timeout=45.0
@@ -2113,8 +2113,8 @@ class CoreTaskManager:
                     "Speak in your blunt, dry, slightly weary voice. No markdown formatting, no headers, no intro."
                 )
 
-                from utils.infrastructure.gpu.gpu_manager import chat_options, gpu_memory_manager, GPUTaskPriority
-                opts = chat_options(temperature=0.3, num_predict=150)
+                from utils.infrastructure.gpu.gpu_manager import chat_options, gpu_memory_manager, GPUTaskPriority, voice_sampling
+                opts = chat_options(temperature=0.3, num_predict=150, **voice_sampling())
 
                 async def _run_digest_chat():
                     return await self.ctx.ollama_client.chat(

@@ -256,6 +256,16 @@ def chat_options(**overrides) -> Dict[str, Any]:
     return opts
 
 
+def voice_sampling() -> Dict[str, Any]:
+    """Sampling for anything she writes in her own voice: `generation.repeat_penalty`
+    over the last 64 tokens. Ollama's runner sends 1.0 unless asked, which is off, and
+    with nothing against it "a reminder that" and runs of "the …" fragments feed on
+    themselves within a reply. A sampling option, so it never reloads the runner. Not
+    for JSON extraction or exact recall, where repeating a token is the job."""
+    from utils.infrastructure.system.yaml_config import config
+    return {"repeat_penalty": float(config.get("generation.repeat_penalty", 1.1)), "repeat_last_n": 64}
+
+
 def gpu_options(for_chat: bool = True, num_ctx: Optional[int] = None) -> Dict[str, Any]:
     """Runner and sampling options shared by every call to the chat model."""
     from utils.infrastructure.system.yaml_config import config

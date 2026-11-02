@@ -89,7 +89,7 @@ def _needs_refresh(user_id: str, events: List[rm.RelationshipEvent], now: float)
 
 async def refresh_all(ctx) -> int:
     """Rewrite the impressions that are out of date. Returns how many were written."""
-    from utils.infrastructure.gpu.gpu_manager import GPUTaskPriority, chat_options, gpu_memory_manager
+    from utils.infrastructure.gpu.gpu_manager import GPUTaskPriority, chat_options, gpu_memory_manager, voice_sampling
     bot_state, model = ctx.bot_state, ctx.config.chat_model
     now = time.time()
     due = []
@@ -109,7 +109,7 @@ async def refresh_all(ctx) -> int:
                 model_name=model, priority=GPUTaskPriority.BACKGROUND,
                 coro=asyncio.wait_for(ctx.ollama_client.chat(
                     model=model, messages=[{"role": "user", "content": prompt}],
-                    options=chat_options(temperature=0.4, num_predict=120), keep_alive=-1), timeout=120),
+                    options=chat_options(temperature=0.4, num_predict=120, **voice_sampling()), keep_alive=-1), timeout=120),
                 task_id=f"impression_{uuid.uuid4().hex[:8]}")
             text = " ".join(resp["message"]["content"].split()).strip('"')
         except Exception as e:
