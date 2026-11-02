@@ -2391,6 +2391,10 @@ class CoreTaskManager:
         if self.self_correction_task.get_task():
             task_registry.register("self_correction_task", self.self_correction_task.get_task())
 
+        from utils.core import prompt_prefix
+        task_registry.register("prompt_prefix_warm", asyncio.create_task(
+            prompt_prefix.warm(self.ctx.ollama_client, self.ctx.config.chat_model)))
+
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):

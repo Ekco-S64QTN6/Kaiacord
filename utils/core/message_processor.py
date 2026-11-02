@@ -672,10 +672,8 @@ class MessageProcessor:
             # Populate minimum context needed for generation
             raw_persona = await load_persona_async()
             
-            # Resolve runtime tags (Bug 2 Fix implementation)
-            current_time, _, _ = _get_user_time_info(ctx.author_name, message_instant(ctx.message))
-            ctx.system_prompt = raw_persona.replace("[CURRENT_TIME]", f"[CURRENT_TIME]: {current_time}")
-            
+            ctx.system_prompt = raw_persona
+
             ctx.context_nodes = []
             ctx.raw_nodes = []
             
@@ -1487,14 +1485,10 @@ class MessageProcessor:
             log_warning("Persona result was a list (likely from gather timeout). Resetting to empty string.")
             raw_persona = ""
             
-        # Resolve the runtime tag on every branch. The persona tells her to use
-        # the [CURRENT_TIME] data from her system prompt, so any path that ships
-        # the persona with the literal placeholder still in it points her at a
-        # tag the prompt does not contain — which is easy to miss, because the
-        # time is also present under [LOCAL_TIME] in the metadata block.
-        _current_time, _, _ = _get_user_time_info(ctx.author_name, message_instant(ctx.message))
-        ctx.system_prompt = str(raw_persona).replace(
-            "[CURRENT_TIME]", f"[CURRENT_TIME]: {_current_time}")
+        # The persona is passed as it is. It names [CURRENT_TIME], which the metadata
+        # block supplies: put here, the time sat 1,231 tokens into every prompt and
+        # the model's cache could keep nothing past it (utils/core/prompt_prefix.py).
+        ctx.system_prompt = str(raw_persona)
         log_debug(summarize_payload("persona loaded", ctx.system_prompt))
 
         ctx.raw_nodes = results.get('rag', [])
@@ -1954,6 +1948,7 @@ class MessageProcessor:
         metadata_block = (
             "\n\n--- METADATA ---\n"
             f"[CURRENT_USER]: {ctx.author_name.lower()}\n"
+            f"[CURRENT_TIME]: {current_time_str}\n"
             f"[LOCAL_TIME]: {current_time_str}\n"
             f"{newsroom_clocks}\n"
             "CRITICAL: Use the verified 12-hour values above for current date/time statements. Any timestamps in conversation history are outdated. Do not repeat raw [METADATA] or [CURRENT_USER] tags."
@@ -2275,7 +2270,12 @@ class MessageProcessor:
 
                 # TEMPORARY DEBUG: Log raw response to diagnose gemma3 empty responses
                 log_debug(f"[GEMMA3_DEBUG] Raw response length={len(content)}, first100={repr(content[:100])}, done_reason={response.get('done_reason', 'unknown')}")
-                log_debug(f"[TOKEN_DEBUG] prompt_eval_count={response.get('prompt_eval_count', 'n/a')} eval_count={response.get('eval_count', 'n/a')} num_ctx={self.config.max_context_tokens}")
+                log_debug(f"[TOKEN_DEBUG] prompt_eval_count={response.get('prompt_eval_count', 'n/a')} eval_count={response.get('eval_count', 'n/a')} num_ctx={self.config.max_context_tokens} prompt_s={(response.get('prompt_eval_duration') or 0) / 1e9:.1f}")
+                try:
+                    from utils.core import prompt_prefix
+                    prompt_prefix.note_turn(response, self.ollama_client, self.config.chat_model)
+                except Exception:
+                    pass
                 from utils.core.kaia_telemetry import record_prompt
                 record_prompt(ctx.channel_id, response.get('prompt_eval_count'), self.config.max_context_tokens)
 
