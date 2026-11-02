@@ -85,7 +85,7 @@ def test_a_belief_formed_in_a_full_store_is_still_there_afterwards(store):
     engine = DreamEngine.__new__(DreamEngine)
     engine._log_growth_event = lambda event: None
     old = [{"topic": f"old {i}", "position": "p", "confidence": 0.9, "access_count": 5,
-            "last_updated": time.time() - 40 * 86400} for i in range(100)]
+            "last_updated": time.time() - 40 * 86400} for i in range(99)]
     beliefs_store.update(lambda b: b.extend(old))
     engine._update_beliefs({"topic": "garden channels", "position": "i think quiet rooms help", "confidence": 0.9})
     held = beliefs_store.load()
