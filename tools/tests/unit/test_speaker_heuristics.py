@@ -24,7 +24,7 @@ MUST_READ_OWN = [
     ("estimate_sentiment(_own)", "relationship valence"),
     ("summary = _own[:120]", "relationship event summary"),
     ("message_length=len(_own)", "emotional arc"),
-    ("_content_lower = _own.lower()", "open loops"),
+    ("_find_open_loop(_own)", "open loops"),
     ("update_user_state(ctx.author_id, ctx.own_words)", "theory of mind"),
     ("_CLAIM_PATTERNS.search(ctx.own_words)", "false-memory claim guard"),
     ("_SD_PATTERNS.search(ctx.own_words)", "self-disclosure note"),

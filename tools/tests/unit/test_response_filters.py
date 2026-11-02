@@ -1023,3 +1023,82 @@ def test_a_long_a_quiet_line_counts_as_the_same_template():
     out = P.strip_repeated_lines("the tank is fine and the heater held all night at 24. "
                                  "a quiet reminder of the impermanence of all things.", prev)
     assert "impermanence" not in out and "tank is fine" in out
+
+
+def test_her_history_loses_a_short_line_she_keeps_repeating():
+    """"the thing about those old…" stood in ten replies on 2 Nov: five words, so the
+    six-word key could not see it, and no stock vocabulary, so the fragment key did not."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    history = [
+        {"role": "user", "content": "a: one"},
+        {"role": "assistant", "content": "the thing about those old… it was a long night out there."},
+        {"role": "user", "content": "b: two"},
+        {"role": "assistant", "content": "right. the thing about those old. we kept going anyway."},
+        {"role": "user", "content": "a: three"},
+        {"role": "assistant", "content": "no idea, really. ask me again in the morning."},
+    ]
+    mine = [t["content"] for t in P.detemplate_history(history) if t["role"] == "assistant"]
+    assert not any("those old" in t for t in mine)
+    assert "it was a long night out there." in mine[0] and "we kept going anyway." in mine[1]
+    assert mine[2] == history[5]["content"], "a line she said once stays"
+
+
+def test_her_history_collapses_a_run_of_the_fragments_and_keeps_a_description():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    litany = ("yes. the cycles of decline. the patterns of collapse. the enduring human capacity for "
+              "self-destruction. hope takes work.")
+    described = "the light is good. the tank is clean. the cat is asleep. nothing else to report."
+    history = [
+        {"role": "user", "content": "a: one"}, {"role": "assistant", "content": litany},
+        {"role": "user", "content": "a: two"}, {"role": "assistant", "content": described},
+    ]
+    shown = [t["content"] for t in P.detemplate_history(history) if t["role"] == "assistant"]
+    assert shown[0] == "yes. the cycles of decline. the patterns of collapse. hope takes work."
+    assert shown[1] == described, "each of those has a verb"
+
+
+def test_what_she_sends_is_not_touched_by_the_history_rules():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    reply = "the cycles of decline. the patterns of collapse. the enduring human capacity. hope takes work."
+    assert P.collapse_litany(reply) == reply
+
+
+class _Sent(Exception):
+    def __init__(self, text):
+        self.text = text
+
+
+def _post_process(platform, typed, reply):
+    """The real `_post_process_and_log`, stopped at the send."""
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from utils.core.message_context import MessageContext
+    from utils.core.message_processor import MessageProcessor
+    proc = MessageProcessor.__new__(MessageProcessor)
+    proc._run_consistency_watchdog = AsyncMock(return_value=[])
+
+    async def send(channel, text):
+        raise _Sent(text)
+    proc._send_response = send
+    message = SimpleNamespace(platform=platform, no_persist=True, attachments=[], stickers=[], channel=SimpleNamespace(id=1),
+                              author=SimpleNamespace(id=0, name="Kaia", display_name="Kaia", global_name=None, nick=None))
+    ctx = MessageContext(message=message, sanitized_content=typed, is_social=True)
+    ctx.response_text = reply
+    try:
+        asyncio.run(proc._post_process_and_log(ctx))
+    except _Sent as sent:
+        return sent.text
+    raise AssertionError("nothing was sent")
+
+
+def test_a_post_of_her_own_has_nobody_to_echo():
+    """The overnight log is written from facts, and a quip from her own thought: the
+    echo and restatement guards read those as "the user" and cut the sentences that
+    used them. The same reply to a person still loses the restatement."""
+    facts = "the vanuatu quake registered a little tremor on the coast overnight and nothing else moved"
+    reply = ("the vanuatu quake registered a little tremor on the coast overnight and nothing else moved. "
+             "i kept the radio on anyway, out of habit more than hope.")
+    assert "vanuatu" in _post_process("overnight", facts, reply)
+    assert "vanuatu" in _post_process("broadcast", facts, reply)
+    assert "vanuatu" not in _post_process("discord", facts, reply)
