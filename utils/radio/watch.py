@@ -404,6 +404,11 @@ async def sample_uvb76(job: dict, poster=None) -> Optional[Path]:
     folder.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc)
     receivers = kiwi.choose(await kiwi.directory(), job["khz"], job["region"], n=4)
+    if not receivers:
+        # All benched or busy. The job is retried every minute while due, so this is
+        # routine, and at WARNING it pushed real alerts out of the dashboard's pane.
+        log_debug("[radio] UVB-76 sample: no north-east European receiver free; will retry while due")
+        return None
     for i, r in enumerate(receivers):
         try:
             readings = await kiwi.smeter(r, job["khz"], "usb", job["seconds"])

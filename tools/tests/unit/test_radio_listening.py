@@ -650,3 +650,10 @@ def test_one_unsquelched_window_is_one_post_and_a_squelched_one_is_not_stitched(
 
     assert len(asyncio.run(scenario(None))) == 1
     assert len(asyncio.run(scenario(-90.0))) == 2
+
+
+def test_a_short_clip_in_the_list_is_not_zero_minutes():
+    from utils.commands.radio_handler import _entry_line
+    line = _entry_line(1, {"started": "2026-11-01T21:21:00+00:00", "khz": 8102.0, "station": "E11",
+                           "kind": "numbers", "seconds": 13.1, "parsed": None, "transcript": ""})
+    assert "13 seconds" in line and "0 min" not in line
