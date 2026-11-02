@@ -1316,6 +1316,7 @@ class ProactiveEngine:
             system_prompt += f"\n\n{cognitive_context}"
 
         # ── User Prompt (situation + trigger + voice) ───────────────
+        from utils.core import pronouns
         user_prompt = (
             f"SITUATION: You are starting an unprompted conversation. "
             f"Nobody asked you to speak — you just have something on "
@@ -1333,6 +1334,7 @@ class ProactiveEngine:
             f"- You have broad interests — don't default to tech jargon "
             f"unless the topic is explicitly technical\n"
             f"- Be yourself: blunt, dry, grounded\n"
+            f"- {pronouns.line()}\n"
             f"- You MUST write in the first person ('i', 'my', 'me'). "
             f"Never refer to yourself or Kaia in the third person "
             f"('she', 'her').\n"

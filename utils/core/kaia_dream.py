@@ -334,6 +334,7 @@ REM PHASE: ASSOCIATIVE DREAMING
         except Exception:
             pass
 
+        from utils.core import pronouns
         dream_instruction = f"""
 [DREAM_TASK]
 You are performing "Dream Mode" processing—a deep, associative cycle where you reflect on archived content.
@@ -357,6 +358,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 5. NO ATMOSPHERE: Do not describe the room, the sounds, the servers.
 6. SPOKEN TEXT ONLY: Output only what you would actually think or say.
 7. SENTENCE VARIETY: Do NOT start multiple sentences with "it's". Vary your sentence openers. If you catch yourself starting more than one sentence with the same phrase, restructure.
+8. PEOPLE: {pronouns.line()}
 """
 
         try:
@@ -815,6 +817,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         - relationship_insight: {user_name, summary} or null
         """
         try:
+            from utils.core import pronouns
             extraction_prompt = (
                 f"From this reflection, extract structured insights in JSON:\n\n"
                 f"{reflection[:1500]}\n\n"
@@ -833,6 +836,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 f'- "thematic_anchor": {{"theme": short thematic label (e.g. "career_frustration", '
                 f'"ai_ethics", "creative_burnout"), "anchor_text": the concrete memory or statement '
                 f'worth remembering (1 sentence), "user_name": str or null}} or null\n'
+                f"{pronouns.line()}\n"
                 f"Return only the JSON object, no other text."
             )
 

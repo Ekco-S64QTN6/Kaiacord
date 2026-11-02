@@ -73,3 +73,23 @@ def test_pronouns_default_to_they_and_follow_the_list(monkeypatch):
     assert pronouns.of("Robin") == "xe/xem" and pronouns.of("Sam") is None
     monkeypatch.setattr(pronouns, "known", lambda: {})
     assert pronouns.line(["Robin"]).startswith("Anyone else: they/them")
+
+
+def test_every_prompt_writing_about_people_carries_the_pronoun_line():
+    """The dreams wrote "He has a knack…" and "His casual expression…" into her
+    relationship notes, and those are read back into replies."""
+    from pathlib import Path
+    for path in ("utils/core/kaia_dream.py", "utils/core/kaia_proactive.py", "utils/core/kaia_monologue.py",
+                 "tools/maintenance/generate_user_profiles.py", "utils/core/message_processor.py"):
+        assert "pronouns.line(" in Path(path).read_text(encoding="utf-8"), path
+    src = Path("utils/core/kaia_dream.py").read_text(encoding="utf-8")
+    assert src.count("pronouns.line(") >= 2, "the reflection and the insight extraction both write about people"
+
+
+def test_the_profile_prompt_formats_with_the_pronoun_line():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_gup_probe", "tools/maintenance/generate_user_profiles.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = mod.PROMPT_TEMPLATE.format(username="Starkind", log_content="x", pronouns="Anyone else: they/them")
+    assert "Anyone else: they/them" in out and "Starkind" in out
