@@ -92,19 +92,13 @@ def _belief(topic, conf, age_days, accesses=0):
     }
 
 
-def _evict_once(beliefs):
-    """Mirror of the eviction in DreamEngine._update_beliefs."""
-    now = time.time()
-
-    def score(b):
-        conf = float(b.get("confidence", 0.5) or 0.5)
-        acc = int(b.get("access_count", 0) or 0)
-        age_days = max(0.0, (now - float(b.get("last_updated", now) or now)) / 86400.0)
-        return conf + min(0.25, 0.05 * acc) - min(0.30, 0.01 * age_days)
-
+def _evict_once(beliefs, keep=""):
+    from utils.core import beliefs_store
     out = list(beliefs)
-    out.pop(min(range(len(out)), key=lambda i: score(out[i])))
-    return out
+    padding = [_belief(f"strong {i}", 0.95, age_days=8, accesses=50) for i in range(100)]
+    out += padding
+    beliefs_store.evict_weakest(out, keep_topic=keep)
+    return [b for b in out if b not in padding]
 
 
 def test_eviction_keeps_fresh_belief_over_stale_one():
@@ -115,15 +109,51 @@ def test_eviction_keeps_fresh_belief_over_stale_one():
 
 
 def test_eviction_keeps_frequently_recalled_belief():
-    used = _belief("recalled often", 0.75, age_days=2, accesses=8)
-    idle = _belief("never recalled", 0.80, age_days=2, accesses=0)
+    used = _belief("recalled often", 0.75, age_days=8, accesses=8)
+    idle = _belief("never recalled", 0.80, age_days=8, accesses=0)
     survivors = _evict_once([used, idle])
     assert used in survivors and idle not in survivors
 
 
 def test_eviction_removes_exactly_one():
+    from utils.core import beliefs_store
     beliefs = [_belief(f"t{i}", 0.5 + i / 100, age_days=i) for i in range(101)]
-    assert len(_evict_once(beliefs)) == 100
+    evicted = beliefs_store.evict_weakest(beliefs)
+    assert evicted is not None and len(beliefs) == 100
+
+
+def test_a_new_belief_does_not_evict_itself_from_a_full_store():
+    """A dream's belief starts at 0.6 and every older one scored 0.7 or better, so
+    with the store at 100 the new one was removed as soon as it was added, and
+    "New Belief Formed" was logged for a belief that was no longer there."""
+    from utils.core import beliefs_store
+    beliefs = [_belief(f"old {i}", 0.9, age_days=30 + i, accesses=5) for i in range(100)]
+    new = _belief("just formed", 0.6, age_days=0)
+    beliefs.append(new)
+    evicted = beliefs_store.evict_weakest(beliefs, keep_topic="just formed")
+    assert evicted is not None and evicted["topic"].startswith("old")
+    assert new in beliefs and len(beliefs) == 100
+
+
+def test_a_nights_new_beliefs_survive_the_next_night():
+    from utils.core import beliefs_store
+    beliefs = [_belief(f"old {i}", 0.9, age_days=30, accesses=5) for i in range(90)]
+    last_night = [_belief(f"last night {i}", 0.6, age_days=1) for i in range(10)]
+    beliefs += last_night
+    for i in range(10):
+        topic = f"tonight {i}"
+        beliefs.append(_belief(topic, 0.6, age_days=0))
+        beliefs_store.evict_weakest(beliefs, keep_topic=topic)
+    assert all(b in beliefs for b in last_night)
+    assert sum(b["topic"].startswith("tonight") for b in beliefs) == 10
+
+
+def test_a_view_held_once_fades_once_its_protection_ends():
+    from utils.core import beliefs_store
+    beliefs = [_belief(f"old {i}", 0.9, age_days=30, accesses=5) for i in range(100)]
+    faded = _belief("held once, a fortnight ago", 0.6, age_days=14)
+    beliefs.append(faded)
+    assert beliefs_store.evict_weakest(beliefs) is faded
 
 
 # ── Relationship event pruning ───────────────────────────────────────
