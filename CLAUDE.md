@@ -965,6 +965,8 @@ is a novelty, not a live feed), one request at a time, with the identifying User
 traffic". EAMs and number-station groups are encrypted: nothing Kaia says may claim to decode
 one. Research: `docs/reports/investigations/2026-09-24-shortwave-feasibility.md`.
 
+An unsquelched recording that came back in pieces is one broadcast (`watch.stitch`): a KiwiSDR reconnect starts a new file, and one E11 was five posts. Squelched files stay separate, each is a transmission.
+
 A number-station recording is kept only for a keyed tone (`watch.keyed_tone`: prominent within the
 recording's own passband, and switching on and off) or speech. Measured against the whole speech
 band, CW mode's narrow filter made pure static look tonal, and a steady carrier passed as a tone.

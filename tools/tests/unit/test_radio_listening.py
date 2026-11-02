@@ -575,3 +575,78 @@ def test_station_rotation_preserves_minutes_in_last_heard_timestamp():
 
     jobs = watch.due_jobs(now, [_num("E07", "12:51"), _num("V07", "12:51", 9000)], done)
     assert [j["station"] for j in jobs if j["kind"] == "numbers"] == ["V07", "E07"]
+
+
+def _piece(folder, stamp, seconds, value, rate=12000):
+    import wave as _wave
+    path = folder / f"{stamp}Z_8000000_usb.wav"
+    with _wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(int(value).to_bytes(2, "little", signed=True) * int(seconds * rate))
+    return path
+
+
+def test_a_reconnected_recording_is_one_file_with_its_gaps(tmp_path):
+    import wave as _wave
+    import numpy as np
+    fallback = datetime(2026, 10, 7, 3, 20, tzinfo=timezone.utc)
+    pieces = [_piece(tmp_path, "20261007T032004", 3, 100), _piece(tmp_path, "20261007T032009", 2, 200),
+              _piece(tmp_path, "20261007T032011", 1, 300)]
+    out = watch.stitch(list(reversed(pieces)), fallback)
+    assert out == [pieces[0]], "keeps the first piece's name, which says when it started"
+    assert sorted(p.name for p in tmp_path.iterdir()) == [pieces[0].name], "the pieces are gone"
+    with _wave.open(str(out[0]), "rb") as w:
+        assert w.getframerate() == 12000
+        audio = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    assert len(audio) == 8 * 12000                       # 3 s, a 2 s gap, 2 s, 1 s
+    assert audio[0] == 100 and audio[4 * 12000] == 0 and audio[6 * 12000] == 200 and audio[-1] == 300
+    assert watch.heard_at(out[0], fallback).second == 4
+
+
+def test_a_long_dropout_is_a_short_silence(tmp_path):
+    import wave as _wave
+    fallback = datetime(2026, 10, 7, 3, 20, tzinfo=timezone.utc)
+    pieces = [_piece(tmp_path, "20261007T032000", 1, 100), _piece(tmp_path, "20261007T032100", 1, 200)]
+    out = watch.stitch(pieces, fallback)
+    with _wave.open(str(out[0]), "rb") as w:
+        assert w.getnframes() == int((1 + watch.STITCH_MAX_GAP_S + 1) * 12000)
+
+
+def test_pieces_that_cannot_be_joined_are_left_alone(tmp_path):
+    fallback = datetime(2026, 10, 7, 3, 20, tzinfo=timezone.utc)
+    pieces = [_piece(tmp_path, "20261007T032000", 1, 100), _piece(tmp_path, "20261007T032002", 1, 200, rate=8000)]
+    assert watch.stitch(pieces, fallback) == pieces
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(p.name for p in pieces)
+
+
+def test_one_unsquelched_window_is_one_post_and_a_squelched_one_is_not_stitched(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+
+    async def scenario(squelch):
+        folder = tmp_path / str(squelch)
+        folder.mkdir()
+        made = [_piece(folder, "20261007T032004", 1, 100), _piece(folder, "20261007T032006", 1, 200)]
+        receiver = SimpleNamespace(host="r", location="here")
+        monkeypatch.setattr(watch.kiwi, "available", lambda: True)
+        monkeypatch.setattr(watch.kiwi, "directory", AsyncMock(return_value=[receiver]))
+        monkeypatch.setattr(watch.kiwi, "choose", lambda *a: [receiver])
+        monkeypatch.setattr(watch.kiwi, "record", AsyncMock(return_value=made))
+        seen = []
+
+        async def fake_process(job, wav, rcv, started):
+            seen.append(wav)
+            return None
+
+        monkeypatch.setattr(watch, "process", fake_process)
+        monkeypatch.setattr(watch, "_lock_for", lambda _job: asyncio.Lock())
+        monkeypatch.setattr(watch.transcribe, "release_if_idle", lambda: None)
+        job = {"key": "k", "kind": "numbers", "station": "E11", "khz": 8000.0, "mode": "usb",
+               "seconds": 10, "region": "eu", "squelch": squelch}
+        await watch.run_job(job)
+        return seen
+
+    assert len(asyncio.run(scenario(None))) == 1
+    assert len(asyncio.run(scenario(-90.0))) == 2
