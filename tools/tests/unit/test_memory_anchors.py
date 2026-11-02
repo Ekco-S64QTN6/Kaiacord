@@ -169,3 +169,37 @@ def test_a_dream_anchor_is_given_to_the_person_it_names(monkeypatch, people):
 def test_a_dream_anchor_written_as_a_report_is_not_kept(monkeypatch, people):
     assert _dream_anchor(monkeypatch, {"theme": "fatigue", "user_name": None,
                                        "anchor_text": "The author is tired of social games."}) is None
+
+
+def _full_store_of_recalled_anchors(ma, tmp_path, monkeypatch):
+    import json
+    import time
+    path = tmp_path / "anchors.json"
+    monkeypatch.setattr(ma, "ANCHORS_PATH", str(path))
+    now = time.time()
+    rows = ([{"theme": f"old {i}", "anchor_text": "kept coming up", "user_id": None, "weight": 0.9, "salience": 0.9,
+              "created_at": now - 60 * 86400, "access_count": 5} for i in range(45)]
+            + [{"theme": f"new {i}", "anchor_text": "said lately", "user_id": "1", "weight": 0.9, "salience": 0.9,
+                "created_at": now - 86400, "access_count": 0} for i in range(55)])
+    path.write_text(json.dumps(rows))
+    return path
+
+
+def test_a_new_anchor_survives_a_store_full_of_recalled_ones(tmp_path, monkeypatch):
+    """With every old anchor recalled, the new tier evicted weakest first, and a new
+    anchor about something she read was the weakest: gone as it was written, logged
+    as formed."""
+    import json
+    from utils.core import memory_anchors as ma
+    path = _full_store_of_recalled_anchors(ma, tmp_path, monkeypatch)
+    assert ma.save_anchor(None, "systemic apathy", "the news wears a groove", weight=0.65, salience=0.5) == "formed"
+    kept = json.loads(path.read_text())
+    assert len(kept) == ma.MAX_ANCHORS
+    assert any(a["theme"] == "systemic apathy" for a in kept)
+
+
+def test_an_anchor_merged_into_its_theme_says_so(tmp_path, monkeypatch):
+    from utils.core import memory_anchors as ma
+    _full_store_of_recalled_anchors(ma, tmp_path, monkeypatch)
+    assert ma.save_anchor(None, "old 3", "said differently now", weight=0.7) == "updated"
+    assert ma.save_anchor(None, "", "nothing") is None
