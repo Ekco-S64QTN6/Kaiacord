@@ -7,6 +7,8 @@ import asyncio
 import time
 import uuid as _uuid
 import discord
+
+from utils.commands.stale_view import StaleSafeView
 import secrets
 from utils.infrastructure.logging.kaia_logger import log_error
 from utils.infrastructure.system.yaml_config import config
@@ -1711,7 +1713,7 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
         ),
         color=0xFFAA00,
     )
-    view = discord.ui.View(timeout=60)
+    view = StaleSafeView(timeout=60)
     view.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner))
     await interaction.followup.send(embed=embed, view=view)
     
