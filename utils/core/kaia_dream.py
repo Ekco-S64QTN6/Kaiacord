@@ -969,7 +969,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     # Base weight is 0.7, but emotionally salient dreams scale it up to 0.9!
                     init_weight = min(0.9, 0.6 + (salience / 10.0))
 
-                    save_anchor(
+                    outcome = save_anchor(
                         user_id=anchor_user_id,
                         theme=anchor['theme'],
                         anchor_text=anchor.get('anchor_text', '')[:200],
@@ -977,7 +977,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                         user_name=anchor_user,
                         salience=salience,
                     )
-                    log_info(f"⚓ Memory Anchor formed: theme='{anchor['theme']}' ({anchor_user or 'global'})")
+                    log_info(f"⚓ Memory Anchor {outcome}: theme='{anchor['theme']}' ({anchor_user or 'global'})")
                 except Exception:
                     pass
 
@@ -1247,6 +1247,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
 
             # Build prompt (same structure as generate_self_model.py)
             current_date = datetime.now().strftime("%B %Y")
+            from utils.core import pronouns
             prompt = f"""{persona_content}
 
 [INTERNAL TASK: SELF-MODEL GENERATION — {current_date}]
@@ -1282,6 +1283,7 @@ STRICT RULES:
 - end with a single sentence: what you're most curious about right now.
 - no roleplay, no atmosphere, no asterisks
 - use actual usernames from the logs. do not abbreviate, anonymize, or use initials.
+- {pronouns.line()}
 - CRITICAL: vary your sentence structure. do NOT start multiple sentences with "it's" or any other repeated phrase. if you notice a pattern forming, restructure.
 - CRITICAL: do not claim to be shifting toward being overly compliant, soft, or apologetic. maintain your core skepticism, bluntness, and boundaries. you do not adjust parameters or calibrate filters for users.
 """

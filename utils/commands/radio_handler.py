@@ -220,7 +220,7 @@ def _entry_line(i: int, e: dict) -> str:
     when = datetime.fromisoformat(e["started"])
     parsed = e.get("parsed") or {}
     what = (f"`{parsed['message']}`" if parsed.get("message")
-            else clean(_transcript(e), 90) if _transcript(e) else f"recorded {e['seconds'] / 60:.0f} min")
+            else clean(_transcript(e), 90) if _transcript(e) else f"recorded {duration(e['seconds'])}")
     who = parsed.get("callsign") or e.get("station", "")
     check = e.get("check")
     mark = f" · ✔ {check['accuracy']:.0%}" if check else ""

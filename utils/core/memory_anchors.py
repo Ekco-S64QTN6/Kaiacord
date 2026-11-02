@@ -132,8 +132,10 @@ def save_anchor(
     weight: float = 0.7,
     user_name: Optional[str] = None,
     salience: float = 0.5,
-) -> None:
-    """Save a new thematic anchor extracted from dream processing.
+) -> Optional[str]:
+    """Save a new thematic anchor extracted from dream processing. Returns
+    "formed", "updated" (same theme and person: the anchor there now says this)
+    or None if there was nothing to save.
 
     Args:
         user_id: The user this anchor is associated with (or None for general).
@@ -144,7 +146,7 @@ def save_anchor(
         salience: Emotional importance factor (0.0-1.0) to modulate decay speed.
     """
     if not theme or not anchor_text:
-        return
+        return None
 
     # The dream engine's salience is an open-ended triage score (0.5 for
     # reading, 1.0 and up for user logs); decay wants 0–1.
@@ -168,10 +170,10 @@ def save_anchor(
                     existing['user_name'] = user_name
                 _save_anchors(anchors)
                 log_debug(f"Updated existing anchor: {theme} for user {user_name or user_id}")
-                return
+                return "updated"
 
         now = time.time()
-        anchors.append({
+        written = {
             'theme': theme,
             'anchor_text': anchor_text,
             'user_id': user_id,
@@ -181,19 +183,23 @@ def save_anchor(
             'created_at': now,
             'updated_at': now,
             'keywords': sorted(_tokenize(f"{theme} {anchor_text}")),
-        })
+        }
+        anchors.append(written)
 
         if len(anchors) > MAX_ANCHORS:
-            anchors = _evict(_apply_decay(anchors), now)
+            anchors = _evict(_apply_decay(anchors), now, keep=written)
 
         _save_anchors(anchors)
     log_debug(f"Saved new anchor: {theme} for user {user_name or user_id}")
+    return "formed"
 
 
-def _evict(anchors: List[Dict], now: float) -> List[Dict]:
+def _evict(anchors: List[Dict], now: float, keep: Optional[Dict] = None) -> List[Dict]:
     """Down to MAX_ANCHORS, in this order: old anchors she has rarely
     recalled, then new ones, weakest first; old ones she keeps recalling go
-    last of all.
+    last of all. Never `keep`, the one being written: once every old anchor had
+    been recalled, a new anchor about something she read was the weakest in the
+    store and was removed as it was added.
 
     Evicting the weakest outright turned the store over every two weeks —
     the oldest of 100 was 16 days old against a 30-day decay period — so no
@@ -208,6 +214,7 @@ def _evict(anchors: List[Dict], now: float) -> List[Dict]:
     order = (sorted([a for a in anchors if is_old(a) and not recalled(a)], key=weight)
              + sorted([a for a in anchors if not is_old(a)], key=weight)
              + sorted([a for a in anchors if is_old(a) and recalled(a)], key=weight))
+    order = [a for a in order if a is not keep]
     drop = {id(a) for a in order[:excess]}
     return [a for a in anchors if id(a) not in drop]
 

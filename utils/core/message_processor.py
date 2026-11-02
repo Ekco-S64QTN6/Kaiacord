@@ -236,6 +236,10 @@ def _pronoun_line() -> str:
         return "Anyone you mention: they/them unless you know otherwise — or just use their name."
 
 
+#: Platforms whose "message" is her own prompt, not a person speaking to her.
+UNADDRESSED_PLATFORMS = frozenset(("broadcast", "overnight"))
+
+
 class MessageProcessor:
     """
     Modular message processor that decomposes the complex on_message logic.
@@ -1103,6 +1107,17 @@ class MessageProcessor:
             _tastes = await asyncio.to_thread(kaia_tastes.note_for, ctx.own_words)
             if _tastes:
                 ctx.system_prompt = ctx.system_prompt + f"\n\n{_tastes}"
+        except Exception:
+            pass
+
+        # 8g2a. What her own commands are, when a turn asks about them
+        # (utils/core/commands_note.py). Discord only: they run nowhere else.
+        try:
+            if not ctx.is_social:
+                from utils.core import commands_note
+                _commands = commands_note.note_for(ctx.own_words)
+                if _commands:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{_commands}"
         except Exception:
             pass
 
@@ -2462,18 +2477,24 @@ class MessageProcessor:
         # that merely repeats what the user just said.
         # What they typed: on a reply turn the first line of the enriched
         # message is the post being replied to.
-        ctx.response_text = PostGenerationSafetyPipeline.strip_echoed_query(
-            ctx.response_text, ctx.own_words, speaker=ctx.author_name or "")
+        # A post she writes on her own has no one to echo and no one to address:
+        # its "message" is her own thought (a quip) or the facts she was asked to
+        # write from (the overnight log), and using those is the point.
+        _has_speaker = getattr(ctx.message, "platform", "discord") not in UNADDRESSED_PLATFORMS
+        if _has_speaker:
+            ctx.response_text = PostGenerationSafetyPipeline.strip_echoed_query(
+                ctx.response_text, ctx.own_words, speaker=ctx.author_name or "")
         try:
             from utils.infrastructure.system.bot_state import bot_state as _bs
             _mine = [t.get("content", "") for t in list(_bs.channel_memory.get(ctx.channel_id, []))
                      if t.get("role") == "assistant"]
-            _author = getattr(ctx.message, "author", None)
-            _aliases = [getattr(_author, k, None) for k in ("name", "display_name", "global_name", "nick")]
-            ctx.response_text = PostGenerationSafetyPipeline.correct_addressee(
-                ctx.response_text, ctx.author_name or "",
-                PostGenerationSafetyPipeline.history_names(list(_bs.channel_memory.get(ctx.channel_id, []))),
-                ctx.own_words or "", aliases=_aliases)
+            if _has_speaker:
+                _author = getattr(ctx.message, "author", None)
+                _aliases = [getattr(_author, k, None) for k in ("name", "display_name", "global_name", "nick")]
+                ctx.response_text = PostGenerationSafetyPipeline.correct_addressee(
+                    ctx.response_text, ctx.author_name or "",
+                    PostGenerationSafetyPipeline.history_names(list(_bs.channel_memory.get(ctx.channel_id, []))),
+                    ctx.own_words or "", aliases=_aliases)
             ctx.response_text = PostGenerationSafetyPipeline.strip_address_tag(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_closer(ctx.response_text, _mine)
             ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_lines(ctx.response_text, _mine)
@@ -2490,7 +2511,8 @@ class MessageProcessor:
             pass
         try:
             from utils.core.response_filter import BotSpeakFilter as _BSF
-            ctx.response_text = _BSF.correct_vocative_name(ctx.response_text, ctx.author_name or "", ctx.own_words or "")
+            if _has_speaker:
+                ctx.response_text = _BSF.correct_vocative_name(ctx.response_text, ctx.author_name or "", ctx.own_words or "")
         except Exception:
             pass
         # The same fault in the body of a reply rather than at its front. Measured
@@ -2499,8 +2521,9 @@ class MessageProcessor:
         # let a scraped article's phrasing look like an echo of the reader.
         from utils.core.sanitizer import user_authored_text as _user_words
         _asked = _user_words(getattr(ctx, "sanitized_content", "") or "")
-        ctx.response_text = PostGenerationSafetyPipeline.strip_restatements(
-            ctx.response_text, _asked)
+        if _has_speaker:
+            ctx.response_text = PostGenerationSafetyPipeline.strip_restatements(
+                ctx.response_text, _asked)
 
         # Time is deterministic state, and she does not narrate it reliably: the
         # prompt carried "5:14 AM CDT" three times and she answered "5:21 am
@@ -2673,7 +2696,7 @@ class MessageProcessor:
                 if getattr(ctx, "is_dm", False):
                     from utils.core import dm_log
                     await asyncio.to_thread(dm_log.record, ctx.author_id, ctx.author_name,
-                                            ctx.own_words, bot_response)
+                                            _persisted_user_turn, bot_response)
                 # Log for RAG — SKIP if style-drifted to prevent poisoning disk logs
                 elif not _is_style_drifted:
                     # The enricher's blocks belong in the prompt, not the
@@ -2880,31 +2903,16 @@ class MessageProcessor:
                     log_debug(f"Growth tracking error (non-fatal): {_growth_err}")
 
                 # ── Open Loop Detection ────────────────────────────────────────
-                # Detect future-intent statements and save them for callback
-                # when the user returns. "I'm going to try X" → next session
-                # Kaia asks "how did X go?"
+                # "I'm going to try X" → next session she can ask how X went.
                 try:
-                    import re as _re_loops
-                    _INTENT_PATTERNS = [
-                        r"(?:i'm |i am |gonna |going to |about to |planning to |want to |trying to )(.{10,80})",
-                        r"(?:i'll |i will |i might |i should )(.{10,80})",
-                        r"(?:wish me luck|here goes|let's see if|fingers crossed)(.{0,80})",
-                    ]
-                    _content_lower = _own.lower()
-                    # Only detect in longer messages (skip "i'm fine" type responses)
-                    if len(_content_lower) > 30:
-                        for pattern in _INTENT_PATTERNS:
-                            _match = _re_loops.search(pattern, _content_lower)
-                            if _match:
-                                _loop_text = _match.group(0).strip()[:120]
-                                # Don't overwrite with trivial matches
-                                if len(_loop_text) > 15:
-                                    _rel = self.bot_state.relationships.get(str(ctx.author_id))
-                                    if _rel is not None:
-                                        _rel['last_open_loop'] = _loop_text
-                                        self.bot_state.save()
-                                        log_info(f"Open loop saved for {ctx.author_name}: {_loop_text[:60]}")
-                                    break
+                    from utils.core.open_loops import find as _find_open_loop
+                    _loop_text = _find_open_loop(_own)
+                    if _loop_text:
+                        _rel = self.bot_state.relationships.get(str(ctx.author_id))
+                        if _rel is not None:
+                            _rel['last_open_loop'] = _loop_text
+                            self.bot_state.save()
+                            log_info(f"Open loop saved for {ctx.author_name}: {_loop_text[:60]}")
                 except Exception:
                     pass  # Never let open loop detection break anything
 
