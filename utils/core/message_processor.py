@@ -961,6 +961,7 @@ class MessageProcessor:
 
                     # Conversational Stance: high-confidence beliefs get active voice
                     if high_conf_stances:
+                        high_conf_stances.sort(key=lambda b: b.get('confidence', 0.5), reverse=True)
                         stance = high_conf_stances[0]  # Strongest match
                         ctx.system_prompt = ctx.system_prompt + (
                             f"\n\n[you have a formed opinion on '{stance['topic']}': "
@@ -2184,6 +2185,8 @@ class MessageProcessor:
         
         gpu_manager = OllamaGPUManager(self.config.chat_model)
         options = gpu_manager.get_gpu_options(for_chat=True, num_ctx=self.config.max_context_tokens)
+        from utils.infrastructure.gpu.gpu_manager import voice_sampling
+        options.update(voice_sampling())
         
         max_attempts = self.config.generation_max_retry_attempts
 

@@ -1343,7 +1343,7 @@ class ProactiveEngine:
 
         try:
             from utils.infrastructure.gpu.gpu_manager import (
-                gpu_memory_manager, GPUTaskPriority, chat_options,
+                gpu_memory_manager, GPUTaskPriority, chat_options, voice_sampling,
             )
 
             async def _run_proactive():
@@ -1353,7 +1353,7 @@ class ProactiveEngine:
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
-                    options=chat_options(temperature=0.75, num_predict=150),
+                    options=chat_options(temperature=0.75, num_predict=150, **voice_sampling()),
                     keep_alive=-1,
                 )
 

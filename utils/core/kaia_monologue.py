@@ -172,13 +172,13 @@ class InnerMonologue:
         )
 
         try:
-            from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options
+            from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options, voice_sampling
 
             async def _run_thought():
                 return await ollama_client.chat(
                     model=chat_model,
                     messages=[{"role": "user", "content": prompt}],
-                    options=chat_options(temperature=0.9, num_predict=self.MAX_TOKENS),
+                    options=chat_options(temperature=0.9, num_predict=self.MAX_TOKENS, **voice_sampling()),
                     keep_alive=-1,
                 )
 

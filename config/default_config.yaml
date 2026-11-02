@@ -133,6 +133,12 @@ generation:
   
   # Base temperature for generation (conversational chat)
   base_temperature: 0.7
+
+  # Penalty on repeating any of the last 64 tokens, for what she writes in her own
+  # voice (replies, posts, dreams, the monologue). 1.0 turns it off, which is what
+  # Ollama's runner sends unless asked. Higher fights stock phrases and runs of
+  # fragments; it can also disturb text patterns she is asked to repeat.
+  repeat_penalty: 1.1
   
   # Grounded temperature for RAG retrieval and document summarization
   rag_temperature: 0.35

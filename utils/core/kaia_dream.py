@@ -20,6 +20,7 @@ except ImportError:
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success, log_action, log_debug
 from utils.core.atomic_write import write_atomic
+from utils.infrastructure.gpu.gpu_manager import voice_sampling
 
 # ── Style Artifact Sanitizer ──────────────────────────────────────────────
 # Strips excessive em dashes, ellipses, and asterisked emphasis from
@@ -372,6 +373,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 "num_predict": 1000,
                 "stop": ["User:", "Kaia:"]
             })
+            options.update(voice_sampling())
             
             # CRITICAL FIX: Use async client directly for proper cancellation
             async def _run_dream_chat():
@@ -757,6 +759,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             gpu_mgr = OllamaGPUManager(self.chat_model)
             options = gpu_mgr.get_gpu_options(for_chat=True)
             options.update({"temperature": 0.8, "num_predict": 200, "stop": ["User:", "Kaia:"]})
+            options.update(voice_sampling())
 
             async def _run_identity_chat():
                 return await self.ollama_client.chat(
@@ -1293,6 +1296,7 @@ STRICT RULES:
             gpu_mgr = OllamaGPUManager(self.chat_model)
             options = gpu_mgr.get_gpu_options(for_chat=True)
             options.update({"temperature": 0.8, "num_predict": 800})
+            options.update(voice_sampling())
 
             async def _run_selfmodel_chat():
                 return await self.ollama_client.chat(
@@ -1418,6 +1422,7 @@ TODAY'S CONVERSATIONS:
             gpu_mgr = OllamaGPUManager(self.chat_model)
             options = gpu_mgr.get_gpu_options(for_chat=True)
             options.update({"temperature": 0.8, "num_predict": 300, "stop": ["User:", "Kaia:"]})
+            options.update(voice_sampling())
             
             async def _run_reflection_chat():
                 return await self.ollama_client.chat(
