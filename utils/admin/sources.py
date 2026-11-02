@@ -267,14 +267,21 @@ def voice() -> dict:
             b["tag"] += "speaking exclusively" in low
             b["cut"] += bool(re.search(r"\b(?:just|a|the|it['’]s|that['’]s)\. [a-z]", body))
             if P is not None:
-                run = best = 0
+                run = best = the_run = the_best = 0
                 for s in P._sentences(body):
                     if P._litany_fragment(s):
                         run += 1
                         best = max(best, run)
                     else:
                         run = 0
+                    if P._the_fragment(s):
+                        the_run += 1
+                        the_best = max(the_best, the_run)
+                    else:
+                        the_run = 0
                 b["litany"] += best >= 4
+                b["the_litany"] += the_best >= 3
+            b["reminder"] += "a reminder that" in low
     rows = []
     for day in sorted(days):
         b = days[day]
@@ -285,6 +292,8 @@ def voice() -> dict:
                      "words_per_para": round(b["words"] / b["paras"], 1) if b["paras"] else None,
                      "a_quiet_pct": round(100 * b["a_quiet"] / n, 1) if n else None,
                      "litany_pct": round(100 * b["litany"] / n, 1) if n else None,
+                     "the_litany_pct": round(100 * b["the_litany"] / n, 1) if n else None,
+                     "reminder_pct": round(100 * b["reminder"] / n, 1) if n else None,
                      "tag_pct": round(100 * b["tag"] / n, 1) if n else None,
                      "cut_pct": round(100 * b["cut"] / n, 1) if n else None})
     return {"days": rows, "people_by_day": {d: dict(v) for d, v in people.items()},

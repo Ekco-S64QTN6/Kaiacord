@@ -367,12 +367,12 @@ tab("voice", "VOICE", (root, x) => {
   const rv = [r[0], r[1] == null ? null : r[1] + 43200];
   const marks = git.commits.filter(c => c[2].startsWith("[kaia]")).map(c => ({ t: c[1], label: c[2] }));
   const S = (k, name, i) => ({ name, color: P[i], data: days.filter(d => d.replies >= 3).map(d => [d.ts, d[k], `${d.replies} replies`]) });
-  const shapes = [S("a_quiet_pct", "'a quiet …'", 0), S("litany_pct", "litany (4+ 'a …' fragments)", 1), S("cut_pct", "cut ellipsis ('just. a')", 2), S("tag_pct", "'(speaking exclusively …)'", 3)];
+  const shapes = [S("a_quiet_pct", "'a quiet …'", 0), S("litany_pct", "litany (4+ 'a …' fragments)", 1), S("the_litany_pct", "3+ 'the …' fragments", 4), S("reminder_pct", "'a reminder that'", 5), S("cut_pct", "cut ellipsis ('just. a')", 2), S("tag_pct", "'(speaking exclusively …)'", 3)];
   x.cShape.set(shapes, { range: rv, marks, y: { min: 0, fmt: v => v + "%", tip: v => Fmt.pct(v, 1) } }); x.shape.legend(shapes);
   x.shape.sub("days with fewer than 3 replies are left out — a percentage of one reply is noise");
   x.shape.source(v, `${days.length} days · counted by the same functions the filters use (safety_pipeline)`);
-  const cols = [{ h: "day" }, { h: "replies", n: 1 }, { h: "people's turns", n: 1 }, { h: "words/reply", n: 1 }, { h: "paras/reply", n: 1 }, { h: "words/para", n: 1 }, { h: "a quiet %", n: 1 }, { h: "litany %", n: 1 }, { h: "cut %", n: 1 }, { h: "tag %", n: 1 }];
-  const rows = days.map(d => [d.day, d.replies, d.user_turns, d.words_per_reply, d.paras_per_reply, d.words_per_para, d.a_quiet_pct, d.litany_pct, d.cut_pct, d.tag_pct]);
+  const cols = [{ h: "day" }, { h: "replies", n: 1 }, { h: "people's turns", n: 1 }, { h: "words/reply", n: 1 }, { h: "paras/reply", n: 1 }, { h: "words/para", n: 1 }, { h: "a quiet %", n: 1 }, { h: "litany %", n: 1 }, { h: "'the' run %", n: 1 }, { h: "reminder %", n: 1 }, { h: "cut %", n: 1 }, { h: "tag %", n: 1 }];
+  const rows = days.map(d => [d.day, d.replies, d.user_turns, d.words_per_reply, d.paras_per_reply, d.words_per_para, d.a_quiet_pct, d.litany_pct, d.the_litany_pct, d.reminder_pct, d.cut_pct, d.tag_pct]);
   x.shape.table(cols, rows);
   const len = [{ name: "words per reply", color: P[0], data: days.filter(d => d.replies >= 3).map(d => [d.ts, d.words_per_reply]) }, { name: "words per paragraph", color: P[2], data: days.filter(d => d.replies >= 3).map(d => [d.ts, d.words_per_para]) }];
   x.cLen.set(len, { range: rv, marks }); x.len.legend(len); x.len.source(v); x.len.table(cols, rows);

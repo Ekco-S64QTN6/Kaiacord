@@ -1136,9 +1136,9 @@ class PostGenerationSafetyPipeline:
                 and not cls._CLAUSE_VERB.search(s) and cls._stock_fragment(s))
 
     @classmethod
-    def collapse_litany(cls, text: str) -> str:
-        """Keep the first LITANY_KEEP of a run of three or more verbless
-        fragments in a paragraph. No other sentence is touched."""
+    def _collapse_runs(cls, text: str, is_fragment) -> str:
+        """Keep the first LITANY_KEEP of each run of three or more sentences
+        `is_fragment` accepts, within a paragraph. No other sentence is touched."""
         if not text:
             return text
         out_paras, changed = [], False
@@ -1150,7 +1150,7 @@ class PostGenerationSafetyPipeline:
             sents = cls._sentences(para)
             kept, run = [], []
             for x in sents + [None]:
-                if x is not None and cls._litany_fragment(x):
+                if x is not None and is_fragment(x):
                     run.append(x)
                     continue
                 if len(run) >= 3:
@@ -1165,10 +1165,38 @@ class PostGenerationSafetyPipeline:
         if not changed:
             return text
         out = re.sub(r"(\n\s*\n){2,}", "\n\n", "".join(out_paras)).strip()
-        if not out:
-            return text
-        log_warning(f"[TEMPLATE_GUARD] Collapsed a litany of fragments ({len(text) - len(out)} chars)")
+        return out or text
+
+    @classmethod
+    def collapse_litany(cls, text: str) -> str:
+        """Keep the first LITANY_KEEP of a run of three or more verbless "a …"
+        fragments in a paragraph. No other sentence is touched."""
+        out = cls._collapse_runs(text, cls._litany_fragment)
+        if out != text:
+            log_warning(f"[TEMPLATE_GUARD] Collapsed a litany of fragments ({len(text) - len(out)} chars)")
         return out
+
+    @classmethod
+    def _the_fragment(cls, sentence: str) -> bool:
+        """"the cycles of decline." — short and verbless, opening on "the". Used
+        on what she is shown, never on what she sends: "the echoes resonate." is a
+        clause the auxiliary check cannot see, and leaving it out of history costs
+        nothing while cutting it from a reply would."""
+        s = sentence.strip()
+        if re.match(r"^[\(\[\*_>\-]", s):
+            return False
+        w = cls._WORD.findall(s.lower().replace("\u2019", "'"))
+        return bool(w) and w[0] == "the" and 2 <= len(w) <= 10 and not cls._CLAUSE_VERB.search(s)
+
+    @classmethod
+    def _short_line_key(cls, sentence: str):
+        """A line under TEMPLATE_WORDS, whole: "the thing about those old…" stood in
+        ten replies in one morning, too short for the six-word key and made of no
+        stock vocabulary, so nothing saw it."""
+        if re.match(r"^\s*[\(\[\*_]", sentence or ""):
+            return None
+        words = cls._WORD.findall(sentence.lower().replace("\u2019", "'"))
+        return " ".join(words) if 3 <= len(words) < cls.TEMPLATE_WORDS else None
 
     @classmethod
     def strip_address_tag(cls, text: str) -> str:
@@ -1336,26 +1364,30 @@ class PostGenerationSafetyPipeline:
         out = list(history or [])
         for i in mine:                            # the prompt's own note, never hers to repeat
             tagless = cls.normalize_litany_paragraphs(cls.strip_address_tag(str(out[i].get("content", ""))))
+            tagless = cls._collapse_runs(tagless, cls._the_fragment)
             if tagless != out[i].get("content", ""):
                 out[i] = {**out[i], "content": tagless}
         if len(mine) < 3:
             return out
         history = out
-        counts, frags = {}, {}
+        counts, frags, shorts = {}, {}, {}
         for i in mine:
             sents = cls._sentences(history[i].get("content", ""))
             for k in {cls._line_key(x) for x in sents} - {None}:
                 counts[k] = counts.get(k, 0) + 1
             for k in {cls._frag_key(x) for x in sents} - {None}:
                 frags[k] = frags.get(k, 0) + 1
+            for k in {cls._short_line_key(x) for x in sents} - {None}:
+                shorts[k] = shorts.get(k, 0) + 1
         repeated = {k for k, n in counts.items() if n >= 2} | {k for k, n in frags.items() if n >= 3}
+        repeated_short = {k for k, n in shorts.items() if n >= 2}
         out = list(history)
         for i in mine:
             text = history[i].get("content", "")
             rest, cut = cls._without_openers(text)
             if cut and len(rest.strip()) >= 20:
                 text = rest
-            if repeated:
+            if repeated or repeated_short:
                 paras, after_drop = [], False
                 for para in re.split(r"\n\s*\n", text):
                     kept = []
@@ -1363,7 +1395,7 @@ class PostGenerationSafetyPipeline:
                         if cls._line_key(x) in repeated or (after_drop and cls._hanging(x)):
                             after_drop = True
                             continue
-                        if cls._frag_key(x) in repeated:
+                        if cls._frag_key(x) in repeated or cls._short_line_key(x) in repeated_short:
                             after_drop = False
                             continue
                         after_drop = False
