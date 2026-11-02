@@ -74,6 +74,53 @@ def heard_at(wav: Path, fallback: datetime) -> datetime:
         return fallback
 
 
+#: A receiver reconnecting mid-recording leaves a gap; longer than this and the
+#: silence standing in for it is shortened, so a lost minute is not a minute of nothing.
+STITCH_MAX_GAP_S = 5.0
+
+
+def stitch(wavs: list[Path], fallback: datetime) -> list[Path]:
+    """The pieces of one unsquelched recording as one file, in time order, with
+    silence where the connection dropped. A KiwiSDR reconnect starts a new file,
+    so one broadcast arrived in pieces and each was judged and posted on its own.
+    The file keeps the first piece's name, which says when it started. Pieces
+    that cannot be joined (not the same format, unreadable) are returned as they are."""
+    import wave
+    if len(wavs) < 2:
+        return wavs
+    ordered = sorted(wavs, key=lambda w: (heard_at(w, fallback), w.name))
+    tmp = ordered[0].with_name(ordered[0].name + ".stitching")
+    try:
+        with wave.open(str(tmp), "wb") as out:
+            params = None
+            ends = None
+            for w in ordered:
+                with wave.open(str(w), "rb") as piece:
+                    here = piece.getparams()
+                    if params is None:
+                        params = here
+                        out.setnchannels(here.nchannels)
+                        out.setsampwidth(here.sampwidth)
+                        out.setframerate(here.framerate)
+                    elif here[:3] != params[:3]:
+                        raise ValueError(f"{w.name} is {here[:3]}, not {params[:3]}")
+                    start = heard_at(w, fallback).timestamp()
+                    if ends is not None and start > ends:
+                        gap = min(start - ends, STITCH_MAX_GAP_S)
+                        out.writeframes(b"\0" * (int(gap * params.framerate) * params.nchannels * params.sampwidth))
+                    out.writeframes(piece.readframes(here.nframes))
+                    ends = start + here.nframes / here.framerate
+    except Exception as e:
+        log_warning(f"[radio] could not join {len(ordered)} recordings: {type(e).__name__}: {e}")
+        tmp.unlink(missing_ok=True)
+        return wavs
+    tmp.replace(ordered[0])
+    for w in ordered[1:]:
+        w.unlink(missing_ok=True)
+    log_debug(f"[radio] joined {len(ordered)} recordings into {ordered[0].name}")
+    return [ordered[0]]
+
+
 def _cfg(key, default):
     return config.get(f"radio.{key}", default)
 
@@ -478,6 +525,10 @@ async def run_job(job: dict, poster=None) -> Optional[list[dict]]:
             return None
         log_info(f"[radio] {job['station']} on {job['khz']:g} kHz via {receiver.host}: "
                  f"{len(wavs)} recording(s)")
+        # Squelched, each file is one transmission. Unsquelched, more than one
+        # means the connection dropped: one broadcast, so one clip and one post.
+        if job.get("squelch") is None:
+            wavs = await asyncio.to_thread(stitch, wavs, started)
         entries = []
         for wav in wavs:
             try:
