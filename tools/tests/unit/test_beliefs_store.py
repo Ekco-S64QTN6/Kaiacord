@@ -76,3 +76,19 @@ def test_a_source_s_view_is_not_taken_as_hers(store):
     engine._update_beliefs({"topic": "geopolitics", "position": "The author believes retaliatory strikes "
                             "are performative.", "confidence": 0.9})
     assert "geopolitics" not in {b["topic"] for b in beliefs_store.load()}
+
+
+def test_a_belief_formed_in_a_full_store_is_still_there_afterwards(store):
+    """Through the real writer: "New Belief Formed" has to mean it was kept."""
+    import time
+    from utils.core.kaia_dream import DreamEngine
+    engine = DreamEngine.__new__(DreamEngine)
+    engine._log_growth_event = lambda event: None
+    old = [{"topic": f"old {i}", "position": "p", "confidence": 0.9, "access_count": 5,
+            "last_updated": time.time() - 40 * 86400} for i in range(99)]
+    beliefs_store.update(lambda b: b.extend(old))
+    engine._update_beliefs({"topic": "garden channels", "position": "i think quiet rooms help", "confidence": 0.9})
+    held = beliefs_store.load()
+    assert len(held) == 100
+    formed = [b for b in held if b["topic"] == "garden channels"]
+    assert formed and formed[0]["confidence"] == engine.NEW_BELIEF_CONFIDENCE

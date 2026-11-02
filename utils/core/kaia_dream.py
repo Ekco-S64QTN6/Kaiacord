@@ -1028,6 +1028,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         if not topic or not position:
             return
 
+        from utils.core import beliefs_store
+
         def _apply(beliefs):
             """Update or append under the store's lock; returns (updated, old_position)."""
             for b in beliefs:
@@ -1048,7 +1050,6 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     b['source'] = 'dream'
                     if aliases:
                         b['aliases'] = aliases
-                    _evict_weakest(beliefs)
                     return True, old
 
             new_belief = {
@@ -1061,38 +1062,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             if aliases:
                 new_belief['aliases'] = aliases
             beliefs.append(new_belief)
-            _evict_weakest(beliefs)
+            beliefs_store.evict_weakest(beliefs, keep_topic=topic)
             return False, None
 
-        def _evict_weakest(beliefs):
-            # Cap at 100 beliefs.
-            #
-            # Scored on confidence reinforced by use and decayed by age,
-            # mirroring the anchor decay in memory_anchors.py. Confidence alone
-            # is recency-hostile: a belief formed minutes ago starts around
-            # 0.7-0.8 and loses to a fortnight-old 0.95 nothing has referenced
-            # since. Evicts the single weakest entry, so a burst of new beliefs
-            # cannot wipe a block, and leaves file order alone.
-            if len(beliefs) <= 100:
-                return
-            now = time.time()
-
-            def _retention_score(b):
-                conf = float(b.get('confidence', 0.5) or 0.5)
-                accesses = int(b.get('access_count', 0) or 0)
-                age_days = max(0.0, (now - float(b.get('last_updated', now) or now)) / 86400.0)
-                # +0.05 per recall (capped), -0.01 per day untouched (capped),
-                # so an unused belief takes ~a month to fall a full band.
-                return conf + min(0.25, 0.05 * accesses) - min(0.30, 0.01 * age_days)
-
-            weakest = min(range(len(beliefs)), key=lambda i: _retention_score(beliefs[i]))
-            evicted = beliefs.pop(weakest)
-            log_info(
-                f"🧠 Belief evicted (store at cap): '{evicted.get('topic', '?')[:40]}' "
-                f"conf={evicted.get('confidence')} accesses={evicted.get('access_count', 0)}"
-            )
-
-        from utils.core import beliefs_store
         try:
             updated, old_position = beliefs_store.update(_apply)
         except Exception as e:

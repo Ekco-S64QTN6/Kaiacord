@@ -1650,6 +1650,10 @@ diagnosis (`DIAGNOSIS`: "likely driven by a desire for control", "on the edge of
 An anchor whose text names one person she knows is theirs, whatever the model put in its user field,
 and retrieval never recalls a global anchor naming someone else to the person she is talking to; an
 anchor written as a report of a source ("The author is struck by…") is not kept.
+A full belief store keeps what she just thought (`beliefs_store.evict_weakest`): a new belief starts at
+`NEW_BELIEF_CONFIDENCE` and every older one scores higher, so the weakest was always the one just written. From 23 Oct
+each new belief evicted itself and "New Belief Formed" was logged anyway. For `PROTECT_NEW_S` a belief is not up for
+eviction; after that one she reached only once fades unless she recalls it or reaches it again.
 
 `knowledge_base/kaia_dreams/` is its own RAG index, and `context_optimizer` labels what is
 retrieved from it **INTERNAL REFLECTION (DREAM)** — as something Kaia thought — except an
