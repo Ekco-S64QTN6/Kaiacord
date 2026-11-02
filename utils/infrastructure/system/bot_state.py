@@ -18,12 +18,15 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Deque, Optional
 from collections import deque
 from utils.infrastructure.logging.kaia_logger import log_info, log_warning
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
 
 class BotState:
     """Encapsulates global bot state and persistence (thread-safe)"""
-    def __init__(self, state_file: str = "memory/bot_state.json"):
-        self.state_file = state_file
+    def __init__(self, state_file: Optional[str] = None):
+        # Redirected under pytest: the module-level instance below is shared by every
+        # test that touches state, and its save() would land on the running bot's file.
+        self.state_file = state_file or telemetry_path("memory/bot_state.json")
         self._lock = threading.Lock()
         self._write_lock = threading.Lock()  # Prevents concurrent _persist_to_disk writes
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='bot_state_writer')

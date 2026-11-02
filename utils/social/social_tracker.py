@@ -36,7 +36,7 @@ class SocialTracker:
         self.max_ids = max(1, int(max_ids))
         # The lock inode is stable: never unlink/replace this file. All tracker
         # instances sharing a log directory coordinate through the same lock.
-        self.lock_path = self.log_path.parent / "social_tracker.lock"
+        self.lock_path = self.log_path.parent / Path(telemetry_path("social_tracker.lock")).name
 
         self._replied_ids: set[str] = set()
         self._replied_deque = deque(maxlen=self.max_ids)

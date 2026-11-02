@@ -1370,9 +1370,11 @@ feature has one code path whether it is clicked or typed.
   running; the suite had no such guard. If you add a component that persists anything, redirect
   it here first. The TTRPG world state was not: every run saved the test's `test_storm` /
   `atk_mod: -5` over `memory/ttrpg/world_state.json`, and every player fought at -5 until the
-  next dawn tick; it goes through `telemetry_path()` now. To check the whole suite at once, run it under a `sys.addaudithook` that
-  records `open` in a write mode, `os.replace`/`os.remove` under `memory/`, `knowledge_base/`
-  and the production log, attributed per test; anything without `.test` in its path is a leak.
+  next dawn tick; it goes through `telemetry_path()` now, and so does `bot_state.json`, whose module-level instance every test
+  shared: until 2 Nov a `pytest` run wrote test state over her channel memory and relationships, harmless only because
+  a running bot saves over it. `tools/tests/live_write_guard.py` now holds the whole suite to this: an audit hook sees
+  every write under `memory/`, `knowledge_base/` and `logs/`, and a run with one outside a `.test` path fails and names
+  the test.
 - Elevate core cognitive actions (monologue, dream summaries, belief shifts, anchor formation),
   scraper operations, and mood changes to `log_info`/`log_warning` so they surface in the
   dashboard.
