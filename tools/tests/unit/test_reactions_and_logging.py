@@ -257,7 +257,8 @@ def test_the_logging_call_sites_strip():
             block_start = src.index(line)
             # The stripped text may be built just before the call.
             window = src[max(0, block_start - 600):block_start + 400]
-            assert "summarize_link_context" in window, f"unstripped log call: {line.strip()}"
+            assert ("summarize_link_context" in window or "_persisted_user_turn" in window), (
+                f"unstripped log call: {line.strip()}")
 
 
 # ── Image turns must not inherit another speaker's conversation ──────
@@ -412,3 +413,22 @@ def test_a_picture_alone_is_logged_as_a_citation_not_an_empty_turn():
     assert out == "[shared image] [shared image] [shared file] [sticker]"
     assert "secret" not in out                       # the sender's filename is not kept
     assert attachment_citations(SimpleNamespace(attachments=[], stickers=[])) == ""
+
+
+def test_an_answered_picture_is_kept_as_a_citation_not_an_empty_turn():
+    from types import SimpleNamespace
+    from utils.core.sanitizer import persisted_turn
+    picture = SimpleNamespace(content_type="image/png", filename="clouds.png")
+    alone = SimpleNamespace(attachments=[picture], stickers=[])
+    assert persisted_turn("", alone) == "[shared image]"
+    assert persisted_turn("look at this", alone) == "look at this [shared image]"
+
+
+def test_a_file_the_enricher_read_is_cited_once():
+    from types import SimpleNamespace
+    from utils.core.sanitizer import persisted_turn
+    paste = SimpleNamespace(content_type="text/plain", filename="message.txt")
+    msg = SimpleNamespace(attachments=[paste], stickers=[])
+    enriched = "summarize this\n\n[ATTACHED_FILE_CONTEXT]\nFile: message.txt (2 KB)\nhello\n[/ATTACHED_FILE_CONTEXT]"
+    assert persisted_turn(enriched, msg).count("[shared file]") == 1
+    assert persisted_turn("no block", msg) == "no block [shared file]"

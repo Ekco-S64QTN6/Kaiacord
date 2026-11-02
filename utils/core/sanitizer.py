@@ -80,10 +80,7 @@ def _shared_context_citation(marker: str, block: str) -> str:
     return ""
 
 
-def attachment_citations(msg) -> str:
-    """What a message carried besides its text, as fixed citations:
-    "[shared image]", "[shared file]", "[sticker]". A file's name is the
-    sender's text and is not kept, for the reason a page title is not."""
+def _attachment_citation_list(msg) -> list:
     out = []
     for a in getattr(msg, "attachments", None) or []:
         kind = (getattr(a, "content_type", None) or "").split("/")[0]
@@ -92,7 +89,29 @@ def attachment_citations(msg) -> str:
             kind = "image" if name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")) else ""
         out.append("[shared image]" if kind == "image" else "[shared video]" if kind == "video" else "[shared file]")
     out += ["[sticker]"] * len(getattr(msg, "stickers", None) or [])
-    return " ".join(out)
+    return out
+
+
+def attachment_citations(msg) -> str:
+    """What a message carried besides its text, as fixed citations:
+    "[shared image]", "[shared file]", "[sticker]". A file's name is the
+    sender's text and is not kept, for the reason a page title is not."""
+    return " ".join(_attachment_citation_list(msg))
+
+
+def persisted_turn(sanitized_content: str, msg) -> str:
+    """A user turn as it is kept: what they typed, a citation per enricher block
+    and one per attachment. A file the enricher read already has its citation
+    from that block, so it is not cited twice."""
+    text = (summarize_link_context(sanitized_content) or "").strip()
+    files_cited = text.count("[shared file]")
+    extra = []
+    for citation in _attachment_citation_list(msg):
+        if citation == "[shared file]" and files_cited > 0:
+            files_cited -= 1
+            continue
+        extra.append(citation)
+    return " ".join(x for x in (text, *extra) if x)
 
 
 _REPLY_CONTEXT_PREFIX = re.compile(

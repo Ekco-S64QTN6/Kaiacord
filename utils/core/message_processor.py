@@ -2638,10 +2638,9 @@ class MessageProcessor:
                 # only a one-line link citation in persisted history, just as in
                 # the RAG transcript, so future prompts cannot mistake page text
                 # for user-authored conversation.
-                from utils.core.sanitizer import summarize_link_context
-                user_msg_with_author = (
-                    f"{ctx.author_name}: {summarize_link_context(ctx.sanitized_content)}"
-                )
+                from utils.core.sanitizer import persisted_turn
+                _persisted_user_turn = persisted_turn(ctx.sanitized_content, ctx.message)
+                user_msg_with_author = f"{ctx.author_name}: {_persisted_user_turn}"
                 
                 # --- STYLE DRIFT GUARD (Feedback Loop Prevention) ---
                 # Count ellipsis-fragmented phrases AND excessive em dashes.
@@ -2681,8 +2680,7 @@ class MessageProcessor:
                     # transcript: logged verbatim they read as things the user
                     # typed, and the log feeds both RAG and the fine-tune corpus.
                     await self.rag.log_user_interaction_async(
-                        ctx.author_id, ctx.author_name,
-                        summarize_link_context(ctx.sanitized_content), bot_response)
+                        ctx.author_id, ctx.author_name, _persisted_user_turn, bot_response)
                 
                 # Direct metrics
                 response_time = time.time() - ctx.start_time
