@@ -1,5 +1,7 @@
 import time
 import discord
+
+from utils.commands.stale_view import StaleSafeView
 from utils.ttrpg.character_manager import load, save
 from utils.ttrpg.progression import hunts_remaining, check_level_up
 from utils.ttrpg.class_advancement import (
@@ -62,7 +64,7 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
             emoji=d['emoji']
         ))
 
-    view = discord.ui.View(timeout=120)
+    view = StaleSafeView(timeout=120)
     sel = discord.ui.Select(placeholder="🌱 Select seeds to buy...", options=options, row=0)
 
     @player_locked(uid)
@@ -148,7 +150,7 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
                 "silver moss, dire root, or honey sap.")
 
         embed = discord.Embed(title="📜 Known Recipes", color=0x2ecc71)
-        view = discord.ui.View(timeout=120)
+        view = StaleSafeView(timeout=120)
 
         for i, r_key in enumerate(known):
             r = get_recipe(r_key)
@@ -223,7 +225,7 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
             ),
             color=0x8b7355
         )
-        view = discord.ui.View(timeout=120)
+        view = StaleSafeView(timeout=120)
         buy_btn = discord.ui.Button(
             label=f"Purchase Hut ({hut['cost']}g)",
             style=discord.ButtonStyle.green, row=0
@@ -320,7 +322,7 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
     )
 
     # Build view
-    view = discord.ui.View(timeout=120)
+    view = StaleSafeView(timeout=120)
 
     # Row 0: Farm actions (harvest handled inside farm_view)
     farm_label = f"🌾 Farm{' ✅' if harvestable_count else ''}"
@@ -405,7 +407,7 @@ async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
         color=0x8b7355
     )
     
-    view = discord.ui.View(timeout=60)
+    view = StaleSafeView(timeout=60)
     confirm_btn = discord.ui.Button(label=f"Confirm Upgrade ({tier_data['cost']}g)", style=discord.ButtonStyle.green)
     from_tier = housing["tier"]
 
@@ -490,7 +492,7 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
         else:
             embed.add_field(name=f"Plot {i+1}: Empty", value="Available for planting.", inline=True)
 
-    view = discord.ui.View(timeout=120)
+    view = StaleSafeView(timeout=120)
 
     # Seed planting — only show if there are open plots
     if len(plots) < max_plots:
@@ -775,7 +777,7 @@ async def _handle_pet_shop(ctx, msg, send, rest, uid, uname, is_owner):
         embed.add_field(name=f"{data['emoji']} {data['name']} ({data['cost']}g)", value=data['desc'], inline=False)
         options.append(discord.SelectOption(label=f"{data['name']} ({data['cost']}g)", value=key, emoji=data['emoji']))
 
-    view = discord.ui.View(timeout=120)
+    view = StaleSafeView(timeout=120)
     sel = discord.ui.Select(placeholder="Adopt a pet...", options=options[:25], row=0)
     async def _buy_cb(interaction):
         if str(interaction.user.id) != uid: return
@@ -924,7 +926,7 @@ async def _handle_furniture_shop(ctx, msg, send, rest, uid, uname, is_owner):
             embed.add_field(name=f"{data['emoji']} {data['name']} ({data['cost']}g)", value=data['desc'], inline=False)
             options.append(discord.SelectOption(label=f"{data['name']} ({data['cost']}g)", value=key, emoji=data['emoji']))
 
-    view = discord.ui.View(timeout=120)
+    view = StaleSafeView(timeout=120)
     if options:
         sel = discord.ui.Select(placeholder="Buy furniture...", options=options[:25], row=0)
         async def _buy_cb(interaction):
@@ -1038,7 +1040,7 @@ async def _handle_visit_plots(ctx, msg, send, rest, uid, uname, is_owner):
 
     embed.set_footer(text=f"{tier_data.get('name','Home')} · {len(plots)} crop(s) · {len(pets)} pet(s) · {len(furniture_keys)} furnishing(s)")
 
-    view = discord.ui.View(timeout=60)
+    view = StaleSafeView(timeout=60)
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
     await msg.channel.send(embed=embed, view=view)
 

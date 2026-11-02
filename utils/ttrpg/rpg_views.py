@@ -5,8 +5,10 @@ import time
 import uuid as _uuid
 import traceback
 import discord
+
+from utils.commands.stale_view import StaleSafeView
 import secrets
-from utils.infrastructure.logging.kaia_logger import log_error
+from utils.infrastructure.logging.kaia_logger import log_debug, log_error
 from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.character_manager import load, save, create, load_all
 from utils.ttrpg.session_manager import get_action_lock, load_session
@@ -352,7 +354,7 @@ def _make_interaction_send(interaction: discord.Interaction):
     return _send
 
 
-class StatChoiceView(discord.ui.View):
+class StatChoiceView(StaleSafeView):
     def __init__(self, ctx, uid, uname, is_owner, primary_stat):
         super().__init__(timeout=60)
         self._ctx = ctx
@@ -417,7 +419,7 @@ class StatChoiceView(discord.ui.View):
         self.stop()
 
 
-class RPGFullLocationView(discord.ui.View):
+class RPGFullLocationView(StaleSafeView):
     """
     All-in-one location view.
     Row 0-2: location-specific action buttons (from _LOCATION_BUTTONS)
@@ -603,7 +605,7 @@ class RPGFullLocationView(discord.ui.View):
             try:
                 await interaction.response.defer()
             except discord.NotFound:
-                log_error(f"[rpg btn] {_cmd}: interaction expired (NotFound on defer)")
+                log_debug(f"[rpg btn] {_cmd}: interaction expired (NotFound on defer)")
                 return
             fake = _InteractionMsg(interaction)
             sfn = _make_interaction_send(interaction)
@@ -625,7 +627,7 @@ class RPGFullLocationView(discord.ui.View):
         self.add_item(btn)
 
 
-class RPGCombatView(discord.ui.View):
+class RPGCombatView(StaleSafeView):
     """Attack / Flee buttons shown during active combat.
 
     Attached to the hunt encounter embed and to combat-log embeds when the
@@ -658,7 +660,7 @@ class RPGCombatView(discord.ui.View):
             try:
                 await interaction.response.defer()
             except discord.NotFound:
-                log_error("[rpg button] attack: interaction expired (NotFound on defer)")
+                log_debug("[rpg button] attack: interaction expired (NotFound on defer)")
                 return
             fake_msg = _InteractionMsg(interaction)
             send_fn = _make_interaction_send(interaction)
@@ -696,7 +698,7 @@ class RPGCombatView(discord.ui.View):
             try:
                 await interaction.response.defer()
             except discord.NotFound:
-                log_error("[rpg button] flee: interaction expired (NotFound on defer)")
+                log_debug("[rpg button] flee: interaction expired (NotFound on defer)")
                 return
             fake_msg = _InteractionMsg(interaction)
             send_fn = _make_interaction_send(interaction)
@@ -776,7 +778,7 @@ class RPGCombatView(discord.ui.View):
                 for key, label in usable[:25]
             ]
 
-            select_view = discord.ui.View(timeout=30)
+            select_view = StaleSafeView(timeout=30)
             item_select = discord.ui.Select(
                 placeholder="Choose an item to use...",
                 options=options,
@@ -836,7 +838,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
     from collections import Counter
     from utils.ttrpg.calendar import get_special_day
 
-    view = discord.ui.View(timeout=120)
+    view = StaleSafeView(timeout=120)
 
     SLOT_PREFIX = {
         "weapon":    "[Weapon]",
@@ -1099,7 +1101,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
                 ), ephemeral=True)
                 
             bb_sel.callback = _buyback_sel_cb
-            bb_view = discord.ui.View(timeout=60)
+            bb_view = StaleSafeView(timeout=60)
             bb_view.add_item(bb_sel)
             await interaction.response.send_message("Select an item to buy back:", view=bb_view, ephemeral=True)
 
@@ -1127,7 +1129,7 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
 
 def _make_status_view(ctx, msg, uid, uname, is_owner):
     """Return a View with a single 📊 Status button that re-opens the HUD."""
-    view = discord.ui.View(timeout=60)
+    view = StaleSafeView(timeout=60)
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
     return view
 
@@ -1170,7 +1172,7 @@ def _make_map_view(ctx, msg, uid, uname, is_owner, loc):
     return RPGFullLocationView(ctx, msg, uid, uname, is_owner, loc)
 
 
-class BossApproachView(discord.ui.View):
+class BossApproachView(StaleSafeView):
     """
     Warning view shown when the player is about to enter an uncleared boss room.
     Gives them the chance to turn back and clear the rest of the dungeon first.
@@ -1236,7 +1238,7 @@ class BossApproachView(discord.ui.View):
         view = DungeonView(self._ctx, self._uid, self._uname, self._is_owner, state)
         await interaction.followup.send(embed=embed, view=view)
 
-class SpineLiftView(discord.ui.View):
+class SpineLiftView(StaleSafeView):
     def __init__(self, ctx_obj, uid, uname, is_owner, sheet, deepest_floor, has_lightstone=True):
         super().__init__(timeout=120)
         self._ctx = ctx_obj
@@ -1300,7 +1302,7 @@ class SpineLiftView(discord.ui.View):
         lift_sel.callback = _lift_cb
         self.add_item(lift_sel)
 
-class DungeonView(discord.ui.View):
+class DungeonView(StaleSafeView):
     def __init__(self, ctx_obj, uid, uname, is_owner, dungeon):
         super().__init__(timeout=300)
         self._ctx      = ctx_obj
@@ -1521,7 +1523,7 @@ async def _still_on_stairs(interaction, uid, floor_num, room_key):
     return current
 
 
-class DungeonCombatView(discord.ui.View):
+class DungeonCombatView(StaleSafeView):
     """Turn-based combat view for dungeon encounters."""
 
     def __init__(self, ctx_obj, uid, uname, is_owner, monster_name):
@@ -1613,7 +1615,7 @@ class DungeonCombatView(discord.ui.View):
                     pass
                 return
             options = [discord.SelectOption(label=label, value=key) for key, label in usable[:25]]
-            sel_view = discord.ui.View(timeout=30)
+            sel_view = StaleSafeView(timeout=30)
             sel = discord.ui.Select(placeholder="Use item...", options=options, row=0)
             async def _selected(sel_interaction: discord.Interaction):
                 if str(sel_interaction.user.id) != self._uid:
@@ -1641,7 +1643,7 @@ class DungeonCombatView(discord.ui.View):
         self.add_item(use_btn)
 
 
-class MailMenuView(discord.ui.View):
+class MailMenuView(StaleSafeView):
     def __init__(self, ctx, msg, uid, uname, is_owner, sheet):
         super().__init__(timeout=120)
         self.ctx = ctx
@@ -1722,7 +1724,7 @@ class MailMenuView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view)
 
 
-class MailSendView(discord.ui.View):
+class MailSendView(StaleSafeView):
     def __init__(self, ctx, msg, uid, uname, is_owner, sheet, recipients):
         super().__init__(timeout=180)
         self.ctx = ctx
@@ -1844,7 +1846,7 @@ class GilModal(discord.ui.Modal, title="Enclose Gil"):
         await interaction.response.send_message(f"💰 **{amount}g** noted for dispatch, kupo!", ephemeral=True)
 
 
-class ConsumableQuantityView(discord.ui.View):
+class ConsumableQuantityView(StaleSafeView):
     """
     Shown when a player selects a consumable in the shop.
     Offers quick-buy amounts and a custom quantity modal.
@@ -2022,7 +2024,7 @@ async def _show_stat_choice(ctx, msg, send, sheet, uid, uname, is_owner):
 def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, total_pages=1, page_cb=None):
     """Return a View with Use and Equip select menus."""
     from utils.ttrpg.shop import find_item
-    view = discord.ui.View(timeout=120)
+    view = StaleSafeView(timeout=120)
 
     SLOT_PREFIX = {
         "weapon":    "[Weapon]",
@@ -2129,7 +2131,7 @@ def _make_inventory_view(ctx, msg, uid, uname, is_owner, inventory, page_idx=0, 
 
 def _make_hunt_status_view(ctx, msg, uid, uname, is_owner):
     """Return a View with 🗡️ Hunt Again + 📊 Status buttons (post-combat/event)."""
-    view = discord.ui.View(timeout=60)
+    view = StaleSafeView(timeout=60)
 
     hunt_btn = discord.ui.Button(label="🗡️ Hunt Again", style=discord.ButtonStyle.secondary, row=3)
 

@@ -7,6 +7,8 @@ NPC: Old Gregor (sells bait/poles, buys fish)
 """
 import asyncio
 import discord
+
+from utils.commands.stale_view import StaleSafeView
 import secrets
 from datetime import datetime
 
@@ -67,7 +69,7 @@ GREGOR_LINES = [
 
 # ── Fishing Menu View ─────────────────────────────────────────────────────────
 
-class FishingMenuView(discord.ui.View):
+class FishingMenuView(StaleSafeView):
     """Main fishing location UI at tricklebrook_pond."""
 
     def __init__(self, ctx, uid: str, uname: str, is_owner: bool, sheet: dict):
@@ -128,7 +130,7 @@ class FishingMenuView(discord.ui.View):
             )
             for k, v in owned.items()
         ]
-        sel_view = discord.ui.View(timeout=30)
+        sel_view = StaleSafeView(timeout=30)
         sel = discord.ui.Select(placeholder="Select active bait...", options=options, row=0)
         async def _switch_cb(sel_interaction: discord.Interaction):
             if str(sel_interaction.user.id) != self._uid:
@@ -229,7 +231,7 @@ class FishingMenuView(discord.ui.View):
 
 # ── Bite View (Reel mechanic) ─────────────────────────────────────────────────
 
-class BiteView(discord.ui.View):
+class BiteView(StaleSafeView):
     """
     Shown after a bite is detected.
     Player has reel_window seconds to click Reel It In!
@@ -408,7 +410,7 @@ class BiteView(discord.ui.View):
             if sheet:
                 view = FishingMenuView(self._ctx, self._uid, self._uname, self._is_owner, sheet)
             else:
-                view = discord.ui.View()
+                view = StaleSafeView()
             try:
                 await self._channel.send(embed=embed, view=view)
             except Exception:
@@ -707,7 +709,7 @@ async def _resolve_bite(ctx, interaction, uid, uname, is_owner, pole_key, bait_k
                 await save(sheet)
                 view = FishingMenuView(ctx, uid, uname, is_owner, sheet)
             else:
-                view = discord.ui.View()
+                view = StaleSafeView()
             await interaction.followup.send(embed=miss_embed, view=view)
             return
 
@@ -1016,13 +1018,13 @@ async def _handle_fishing_leaderboard(ctx, interaction: discord.Interaction, uid
         embed.description = "*No records yet. Be the first to cast a line.*"
 
     sheet = await load(uid)
-    view = FishingMenuView(ctx, uid, uname, is_owner, sheet) if sheet else discord.ui.View()
+    view = FishingMenuView(ctx, uid, uname, is_owner, sheet) if sheet else StaleSafeView()
     await interaction.followup.send(embed=embed, view=view)
 
 
 # ── Fishing Shop View ─────────────────────────────────────────────────────────
 
-class FishingShopView(discord.ui.View):
+class FishingShopView(StaleSafeView):
     """Buy bait packs, poles, and bag upgrades from Gregor."""
 
     def __init__(self, ctx, uid: str, uname: str, is_owner: bool, sheet: dict):

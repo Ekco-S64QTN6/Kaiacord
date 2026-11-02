@@ -4,6 +4,8 @@ import uuid as _uuid
 import os
 import json
 import discord
+
+from utils.commands.stale_view import StaleSafeView
 import secrets
 from utils.infrastructure.logging.kaia_logger import log_error
 from utils.infrastructure.system.yaml_config import config
@@ -390,7 +392,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                     description=f"*{dialogue}*",
                     color=0x4488cc
                 )
-                view = discord.ui.View(timeout=180)
+                view = StaleSafeView(timeout=180)
 
                 # Quest accept buttons
                 if available_quests:
@@ -502,7 +504,7 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
         description=desc,
         color=0x4a90e2
     )
-    view = discord.ui.View(timeout=120)
+    view = StaleSafeView(timeout=120)
     if active:
         # Give a drop-down menu if multiple, or a single button if 1
         if len(active) == 1:

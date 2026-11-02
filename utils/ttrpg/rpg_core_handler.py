@@ -5,6 +5,8 @@ import re
 import time
 import uuid as _uuid
 import discord
+
+from utils.commands.stale_view import StaleSafeView
 import secrets
 from utils.infrastructure.logging.kaia_logger import log_error
 from utils.infrastructure.system.yaml_config import config
@@ -230,7 +232,7 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
             embed.description += "\n\n✨ **CLASS ADVANCEMENT AVAILABLE!** ✨\nYou have reached Level 5 and may choose an elite path. Your choice is permanent."
             
             sel_options = [discord.SelectOption(label=f"{adv} - {opts['description']}"[:100], value=adv) for adv, opts in options.items()]
-            view = discord.ui.View(timeout=120)
+            view = StaleSafeView(timeout=120)
             sel = discord.ui.Select(placeholder="Choose your path...", options=sel_options, row=0)
             
             @player_locked(uid)
@@ -634,7 +636,7 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
     if target_id == uid:
         view = RPGLocationView(ctx, msg, uid, uname, is_owner, loc)
     else:
-        view = discord.ui.View(timeout=120)
+        view = StaleSafeView(timeout=120)
         view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
 
     await msg.channel.send(embed=embed, view=view)
@@ -684,7 +686,7 @@ async def _handle_advance(ctx, msg, send, rest, uid, uname, is_owner):
         color=0xffcc00
     )
 
-    view = discord.ui.View(timeout=120)
+    view = StaleSafeView(timeout=120)
     for adv_name, adv_data in options.items():
         embed.add_field(
             name=f"**{adv_name}**",
@@ -1493,7 +1495,7 @@ async def _handle_unequip(ctx, msg, send, rest, uid, uname, is_owner):
                 name = val.get("name") if isinstance(val, dict) else registries.get(slot, {}).get(val, {}).get("name", val)
                 options.append(discord.SelectOption(label=f"{slot.title()}: {name}", value=slot))
 
-            view = discord.ui.View(timeout=60)
+            view = StaleSafeView(timeout=60)
             sel = discord.ui.Select(placeholder="Unequip which item?", options=options, row=0)
 
             @player_locked(uid)
@@ -1918,7 +1920,7 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
 
     await save(sheet)
 
-    gamble_view = discord.ui.View(timeout=60)
+    gamble_view = StaleSafeView(timeout=60)
 
     gamble_again_btn = discord.ui.Button(
         label="🎲 Gamble Again", style=discord.ButtonStyle.secondary, row=0
@@ -2085,7 +2087,7 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner):
         color=0xaaddff
     )
 
-    view = discord.ui.View(timeout=60)
+    view = StaleSafeView(timeout=60)
 
     # Build amount options: 5, 10, 20 (max), and remaining cap
     amounts = []
@@ -2387,7 +2389,7 @@ async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner):
         description=f"**Balance:** {sheet.get('bank_balance', 0)}g  ·  **On Hand:** {sheet.get('gil', 0)}g",
         color=0xaa88ff
     )
-    view = discord.ui.View(timeout=60)
+    view = StaleSafeView(timeout=60)
     for amt_label, amt_val in [("10g", 10), ("25g", 25), ("50g", 50), ("All", None)]:
         actual = sheet["gil"] if amt_val is None else amt_val
         btn = discord.ui.Button(
@@ -2434,7 +2436,7 @@ async def _handle_bank_withdraw(ctx, msg, send, rest, uid, uname, is_owner):
         description=f"**Balance:** {balance}g  ·  **On Hand:** {sheet.get('gil', 0)}g",
         color=0xaa88ff
     )
-    view = discord.ui.View(timeout=60)
+    view = StaleSafeView(timeout=60)
     for amt_label, amt_val in [("10g", 10), ("25g", 25), ("50g", 50), ("All", None)]:
         actual = balance if amt_val is None else amt_val
         btn = discord.ui.Button(
