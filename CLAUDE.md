@@ -361,6 +361,16 @@ material — an earlier version matched any `retrieval_method in (vector, bm25, 
 true for nearly every turn and silently ran all conversation at 0.35, producing flat and
 sycophantic prose.
 
+### The prompt's first tokens
+
+**Nothing in the persona may change from turn to turn** (`prompt_prefix.py`). Replies reused 0 tokens of their 16,000:
+the time was substituted 1,231 tokens in, and gemma3's sliding-window attention can only resume from a context checkpoint,
+which llama-server writes at the end of a prompt. The time is in the metadata block now, and a request that is the persona
+alone leaves a checkpoint later prompts pick up from: 13.7 s of prompt processing fell to 10.2 s on a 14,936-token prompt,
+and it holds across other calls. `[TOKEN_DEBUG]` logs `prompt_s`; about 0.9 ms a token means nothing was reused, and a turn
+like that sets off another warm-up. Check it in the journal: `restored context checkpoint` on chat turns, not `forcing full
+prompt re-processing`.
+
 ### Repeat penalty
 
 **What she writes is sampled with `generation.repeat_penalty` (`gpu_manager.voice_sampling`).** Ollama's runner logs
