@@ -2510,31 +2510,80 @@ async def _handle_xp(ctx, msg, send, rest, uid, uname, is_owner):
     ))
 
 
+async def _with_target_action_lock(target_uid: str, caller_uid: str, operation):
+    """Serialize an admin mutation with the target player, not just the admin.
+
+    The dispatcher already holds the caller's lock. Skip reacquiring it for
+    self-targeted admin commands because the action locks are not re-entrant.
+    """
+    target_uid = str(target_uid)
+    if target_uid == str(caller_uid):
+        return await operation()
+
+    from utils.ttrpg.session_manager import get_action_lock
+    async with await get_action_lock(f"user:{target_uid}"):
+        return await operation()
+
+
 async def _handle_give(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
     from utils.ttrpg.shop import find_item
-    args = rest.strip().split()
-    if not args: return
-    sheet = await load(str(msg.mentions[0].id) if msg.mentions else uid)
-    if not sheet: return await no_character(msg)
-    item = find_item(args[0])
-    if item:
-        sheet["inventory"].append(args[0])
-        await save(sheet)
-        await msg.channel.send(embed=discord.Embed(
-            description=f"Admin granted `{args[0]}` to {sheet['character_name']}.",
-            color=0x44aa44
+
+    mentions = getattr(msg, "mentions", []) or []
+    target_uid = str(mentions[0].id) if mentions else str(uid)
+    item_query = rest.strip()
+    if mentions:
+        # Discord leaves the mention token in the dispatcher's remaining text.
+        # Remove only the selected recipient token before resolving the item.
+        item_query = re.sub(rf"<@!?{re.escape(target_uid)}>", "", item_query, count=1).strip()
+    if not item_query:
+        return await msg.channel.send(embed=discord.Embed(
+            description="Specify an item to grant. Example: `!rpg give @player tonic`.",
+            color=0x888888
         ))
+
+    item = find_item(item_query)
+    if not item:
+        return await msg.channel.send(embed=discord.Embed(
+            description=f"No RPG item found for `{item_query}`.",
+            color=0xcc4444
+        ))
+
+    async def grant():
+        sheet = await load(target_uid)
+        if not sheet:
+            return None
+        sheet.setdefault("inventory", []).append(item["key"])
+        await save(sheet)
+        return sheet["character_name"]
+
+    target_name = await _with_target_action_lock(target_uid, uid, grant)
+    if not target_name:
+        return await no_character(msg)
+    await msg.channel.send(embed=discord.Embed(
+        description=f"Admin granted `{item['key']}` to {target_name}.",
+        color=0x44aa44
+    ))
 
 
 async def _handle_heal(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
-    sheet = await load(str(msg.mentions[0].id) if msg.mentions else uid)
-    if not sheet: return await no_character(msg)
-    sheet["hp"]["current"] = sheet["hp"]["max"]
-    await save(sheet)
+    mentions = getattr(msg, "mentions", []) or []
+    target_uid = str(mentions[0].id) if mentions else str(uid)
+
+    async def heal():
+        sheet = await load(target_uid)
+        if not sheet:
+            return None
+        sheet["hp"]["current"] = sheet["hp"]["max"]
+        await save(sheet)
+        return sheet["character_name"]
+
+    target_name = await _with_target_action_lock(target_uid, uid, heal)
+    if not target_name:
+        return await no_character(msg)
     await msg.channel.send(embed=discord.Embed(
-        description=f"Admin fully healed {sheet['character_name']}.",
+        description=f"Admin fully healed {target_name}.",
         color=0x44aa44
     ))
 
