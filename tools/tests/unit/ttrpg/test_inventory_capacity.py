@@ -296,6 +296,10 @@ def test_player_reward_modules_do_not_bypass_the_shared_inventory_grant():
         "utils/ttrpg/micro_events.py",
         "utils/ttrpg/alchemy.py",
         "utils/ttrpg/shop.py",
+        "utils/ttrpg/rpg_shop_handler.py",
+        "utils/ttrpg/pets.py",
+        "utils/ttrpg/forest_events.py",
+        "utils/ttrpg/farming.py",
     )
     mail_fallback_modules = (
         "utils/ttrpg/rpg_views.py",
