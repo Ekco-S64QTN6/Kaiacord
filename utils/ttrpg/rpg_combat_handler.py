@@ -676,12 +676,29 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
             "created_at": time.time(),
         }
     
-    # Are we already fighting something?
+    # Overworld fights are personal and location-bound. A player who
+    # moved away must explicitly flee the old encounter before hunting again.
     monsters = s.get("monsters", [])
-    my_fights = []
-    for m in monsters:
-        if isinstance(m, dict) and m.get("aggro_uid") == uid:
-            my_fights.append(m)
+    owned_fights = [
+        m for m in monsters
+        if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid)
+    ]
+    my_fights = [
+        m for m in owned_fights if m.get("origin_location") == loc
+    ]
+    stale_fights = [m for m in owned_fights if m.get("origin_location") != loc]
+
+    if not my_fights and stale_fights:
+        old_location = stale_fights[0].get("origin_location")
+        where = f"**{old_location}**" if old_location else "an older encounter with no recorded location"
+        return await msg.channel.send(embed=discord.Embed(
+            description=(
+                f"Your previous encounter is tied to {where}. "
+                "Overworld fights cannot be carried between locations. "
+                "Return to its location or use !rpg flee to abandon it."
+            ),
+            color=0xcc4444,
+        ))
 
     if my_fights:
         if sheet["hp"]["current"] <= 0:
@@ -860,7 +877,8 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         _overworld_atk_cap = int(_player_level * 1.5 + 2)   # DEF_cap - 10
         monster_instance["attack"] = min(monster_instance["attack"], _overworld_atk_cap)
         monster_instance["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
-        monster_instance["aggro_uid"] = uid  # personal instance
+        monster_instance["aggro_uid"] = str(uid)  # personal instance
+        monster_instance["origin_location"] = loc
         
         s["monsters"].append(monster_instance)
         spawned_names.append(f"**{monster_instance['name']}**")
@@ -903,16 +921,31 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=combat_view)
 
 
-def pick_target(monsters: list, uid: str, target_key: str):
-    """(index, monster) to attack: your own fight first — the one you named, if
-    you named one — then someone else's you're helping with by name. One pass
-    took whichever came first in the channel's list, so naming a goblin hit
-    another player's goblin before your own."""
-    mine = [(i, m) for i, m in enumerate(monsters) if m.get("aggro_uid") == uid]
-    named = [(i, m) for i, m in enumerate(monsters) if target_key and target_key in m.get("key", "")]
-    own_named = [p for p in mine if target_key and target_key in p[1].get("key", "")]
-    pick = own_named or named or mine
-    return pick[0] if pick else None
+def pick_target(monsters: list, uid: str, target_key: str, location: str):
+    """Return this player's named (or first unnamed) fight at this location.
+
+    Channel sessions are shared, but overworld combat is not cooperative yet:
+    every player must spawn and finish their own encounter. Legacy monsters
+    without origin_location fail closed rather than inheriting the attacker's
+    current location.
+    """
+    player_id = str(uid)
+    current_location = str(location) if location is not None else None
+    mine = [
+        (i, m) for i, m in enumerate(monsters)
+        if isinstance(m, dict)
+        and str(m.get("aggro_uid")) == player_id
+        and current_location is not None
+        and m.get("origin_location") == current_location
+    ]
+    if target_key:
+        target = str(target_key).lower()
+        named_own = [
+            pair for pair in mine
+            if target in str(pair[1].get("key", "")).lower()
+        ]
+        return named_own[0] if named_own else None
+    return mine[0] if mine else None
 
 
 @serialize_combat_action
@@ -937,12 +970,41 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     monster = None
     monster_idx = -1
-    picked = pick_target(s["monsters"], uid, target_key)
+    picked = pick_target(s["monsters"], uid, target_key, loc)
     if picked:
         monster_idx, monster = picked
-            
+
     if not monster:
-        return await msg.channel.send(embed=discord.Embed(description="Cannot identify monster.", color=0xcc4444))
+        own_encounters = [
+            m for m in s["monsters"]
+            if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid)
+        ]
+        own_stale = [
+            m for m in own_encounters if m.get("origin_location") != loc
+        ]
+        if own_stale:
+            old_location = own_stale[0].get("origin_location")
+            where = f"**{old_location}**" if old_location else "an older encounter with no recorded location"
+            message = (
+                f"Your encounter is tied to {where}. Return there or "
+                "use !rpg flee before fighting elsewhere."
+            )
+        else:
+            named_elsewhere = [
+                m for m in s["monsters"]
+                if isinstance(m, dict)
+                and target_key
+                and target_key in str(m.get("key", "")).lower()
+            ]
+            if named_elsewhere:
+                message = (
+                    "That monster belongs to another hunter's encounter. "
+                    "Overworld assists are disabled until party contribution "
+                    "and reward attribution are supported; start your own hunt."
+                )
+            else:
+                message = "Cannot identify one of your monsters at this location."
+        return await msg.channel.send(embed=discord.Embed(description=message, color=0xcc4444))
         
     from utils.ttrpg.housing import load_housing_async
     from utils.ttrpg.pets import get_pet_passive
@@ -1800,7 +1862,8 @@ async def _handle_raid_blockade(ctx, msg, send, rest, uid, uname, is_owner):
     monster_instance["key"] = "bandit_captain"
     monster_instance["hp"] = {"current": monster_instance["hp"], "max": monster_instance["hp"]}
     monster_instance["id"] = f"bandit_captain_{secrets.token_hex(2)}"
-    monster_instance["aggro_uid"] = uid
+    monster_instance["aggro_uid"] = str(uid)
+    monster_instance["origin_location"] = loc
     monster_instance["is_blockade_raid"] = True
     
     s["monsters"].append(monster_instance)
