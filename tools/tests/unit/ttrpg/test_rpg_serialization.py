@@ -563,7 +563,7 @@ def test_moogle_mail_dispatch_is_single_use_and_delivered_once(monkeypatch):
         copy.deepcopy(disk["42"]), [disk["99"]],
     )
     view.selected_recipient_id = "99"
-    view.selected_item = "tonic"
+    view.selected_item = None
     view.gil_to_send = 125
 
     def interaction():
@@ -576,17 +576,19 @@ def test_moogle_mail_dispatch_is_single_use_and_delivered_once(monkeypatch):
 
     async def go():
         first = interaction()
-        await view.dispatch_callback(first)
         second = interaction()
-        await view.dispatch_callback(second)
+        await asyncio.gather(
+            view.dispatch_callback(first),
+            view.dispatch_callback(second),
+        )
         return first, second
 
     first, second = asyncio.run(go())
     assert disk["42"]["gil"] == 375
-    assert disk["42"]["inventory"] == []
+    assert disk["42"]["inventory"] == ["tonic"]
     assert disk["42"]["pending_mail_dispatches"] == []
     assert len(disk["99"]["mailbox"]) == 1
-    assert disk["99"]["mailbox"][0]["item"] == "tonic"
+    assert disk["99"]["mailbox"][0]["item"] is None
     assert disk["99"]["mailbox"][0]["gil"] == 125
     assert disk["99"]["gil"] == 0
     first.followup.send.assert_awaited_once()
