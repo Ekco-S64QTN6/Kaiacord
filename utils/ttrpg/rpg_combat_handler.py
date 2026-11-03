@@ -76,7 +76,7 @@ def _apply_overworld_blackout(sheet: dict) -> dict:
     return {"xp_loss": xp_loss, "gil_loss": gil_loss}
 
 
-async def _announce_overworld_blackout(ctx, sheet: dict, cause: str) -> None:
+async def _announce_overworld_blackout(ctx, sheet: dict, cause: str, blackout: dict) -> None:
     """Broadcast the same Shrine-threshold death notice for every overworld knockout."""
     await _log_world_event(
         f"**{sheet.get('character_name', 'An adventurer')}** was found at the Shrine threshold. Hemlock is taking bets."
@@ -85,7 +85,7 @@ async def _announce_overworld_blackout(ctx, sheet: dict, cause: str) -> None:
         title=f"💀 {sheet.get('character_name', 'An adventurer')} fell",
         description=(
             f"*{cause or 'The wilds'} left them at the Shrine threshold. "
-            f"{int(sheet.get('deaths', 0))} deaths recorded.*"
+            f"They dropped {blackout['xp_loss']} XP and {blackout['gil_loss']} Gil in the dirt.*"
         ),
         color=0x8B0000,
     )
@@ -1326,7 +1326,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         xp_loss = blackout["xp_loss"]
         gil_loss = blackout["gil_loss"]
         m_block += f"\n\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine of the Silent Ones in Oakhaven. You dropped {xp_loss} XP and {gil_loss} Gil in the dirt."
-        await _announce_overworld_blackout(ctx, sheet, monster.get("name", "Something"));
+        await _announce_overworld_blackout(ctx, sheet, monster.get("name", "Something"), blackout);
         
     await save(sheet)
     
@@ -1697,6 +1697,7 @@ async def _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname, *, uid=N
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=None, is_owner=False):
     """Apply a forest event's mechanical effects; its story joins the trip's (outing.py)."""
+    event_location = sheet.get("location", "whisperwood_edge")
 
     if sheet.get("advanced_class") == "Shaman" and sheet["hp"]["current"] > 0 and sheet["hp"]["current"] < sheet["hp"]["max"]:
         from utils.ttrpg.class_advancement import ADVANCED_CLASSES
@@ -1796,13 +1797,13 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
         outing_uid = str(uid if uid is not None else sheet.get("user_id", ""))
         await outing.record_event(
             outing_uid,
-            sheet.get("location_before_blackout", sheet.get("location", "whisperwood_edge")),
+            event_location,
             result.get("title", "something happened"),
             result.get("narration_hook", ""),
         )
 
     if blackout:
-        await _announce_overworld_blackout(ctx, sheet, result.get("title", "A forest event"))
+        await _announce_overworld_blackout(ctx, sheet, result.get("title", "A forest event"), blackout)
         outing_uid = str(uid if uid is not None else sheet.get("user_id", ""))
         await outing.close(
             ctx, msg.channel, outing_uid, uname, sheet,
