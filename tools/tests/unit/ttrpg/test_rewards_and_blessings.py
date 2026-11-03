@@ -128,3 +128,28 @@ def test_the_line_stays_out_until_the_bite_is_resolved():
         fh._LINES_OUT.discard("u2")
 
     asyncio.run(run())
+
+
+
+@pytest.mark.parametrize(
+    "result,should_remain",
+    [
+        ({"monster_defeated": False, "player_alive": True}, True),
+        ({"monster_defeated": True, "player_alive": True}, False),
+        ({"monster_defeated": False, "player_alive": False}, False),
+    ],
+)
+def test_shrine_blessing_is_spent_only_when_the_fight_ends(result, should_remain):
+    from utils.ttrpg.rpg_combat_handler import _consume_blessing_if_combat_ended
+
+    sheet = {"conditions": ["blessed", "other_condition"]}
+    _consume_blessing_if_combat_ended(sheet, result)
+
+    assert ("blessed" in sheet["conditions"]) is should_remain
+    assert "other_condition" in sheet["conditions"]
+
+
+def test_both_overworld_and_dungeon_combat_use_fight_end_blessing_cleanup():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[4] / "utils" / "ttrpg" / "rpg_combat_handler.py").read_text(encoding="utf-8")
+    assert source.count("_consume_blessing_if_combat_ended(sheet, res)") == 2
