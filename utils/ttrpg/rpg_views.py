@@ -136,19 +136,25 @@ def _get_class_abbr_string(item):
 
 _COMBAT_USABLE_ON_USE = frozenset({
     "cure_poison", "luck_roll_bonus", "atk_boost", "def_boost",
-    "hunt_bonus", "xp_boost",
+    "hunt_bonus", "xp_boost", "smoke_bomb",
 })
 
 
 def _is_combat_usable_item(item):
-    """Whether a consumable is supported by the shared combat item action."""
+    """Whether a non-retired consumable is supported by a combat item action."""
     return (
         item.get("category") == "consumable"
+        and not item.get("deprecated")
         and (
             item.get("hp_restore", 0) > 0
             or item.get("on_use", "") in _COMBAT_USABLE_ON_USE
         )
     )
+
+
+def _is_dungeon_combat_usable_item(item):
+    """Dungeon consumables exclude Smoke Bomb: its escape only clears overworld sessions."""
+    return _is_combat_usable_item(item) and item.get("on_use") != "smoke_bomb"
 
 
 def _combat_item_option_label(item):
@@ -160,10 +166,11 @@ def _combat_item_option_label(item):
     effect = {
         "cure_poison": "cures poison",
         "luck_roll_bonus": "Lucky",
-        "atk_boost": "+2 ATK",
-        "def_boost": "+2 DEF",
+        "atk_boost": "+2 ATK until combat ends",
+        "def_boost": "+2 DEF until combat ends",
         "hunt_bonus": "+1 Hunt",
         "xp_boost": "+25% XP",
+        "smoke_bomb": "safe overworld escape (no hunt cost)",
     }.get(item.get("on_use", ""), "usable")
     return f"{name} ({effect})"
 
@@ -172,20 +179,22 @@ def _get_item_effect_string(item):
     """Return a short description of what a consumable or item does."""
     if item.get("category") != "consumable":
         return ""
+    if item.get("deprecated"):
+        return " — retired; sell to a merchant"
     hp = item.get("hp_restore", 0)
     on_use = item.get("on_use", "")
-    USE_LABELS = {
+    use_labels = {
         "starter_kit":     "open for items",
         "cure_poison":     "cures poison",
-        "cure_blind":      "cures blindness",
         "luck_roll_bonus": "+1 next hit",
         "xp_boost":        "+25% XP next hunt",
         "hunt_bonus":      "+1 bonus hunt",
-        "atk_boost":       "+2 ATK (1 combat)",
-        "def_boost":       "+2 DEF (1 combat)",
+        "atk_boost":       "+2 ATK until combat ends",
+        "def_boost":       "+2 DEF until combat ends",
+        "smoke_bomb":      "safe overworld escape; no hunt cost",
     }
-    if on_use in USE_LABELS:
-        effect = USE_LABELS[on_use]
+    if on_use in use_labels:
+        effect = use_labels[on_use]
     elif "description" in item and hp == 0:
         effect = item["description"]
     else:
@@ -1711,7 +1720,7 @@ class DungeonCombatView(StaleSafeView):
             for item_key, count in inv_counts.items():
                 item = _fi(item_key)
                 if not item or item["category"] != "consumable": continue
-                if _is_combat_usable_item(item):
+                if _is_dungeon_combat_usable_item(item):
                     label = _combat_item_option_label(item)
                     if count > 1:
                         label += f"  x{count}"

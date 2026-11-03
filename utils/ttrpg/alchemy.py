@@ -55,7 +55,7 @@ ALCHEMY_RECIPES = {
         "name": "Smoke Bomb",
         "ingredients": ["blood_thistle", "topaz"],
         "result": "smoke_bomb",
-        "description": "A clay sphere filled with soot and ash. Throw to escape combat safely.",
+        "description": "Safely escape your own overworld encounter without spending a hunt or losing XP/Gil.",
     },
     "antidote": {
         "name": "Antidote",
@@ -67,25 +67,19 @@ ALCHEMY_RECIPES = {
         "name": "Warding Salve",
         "ingredients": ["silver_moss", "pearl"],
         "result": "warding_salve",
-        "description": "A thick, grey paste that hardens skin against physical blows.",
+        "description": "Grants Fortified: +2 DEF until the next combat ends.",
     },
     "frenzy_draught": {
         "name": "Frenzy Draught",
         "ingredients": ["blood_thistle", "star_ruby"],
         "result": "frenzy_draught",
-        "description": "A bubbling crimson liquid that induces combat frenzy.",
+        "description": "Grants Embered: +2 ATK until the next combat ends.",
     },
     "moonwater": {
         "name": "Moonwater",
         "ingredients": ["silverleaf", "black_pearl"],
         "result": "moonwater",
         "description": "A shimmering water collected under full moonlight. Restores all HP.",
-    },
-    "trap_kit": {
-        "name": "Trap Kit",
-        "ingredients": ["dire_root", "fire_opal"],
-        "result": "trap_kit",
-        "description": "A bundle of springs and blades to lay down traps in dungeons.",
     },
 }
 
@@ -186,11 +180,11 @@ SECONDARY_DISCOVERS = {
     "blood_thistle": ["hi_potion_brew", "firebrew", "smoke_bomb", "frenzy_draught"],
     "honey_sap":     ["potion", "antidote"],
     "silver_moss":   ["hi_potion_brew", "antidote", "warding_salve"],
-    "dire_root":     ["elixir_brew", "hunters_draught", "ironbark_tonic", "trap_kit"],
+    "dire_root":     ["elixir_brew", "hunters_draught", "ironbark_tonic"],
     "silverleaf":    ["xp_tonic", "phoenix_brew", "moonwater"],
     "pearl":         ["ironbark_tonic", "warding_salve"],
     "topaz":         ["hunters_draught", "smoke_bomb"],
-    "fire_opal":     ["firebrew", "trap_kit"],
+    "fire_opal":     ["firebrew"],
     "star_ruby":     ["phoenix_brew", "frenzy_draught"],
     "black_pearl":   ["moonwater"],
 }
