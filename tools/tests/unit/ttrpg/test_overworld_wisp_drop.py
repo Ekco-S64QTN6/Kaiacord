@@ -41,9 +41,9 @@ def test_non_wisp_kills_never_roll_for_lightstone():
 def test_full_inventory_reports_wisp_lightstone_left_behind():
     sheet = {"inventory": [f"item_{i}" for i in range(INVENTORY_LIMIT)]}
 
-    with patch("utils.ttrpg.rpg_combat_handler.secrets.randbelow") as roll:
+    with patch("utils.ttrpg.rpg_combat_handler.secrets.randbelow", return_value=0) as roll:
         assert _roll_wisp_lightstone_drop(sheet, "moldwynd") == "full"
 
-    roll.assert_not_called()
+    roll.assert_called_once_with(3)
     assert len(sheet["inventory"]) == INVENTORY_LIMIT
     assert "lightstone" not in sheet["inventory"]
