@@ -89,15 +89,16 @@ def _wanderer_encounter(sheet: dict) -> tuple[bool, str]:
             if delivery == "mailbox":
                 story += " The moogles have sent the tonic to your mailbox because your bag was full."
             return True, story
-    if roll != 0 or delivery == "invalid":
-        # Add Blessed condition
-        conds = sheet.setdefault("conditions", [])
-        if "blessed" not in conds:
-            conds.append("blessed")
-            return True, (
-                "✨ *An old pilgrim of the Silent Ones stops to pray with you. "
-                "You feel a light, warm blessing settle over you, guiding your next steps (+2 to rolls).*"
-            )
+
+    # The pilgrim outcome remains available on the other roll, or if an
+    # invalid registry result prevents the merchant reward from being issued.
+    conds = sheet.setdefault("conditions", [])
+    if "blessed" not in conds:
+        conds.append("blessed")
+        return True, (
+            "✨ *An old pilgrim of the Silent Ones stops to pray with you. "
+            "You feel a light, warm blessing settle over you, guiding your next steps (+2 to rolls).*"
+        )
     return False, ""
 
 def _streak_recognition(sheet: dict) -> tuple[bool, str]:
