@@ -18,6 +18,7 @@ _lock = threading.Lock()  # Protects internal file I/O
 _user_locks: Dict[str, asyncio.Lock] = {}
 _global_lock = asyncio.Lock()  # Protects access to the _user_locks dict
 
+# Distinct item keys, not stack count; inventory_capacity.py enforces this shared policy.
 INVENTORY_LIMIT = 100
 
 # When each player last did something themselves. `last_updated` on the sheet
