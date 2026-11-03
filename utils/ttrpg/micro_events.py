@@ -33,9 +33,9 @@ def _has_space(sheet: dict, item: str) -> bool:
     from utils.ttrpg.inventory_capacity import can_add_item
     return can_add_item(sheet.get("inventory", []), item)
 
-def _grant_micro_event_item(sheet: dict, item: str) -> bool:
-    from utils.ttrpg.inventory_capacity import grant_item
-    return grant_item(sheet, item)
+def _grant_micro_event_item(sheet: dict, item: str) -> str:
+    from utils.ttrpg.inventory_capacity import grant_item_or_mail
+    return grant_item_or_mail(sheet, item, "Overworld Discovery")
 
 
 def _weather_discovery(sheet: dict) -> tuple[bool, str]:
@@ -44,32 +44,52 @@ def _weather_discovery(sheet: dict) -> tuple[bool, str]:
 
     # Keyed on the weather key: names differ by season ("Raining" in spring,
     # "Rain" otherwise), so matching the name missed most rain.
-    if w_key in ("storm", "rain") and _grant_micro_event_item(sheet, "aeridor_shard"):
-        return True, (
-            "⚡ *A flash of lightning strikes an ancient mossy trunk ahead. "
-            "With a deafening crack, the wood splits, dislodging a glowing Aeridor Crystal Shard "
-            "which you quickly pocket.*"
-        )
-    elif w_key == "fog" and _grant_micro_event_item(sheet, "lucky_charm"):
-        return True, (
-            "🌫️ *Navigating through the thick grey fog, your foot kicks a small metallic object. "
-            "It is a copper Lucky Charm, half-buried in the damp soil.*"
-        )
-    elif w_key in ("clear", "hot") and _grant_micro_event_item(sheet, "copper_ring"):
-        return True, (
-            "☀️ *The warm afternoon sun gleams off a reflective metallic circle in the dust. "
-            "You brush off the dirt to find a simple Copper Ring.*"
-        )
+    if w_key in ("storm", "rain"):
+        delivery = _grant_micro_event_item(sheet, "aeridor_shard")
+        if delivery:
+            story = (
+                "⚡ *A flash of lightning strikes an ancient mossy trunk ahead. "
+                "With a deafening crack, the wood splits, dislodging a glowing Aeridor Crystal Shard "
+                "which you quickly pocket.*"
+            )
+            if delivery == "mailbox":
+                story += " The moogles have sent the shard to your mailbox because your bag was full."
+            return True, story
+    elif w_key == "fog":
+        delivery = _grant_micro_event_item(sheet, "lucky_charm")
+        if delivery:
+            story = (
+                "🌫️ *Navigating through the thick grey fog, your foot kicks a small metallic object. "
+                "It is a copper Lucky Charm, half-buried in the damp soil.*"
+            )
+            if delivery == "mailbox":
+                story += " The moogles have sent the charm to your mailbox because your bag was full."
+            return True, story
+    elif w_key in ("clear", "hot"):
+        delivery = _grant_micro_event_item(sheet, "copper_ring")
+        if delivery:
+            story = (
+                "☀️ *The warm afternoon sun gleams off a reflective metallic circle in the dust. "
+                "You brush off the dirt to find a simple Copper Ring.*"
+            )
+            if delivery == "mailbox":
+                story += " The moogles have sent the ring to your mailbox because your bag was full."
+            return True, story
     return False, ""
 
 def _wanderer_encounter(sheet: dict) -> tuple[bool, str]:
     roll = secrets.randbelow(2)
-    if roll == 0 and _grant_micro_event_item(sheet, "tonic"):
-        return True, (
-            "🧭 *You cross paths with a wandering merchant on the Trade Road. "
-            "He offers a warm smile and hands you a free Tonic. 'Stay safe out here, friend,' he mutters.*"
-        )
-    else:
+    if roll == 0:
+        delivery = _grant_micro_event_item(sheet, "tonic")
+        if delivery:
+            story = (
+                "🧭 *You cross paths with a wandering merchant on the Trade Road. "
+                "He offers a warm smile and hands you a free Tonic. 'Stay safe out here, friend,' he mutters.*"
+            )
+            if delivery == "mailbox":
+                story += " The moogles have sent the tonic to your mailbox because your bag was full."
+            return True, story
+    if roll != 0 or delivery == "invalid":
         # Add Blessed condition
         conds = sheet.setdefault("conditions", [])
         if "blessed" not in conds:
@@ -91,11 +111,16 @@ def _streak_recognition(sheet: dict) -> tuple[bool, str]:
             f"🔥 *Your momentum is legendary! You pause to catch your breath, reflecting on your "
             f"consecutive victories. Your focus sharpens (+{bonus_xp} XP, +{bonus_gil} Gil).*"
         )
-    elif streak >= 30 and _grant_micro_event_item(sheet, "hi_potion"):
-        return True, (
-            f"⚔️ *A Watchtower guard patrolling the path recognizes you. 'I've heard of your streak, "
-            f"adventurer. Keep Oakhaven safe.' He slips a Hi-Potion into your pack.*"
-        )
+    elif streak >= 30:
+        delivery = _grant_micro_event_item(sheet, "hi_potion")
+        if delivery:
+            story = (
+                f"⚔️ *A Watchtower guard patrolling the path recognizes you. 'I've heard of your streak, "
+                f"adventurer. Keep Oakhaven safe.' He slips a Hi-Potion into your pack.*"
+            )
+            if delivery == "mailbox":
+                story += " The moogles have sent the Hi-Potion to your mailbox because your bag was full."
+            return True, story
     return False, ""
 
 def _time_of_day_event(sheet: dict) -> tuple[bool, str]:
@@ -109,9 +134,13 @@ def _time_of_day_event(sheet: dict) -> tuple[bool, str]:
             f"over your minor cuts before drifting away (+{heal} HP).*")
     # Night
     elif hour >= 18 or hour < 6:
-        if _grant_micro_event_item(sheet, "lucky_charm"):
-            return True, (
+        delivery = _grant_micro_event_item(sheet, "lucky_charm")
+        if delivery:
+            story = (
                 "🌠 *A brilliant shooting star cuts across the dark night canopy. "
                 "Tracing its descent, you find a small glowing pebble in the grass—a Lucky Charm.*"
             )
+            if delivery == "mailbox":
+                story += " The moogles have sent the charm to your mailbox because your bag was full."
+            return True, story
     return False, ""
