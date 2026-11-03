@@ -234,10 +234,15 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     if gil < val:
         return False, f"Not enough gil. {quantity}x {item['name']} costs {val}g. You have {gil}g.", sheet
         
-    from utils.ttrpg.character_manager import INVENTORY_LIMIT
-    current_unique = set(sheet.get("inventory", []))
-    if len(current_unique | {real_key}) > INVENTORY_LIMIT:
-        return False, f"Your inventory has too many unique item types. Cannot purchase {quantity}x {item['name']}. Cap: {INVENTORY_LIMIT} unique types (currently holding {len(current_unique)}).", sheet
+    from utils.ttrpg.inventory_capacity import grant_items, unique_item_type_count
+    if not grant_items(sheet, [real_key] * quantity):
+        from utils.ttrpg.character_manager import INVENTORY_LIMIT
+        current_unique = unique_item_type_count(sheet.get("inventory", []))
+        return False, (
+            f"Your inventory has too many unique item types. Cannot purchase "
+            f"{quantity}x {item['name']}. Cap: {INVENTORY_LIMIT} unique types "
+            f"(currently holding {current_unique})."
+        ), sheet
 
     sheet["gil"] -= val
     # Spent only by a purchase that happened: set before the gil and
@@ -245,11 +250,7 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     if is_caravan_gear:
         sheet.setdefault("flags", {})["caravan_gear_bought"] = True
 
-    if "inventory" not in sheet:
-        sheet["inventory"] = []
-        
-    sheet["inventory"].extend([real_key] * quantity)
-    
+
     if quantity == 1:
         msg = f"Purchased **{item['name']}** for {val}g. Remaining gil: {sheet['gil']}g."
     else:

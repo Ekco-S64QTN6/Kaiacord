@@ -78,17 +78,7 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
         if not s:
             return
         cost = CROPS[chosen]["seed_cost"]
-        from utils.ttrpg.character_manager import INVENTORY_LIMIT
-        current_unique = set(s.get("inventory", []))
-        if len(current_unique | {chosen}) > INVENTORY_LIMIT:
-            await interaction.followup.send(
-                embed=discord.Embed(
-                    description=f"Your inventory has too many unique item types. Cannot purchase seeds. Cap: {INVENTORY_LIMIT} unique types (currently holding {len(current_unique)}).",
-                    color=0xcc4444
-                ),
-                ephemeral=True
-            )
-            return
+        from utils.ttrpg.inventory_capacity import grant_item, unique_item_type_count
         if s["gil"] < cost:
             await interaction.followup.send(
                 embed=discord.Embed(
@@ -98,8 +88,21 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
                 ephemeral=True
             )
             return
+        if not grant_item(s, chosen):
+            from utils.ttrpg.character_manager import INVENTORY_LIMIT
+            current_unique = unique_item_type_count(s.get("inventory", []))
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    description=(
+                        f"Your inventory has too many unique item types. Cannot purchase seeds. "
+                        f"Cap: {INVENTORY_LIMIT} unique types (currently holding {current_unique})."
+                    ),
+                    color=0xcc4444,
+                ),
+                ephemeral=True,
+            )
+            return
         s["gil"] -= cost
-        s.setdefault("inventory", []).append(chosen)
         await save(s)
         await interaction.followup.send(
             embed=discord.Embed(
@@ -733,13 +736,7 @@ async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet: return await no_character(msg)
     if not housing: return await no_house(msg)
 
-    from utils.ttrpg.character_manager import INVENTORY_LIMIT
-    current_unique = set(sheet.get("inventory", []))
-    if len(current_unique) >= INVENTORY_LIMIT:
-        return await send(msg.channel, embed=discord.Embed(
-            description=f"❌ **Your inventory has too many unique item types.** Cannot harvest crops. Cap: {INVENTORY_LIMIT} unique types (currently holding {len(current_unique)}). Please sell or bank items first.",
-            color=0xcc4444
-        ))
+    from utils.ttrpg.inventory_capacity import grant_item, unique_item_type_count
 
     bonuses = get_home_bonuses(housing)
     yield_bonus = bonuses.get("farm_yield", 0)
@@ -747,25 +744,49 @@ async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
     plots = housing.get("farming", {}).get("plots", [])
     to_keep = []
     harvested = []
+    left_behind = []
     season = get_season()
 
     for p in plots:
         if is_harvestable(p):
             extra_hardened = 1 if p.get("blight_hardened") else 0
             item_key, qty = harvest_crop(p, season, yield_bonus + extra_hardened)
-            sheet["inventory"].extend([item_key] * qty)
-            harvested.append(f"{qty}x {item_key.replace('_',' ')}")
+            if grant_item(sheet, item_key, qty):
+                harvested.append(f"{qty}x {item_key.replace('_',' ')}")
+            else:
+                # Keep a full-bag crop on its plot so the player can harvest it
+                # after making room. Repeated copies of an existing crop type
+                # still fit when the bag has reached its unique-type limit.
+                left_behind.append(item_key.replace("_", " "))
+                to_keep.append(p)
         else:
             to_keep.append(p)
-    
+
     if not harvested:
+        if left_behind:
+            from utils.ttrpg.character_manager import INVENTORY_LIMIT
+            current_unique = unique_item_type_count(sheet.get("inventory", []))
+            return await send(msg.channel, embed=discord.Embed(
+                description=(
+                    f"🎒 **Inventory Full.** Could not harvest {', '.join(left_behind)}. "
+                    f"Your bag is at {current_unique}/{INVENTORY_LIMIT} unique item types; "
+                    "the crops remain on their plots until you make room."
+                ),
+                color=0xcc4444,
+            ))
         return await send(msg.channel, "Nothing is ready to harvest yet.")
 
     housing["farming"]["plots"] = to_keep
     save_housing(housing)
     await save(sheet)
 
-    await send(msg.channel, f"🪣 **Harvest Complete!**\n\nGained: {', '.join(harvested)}.")
+    result = f"🪣 **Harvest Complete!**\n\nGained: {', '.join(harvested)}."
+    if left_behind:
+        result += (
+            f"\n\n🎒 Left on the plots: {', '.join(left_behind)}. "
+            "Make room in your inventory and harvest them later."
+        )
+    await send(msg.channel, result)
     await _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner)
 
 

@@ -165,11 +165,10 @@ def _dungeon_reward_amounts(monster: dict, *, is_boss: bool, world: dict, specia
 
 def _grant_drop(sheet: dict, state: dict, item_key: str, icon: str) -> str:
     """Give one drop if the bag has room. Returns the line to show either way."""
-    from utils.ttrpg.character_manager import INVENTORY_LIMIT
+    from utils.ttrpg.inventory_capacity import grant_item
     item = find_item(item_key)
     name = item["name"] if item else item_key
-    if len(set(sheet.get("inventory", [])) | {item_key}) <= INVENTORY_LIMIT:
-        sheet.setdefault("inventory", []).append(item_key)
+    if grant_item(sheet, item_key):
         state.setdefault("loot_gained", []).append(item_key)
         return f"{icon} {name}"
     return f"🎒 **[Inventory Full]** Left behind: {name}"
@@ -190,11 +189,10 @@ def _roll_wisp_lightstone_drop(sheet: dict, monster_key: str) -> str:
     if secrets.randbelow(3) != 0:
         return ""
 
-    from utils.ttrpg.character_manager import INVENTORY_LIMIT
-    if len(set(inventory) | {"lightstone"}) > INVENTORY_LIMIT:
+    from utils.ttrpg.inventory_capacity import grant_item
+    if not grant_item(sheet, "lightstone"):
         return "full"
 
-    inventory.append("lightstone")
     return "granted"
 
 
@@ -442,14 +440,13 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                     if current_floor in lore_drops:
                         lore_item = lore_drops[current_floor]
                         if lore_item not in sheet.setdefault("spine_boss_loots", []):
-                            from utils.ttrpg.character_manager import INVENTORY_LIMIT
+                            from utils.ttrpg.inventory_capacity import grant_item
                             item_data = find_item(lore_item)
                             i_name = item_data["name"] if item_data else lore_item
-                            # The same capacity rule as every other drop. Not marked as
-                            # taken when left behind: the guardian respawns and can drop it again.
-                            if len(set(sheet.get("inventory", [])) | {lore_item}) <= INVENTORY_LIMIT:
+                            # Not marked as taken when left behind: the guardian
+                            # respawns and can drop it again.
+                            if grant_item(sheet, lore_item):
                                 sheet["spine_boss_loots"].append(lore_item)
-                                sheet.setdefault("inventory", []).append(lore_item)
                                 exchange_text += f"\n\n📜 **Special Drop:** {i_name} added to inventory!"
                             else:
                                 exchange_text += f"\n\n🎒 **[Inventory Full]** Left behind: {i_name} (it will be there next time)"
@@ -1184,13 +1181,12 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
 
         # Gear roll
         gear_drop = get_gear_loot(monster.get("tier", "medium"))
-        from utils.ttrpg.character_manager import INVENTORY_LIMIT
+        from utils.ttrpg.inventory_capacity import grant_item
         if gear_drop:
             from utils.ttrpg.shop import find_item as _find_loot
             gear_info = _find_loot(gear_drop)
             gear_display = gear_info["name"] if gear_info else gear_drop
-            if len(set(sheet.get("inventory", [])) | {gear_drop}) <= INVENTORY_LIMIT:
-                sheet.setdefault("inventory", []).append(gear_drop)
+            if grant_item(sheet, gear_drop):
                 loot_lines.append(f"⚔️ {gear_display}")
             else:
                 loot_lines.append(f"🎒 **[Inventory Full]** Left behind: {gear_display}")
@@ -1201,8 +1197,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             from utils.ttrpg.shop import find_item as _find_cons
             cons_info = _find_cons(consumable_drop)
             cons_display = cons_info["name"] if cons_info else consumable_drop
-            if len(set(sheet.get("inventory", [])) | {consumable_drop}) <= INVENTORY_LIMIT:
-                sheet.setdefault("inventory", []).append(consumable_drop)
+            if grant_item(sheet, consumable_drop):
                 loot_lines.append(f"🧪 {cons_display}")
                 # Check recipe discovery (triggers on crafting ingredients)
                 from utils.ttrpg.alchemy import check_and_discover_recipes
@@ -1223,8 +1218,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             _ws["shop_price_mult"] = 1.0
             _ws["shop_price_mult_expiry"] = 0
             save_world_state(_ws)
-            if len(set(sheet.get("inventory", [])) | {"stolen_trade_crate"}) <= INVENTORY_LIMIT:
-                sheet.setdefault("inventory", []).append("stolen_trade_crate")
+            if grant_item(sheet, "stolen_trade_crate"):
                 loot_lines.append("📦 **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)")
             await _log_world_event(f"⚔️ **Blockade Broken:** {sheet['character_name']} defeated the Bandit Captain and liberated the Trade Road!")
             _raid_embed = discord.Embed(

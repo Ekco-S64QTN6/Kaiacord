@@ -203,7 +203,7 @@ Select T3+ weapons possess inherent elemental procs. These trigger independently
 **Dice notation** (`dice_engine.roll`) accepts 1–20 dice of 2–100 sides and a modifier of at most ±50.
 
 ### Inventory Capacity Cap
-Players are subject to a strict inventory size limit of **50 items**. Any purchase, brew, or loot drop that would cause the inventory to exceed 50 is blocked (items dropped in combat are left behind on the ground with an `🎒 [Inventory Full]` message).
+Each character may carry up to **100 unique item types**. Duplicate copies of an item already in the inventory do not use additional capacity; stack quantity is otherwise unlimited by this rule. A purchase, brew, harvest, or loot grant is allowed when it adds no new item type or when a new type keeps the total at 100 or fewer. A grant that would introduce a 101st unique type is refused; combat drops are left behind with an `🎒 [Inventory Full]` message, and full-bag crops remain on their plots until the player makes room.
 
 ### Player vs Player (Duels)
 Players can challenge each other to non-lethal combat using `!rpg duel @user`. Upon acceptance, the duel resolves automatically until one player is reduced to 1 HP. No XP or Gil is lost.
