@@ -4673,7 +4673,7 @@ async def run_blight_on_the_crops(bot_ctx, channel):
     import secrets
     import random
     from utils.ttrpg.character_manager import load_all
-    from utils.ttrpg.housing import load_all_housing, save_housing
+    from utils.ttrpg.housing import load_all_housing
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     await channel.send(embed=discord.Embed(
@@ -4687,37 +4687,51 @@ async def run_blight_on_the_crops(bot_ctx, channel):
     ))
     await asyncio.sleep(3)
 
-    all_housing = load_all_housing()
-    farm_owners = [h for h in all_housing if h.get("farming", {}).get("plots")]
-
-    if not farm_owners:
+    # Housing snapshots are for candidate discovery only. Each selected owner
+    # is reloaded under their user-action lock before a plot is changed.
+    candidate_ids = list(dict.fromkeys(
+        str(h.get("user_id")) for h in load_all_housing()
+        if h.get("user_id") and h.get("farming", {}).get("plots")
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The mist dissipated harmlessly. No active fields or crops were in use in the housing district.*",
             color=0x888888
         ))
         return
 
-    # Select up to 3 random farm owners
-    affected_count = min(3, len(farm_owners))
-    affected_owners = random.sample(farm_owners, affected_count)
-
+    affected_ids = random.sample(candidate_ids, min(3, len(candidate_ids)))
     all_sheets = await load_all()
-    uid_to_name = {s.get("user_id"): s.get("character_name", "Unknown") for s in all_sheets if s.get("user_id")}
+    uid_to_name = {
+        str(s.get("user_id")): s.get("character_name", "Unknown")
+        for s in all_sheets if s.get("user_id")
+    }
 
     result_lines = []
-    for h in affected_owners:
-        plots = h["farming"]["plots"]
-        idx = secrets.randbelow(len(plots))
-        plots[idx]["blighted"] = True
-        h["farming"]["plots"] = plots
-        save_housing(h)
+    from utils.ttrpg.farming import CROPS
+    for uid in affected_ids:
+        def infect_one_plot(housing):
+            plots = housing.get("farming", {}).get("plots", [])
+            if not plots:
+                return None
+            index = secrets.randbelow(len(plots))
+            plots[index]["blighted"] = True
+            crop_data = CROPS.get(plots[index].get("crop_key"), {})
+            return crop_data.get("name", "crop")
 
-        uid = str(h.get("user_id", ""))
-        char_name = uid_to_name.get(uid, f"User {uid}")
-        from utils.ttrpg.farming import CROPS
-        crop_data = CROPS.get(plots[idx].get("crop_key"), {})
-        crop_name = crop_data.get("name", "crop")
-        result_lines.append(f"🥀 **{char_name}**'s plot of **{crop_name}** has been infected with blight!")
+        crop_name = await _mutate_player_housing(uid, infect_one_plot)
+        if crop_name:
+            char_name = uid_to_name.get(uid, f"User {uid}")
+            result_lines.append(
+                f"🥀 **{char_name}**'s plot of **{crop_name}** has been infected with blight!"
+            )
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The mist dissipated after all active fields had been tended.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🥀 Blight Infection Report",
@@ -4726,8 +4740,6 @@ async def run_blight_on_the_crops(bot_ctx, channel):
     ))
     await _log_world_event("🥀 **Whisperwood Blight** sours Oakhaven soil. Several crops in the housing district were lost.")
     log_action("Noon Event: Blight on Crops")
-
-
 async def run_pilgrims_arrive(bot_ctx, channel):
     """Noon event: Pilgrims arrive at the Shrine, granting a blessing window in world_state."""
     import discord
