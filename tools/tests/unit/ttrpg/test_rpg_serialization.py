@@ -713,7 +713,7 @@ def test_moogle_mail_does_not_charge_when_recipient_no_longer_exists(monkeypatch
 
 
 def _spine_lift_test_context(monkeypatch, fresh_sheet, target_floor="5",
-                             active_dungeon=None, initial_sheet=None):
+                             active_dungeon=None):
     import copy
     from unittest.mock import AsyncMock, MagicMock
     import utils.ttrpg.rpg_views as rv
@@ -808,7 +808,7 @@ def test_spine_lift_revalidates_light_source_from_fresh_sheet(monkeypatch):
     stale_view_sheet = _spine_sheet(inventory=["lightstone"])
     fresh_sheet = _spine_sheet(inventory=[])
     view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
-        monkeypatch, fresh_sheet, initial_sheet=stale_view_sheet
+        monkeypatch, fresh_sheet
     )
 
     asyncio.run(view.children[0].callback(interaction))
@@ -882,11 +882,10 @@ def test_spine_lift_is_single_use_and_consumes_only_one_torch(monkeypatch):
     assert "already been used" in second.response.send_message.await_args.args[0]
 
 
-def test_spine_lift_prefers_fresh_lightstone_over_stale_torch_snapshot(monkeypatch):
-    stale_view_sheet = _spine_sheet(inventory=["torch"])
+def test_spine_lift_does_not_consume_torch_when_fresh_sheet_has_lightstone(monkeypatch):
     fresh_sheet = _spine_sheet(inventory=["lightstone", "torch"])
     view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
-        monkeypatch, fresh_sheet, initial_sheet=stale_view_sheet
+        monkeypatch, fresh_sheet
     )
 
     asyncio.run(view.children[0].callback(interaction))
