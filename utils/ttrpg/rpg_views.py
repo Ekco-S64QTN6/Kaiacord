@@ -1162,7 +1162,7 @@ async def _get_active_view(ctx, msg, uid, uname, is_owner):
     s = await load_session(str(msg.channel.id))
     if s and s.get("combat_active"):
         for m in s.get("monsters", []):
-            if m.get("aggro_uid") == uid:
+            if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid):
                 return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
 
     from utils.ttrpg.dungeon import load_dungeon
