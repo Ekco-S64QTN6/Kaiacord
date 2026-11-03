@@ -303,6 +303,23 @@ def test_retired_items_are_not_craftable_or_purchasable(monkeypatch):
         assert after["inventory"] == [item_key]
 
 
+@pytest.mark.parametrize("item_key", ["eye_drops", "trap_kit"])
+def test_existing_retired_consumables_remain_sellable(monkeypatch, item_key):
+    from utils.ttrpg import shop
+
+    sheet = _sheet(item_key)
+    sheet["location"] = "hemlocks_store"
+    sheet["gil"] = 0
+    monkeypatch.setattr(shop, "get_sell_price", lambda value, reputation=0, cha_mod=0: 5)
+
+    sold, message, updated = shop.process_sell(sheet, item_key)
+
+    assert sold is True
+    assert item_key not in updated["inventory"]
+    assert updated["gil"] == 5
+    assert "Sold" in message
+
+
 def test_shop_hides_retired_consumables_but_keeps_smoke_bomb(monkeypatch):
     from utils.ttrpg import calendar, equipment_registry, shop, world_state
 
