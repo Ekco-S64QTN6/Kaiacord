@@ -1004,10 +1004,13 @@ class CoreTaskManager:
                                 continue
 
                             modified = False
-                            # Reset hunts
-                            if sheet.get("hunts_today", 0) > 0:
+                            # Reset both hunt stamina and free forest-event attempts.
+                            # The attempt counter must reset even when no monster hunt
+                            # was spent (a day of free events leaves hunts_today at 0).
+                            if sheet.get("hunts_reset_date") != today:
                                 sheet["hunts_today"] = 0
                                 sheet["hunts_reset_date"] = today
+                                sheet["forest_event_attempts_today"] = 0
                                 modified = True
                                 r_count += 1
 
