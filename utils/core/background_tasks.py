@@ -2846,12 +2846,16 @@ async def run_moogle_festival(bot_ctx, channel):
         ))
         return
 
+    from utils.ttrpg.inventory_capacity import grant_item_or_mail
     result_lines = []
     for s in present:
         key, name = roll_drop()
-        s.setdefault("inventory", []).append(key)
+        delivery = grant_item_or_mail(s, key, "Moogle Hand-Delivery")
         await save(s)
-        result_lines.append(f"🎒 **{s['character_name']}** — **{name}** added to pack")
+        if delivery == "inventory":
+            result_lines.append(f"🎒 **{s['character_name']}** — **{name}** added to pack")
+        else:
+            result_lines.append(f"📬 **{s['character_name']}** — **{name}** sent to Moogle Mail (inventory full)")
 
     await channel.send(embed=discord.Embed(
         title="🎒 Straight Into Your Pack",
@@ -2917,9 +2921,13 @@ async def run_aeridorian_tremor(bot_ctx, channel):
             result_lines.append(f"💚 **{s['character_name']}** — the pulse closes old wounds (+{hp_gain} HP)")
         elif roll < 80:
             # Item drop
-            s.setdefault("inventory", []).append("aeridor_shard")
+            from utils.ttrpg.inventory_capacity import grant_item_or_mail
+            delivery = grant_item_or_mail(s, "aeridor_shard", "Aeridorian Tremor")
             await save(s)
-            result_lines.append(f"💎 **{s['character_name']}** — a crystal shard lands at their feet")
+            if delivery == "inventory":
+                result_lines.append(f"💎 **{s['character_name']}** — a crystal shard lands at their feet")
+            else:
+                result_lines.append(f"📬 **{s['character_name']}** — a crystal shard was sent to Moogle Mail (inventory full)")
         else:
             # Minor HP drain
             drain = secrets.randbelow(4) + 2
@@ -4877,11 +4885,15 @@ async def run_silvani_antidote_run(bot_ctx, channel):
         ))
         return
 
+    from utils.ttrpg.inventory_capacity import grant_item_or_mail
     result_lines = []
     for s in present:
-        s.setdefault("inventory", []).append("bandage")
+        delivery = grant_item_or_mail(s, "bandage", "Silvani Supplies")
         await save(s)
-        result_lines.append(f"🧪 **{s['character_name']}** — *Acquired: Bandage*")
+        if delivery == "inventory":
+            result_lines.append(f"🧪 **{s['character_name']}** — *Acquired: Bandage*")
+        else:
+            result_lines.append(f"📬 **{s['character_name']}** — *Bandage sent to Moogle Mail (inventory full)*")
 
     await channel.send(embed=discord.Embed(
         title="🧪 Supplies Distributed",

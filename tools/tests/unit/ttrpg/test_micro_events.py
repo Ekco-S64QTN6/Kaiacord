@@ -28,3 +28,17 @@ def test_space_is_unique_types_not_stack_size():
     full = [f"item_{i}" for i in range(INVENTORY_LIMIT)]
     assert not me._has_space(_sheet(full), "tonic")
     assert me._has_space(_sheet(full), "item_3"), "an item already held adds no type"
+
+
+def test_full_inventory_weather_discovery_queues_shard_in_moogle_mail(monkeypatch):
+    monkeypatch.setattr(
+        me, "get_weather", lambda: {"key": "storm", "name": "Storm"}
+    )
+    sheet = _sheet([f"item_{i}" for i in range(INVENTORY_LIMIT)])
+
+    triggered, story = me._weather_discovery(sheet)
+
+    assert triggered is True
+    assert "sent the shard to your mailbox" in story
+    assert "aeridor_shard" not in sheet["inventory"]
+    assert sheet["mailbox"][0]["item"] == "aeridor_shard"

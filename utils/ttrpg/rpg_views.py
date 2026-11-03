@@ -1123,8 +1123,22 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
                         ephemeral=True
                     )
                     return
+                from utils.ttrpg.inventory_capacity import grant_item, unique_item_type_count
+                if not grant_item(fresh_s, entry["key"]):
+                    from utils.ttrpg.character_manager import INVENTORY_LIMIT
+                    current_unique = unique_item_type_count(fresh_s.get("inventory", []))
+                    await sel_interaction.followup.send(
+                        embed=discord.Embed(
+                            description=(
+                                f"Inventory full ({current_unique}/{INVENTORY_LIMIT} unique item types). "
+                                "The item remains in buyback; sell or bank something and try again."
+                            ),
+                            color=0xcc4444,
+                        ),
+                        ephemeral=True,
+                    )
+                    return
                 fresh_s["gil"] -= cost
-                fresh_s.setdefault("inventory", []).append(entry["key"])
                 fresh_s["buyback"].pop(actual_idx)
                 await save(fresh_s)
                 await sel_interaction.followup.send(embed=discord.Embed(
@@ -1791,25 +1805,43 @@ class MailMenuView(StaleSafeView):
         await self._after_claim(interaction, mail_lines)
 
     def _claim(self, mailbox: list) -> list:
+        from utils.ttrpg.inventory_capacity import grant_item
+
         total_gil = 0
         mail_lines = []
+        remaining_mailbox = []
         for entry in mailbox:
             sender = entry.get("from_name", "Unknown")
             parts = []
+            remaining_entry = None
             if entry.get("item"):
-                self.sheet["inventory"].append(entry["item"])
-                item_name = entry["item"].replace("_", " ").title()
-                parts.append(f"📦 **{item_name}**")
-            if entry.get("gil", 0) > 0:
-                parts.append(f"💰 **{entry['gil']}g**")
-                total_gil += entry["gil"]
+                item_key = entry["item"]
+                item_name = item_key.replace("_", " ").title()
+                if grant_item(self.sheet, item_key):
+                    parts.append(f"📦 **{item_name}**")
+                else:
+                    # Preserve the attachment for a later claim. If Gil is
+                    # also attached it is delivered now, so only the item
+                    # remains in the mailbox and cannot pay twice.
+                    remaining_entry = dict(entry)
+                    parts.append(
+                        f"📬 **{item_name}** remains in Moogle Mail (inventory full)"
+                    )
+            gil = int(entry.get("gil", 0) or 0)
+            if gil > 0:
+                parts.append(f"💰 **{gil}g**")
+                total_gil += gil
+                if remaining_entry is not None:
+                    remaining_entry["gil"] = 0
+            if remaining_entry is not None:
+                remaining_mailbox.append(remaining_entry)
             if parts:
                 mail_lines.append(f"From **{sender}**: {', '.join(parts)}")
             else:
                 mail_lines.append(f"From **{sender}**: *(empty letter — it's the thought that counts)*")
-        
-        self.sheet["gil"] += total_gil
-        self.sheet["mailbox"] = []
+
+        self.sheet["gil"] = self.sheet.get("gil", 0) + total_gil
+        self.sheet["mailbox"] = remaining_mailbox
         return mail_lines
 
     async def _after_claim(self, interaction, mail_lines: list):
@@ -2586,10 +2618,16 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         elif rt == R_TREASURE:
             loot = get_loot("medium")
             if loot:
-                sheet.setdefault("inventory", []).append(loot)
+                from utils.ttrpg.inventory_capacity import grant_item_or_mail
                 item = find_item(loot)
-                loot_text = f"\n\n💰 Found: **{item['name'] if item else loot}**"
-                state.setdefault("loot_gained", []).append(loot)
+                delivery = grant_item_or_mail(sheet, loot, "Dungeon Treasure")
+                loot_name = item["name"] if item else loot
+                if delivery == "inventory":
+                    loot_text = f"\n\n💰 Found: **{loot_name}**"
+                    state.setdefault("loot_gained", []).append(loot)
+                else:
+                    loot_text = f"\n\n📬 **{loot_name}** was sent to Moogle Mail (inventory full)."
+                    state.setdefault("mailed_loot", []).append(loot)
                 # Iron Pup: a chance to sniff out a second chest.
                 from utils.ttrpg.housing import load_housing_async
                 from utils.ttrpg.pets import get_pet_passive
@@ -2598,11 +2636,15 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 if _chest_pct and secrets.randbelow(100) < int(_chest_pct * 100):
                     bonus = get_loot("medium")
                     if bonus:
-                        sheet["inventory"].append(bonus)
-                        state["loot_gained"].append(bonus)
+                        bonus_delivery = grant_item_or_mail(sheet, bonus, "Iron Pup Bonus Chest")
                         b_item = find_item(bonus)
-                        loot_text += (f"\n🐶 Your Iron Pup noses out a second chest: "
-                                      f"**{b_item['name'] if b_item else bonus}**")
+                        bonus_name = b_item["name"] if b_item else bonus
+                        if bonus_delivery == "inventory":
+                            state["loot_gained"].append(bonus)
+                            loot_text += f"\n🐶 Your Iron Pup noses out a second chest: **{bonus_name}**"
+                        else:
+                            state.setdefault("mailed_loot", []).append(bonus)
+                            loot_text += f"\n🐶 **{bonus_name}** from the second chest was sent to Moogle Mail (inventory full)."
             else:
                 gil = secrets.randbelow(25) + 10
                 sheet["gil"] = sheet.get("gil", 0) + gil
@@ -2687,9 +2729,16 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
             if total_roll < trap_dc and secrets.randbelow(3) == 0:
                 loot = get_loot("easy")
                 if loot:
-                    sheet.setdefault("inventory", []).append(loot)
+                    from utils.ttrpg.inventory_capacity import grant_item_or_mail
+                    delivery = grant_item_or_mail(sheet, loot, "Dungeon Trap Cache")
                     item = find_item(loot)
-                    loot_text = f"\nBut you find: **{item['name'] if item else loot}**"
+                    loot_name = item["name"] if item else loot
+                    if delivery == "inventory":
+                        state.setdefault("loot_gained", []).append(loot)
+                        loot_text = f"\nBut you find: **{loot_name}**"
+                    else:
+                        state.setdefault("mailed_loot", []).append(loot)
+                        loot_text = f"\n📬 **{loot_name}** was sent to Moogle Mail (inventory full)."
 
         room["cleared"] = True
         state["rooms"][nk] = room

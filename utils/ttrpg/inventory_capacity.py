@@ -55,3 +55,27 @@ def grant_item(sheet: dict, item_key: str, quantity: int = 1) -> bool:
     if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1:
         return False
     return grant_items(sheet, [item_key] * quantity)
+
+
+def grant_item_or_mail(sheet: dict, item_key: str, from_name: str) -> str:
+    """Grant an item directly or preserve it in Moogle Mail when the bag is full.
+
+    Returns "inventory" when added to the bag, "mailbox" when queued, and
+    "invalid" for malformed item keys. Mail entries use the same item/gil
+    shape consumed by MailMenuView, so an item can be claimed after space is
+    made without losing the original reward.
+    """
+    if not isinstance(item_key, str) or not item_key:
+        return "invalid"
+    if grant_item(sheet, item_key):
+        return "inventory"
+
+    from datetime import datetime, timezone
+
+    sheet.setdefault("mailbox", []).append({
+        "from_name": str(from_name or "Aethelgard"),
+        "item": item_key,
+        "gil": 0,
+        "timestamp": datetime.now(timezone.utc).timestamp(),
+    })
+    return "mailbox"

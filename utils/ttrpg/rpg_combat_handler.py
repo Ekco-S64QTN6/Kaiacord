@@ -790,8 +790,12 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
                         gil_reward = q["rewards"].get("gil", 0)
                         sheet["xp"]  = sheet.get("xp",  0) + xp_reward
                         sheet["gil"] = sheet.get("gil", 0) + gil_reward
-                        if "item" in q["rewards"]:
-                            sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                        item_delivery = None
+                        if q["rewards"].get("item"):
+                            from utils.ttrpg.inventory_capacity import grant_item_or_mail
+                            item_delivery = grant_item_or_mail(
+                                sheet, q["rewards"]["item"], f"{q['name']} quest reward"
+                            )
                         if "recipe" in q["rewards"]:
                             rk = q["rewards"]["recipe"]
                             if rk not in sheet.setdefault("recipes", []):
@@ -809,8 +813,14 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
                             f"**{q['name']}** — complete.",
                             f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
                         ]
-                        if "item" in q["rewards"]:
-                            lines.append(f"🎁 Received: **{q['rewards']['item'].replace('_',' ').title()}**")
+                        if q["rewards"].get("item"):
+                            item_name = q["rewards"]["item"].replace("_", " ").title()
+                            if item_delivery == "mailbox":
+                                lines.append(
+                                    f"📬 **{item_name}** was sent to Moogle Mail because your inventory is full."
+                                )
+                            elif item_delivery == "inventory":
+                                lines.append(f"🎁 Received: **{item_name}**")
                         if leveled:
                             lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
                         await msg.channel.send(embed=discord.Embed(
@@ -1264,8 +1274,12 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                                 gil_reward = q["rewards"].get("gil", 0)
                                 sheet["xp"]  = sheet.get("xp",  0) + xp_reward
                                 sheet["gil"] = sheet.get("gil", 0) + gil_reward
-                                if "item" in q["rewards"]:
-                                    sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                                item_delivery = None
+                                if q["rewards"].get("item"):
+                                    from utils.ttrpg.inventory_capacity import grant_item_or_mail
+                                    item_delivery = grant_item_or_mail(
+                                        sheet, q["rewards"]["item"], f"{q['name']} quest reward"
+                                    )
                                 if "recipe" in q["rewards"]:
                                     rk = q["rewards"]["recipe"]
                                     if rk not in sheet.setdefault("recipes", []):
@@ -1277,6 +1291,13 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                                     f"\n\n✅ **Quest Complete: {q['name']}**"
                                     f"\n+{xp_reward} XP · +{gil_reward} Gil"
                                 )
+                                if item_delivery == "inventory":
+                                    m_block += f"\n🎁 Received: **{q['rewards']['item'].replace('_', ' ').title()}**"
+                                elif item_delivery == "mailbox":
+                                    m_block += (
+                                        f"\n📬 **{q['rewards']['item'].replace('_', ' ').title()}** "
+                                        "was sent to Moogle Mail because your inventory is full."
+                                    )
                                 await _log_world_event(f"✅ **{sheet['character_name']}** completed '**{q['name']}**'.")
                                 quest_embed = discord.Embed(
                                     title=f"✅ Quest Complete — {q['name']}",
@@ -1719,8 +1740,12 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
     if result["extra_hunt"]:
         sheet["hunts_today"] = max(0, sheet.get("hunts_today", 1) - 1)  # refund 1 hunt
 
-    if result["item_add"]:
-        sheet.setdefault("inventory", []).append(result["item_add"])
+    item_delivery = None
+    if result.get("item_add"):
+        from utils.ttrpg.inventory_capacity import grant_item_or_mail
+        item_delivery = grant_item_or_mail(
+            sheet, result["item_add"], f"{result.get('title', 'Forest event')} reward"
+        )
 
     leveled_up, new_level = check_level_up(sheet)
     blackout = None
@@ -1757,8 +1782,13 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
         body_lines.append(f"{result['hp_change']} HP  ({sheet['hp']['current']}/{sheet['hp']['max']})")
     if result["extra_hunt"]:
         body_lines.append(f"🎯 Hunts remaining: {hunts_remaining(sheet)}/{get_max_hunts(sheet)}")
-    if result["item_add"]:
+    if item_delivery == "inventory":
         body_lines.append(f"📦 Added to inventory: `{result['item_add']}`")
+    elif item_delivery == "mailbox":
+        body_lines.append(
+            f"📬 **{result['item_add'].replace('_', ' ').title()}** was sent to Moogle Mail "
+            "because your inventory is full."
+        )
     if blackout:
         body_lines.append(
             "\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine "
@@ -1990,7 +2020,8 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
         # Success! Steal 80-120 Gil + 1 Stolen Trade Crate + ease inflation
         stolen_gil = secrets.randbelow(41) + 80  # 80-120
         sheet["gil"] = sheet.get("gil", 0) + stolen_gil
-        sheet.setdefault("inventory", []).append("stolen_trade_crate")
+        from utils.ttrpg.inventory_capacity import grant_item_or_mail
+        crate_delivery = grant_item_or_mail(sheet, "stolen_trade_crate", "Bandit Cache")
         sheet["xp"] = sheet.get("xp", 0) + 35
 
         # Ease shop price inflation
@@ -2008,10 +2039,13 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
             f"🗡️ **Stealth Infiltration Successful!** (Roll: {roll} vs DC 12)\n\n"
             f"**{sheet['character_name']}** slipped past the bandit sentries and raided their contraband tent!\n\n"
             f"💰 **Looted:** +{stolen_gil} Gil\n"
-            f"📦 **Recovered:** 1x **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)\n"
             f"📉 **Trade Route Relieved:** Shop price markup lowered to **{int(round((wstate['shop_price_mult']-1.0)*100))}%**\n"
             f"✨ **Reward:** +35 XP"
         )
+        if crate_delivery == "mailbox":
+            desc += "\n📬 **Stolen Trade Crate** was sent to Moogle Mail because your inventory is full."
+        else:
+            desc += "\n📦 **Recovered:** 1x **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)"
         if leveled:
             desc += f"\n🎉 **Level Up!** Reached **Level {new_lvl}!**"
 

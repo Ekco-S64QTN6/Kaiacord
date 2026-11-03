@@ -215,3 +215,132 @@ def test_harvest_at_capacity_keeps_new_item_types_on_their_plots(monkeypatch):
     assert saved_homes == [home]
     assert "new crop item" in send.await_args.args[1]
     assert "Left on the plots" in send.await_args.args[1]
+
+
+def test_reward_goes_to_moogle_mail_when_inventory_is_full():
+    from utils.ttrpg.inventory_capacity import grant_item_or_mail
+
+    sheet = {"inventory": [f"item_{i}" for i in range(100)]}
+
+    delivery = grant_item_or_mail(sheet, "quest_relic", "The Lost Reliquary")
+
+    assert delivery == "mailbox"
+    assert "quest_relic" not in sheet["inventory"]
+    assert len(sheet["mailbox"]) == 1
+    assert sheet["mailbox"][0]["from_name"] == "The Lost Reliquary"
+    assert sheet["mailbox"][0]["item"] == "quest_relic"
+    assert sheet["mailbox"][0]["gil"] == 0
+
+
+def test_reward_is_granted_directly_when_inventory_has_capacity():
+    from utils.ttrpg.inventory_capacity import grant_item_or_mail
+
+    sheet = {"inventory": [f"item_{i}" for i in range(99)]}
+
+    delivery = grant_item_or_mail(sheet, "quest_relic", "The Lost Reliquary")
+
+    assert delivery == "inventory"
+    assert "quest_relic" in sheet["inventory"]
+    assert "mailbox" not in sheet
+
+
+def test_moogle_mail_partial_claim_preserves_item_but_delivers_gil():
+    from utils.ttrpg.rpg_views import MailMenuView
+
+    sheet = {
+        "inventory": [f"item_{i}" for i in range(100)],
+        "gil": 25,
+        "mailbox": [
+            {
+                "dispatch_id": "dispatch-1",
+                "from_name": "A Friend",
+                "item": "quest_relic",
+                "gil": 40,
+            }
+        ],
+    }
+    view = MailMenuView(None, None, "42", "Tester", False, sheet)
+
+    first_claim = view._claim(sheet["mailbox"])
+
+    assert sheet["gil"] == 65
+    assert len(sheet["mailbox"]) == 1
+    assert sheet["mailbox"][0]["item"] == "quest_relic"
+    assert sheet["mailbox"][0]["gil"] == 0
+    assert "inventory full" in first_claim[0]
+
+    # Once the player makes room, the same attachment can be claimed without
+    # paying its Gil a second time.
+    sheet["inventory"].pop()
+    second_claim = view._claim(sheet["mailbox"])
+
+    assert "quest_relic" in sheet["inventory"]
+    assert sheet["mailbox"] == []
+    assert sheet["gil"] == 65
+    assert "quest relic" in second_claim[0].lower()
+
+
+def test_player_reward_modules_do_not_bypass_the_shared_inventory_grant():
+    from pathlib import Path
+    import re
+
+    repository = Path(__file__).resolve().parents[4]
+    reward_modules = (
+        "utils/ttrpg/rpg_views.py",
+        "utils/ttrpg/rpg_social_handler.py",
+        "utils/commands/fishing_handler.py",
+        "utils/core/background_tasks.py",
+        "utils/ttrpg/rpg_core_handler.py",
+        "utils/ttrpg/rpg_combat_handler.py",
+        "utils/ttrpg/rpg_housing_handler.py",
+        "utils/ttrpg/micro_events.py",
+        "utils/ttrpg/alchemy.py",
+        "utils/ttrpg/shop.py",
+        "utils/ttrpg/rpg_shop_handler.py",
+        "utils/ttrpg/pets.py",
+        "utils/ttrpg/forest_events.py",
+        "utils/ttrpg/farming.py",
+    )
+    mail_fallback_modules = (
+        "utils/ttrpg/rpg_views.py",
+        "utils/ttrpg/rpg_social_handler.py",
+        "utils/commands/fishing_handler.py",
+        "utils/core/background_tasks.py",
+        "utils/ttrpg/rpg_core_handler.py",
+        "utils/ttrpg/rpg_combat_handler.py",
+        "utils/ttrpg/micro_events.py",
+    )
+    direct_inventory_write = re.compile(
+        r"(?:"
+        r"\w+\.setdefault\(['\"]inventory['\"],\s*\[\]\)\.(?:append|extend)"
+        r"|\w+\[['\"]inventory['\"]\]\.(?:append|extend)"
+        r"|\b(?:inventory|inv)\.(?:append|extend)"
+        r")\s*\("
+    )
+
+    violations = {}
+    for relative_path in reward_modules:
+        source = (repository / relative_path).read_text(encoding="utf-8")
+        matches = [
+            f"{line_number}: {line.strip()}"
+            for line_number, line in enumerate(source.splitlines(), start=1)
+            if direct_inventory_write.search(line)
+        ]
+        if matches:
+            violations[relative_path] = matches
+
+    assert not violations, (
+        "Player-facing inventory grants must use utils.ttrpg.inventory_capacity; "
+        f"raw writes remain: {violations}"
+    )
+
+    # Each reward family whose policy is "deliver or preserve for later" must
+    # explicitly use the same mailbox fallback rather than inventing its own.
+    missing_fallback = [
+        path for path in mail_fallback_modules
+        if "grant_item_or_mail" not in (repository / path).read_text(encoding="utf-8")
+    ]
+    assert not missing_fallback, (
+        "These reward families must preserve full-bag rewards in Moogle Mail: "
+        f"{missing_fallback}"
+    )
