@@ -534,3 +534,137 @@ def test_non_owner_cannot_dispatch_mail_from_another_players_view(monkeypatch):
     save.assert_not_awaited()
     assert sender["gil"] == 500
     assert sender["inventory"] == ["tonic"]
+
+
+def test_moogle_mail_dispatch_is_single_use_and_delivered_once(monkeypatch):
+    import copy
+    import types
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.rpg_views as rv
+
+    disk = {
+        "42": {"user_id": "42", "character_name": "Sender", "gil": 500,
+               "inventory": ["tonic"], "pending_mail_dispatches": []},
+        "99": {"user_id": "99", "character_name": "Recipient", "gil": 0,
+               "inventory": [], "mailbox": []},
+    }
+
+    async def load_sheet(uid):
+        return copy.deepcopy(disk.get(str(uid)))
+
+    async def save_sheet(sheet):
+        disk[str(sheet["user_id"])] = copy.deepcopy(sheet)
+
+    monkeypatch.setattr(rv, "load", load_sheet)
+    monkeypatch.setattr(rv, "save", save_sheet)
+
+    view = rv.MailSendView(
+        types.SimpleNamespace(), types.SimpleNamespace(), "42", "Sender", False,
+        copy.deepcopy(disk["42"]), [disk["99"]],
+    )
+    view.selected_recipient_id = "99"
+    view.selected_item = "tonic"
+    view.gil_to_send = 125
+
+    def interaction():
+        i = MagicMock()
+        i.user.id = 42
+        i.response.defer = AsyncMock()
+        i.response.send_message = AsyncMock()
+        i.followup.send = AsyncMock()
+        return i
+
+    async def go():
+        first = interaction()
+        await view.dispatch_callback(first)
+        second = interaction()
+        await view.dispatch_callback(second)
+        return first, second
+
+    first, second = asyncio.run(go())
+    assert disk["42"]["gil"] == 375
+    assert disk["42"]["inventory"] == []
+    assert disk["42"]["pending_mail_dispatches"] == []
+    assert len(disk["99"]["mailbox"]) == 1
+    assert disk["99"]["mailbox"][0]["item"] == "tonic"
+    assert disk["99"]["mailbox"][0]["gil"] == 125
+    assert disk["99"]["gil"] == 0
+    first.followup.send.assert_awaited_once()
+    second.response.send_message.assert_awaited_once()
+
+
+def test_moogle_mail_pending_dispatch_recovers_without_duplicate_delivery(monkeypatch):
+    import copy
+    import asyncio
+    from utils.ttrpg import rpg_views as rv
+
+    dispatch = {
+        "dispatch_id": "dispatch-123",
+        "to_user_id": "99",
+        "from_name": "Sender",
+        "item": "tonic",
+        "gil": 125,
+        "timestamp": 123.0,
+    }
+    disk = {
+        "42": {"user_id": "42", "character_name": "Sender", "gil": 375,
+               "inventory": [], "pending_mail_dispatches": [dispatch]},
+        "99": {"user_id": "99", "character_name": "Recipient", "gil": 0,
+               "inventory": [], "mailbox": []},
+    }
+
+    async def load_sheet(uid):
+        return copy.deepcopy(disk.get(str(uid)))
+
+    async def save_sheet(sheet):
+        disk[str(sheet["user_id"])] = copy.deepcopy(sheet)
+
+    monkeypatch.setattr(rv, "load", load_sheet)
+    monkeypatch.setattr(rv, "save", save_sheet)
+
+    async def go():
+        first = await rv.recover_pending_mail_dispatches("42")
+        second = await rv.recover_pending_mail_dispatches("42")
+        return first, second
+
+    first, second = asyncio.run(go())
+    assert first == (1, 0)
+    assert second == (0, 0)
+    assert disk["42"]["gil"] == 375
+    assert disk["42"]["inventory"] == []
+    assert disk["42"]["pending_mail_dispatches"] == []
+    assert len(disk["99"]["mailbox"]) == 1
+    assert disk["99"]["mailbox"][0]["dispatch_id"] == "dispatch-123"
+
+
+def test_moogle_mail_keeps_pending_dispatch_when_recipient_is_missing(monkeypatch):
+    import copy
+    import asyncio
+    from utils.ttrpg import rpg_views as rv
+
+    dispatch = {
+        "dispatch_id": "dispatch-404",
+        "to_user_id": "99",
+        "from_name": "Sender",
+        "item": None,
+        "gil": 50,
+        "timestamp": 123.0,
+    }
+    sender = {"user_id": "42", "character_name": "Sender", "gil": 450,
+              "inventory": [], "pending_mail_dispatches": [dispatch]}
+
+    async def load_sheet(uid):
+        return copy.deepcopy(sender) if str(uid) == "42" else None
+
+    async def save_sheet(sheet):
+        sender.clear()
+        sender.update(copy.deepcopy(sheet))
+
+    monkeypatch.setattr(rv, "load", load_sheet)
+    monkeypatch.setattr(rv, "save", save_sheet)
+
+    delivered, pending = asyncio.run(rv.recover_pending_mail_dispatches("42"))
+    assert delivered == 0
+    assert pending == 1
+    assert sender["gil"] == 450
+    assert sender["pending_mail_dispatches"] == [dispatch]
