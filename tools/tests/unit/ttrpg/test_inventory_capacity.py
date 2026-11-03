@@ -215,3 +215,66 @@ def test_harvest_at_capacity_keeps_new_item_types_on_their_plots(monkeypatch):
     assert saved_homes == [home]
     assert "new crop item" in send.await_args.args[1]
     assert "Left on the plots" in send.await_args.args[1]
+
+
+def test_reward_goes_to_moogle_mail_when_inventory_is_full():
+    from utils.ttrpg.inventory_capacity import grant_item_or_mail
+
+    sheet = {"inventory": [f"item_{i}" for i in range(100)]}
+
+    delivery = grant_item_or_mail(sheet, "quest_relic", "The Lost Reliquary")
+
+    assert delivery == "mailbox"
+    assert "quest_relic" not in sheet["inventory"]
+    assert len(sheet["mailbox"]) == 1
+    assert sheet["mailbox"][0]["from_name"] == "The Lost Reliquary"
+    assert sheet["mailbox"][0]["item"] == "quest_relic"
+    assert sheet["mailbox"][0]["gil"] == 0
+
+
+def test_reward_is_granted_directly_when_inventory_has_capacity():
+    from utils.ttrpg.inventory_capacity import grant_item_or_mail
+
+    sheet = {"inventory": [f"item_{i}" for i in range(99)]}
+
+    delivery = grant_item_or_mail(sheet, "quest_relic", "The Lost Reliquary")
+
+    assert delivery == "inventory"
+    assert "quest_relic" in sheet["inventory"]
+    assert "mailbox" not in sheet
+
+
+def test_moogle_mail_partial_claim_preserves_item_but_delivers_gil():
+    from utils.ttrpg.rpg_views import MailMenuView
+
+    sheet = {
+        "inventory": [f"item_{i}" for i in range(100)],
+        "gil": 25,
+        "mailbox": [
+            {
+                "dispatch_id": "dispatch-1",
+                "from_name": "A Friend",
+                "item": "quest_relic",
+                "gil": 40,
+            }
+        ],
+    }
+    view = MailMenuView(None, None, "42", "Tester", False, sheet)
+
+    first_claim = view._claim(sheet["mailbox"])
+
+    assert sheet["gil"] == 65
+    assert len(sheet["mailbox"]) == 1
+    assert sheet["mailbox"][0]["item"] == "quest_relic"
+    assert sheet["mailbox"][0]["gil"] == 0
+    assert "inventory full" in first_claim[0]
+
+    # Once the player makes room, the same attachment can be claimed without
+    # paying its Gil a second time.
+    sheet["inventory"].pop()
+    second_claim = view._claim(sheet["mailbox"])
+
+    assert "quest_relic" in sheet["inventory"]
+    assert sheet["mailbox"] == []
+    assert sheet["gil"] == 65
+    assert "quest relic" in second_claim[0].lower()
