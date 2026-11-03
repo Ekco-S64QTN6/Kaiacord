@@ -1411,29 +1411,40 @@ async def _handle_equip(ctx, msg, send, rest, uid, uname, is_owner):
             color=0xcc4444
         ))
 
-    # Unequip existing if slot filled
+    # Project the swap first: returning the old item must fit after the
+    # selected item leaves the bag. Do not change HP or equipment on refusal.
     slot = item["category"]
     old_val = sheet["equipment"].get(slot)
+    old_key = old_val.get("key") if isinstance(old_val, dict) else old_val
+    from utils.ttrpg.inventory_capacity import grant_item
+    projected = {"inventory": list(sheet.get("inventory", []))}
+    projected["inventory"].remove(item_key)
+    if old_key and not grant_item(projected, old_key):
+        from utils.ttrpg.character_manager import INVENTORY_LIMIT
+        from utils.ttrpg.inventory_capacity import unique_item_type_count
+        current_unique = unique_item_type_count(sheet.get("inventory", []))
+        return await msg.channel.send(embed=discord.Embed(
+            description=(
+                f"Your inventory is full ({current_unique}/{INVENTORY_LIMIT} unique item types). "
+                "Make room before swapping this equipment."
+            ),
+            color=0xcc4444,
+        ))
+    sheet["inventory"] = projected["inventory"]
+
     if old_val:
-        # Remove old HP bonus if it exists
+        # Remove old HP bonus if it exists.
         old_hp_bonus = old_val.get("hp_bonus", 0) if isinstance(old_val, dict) else 0
         if old_hp_bonus:
             sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - old_hp_bonus)
             sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
 
-        # Handle both string keys and dict values
-        old_key = old_val.get("key") if isinstance(old_val, dict) else old_val
-        if old_key:
-            sheet["inventory"].append(old_key)
-        
-    # Equip new
-    # Add new HP bonus if it exists
+    # Equip new and add its HP bonus if it exists.
     new_hp_bonus = item.get("hp_bonus", 0)
     if new_hp_bonus:
         sheet["hp"]["max"] += new_hp_bonus
         sheet["hp"]["current"] += new_hp_bonus
 
-    sheet["inventory"].remove(item_key)
     sheet["equipment"][slot] = item
     await save(sheet)
     
@@ -1524,7 +1535,18 @@ async def _handle_unequip(ctx, msg, send, rest, uid, uname, is_owner):
     item_name = val.get("name") if isinstance(val, dict) else item_key
 
     if item_key:
-        sheet["inventory"].append(item_key)
+        from utils.ttrpg.inventory_capacity import grant_item
+        if not grant_item(sheet, item_key):
+            from utils.ttrpg.character_manager import INVENTORY_LIMIT
+            from utils.ttrpg.inventory_capacity import unique_item_type_count
+            current_unique = unique_item_type_count(sheet.get("inventory", []))
+            return await msg.channel.send(embed=discord.Embed(
+                description=(
+                    f"Your inventory is full ({current_unique}/{INVENTORY_LIMIT} unique item types). "
+                    "Make room before unequipping this item."
+                ),
+                color=0xcc4444,
+            ))
 
     # Remove HP bonus
     hp_bonus = val.get("hp_bonus", 0) if isinstance(val, dict) else 0
@@ -1588,8 +1610,22 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         view = combat_view if combat_view else _make_status_view(ctx, msg, uid, uname, is_owner)
         await msg.channel.send(embed=discord.Embed(description=f"Used **{item['name']}**. Restored {healed} HP ({before} → {sheet['hp']['current']})", color=0x44aa44), view=view)
     elif item.get("on_use") == "starter_kit":
-        sheet["inventory"].remove(item_key)
-        sheet["inventory"].extend(["bandage", "healing_herb", "torch"])
+        from utils.ttrpg.inventory_capacity import grant_items, unique_item_type_count
+        from utils.ttrpg.character_manager import INVENTORY_LIMIT
+        projected = {"inventory": list(sheet.get("inventory", []))}
+        projected["inventory"].remove(item_key)
+        contents = ["bandage", "healing_herb", "torch"]
+        if not grant_items(projected, contents):
+            current_unique = unique_item_type_count(sheet.get("inventory", []))
+            return await msg.channel.send(embed=discord.Embed(
+                description=(
+                    f"Your inventory is too full to open the {item['name']} "
+                    f"({current_unique}/{INVENTORY_LIMIT} unique item types). "
+                    "Make room first. The kit was not consumed."
+                ),
+                color=0xcc4444,
+            ))
+        sheet["inventory"] = projected["inventory"]
         await save(sheet)
         await msg.channel.send(embed=discord.Embed(description=f"You open the **{item['name']}**.\n\nObtained:\n• Bandage\n• Healing Herb\n• Torch (lore item)", color=0x44aa44))
     elif item.get("on_use") == "smoke_bomb":
@@ -1734,15 +1770,22 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["gil"] = sheet.get("gil", 0) + crate_gil
         extra_items = ["bandage", "healing_herb", "lucky_charm", "aeridor_shard", "ironbark_tonic"]
         bonus_item = secrets.choice(extra_items)
-        sheet["inventory"].append(bonus_item)
-        bonus_name = find_item(bonus_item).get("name", bonus_item.replace("_", " ").title())
+        from utils.ttrpg.inventory_capacity import grant_item_or_mail
+        bonus_delivery = grant_item_or_mail(sheet, bonus_item, "Stolen Trade Crate")
+        item_data = find_item(bonus_item)
+        bonus_name = item_data.get("name", bonus_item.replace("_", " ").title()) if item_data else bonus_item.replace("_", " ").title()
         await save(sheet)
+        bonus_line = (
+            f"🎁 **Bonus Item:** **{bonus_name}**"
+            if bonus_delivery == "inventory"
+            else f"📬 **{bonus_name}** was sent to Moogle Mail because your inventory is full."
+        )
         await msg.channel.send(embed=discord.Embed(
             title="📦 Stolen Trade Crate Opened",
             description=(
                 f"You pry open the iron-banded trade crate!\n\n"
                 f"💰 **Found:** +{crate_gil} Gil\n"
-                f"🎁 **Bonus Item:** **{bonus_name}**"
+                f"{bonus_line}"
             ),
             color=0x27ae60
         ))
@@ -2056,12 +2099,18 @@ async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
         if sheet.get("shrine_gift_date") != today:
             sheet["shrine_gift_date"] = today
             from utils.ttrpg.loot_tables import get_consumable_loot
+            from utils.ttrpg.inventory_capacity import grant_item_or_mail
             gift = get_consumable_loot("hard") or "elixir"
-            sheet.setdefault("inventory", []).append(gift)
+            delivery = grant_item_or_mail(sheet, gift, "Feast of the Silent Ones")
             await save(sheet)
+            gift_line = (
+                f"**You received a {gift.replace('_',' ').title()}!**"
+                if delivery == "inventory"
+                else f"**{gift.replace('_',' ').title()}** was sent to Moogle Mail because your inventory is full."
+            )
             return await msg.channel.send(embed=discord.Embed(
                 title="🎁 Feast of the Silent Ones",
-                description=f"A small bundle was left at the threshold.\n**You received a {gift.replace('_',' ').title()}!**",
+                description=f"A small bundle was left at the threshold.\n{gift_line}",
                 color=0xd4a843
             ))
 
@@ -2634,13 +2683,26 @@ async def _handle_give(ctx, msg, send, rest, uid, uname, is_owner):
         sheet = await load(target_uid)
         if not sheet:
             return None
-        sheet.setdefault("inventory", []).append(item["key"])
+        from utils.ttrpg.inventory_capacity import grant_item
+        from utils.ttrpg.inventory_capacity import unique_item_type_count
+        from utils.ttrpg.character_manager import INVENTORY_LIMIT
+        if not grant_item(sheet, item["key"]):
+            return (sheet["character_name"], False, unique_item_type_count(sheet.get("inventory", [])), INVENTORY_LIMIT)
         await save(sheet)
-        return sheet["character_name"]
+        return (sheet["character_name"], True, 0, INVENTORY_LIMIT)
 
-    target_name = await _with_target_action_lock(target_uid, uid, grant)
-    if not target_name:
+    grant_result = await _with_target_action_lock(target_uid, uid, grant)
+    if not grant_result:
         return await no_character(msg)
+    target_name, granted, current_unique, limit = grant_result
+    if not granted:
+        return await msg.channel.send(embed=discord.Embed(
+            description=(
+                f"Could not grant `{item['key']}` to {target_name}: inventory full "
+                f"({current_unique}/{limit} unique item types)."
+            ),
+            color=0xcc4444,
+        ))
     await msg.channel.send(embed=discord.Embed(
         description=f"Admin granted `{item['key']}` to {target_name}.",
         color=0x44aa44
