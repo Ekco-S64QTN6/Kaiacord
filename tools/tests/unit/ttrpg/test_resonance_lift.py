@@ -12,6 +12,6 @@ def test_the_lift_stops_at_every_fifth_floor_reached():
     sheet = {"spine_defeated_guards": list(range(1, 20))}
 
     async def build():
-        view = SpineLiftView(None, "1", "Ekco", True, sheet, deepest_reached(sheet))
+        view = SpineLiftView(None, "1", "Ekco", True, deepest_reached(sheet))
         return [o.value for o in view.children[0].options]
     assert asyncio.run(build()) == ["1", "5", "10", "15", "20"]
