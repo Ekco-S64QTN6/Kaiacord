@@ -235,7 +235,7 @@ def test_daily_hunts_reset():
     sheet = {
         "character_name": "Resetter",
         "hunts_today": 5,
-        "last_hunt_date": "1999-12-31",
+        "hunts_reset_date": "1999-12-31",
         "forest_event_attempts_today": 4,
         "conditions": ["battle_focus", "blessed", "mognet_pending", "ale_warmth", "tree_memory"],
         "hp": {"current": 30, "max": 30}
@@ -333,6 +333,8 @@ def test_free_forest_event_event_event_then_monster_spends_three_rolls_and_one_h
     assert sheet["xp"] == 2
     # Each event attempt is durable before its random roll.
     assert [entry["forest_event_attempts_today"] for entry in saves[:4]] == [1, 1, 2, 2]
+    # The miss also consumes a durable attempt before returning to monster combat.
+    assert saves[4]["forest_event_attempts_today"] == 3
     assert saves[-1]["hunts_today"] == 1
 
 
