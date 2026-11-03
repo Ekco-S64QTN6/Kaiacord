@@ -297,6 +297,15 @@ def test_player_reward_modules_do_not_bypass_the_shared_inventory_grant():
         "utils/ttrpg/alchemy.py",
         "utils/ttrpg/shop.py",
     )
+    mail_fallback_modules = (
+        "utils/ttrpg/rpg_views.py",
+        "utils/ttrpg/rpg_social_handler.py",
+        "utils/commands/fishing_handler.py",
+        "utils/core/background_tasks.py",
+        "utils/ttrpg/rpg_core_handler.py",
+        "utils/ttrpg/rpg_combat_handler.py",
+        "utils/ttrpg/micro_events.py",
+    )
     direct_inventory_write = re.compile(
         r"(?:"
         r"\w+\.setdefault\(['\"]inventory['\"],\s*\[\]\)\.(?:append|extend)"
@@ -319,4 +328,15 @@ def test_player_reward_modules_do_not_bypass_the_shared_inventory_grant():
     assert not violations, (
         "Player-facing inventory grants must use utils.ttrpg.inventory_capacity; "
         f"raw writes remain: {violations}"
+    )
+
+    # Each reward family whose policy is "deliver or preserve for later" must
+    # explicitly use the same mailbox fallback rather than inventing its own.
+    missing_fallback = [
+        path for path in mail_fallback_modules
+        if "grant_item_or_mail" not in (repository / path).read_text(encoding="utf-8")
+    ]
+    assert not missing_fallback, (
+        "These reward families must preserve full-bag rewards in Moogle Mail: "
+        f"{missing_fallback}"
     )
