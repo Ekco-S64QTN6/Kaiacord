@@ -232,18 +232,30 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
         )
         async def _buy_cb(interaction):
             if str(interaction.user.id) != uid: return
-            s = await load(uid)
-            if s["gil"] < hut["cost"]:
-                await interaction.response.send_message(
-                    f"Not enough gil. Need {hut['cost']}g, have {s['gil']}g.", ephemeral=True)
-                return
-            s["gil"] -= hut["cost"]
-            await save(s)
-            h = default_housing_sheet(uid, s["character_name"])
-            save_housing(h)
-            await _log_world_event(f"🏡 **{s['character_name']}** has settled in Oakhaven, purchasing a new {hut['name']}.")
+            from utils.ttrpg.session_manager import get_action_lock
+            error = None
+            character_name = None
+            async with await get_action_lock(f"user:{uid}"):
+                s = await load(uid)
+                if not s:
+                    error = "No character found."
+                elif load_housing(uid):
+                    error = "You already own a home. Your existing estate is safe."
+                elif s["gil"] < hut["cost"]:
+                    error = f"Not enough gil. Need {hut['cost']}g, have {s['gil']}g."
+                else:
+                    s["gil"] -= hut["cost"]
+                    await save(s)
+                    h = default_housing_sheet(uid, s["character_name"])
+                    save_housing(h)
+                    character_name = s["character_name"]
+
+            # Keep the lock around the fresh read/check/write, not Discord I/O.
+            if error:
+                return await interaction.response.send_message(error, ephemeral=True)
+            await _log_world_event(f"🏡 **{character_name}** has settled in Oakhaven, purchasing a new {hut['name']}.")
             await interaction.response.send_message(embed=discord.Embed(
-                description=f"🏡 *{hut['flavor']}*\n\nWelcome home, {s['character_name']}.",
+                description=f"🏡 *{hut['flavor']}*\n\nWelcome home, {character_name}.",
                 color=0x44aa44))
         buy_btn.callback = _buy_cb
         view.add_item(buy_btn)
