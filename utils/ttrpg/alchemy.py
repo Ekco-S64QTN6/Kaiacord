@@ -133,24 +133,31 @@ def brew(sheet, recipe_key):
         inv = []
         sheet["inventory"] = inv
         
-    # Net change in inventory: we remove ingredients, then append result
+    # Calculate the net inventory after consuming ingredients; a brew can
+    # free an item-type slot before adding its result.
+    from utils.ttrpg.inventory_capacity import can_add_item, grant_item
     inv_copy = list(inv)
     for item in ingredients:
         if item in inv_copy:
             inv_copy.remove(item)
-    inv_copy.append(recipe["result"])
-    
-    from utils.ttrpg.character_manager import INVENTORY_LIMIT
-    current_unique = set(inv_copy)
-    if len(current_unique) > INVENTORY_LIMIT:
-        return False, f"Your inventory has too many unique item types. Cap: {INVENTORY_LIMIT} unique types (brewing this would make it {len(current_unique)})."
+    if not can_add_item(inv_copy, recipe["result"]):
+        from utils.ttrpg.character_manager import INVENTORY_LIMIT
+        from utils.ttrpg.inventory_capacity import unique_item_type_count
+        projected = unique_item_type_count([*inv_copy, recipe["result"]])
+        return False, (
+            f"Your inventory has too many unique item types. Cap: {INVENTORY_LIMIT} "
+            f"unique types (brewing this would make it {projected})."
+        )
 
     for item in ingredients:
         if item in inv:
             inv.remove(item)
-        
-    # Add result
-    sheet.setdefault("inventory", []).append(recipe["result"])
+
+    # Grant the result through the same policy helper used by other item paths.
+    if not grant_item(sheet, recipe["result"]):
+        # The preflight and grant occur under the same player action, so this
+        # is defensive rather than an expected branch.
+        return False, "Your inventory has too many unique item types."
     
     msg = f"Successfully brewed **{recipe['name']}**!"
     return True, msg
