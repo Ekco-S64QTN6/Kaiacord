@@ -86,11 +86,20 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .dtitle { min-width: 0; }
 .dtitle .t { font-size: 19px; font-weight: 800; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 0 10px rgba(255,255,255,.15); }
 .dtitle .a { font-size: 13px; color: var(--dc); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-.dtitle .g { font-size: 11px; color: var(--dim); margin-top: 2px; letter-spacing: 1px; }
+.dtitle .g { font-size: 11px; color: var(--dim); margin-top: 2px; letter-spacing: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dbody { display: grid; grid-template-columns: auto 1fr; gap: 14px; min-height: 0; align-items: center; }
 .jogwrap { position: relative; height: 100%; aspect-ratio: 1; max-height: 250px; min-height: 140px; }
 .jog { width: 100%; height: 100%; display: block; }
 .readouts { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(4px, 0.6vh, 8px); align-content: center; min-height: 0; }
+/* A short window: four rows of readouts were taller than the deck's middle, and
+   spilled over the title above and the overview below. */
+@media (max-height: 1000px) {
+  .readouts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ro { padding: 2px 6px !important; }
+  .ro .k { font-size: 8px; }
+  .ro .v { font-size: clamp(14px, 2.4vh, 22px) !important; }
+  .ro.big .v { font-size: clamp(18px, 3.2vh, 30px) !important; }
+}
 .ro { background: rgba(0,0,0,.35); border: 1px solid var(--line); border-radius: 3px; padding: clamp(3px, 0.5vh, 6px) 9px; }
 .ro .k { font-size: 9px; letter-spacing: 2px; color: var(--dim); }
 .ro .v { font-family: var(--disp); font-size: clamp(16px, 2.5vh, 26px); font-weight: 700; color: var(--text); line-height: 1.15; }

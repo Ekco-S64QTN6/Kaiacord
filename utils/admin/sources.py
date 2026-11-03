@@ -399,8 +399,11 @@ def art() -> dict:
     out = []
     for f in sorted(glob.glob(str(MEM / "art" / "*.json")), key=os.path.getmtime):
         d = _json(Path(f), {}) or {}
+        if Path(f).name == "votes.json":         # the flock's votes, beside the pieces
+            continue
         intent = d.get("intent") or {}
-        out.append({"id": Path(f).stem, "ts": os.path.getmtime(f), "title": intent.get("title"),
+        out.append({"id": Path(f).stem, "ts": os.path.getmtime(f),
+                    "title": intent.get("title") or " × ".join(d.get("sheep") or []) or None,
                     "palette": d.get("palette"), "symmetry": d.get("symmetry_k"), "render_s": d.get("render_time_s"),
                     "occupancy": d.get("occupancy"), "contrast": d.get("density_contrast"),
                     "image": Path(f).with_suffix(".png").exists()})

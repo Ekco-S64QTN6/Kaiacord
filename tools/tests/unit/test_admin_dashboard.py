@@ -326,3 +326,16 @@ def test_answering_requests_writes_nothing(server, tree):
     finally:
         armed[0] = False
     assert [w for w in writes if str(tree) in str(w)] == []
+
+
+def test_the_art_listing_is_pieces_and_names_a_sheep(tmp_path, monkeypatch):
+    import json
+    from utils.admin import sources
+    art = tmp_path / "art"
+    art.mkdir()
+    (art / "votes.json").write_text(json.dumps({"posts": {}}))
+    (art / "abc.json").write_text(json.dumps({"type": "sheep", "sheep": ["electricsheep.248.27801"]}))
+    monkeypatch.setattr(sources, "MEM", tmp_path)
+    pieces = sources.art()["pieces"]
+    assert [p["id"] for p in pieces] == ["abc"]
+    assert pieces[0]["title"] == "electricsheep.248.27801"
