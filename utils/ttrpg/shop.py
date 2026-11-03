@@ -30,7 +30,7 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
         headgear    = {k: HEADGEAR[k]    for k in gear_keys if k in HEADGEAR}
         boots       = {k: BOOTS[k]       for k in gear_keys if k in BOOTS}
         accessories = {k: ACCESSORIES[k] for k in gear_keys if k in ACCESSORIES}
-        consumables = {k: CONSUMABLES[k] for k in consumable_keys if k in CONSUMABLES}
+        consumables = {k: CONSUMABLES[k] for k in consumable_keys if k in CONSUMABLES and not CONSUMABLES[k].get("deprecated")}
         return weapons, armor, headgear, boots, accessories, consumables
 
     # Default: Hemlock's Store
@@ -85,7 +85,7 @@ def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, di
     headgear    = {k: HEADGEAR[k]    for k in headgear_keys    if k in HEADGEAR}
     boots       = {k: BOOTS[k]       for k in boots_keys       if k in BOOTS}
     accessories = {k: ACCESSORIES[k] for k in accessory_keys   if k in ACCESSORIES}
-    consumables = {k: CONSUMABLES[k] for k in consumables_keys if k in CONSUMABLES}
+    consumables = {k: CONSUMABLES[k] for k in consumables_keys if k in CONSUMABLES and not CONSUMABLES[k].get("deprecated")}
 
     # Overlay special discounts non-destructively
     if special and "shop_special" in special:
@@ -212,6 +212,8 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
     item = find_item(item_key)
     if not item:
         return False, f"Item `{item_key}` not found.", sheet
+    if item.get("deprecated"):
+        return False, f"{item['name']} has been retired and can no longer be purchased.", sheet
 
     # Only what this merchant actually sells. find_item searches every
     # registry, so without this any item — drop-only endgame gear included —
