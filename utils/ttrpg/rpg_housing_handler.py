@@ -230,9 +230,20 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
             label=f"Purchase Hut ({hut['cost']}g)",
             style=discord.ButtonStyle.green, row=0
         )
+        @player_locked(uid)
         async def _buy_cb(interaction):
             if str(interaction.user.id) != uid: return
             s = await load(uid)
+            if not s:
+                return await interaction.response.send_message("No character found.", ephemeral=True)
+            # The purchase view is a snapshot. Re-check ownership after taking
+            # the player's lock so an old button cannot charge again or reset
+            # an estate that was created/expanded after this menu was rendered.
+            if load_housing(uid):
+                return await interaction.response.send_message(
+                    "You already own a home. Your existing estate is safe.",
+                    ephemeral=True
+                )
             if s["gil"] < hut["cost"]:
                 await interaction.response.send_message(
                     f"Not enough gil. Need {hut['cost']}g, have {s['gil']}g.", ephemeral=True)
