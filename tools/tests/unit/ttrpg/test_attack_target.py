@@ -10,6 +10,7 @@ MONSTERS = [
     {"id": "b-goblin", "key": "goblin", "aggro_uid": "B", "origin_location": "trade_road"},
     {"id": "b-wolf", "key": "dire_wolf", "aggro_uid": "B", "origin_location": "trade_road"},
     {"id": "c-wolf", "key": "dire_wolf", "aggro_uid": "C", "origin_location": "whisperwood_edge"},
+    {"id": "c-shadow", "key": "shadow_hound", "aggro_uid": "C", "origin_location": "trade_road"},
 ]
 
 
@@ -40,8 +41,8 @@ def test_owner_cannot_attack_an_old_encounter_from_another_location():
 
 
 def test_explicit_foreign_target_does_not_fall_back_to_another_own_fight():
-    # B owns a goblin, but naming a different monster must not attack it instead.
-    assert _id("B", "dire", "trade_road") is None
+    # B owns a goblin and a dire wolf, but the named Shadow Hound belongs to C.
+    assert _id("B", "shadow", "trade_road") is None
 
 
 def test_legacy_monster_without_origin_location_fails_closed():
