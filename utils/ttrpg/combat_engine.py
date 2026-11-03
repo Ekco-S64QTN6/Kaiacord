@@ -11,6 +11,7 @@ from utils.ttrpg.rpg_ui import colored_bar
 # descriptions promise: "until next combat".
 ONE_FIGHT_BUFFS = {
     # condition:        (ATK, DMG, DEF)
+    "blessed":          (2, 0, 0),
     "battle_focus":     (1, 0, 0),
     "forest_sight":     (1, 0, 0),
     "shadow_step":      (2, 0, 0),
@@ -32,7 +33,7 @@ ONE_FIGHT_BUFFS = {
     "world_speak":      (0, 0, 2),
 }
 BUFF_LABELS = {
-    "battle_focus": "⚔️ Battle Focus", "forest_sight": "🏹 Forest Sight",
+    "blessed": "✨ Blessed", "battle_focus": "⚔️ Battle Focus", "forest_sight": "🏹 Forest Sight",
     "shadow_step": "🌘 Shadow Step", "sharp_mind": "🧠 Sharp Mind",
     "veiled_blessing": "✨ Veiled Blessing", "veiled_watched": "👁️ The Veiled Gaze",
     "resonance_link": "💎 Resonance Link", "divine_clarity": "🕊️ Divine Clarity",
@@ -235,10 +236,6 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         atk_mod = atk_mod // 2
         status_logs.append(f"🦴 *Weakened state halves attack modifier.*")
         
-    bless_bonus = 2 if "blessed" in conditions else 0
-    if bless_bonus:
-        status_logs.append(f"✨ *Blessed guides your aim (+2).*")
-
     # Streak bonus (+1 to hit if streak > 1)
     streak = sheet.get("hunt_streak", 0)
     streak_bonus = 1 if streak > 1 else 0
