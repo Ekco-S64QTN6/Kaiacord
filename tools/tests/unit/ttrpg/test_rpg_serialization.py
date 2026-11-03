@@ -805,7 +805,6 @@ def test_spine_lift_revalidates_location_before_entry(monkeypatch):
 
 
 def test_spine_lift_revalidates_light_source_from_fresh_sheet(monkeypatch):
-    stale_view_sheet = _spine_sheet(inventory=["lightstone"])
     fresh_sheet = _spine_sheet(inventory=[])
     view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
         monkeypatch, fresh_sheet
