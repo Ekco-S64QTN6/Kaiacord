@@ -152,6 +152,11 @@ def _is_combat_usable_item(item):
     )
 
 
+def _is_dungeon_combat_usable_item(item):
+    """Dungeon consumables exclude Smoke Bomb: its escape only clears overworld sessions."""
+    return _is_combat_usable_item(item) and item.get("on_use") != "smoke_bomb"
+
+
 def _combat_item_option_label(item):
     """Consistent label for an item in either combat menu."""
     name = item.get("name", "Unknown item")
@@ -1715,10 +1720,7 @@ class DungeonCombatView(StaleSafeView):
             for item_key, count in inv_counts.items():
                 item = _fi(item_key)
                 if not item or item["category"] != "consumable": continue
-                # Smoke Bombs clear overworld encounters only; dungeon combat
-                # has a separate flee transition and must not expose this item.
-                if item.get("on_use") == "smoke_bomb": continue
-                if _is_combat_usable_item(item):
+                if _is_dungeon_combat_usable_item(item):
                     label = _combat_item_option_label(item)
                     if count > 1:
                         label += f"  x{count}"
