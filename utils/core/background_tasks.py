@@ -19,6 +19,46 @@ from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
 
+async def _mutate_player_sheet(user_id, mutation):
+    """Apply a synchronous mutation to a fresh sheet under the RPG user-action lock.
+
+    The caller may use load_all() to discover candidate IDs, but must not carry
+    those detached snapshots into this function. Re-load only after taking the
+    same user:<uid> lock as typed commands and views. The mutation callback must
+    not perform Discord I/O, sleeps, or other awaits.
+    """
+    from utils.ttrpg.character_manager import load, save
+    from utils.ttrpg.session_manager import get_action_lock
+
+    uid = str(user_id)
+    async with await get_action_lock(f"user:{uid}"):
+        sheet = await load(uid)
+        if not sheet:
+            return None
+        result = mutation(sheet)
+        if result is None:
+            return None
+        await save(sheet)
+        return result
+
+
+async def _mutate_player_housing(user_id, mutation):
+    """Fresh-load and mutate one housing file under its owner's action lock."""
+    from utils.ttrpg.housing import load_housing_async, save_housing_async
+    from utils.ttrpg.session_manager import get_action_lock
+
+    uid = str(user_id)
+    async with await get_action_lock(f"user:{uid}"):
+        housing = await load_housing_async(uid)
+        if not housing:
+            return None
+        result = mutation(housing)
+        if result is None:
+            return None
+        await save_housing_async(housing)
+        return result
+
+
 
 class CoreTaskManager:
     """Manager for core background loops with dependency injection and error handling."""
