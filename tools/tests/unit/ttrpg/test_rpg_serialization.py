@@ -761,7 +761,6 @@ def _spine_lift_test_context(monkeypatch, fresh_sheet, target_floor="5",
         "42",
         "Sender",
         False,
-        copy.deepcopy(initial_sheet if initial_sheet is not None else fresh_sheet),
         5,
     )
 
