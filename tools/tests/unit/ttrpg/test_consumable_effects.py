@@ -225,7 +225,6 @@ def test_smoke_bomb_is_not_consumed_without_an_owned_current_location_fight(monk
     assert "Nothing was consumed" in msg.channel.send.await_args.kwargs["embed"].description
 
 
-@pytest.mark.parametrize("item_key", ["eye_drops", "trap_kit"])
 def test_smoke_bomb_is_not_an_alternative_dungeon_flee(monkeypatch):
     from utils.ttrpg import dungeon
 
@@ -252,6 +251,7 @@ def test_smoke_bomb_is_not_an_alternative_dungeon_flee(monkeypatch):
     assert "Use the dungeon Flee action" in msg.channel.send.await_args.kwargs["embed"].description
 
 
+@pytest.mark.parametrize("item_key", ["eye_drops", "trap_kit"])
 def test_retired_consumables_cannot_be_used_or_consumed(monkeypatch, item_key):
     sheet = _sheet(item_key)
     _, msg, save, _, note, _, _, run = _prepare_use(monkeypatch, sheet)
