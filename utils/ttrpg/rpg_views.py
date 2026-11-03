@@ -1262,13 +1262,12 @@ class BossApproachView(StaleSafeView):
         await interaction.followup.send(embed=embed, view=view)
 
 class SpineLiftView(StaleSafeView):
-    def __init__(self, ctx_obj, uid, uname, is_owner, sheet, deepest_floor):
+    def __init__(self, ctx_obj, uid, uname, is_owner, deepest_floor):
         super().__init__(timeout=120)
         self._ctx = ctx_obj
         self._uid = str(uid)
         self._uname = uname
         self._is_owner = is_owner
-        self._sheet = sheet
         self._lift_started = False
 
         # Floor 1, then every fifth floor the player has reached.
