@@ -16,7 +16,8 @@ from utils.ttrpg.world_state import get_current_state
 from utils.ttrpg.character_manager import load, save
 from utils.ttrpg.session_manager import load_session, save_session
 from utils.ttrpg.progression import (
-    harvest_bonus, streak_bonus, golden_tongue_bonus, check_and_reset_hunts, hunts_remaining, check_level_up, get_max_hunts, xp_to_next_level,
+    harvest_bonus, streak_bonus, golden_tongue_bonus, check_and_reset_hunts, hunts_remaining,
+    check_level_up, get_max_hunts, xp_to_next_level, reserve_forest_event_attempt,
 )
 from utils.ttrpg.class_advancement import (
     apply_advanced_class_to_sheet, get_advanced_options, get_title, ADVANCED_CLASSES
@@ -792,16 +793,9 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
                             f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
                         )
     
-    # Roll for special forest event before monster spawn
-    from utils.ttrpg.encounter_tables import roll_for_event, random_event
-    from utils.ttrpg.forest_events import resolve_event
-
-    if roll_for_event(loc):
-        event_key = random_event(loc)
-        result = resolve_event(event_key, sheet)
-        # Events are FREE — they don't consume a daily hunt.
-        # The player still gets their full hunts for combat XP.
-        await _apply_and_narrate_event(ctx, msg, send, sheet, result, uname)
+    # Free forest events do not consume hunt stamina, but every roll (hit or
+    # miss) uses one of five daily attempts. Reserve and persist before RNG.
+    if await _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname):
         return  # event resolved, hunt NOT consumed
 
     # Pay hunt cost BEFORE spawn (crash-safe: hunt is consumed even if spawn fails)
@@ -1656,6 +1650,30 @@ def _dungeon_room_color(room_type):
         "stairs_up":    0x4a4a6a,
         "stairs_down":  0x4a4a6a,
     }.get(room_type, 0x888888)
+
+async def _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname):
+    """Try one free forest event, durably spending an attempt before RNG.
+
+    Returns True when an event was applied. A failed random roll or exhausted
+    daily attempt budget returns False so the normal monster hunt can continue.
+    """
+    if not reserve_forest_event_attempt(sheet):
+        return False
+
+    # Persist the attempt before generating a random outcome. If the process
+    # exits immediately afterwards, the player cannot reroll that same slot.
+    await save(sheet)
+
+    from utils.ttrpg.encounter_tables import roll_for_event, random_event
+    if not roll_for_event(loc):
+        return False
+
+    from utils.ttrpg.forest_events import resolve_event
+    event_key = random_event(loc)
+    result = resolve_event(event_key, sheet)
+    await _apply_and_narrate_event(ctx, msg, send, sheet, result, uname)
+    return True
+
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
     """Apply a forest event's mechanical effects; its story joins the trip's (outing.py)."""

@@ -235,21 +235,134 @@ def test_daily_hunts_reset():
     sheet = {
         "character_name": "Resetter",
         "hunts_today": 5,
-        "last_hunt_date": "1999-12-31",
+        "hunts_reset_date": "1999-12-31",
+        "forest_event_attempts_today": 4,
         "conditions": ["battle_focus", "blessed", "mognet_pending", "ale_warmth", "tree_memory"],
         "hp": {"current": 30, "max": 30}
     }
     
     updated = check_and_reset_hunts(sheet)
     
-    # Hunts should be 0
+    # Hunts and free-event attempts reset independently at dawn.
     assert updated["hunts_today"] == 0
+    assert updated["forest_event_attempts_today"] == 0
     # Permanent conditions should stay, temp ones should drop
     assert "blessed" in updated["conditions"]
     assert "mognet_pending" in updated["conditions"]
     assert "battle_focus" not in updated["conditions"]
     assert "ale_warmth" not in updated["conditions"]
     assert "tree_memory" not in updated["conditions"]
+
+def test_free_forest_event_attempt_budget_counts_successes_and_misses():
+    from utils.ttrpg.progression import (
+        MAX_FREE_FOREST_EVENT_ATTEMPTS_PER_DAY,
+        reserve_forest_event_attempt,
+    )
+
+    sheet = {"forest_event_attempts_today": 0}
+    for expected in range(1, MAX_FREE_FOREST_EVENT_ATTEMPTS_PER_DAY + 1):
+        assert reserve_forest_event_attempt(sheet) is True
+        assert sheet["forest_event_attempts_today"] == expected
+
+    # No sixth event roll may be reserved.
+    assert reserve_forest_event_attempt(sheet) is False
+    assert sheet["forest_event_attempts_today"] == MAX_FREE_FOREST_EVENT_ATTEMPTS_PER_DAY
+
+
+def test_free_forest_event_event_event_then_monster_spends_three_rolls_and_one_hunt(monkeypatch):
+    import asyncio
+    import copy
+    from datetime import date
+    from utils.ttrpg import encounter_tables, forest_events, rpg_combat_handler
+
+    sheet = {
+        "character_name": "EventTester",
+        "hunts_today": 0,
+        "hunts_reset_date": date.today().strftime("%Y-%m-%d"),
+        "forest_event_attempts_today": 0,
+        "xp": 0,
+    }
+    roll_results = iter([True, True, False])
+    roll_calls = []
+    applied_events = []
+    saves = []
+
+    def roll_for_event(location):
+        roll_calls.append(location)
+        return next(roll_results)
+
+    def random_event(location):
+        return "moogle_sighting"
+
+    def resolve_event(event_key, current_sheet):
+        return {"event_key": event_key}
+
+    async def save_sheet(current_sheet):
+        saves.append(copy.deepcopy(current_sheet))
+
+    async def apply_event(ctx, msg, send, current_sheet, result, uname):
+        applied_events.append(result["event_key"])
+        current_sheet["xp"] += 1
+        await save_sheet(current_sheet)
+
+    monkeypatch.setattr(encounter_tables, "roll_for_event", roll_for_event)
+    monkeypatch.setattr(encounter_tables, "random_event", random_event)
+    monkeypatch.setattr(forest_events, "resolve_event", resolve_event)
+    monkeypatch.setattr(rpg_combat_handler, "save", save_sheet)
+    monkeypatch.setattr(rpg_combat_handler, "_apply_and_narrate_event", apply_event)
+
+    async def run_sequence():
+        # Two free events replace two attempts; the third miss falls through
+        # to a normal monster hunt, which consumes exactly one stamina point.
+        for _ in range(3):
+            handled = await rpg_combat_handler._attempt_free_forest_event(
+                None, None, None, sheet, "whisperwood_edge", "EventTester"
+            )
+            if handled:
+                continue
+            sheet["hunts_today"] += 1
+            await rpg_combat_handler.save(sheet)
+            break
+
+    asyncio.run(run_sequence())
+
+    assert roll_calls == ["whisperwood_edge"] * 3
+    assert applied_events == ["moogle_sighting", "moogle_sighting"]
+    assert sheet["forest_event_attempts_today"] == 3
+    assert sheet["hunts_today"] == 1
+    assert sheet["xp"] == 2
+    # Each event attempt is durable before its random roll.
+    assert [entry["forest_event_attempts_today"] for entry in saves[:4]] == [1, 1, 2, 2]
+    # The miss also consumes a durable attempt before returning to monster combat.
+    assert saves[4]["forest_event_attempts_today"] == 3
+    assert saves[-1]["hunts_today"] == 1
+
+
+def test_free_forest_event_attempt_budget_stops_rolling_at_five(monkeypatch):
+    import asyncio
+    from datetime import date
+    from utils.ttrpg import encounter_tables, rpg_combat_handler
+
+    sheet = {
+        "character_name": "EventTester",
+        "hunts_today": 0,
+        "hunts_reset_date": date.today().strftime("%Y-%m-%d"),
+        "forest_event_attempts_today": 5,
+    }
+    roll = MagicMock(return_value=True)
+    save = MagicMock()
+    monkeypatch.setattr(encounter_tables, "roll_for_event", roll)
+    monkeypatch.setattr(rpg_combat_handler, "save", save)
+
+    handled = asyncio.run(rpg_combat_handler._attempt_free_forest_event(
+        None, None, None, sheet, "whisperwood_edge", "EventTester"
+    ))
+
+    assert handled is False
+    roll.assert_not_called()
+    save.assert_not_called()
+    assert sheet["forest_event_attempts_today"] == 5
+
 
 def test_class_titles():
     """Verify class titles are assigned properly at level thresholds."""

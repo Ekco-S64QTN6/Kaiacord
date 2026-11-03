@@ -22,6 +22,7 @@ HP_PER_LEVEL = {
 
 MAX_HUNTS_PER_DAY = 5
 MAX_HUNTS_CEILING = 8  # Hard cap regardless of stacking (ale + inn + pet + class)
+MAX_FREE_FOREST_EVENT_ATTEMPTS_PER_DAY = 5
 
 # Conditions preserved across daily resets (all others are cleared at dawn)
 PERMANENT_CONDITIONS = {"blessed", "mognet_pending", "rested"}
@@ -132,9 +133,12 @@ def check_and_reset_hunts(sheet: dict, housing: dict = None) -> dict:
     """Reset daily hunts if it's a new day."""
     from datetime import date
     today = date.today().strftime("%Y-%m-%d")
+    # Older character sheets predate the separate free-event budget.
+    sheet.setdefault("forest_event_attempts_today", 0)
     if sheet.get("hunts_reset_date") != today:
         sheet["hunts_today"] = 0
         sheet["hunts_reset_date"] = today
+        sheet["forest_event_attempts_today"] = 0
 
         # BUG-H1 fix: strip ale_warmth HP bonus before clearing conditions
         old_conds = sheet.get("conditions", [])
@@ -164,6 +168,24 @@ def check_and_reset_hunts(sheet: dict, housing: dict = None) -> dict:
             save_housing(housing)
             
     return sheet
+
+
+def reserve_forest_event_attempt(sheet: dict) -> bool:
+    """Reserve one daily free forest-event roll, counting misses too.
+
+    Call after check_and_reset_hunts(). Persist the sheet before rolling so a
+    restart cannot restore an already-used attempt.
+    """
+    try:
+        attempts = max(0, int(sheet.get("forest_event_attempts_today", 0)))
+    except (TypeError, ValueError):
+        attempts = 0
+
+    if attempts >= MAX_FREE_FOREST_EVENT_ATTEMPTS_PER_DAY:
+        return False
+
+    sheet["forest_event_attempts_today"] = attempts + 1
+    return True
 
 
 def get_max_hunts(sheet: dict, housing: dict = None) -> int:
