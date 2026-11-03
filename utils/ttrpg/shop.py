@@ -7,6 +7,15 @@ from utils.ttrpg.equipment_registry import (
 
 _REVERSE_ALIASES = {v: k for k, v in ALIASES.items()}
 
+# Items deliberately retained by the bulk-sale path because they are used for
+# quests, dungeon access, progression, or crafting progression. Keep the same
+# policy in individual sales so a single-item menu cannot bypass it.
+PROTECTED_SELL_KEYS = frozenset({
+    "symbol_of_the_silent_ones", "mognet_letter", "lightstone",
+    "adventurers_pack", "torch", "elaras_token",
+    "emerald", "topaz", "pearl", "fire_opal", "opal", "star_ruby",
+})
+
 def get_shop_inventory(location: str = "hemlocks_store") -> tuple[dict, dict, dict, dict, dict, dict]:
     """Returns available weapons, armor, headgear, boots, accessories, and consumables for a location."""
     from utils.ttrpg.calendar import get_season, SEASONAL_SHOP
@@ -276,8 +285,11 @@ def process_sell(sheet: dict, item_key: str, reputation: int = 0, cha_mod: int =
     if not item:
         return False, f"Unknown item `{item_key}`.", sheet
     
-    # ── NEW: Resolve which key is actually in the inventory ──
+    # Resolve aliases to their canonical key before applying sale policy.
     real_key = item["key"]
+    if real_key in PROTECTED_SELL_KEYS:
+        return False, f"**{item['name']}** is a protected progression item and cannot be sold.", sheet
+
     found_key = None
     inventory = sheet.get("inventory", [])
     
