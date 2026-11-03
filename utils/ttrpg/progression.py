@@ -133,13 +133,12 @@ def check_and_reset_hunts(sheet: dict, housing: dict = None) -> dict:
     """Reset daily hunts if it's a new day."""
     from datetime import date
     today = date.today().strftime("%Y-%m-%d")
+    # Older character sheets predate the separate free-event budget.
+    sheet.setdefault("forest_event_attempts_today", 0)
     if sheet.get("hunts_reset_date") != today:
         sheet["hunts_today"] = 0
         sheet["hunts_reset_date"] = today
         sheet["forest_event_attempts_today"] = 0
-    else:
-        # Older character sheets predate the separate free-event budget.
-        sheet.setdefault("forest_event_attempts_today", 0)
 
         # BUG-H1 fix: strip ale_warmth HP bonus before clearing conditions
         old_conds = sheet.get("conditions", [])
