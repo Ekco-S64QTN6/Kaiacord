@@ -33,6 +33,40 @@ from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_ch
 
 from utils.ttrpg.rpg_views import *
 
+MAX_ACTIVE_QUESTS = 3
+
+
+def _accept_quest_on_sheet(sheet: dict, quest: dict) -> tuple[bool, str | None]:
+    """Validate and stage a quest acceptance against a freshly loaded sheet."""
+    quest_id = quest["id"]
+    if quest_id in sheet.get("completed_quests", []):
+        return False, f"You have already completed **{quest['name']}**."
+    active = sheet.setdefault("active_quests", [])
+    if quest_id in active:
+        return False, f"Already on quest: **{quest['name']}**."
+    required_level = quest.get("requirements", {}).get("level", 1)
+    if sheet.get("level", 1) < required_level:
+        return False, f"You need to be level {required_level} to accept **{quest['name']}**."
+    if len(active) >= MAX_ACTIVE_QUESTS:
+        return False, f"You already have {MAX_ACTIVE_QUESTS} active quests. Complete or abandon one first."
+    active.append(quest_id)
+    return True, None
+
+
+async def _accept_quest_for_player(uid: str, quest: dict) -> tuple[bool, str | None]:
+    """Reload and serialize acceptance against all other actions for this player."""
+    from utils.ttrpg.session_manager import get_action_lock
+
+    async with await get_action_lock(f"user:{uid}"):
+        sheet = await load(uid)
+        if not sheet:
+            return False, "No character found."
+        accepted, error = _accept_quest_on_sheet(sheet, quest)
+        if accepted:
+            await save(sheet)
+        return accepted, error
+
+
 async def _handle_bard_song(ctx, msg, send, rest, uid, uname, is_owner):
     """Request a song from the Bard — generates a ballad about recent Oakhaven events."""
     import os, json
@@ -407,20 +441,12 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                                 await interaction.response.send_message("not yours.", ephemeral=True)
                                 return
                             await interaction.response.defer()
-                            s = await load(uid)
-                            active_quests = s.get("active_quests", [])
-                            if len(active_quests) >= 3:
+                            accepted, error = await _accept_quest_for_player(uid, quest)
+                            if not accepted:
                                 await interaction.followup.send(embed=discord.Embed(
-                                    description=f"You already have 3 active quests. Complete or abandon one first.",
+                                    description=error or "Quest acceptance failed.",
                                     color=0xcc4444), ephemeral=True)
                                 return
-                            if quest["id"] in active_quests:
-                                await interaction.followup.send(embed=discord.Embed(
-                                    description=f"Already on quest: **{quest['name']}**.",
-                                    color=0xcc4444), ephemeral=True)
-                                return
-                            s.setdefault("active_quests", []).append(quest["id"])
-                            await save(s)
                             await interaction.followup.send(embed=discord.Embed(
                                 title="📜 Quest Accepted",
                                 description=f"**{quest['name']}**\n\n*{quest['description']}*\n\n"
