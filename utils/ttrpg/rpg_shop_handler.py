@@ -237,7 +237,7 @@ async def _handle_sell(ctx, msg, send, rest, uid, uname, is_owner):
 @serialize_user_action
 async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
     """Sell all unequipped, non-consumable inventory items at once."""
-    from utils.ttrpg.shop import find_item as _find_item
+    from utils.ttrpg.shop import find_item as _find_item, PROTECTED_SELL_KEYS
 
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
@@ -255,10 +255,6 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
         k = slot_val.get("key") if isinstance(slot_val, dict) else slot_val
         if k: equipped_keys.add(k)
 
-    PROTECTED_KEYS = {"symbol_of_the_silent_ones", "mognet_letter", "lightstone",
-                      "adventurers_pack", "torch", "elaras_token",
-                      "emerald", "topaz", "pearl", "fire_opal", "opal", "star_ruby"}
-
     inventory = sheet.get("inventory", [])
     sold_lines = []
     total_gil = 0
@@ -275,7 +271,7 @@ async def _handle_sell_all_gear(ctx, msg, send, rest, uid, uname, is_owner):
         if item["category"] == "consumable" and not item.get("gem_tier"):
             kept.append(item_key)
             continue
-        if item_key in equipped_keys or item_key in PROTECTED_KEYS:
+        if item_key in equipped_keys or item["key"] in PROTECTED_SELL_KEYS:
             kept.append(item_key)
             continue
 
