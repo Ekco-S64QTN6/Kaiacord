@@ -235,10 +235,6 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     sheet = res["sheet"]
     monster = res["monster"]
 
-    # Consume blessed condition after use (mirrors overworld combat behaviour)
-    if "blessed" in sheet.get("conditions", []):
-        sheet["conditions"].remove("blessed")
-
     # Accumulate for end-of-combat summary
     state.setdefault("dungeon_combat_log", []).append({
         "monster_name": monster.get("name", "enemy"),
@@ -947,10 +943,6 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = res["sheet"]
     monster = res["monster"]
 
-    # After combat resolves, consume the blessing
-    if "blessed" in sheet.get("conditions", []):
-        sheet["conditions"].remove("blessed")
-    
     # Handle state cleanup
     if res["monster_defeated"] or not res["player_alive"]:
         for _cb in ["embered", "fortified"]:
