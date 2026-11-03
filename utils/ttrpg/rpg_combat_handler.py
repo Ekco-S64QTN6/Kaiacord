@@ -1691,7 +1691,7 @@ async def _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname, *, uid=N
     from utils.ttrpg.forest_events import resolve_event
     event_key = random_event(loc)
     result = resolve_event(event_key, sheet)
-    await _apply_and_narrate_event(ctx, msg, send, sheet, result, uname)
+    await _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, uid=uid, is_owner=is_owner)
     return True
 
 
