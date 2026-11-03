@@ -403,6 +403,43 @@ def test_the_unequip_menu_runs_the_real_handler_without_deadlocking(monkeypatch)
 
 
 
+def test_stale_furniture_shop_cannot_buy_an_already_owned_bonus_again(monkeypatch):
+    """An old shop menu must not let the same bonus furnishing stack twice."""
+    import copy
+    from unittest.mock import AsyncMock
+    import utils.ttrpg.rpg_housing_handler as hh
+    import utils.ttrpg.housing as H
+
+    sheets = {"42": {"user_id": "42", "character_name": "P", "gil": 500, "inventory": []}}
+    homes = {"42": {"user_id": "42", "character_name": "P", "tier": "hut",
+                    "furniture": ["weapon_rack"]}}
+
+    async def load_sheet(uid):
+        return copy.deepcopy(sheets[str(uid)])
+
+    async def save_sheet(sheet):
+        sheets[str(sheet["user_id"])] = copy.deepcopy(sheet)
+
+    monkeypatch.setattr(hh, "load", load_sheet)
+    monkeypatch.setattr(hh, "save", save_sheet)
+    monkeypatch.setattr(H, "load_housing", lambda uid: copy.deepcopy(homes[str(uid)]))
+    monkeypatch.setattr(H, "save_housing", lambda housing: homes.__setitem__(str(housing["user_id"]), copy.deepcopy(housing)))
+
+    send = AsyncMock()
+    msg = types.SimpleNamespace(channel=object())
+
+    async def go():
+        await hh._handle_buy_furniture.__wrapped__(
+            None, msg, send, "weapon_rack", "42", "P", False
+        )
+    asyncio.run(go())
+
+    assert sheets["42"]["gil"] == 500
+    assert homes["42"]["furniture"] == ["weapon_rack"]
+    send.assert_awaited_once()
+    assert "already own" in send.await_args.args[1]
+
+
 def test_stale_first_home_button_cannot_charge_twice_or_reset_estate(monkeypatch):
     """A stale purchase view cannot replace a home created after it was opened."""
     import copy
