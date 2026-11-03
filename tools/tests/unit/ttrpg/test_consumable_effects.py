@@ -298,12 +298,12 @@ def test_item_menu_helpers_advertise_smoke_bomb_only_for_overworld_combat():
         _is_dungeon_combat_usable_item,
     )
 
-    smoke = CONSUMABLES["smoke_bomb"]
+    smoke = {"category": "consumable", **CONSUMABLES["smoke_bomb"]}
     assert _is_combat_usable_item(smoke) is True
     assert _is_dungeon_combat_usable_item(smoke) is False
     assert "no hunt cost" in _get_item_effect_string(smoke)
 
     for retired_key in ("eye_drops", "trap_kit"):
-        retired = CONSUMABLES[retired_key]
+        retired = {"category": "consumable", **CONSUMABLES[retired_key]}
         assert _is_combat_usable_item(retired) is False
         assert "retired" in _get_item_effect_string(retired)
