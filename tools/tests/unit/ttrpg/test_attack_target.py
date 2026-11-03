@@ -94,3 +94,50 @@ def test_attack_denies_same_location_foreign_monster_before_reward_pipeline(monk
     save.assert_not_awaited()
     resolve.assert_not_awaited()
     assert session["monsters"][0]["hp"]["current"] == 1
+
+
+def test_attack_denies_different_location_foreign_monster_before_reward_pipeline(monkeypatch):
+    sheet = {
+        "user_id": "A",
+        "character_name": "Attacker",
+        "location": "trade_road",
+        "hp": {"current": 25, "max": 25},
+    }
+    session = {
+        "channel_id": "123",
+        "combat_active": True,
+        "monsters": [
+            {
+                "id": "b-goblin",
+                "key": "goblin",
+                "name": "Goblin",
+                "aggro_uid": "B",
+                "origin_location": "whisperwood_edge",
+                "hp": {"current": 1, "max": 1},
+            }
+        ],
+    }
+    save = AsyncMock()
+    monkeypatch.setattr(combat, "load", AsyncMock(return_value=sheet))
+    monkeypatch.setattr(combat, "load_session", AsyncMock(return_value=session))
+    monkeypatch.setattr(combat, "save", save)
+
+    from utils.ttrpg import combat_engine
+    resolve = AsyncMock()
+    monkeypatch.setattr(combat_engine, "_resolve_combat", resolve)
+
+    channel = MagicMock()
+    channel.send = AsyncMock()
+    msg = MagicMock()
+    msg.channel = channel
+
+    asyncio.run(combat._handle_attack.__wrapped__(
+        None, msg, None, "goblin", "A", "Attacker", False
+    ))
+
+    channel.send.assert_awaited_once()
+    embed = channel.send.await_args.kwargs["embed"]
+    assert "Overworld assists are disabled" in embed.description
+    save.assert_not_awaited()
+    resolve.assert_not_awaited()
+    assert session["monsters"][0]["hp"]["current"] == 1
