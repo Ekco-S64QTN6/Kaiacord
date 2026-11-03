@@ -78,17 +78,7 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
         if not s:
             return
         cost = CROPS[chosen]["seed_cost"]
-        from utils.ttrpg.character_manager import INVENTORY_LIMIT
-        current_unique = set(s.get("inventory", []))
-        if len(current_unique | {chosen}) > INVENTORY_LIMIT:
-            await interaction.followup.send(
-                embed=discord.Embed(
-                    description=f"Your inventory has too many unique item types. Cannot purchase seeds. Cap: {INVENTORY_LIMIT} unique types (currently holding {len(current_unique)}).",
-                    color=0xcc4444
-                ),
-                ephemeral=True
-            )
-            return
+        from utils.ttrpg.inventory_capacity import grant_item, unique_item_type_count
         if s["gil"] < cost:
             await interaction.followup.send(
                 embed=discord.Embed(
@@ -98,8 +88,21 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
                 ephemeral=True
             )
             return
+        if not grant_item(s, chosen):
+            from utils.ttrpg.character_manager import INVENTORY_LIMIT
+            current_unique = unique_item_type_count(s.get("inventory", []))
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    description=(
+                        f"Your inventory has too many unique item types. Cannot purchase seeds. "
+                        f"Cap: {INVENTORY_LIMIT} unique types (currently holding {current_unique})."
+                    ),
+                    color=0xcc4444,
+                ),
+                ephemeral=True,
+            )
+            return
         s["gil"] -= cost
-        s.setdefault("inventory", []).append(chosen)
         await save(s)
         await interaction.followup.send(
             embed=discord.Embed(
