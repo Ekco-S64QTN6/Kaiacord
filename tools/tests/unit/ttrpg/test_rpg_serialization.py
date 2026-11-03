@@ -710,3 +710,191 @@ def test_moogle_mail_does_not_charge_when_recipient_no_longer_exists(monkeypatch
     assert sender["pending_mail_dispatches"] == []
     interaction.followup.send.assert_awaited_once()
     assert view._dispatch_started is False
+
+
+def _spine_lift_test_context(monkeypatch, fresh_sheet, target_floor="5",
+                             active_dungeon=None, initial_sheet=None):
+    import copy
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.rpg_views as rv
+    import utils.ttrpg.character_manager as cm
+    import utils.ttrpg.progression as progression
+    import utils.ttrpg.spine_dungeon as spine
+    import utils.ttrpg.rpg_combat_handler as combat
+
+    disk = {"sheet": copy.deepcopy(fresh_sheet)}
+    saved_sheets = []
+    saved_dungeons = []
+    sent_rooms = []
+
+    async def load_sheet(uid):
+        return copy.deepcopy(disk["sheet"])
+
+    async def save_sheet(sheet):
+        disk["sheet"] = copy.deepcopy(sheet)
+        saved_sheets.append(copy.deepcopy(sheet))
+
+    async def load_dungeon(uid):
+        return copy.deepcopy(active_dungeon)
+
+    async def save_dungeon(uid, dungeon):
+        saved_dungeons.append(copy.deepcopy(dungeon))
+
+    def generate_floor(floor, level):
+        return {"floor_num": floor, "player_level": level, "active": False}
+
+    async def send_dungeon_room(*args):
+        sent_rooms.append(args[-1])
+
+    monkeypatch.setattr(cm, "load", load_sheet)
+    monkeypatch.setattr(cm, "save", save_sheet)
+    monkeypatch.setattr(progression, "check_and_reset_hunts", lambda sheet: sheet)
+    monkeypatch.setattr(progression, "hunts_remaining", lambda sheet: max(0, 5 - sheet.get("hunts_today", 0)))
+    monkeypatch.setattr(progression, "get_max_hunts", lambda sheet: 5)
+    monkeypatch.setattr(spine, "load_spine_dungeon", load_dungeon)
+    monkeypatch.setattr(spine, "save_spine_dungeon", save_dungeon)
+    monkeypatch.setattr(spine, "generate_spine_floor", generate_floor)
+    monkeypatch.setattr(combat, "_send_dungeon_room", send_dungeon_room)
+
+    view = rv.SpineLiftView(
+        types.SimpleNamespace(),
+        "42",
+        "Sender",
+        False,
+        copy.deepcopy(initial_sheet if initial_sheet is not None else fresh_sheet),
+        5,
+    )
+
+    interaction = MagicMock()
+    interaction.user.id = 42
+    interaction.data = {"values": [str(target_floor)]}
+    interaction.response.defer = AsyncMock()
+    interaction.response.send_message = AsyncMock()
+    interaction.followup.send = AsyncMock()
+    interaction.channel = object()
+
+    return view, interaction, disk, saved_sheets, saved_dungeons, sent_rooms
+
+
+def _spine_sheet(location="aeridor_ruins", inventory=None, hunts_today=0):
+    return {
+        "user_id": "42",
+        "character_name": "Delver",
+        "location": location,
+        "level": 15,
+        "inventory": list(inventory or []),
+        "hunts_today": hunts_today,
+        "hunts_reset_date": __import__("datetime").date.today().strftime("%Y-%m-%d"),
+        "spine_defeated_guards": [4],
+    }
+
+
+def test_spine_lift_revalidates_location_before_entry(monkeypatch):
+    sheet = _spine_sheet(location="trade_road", inventory=["torch"])
+    view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
+        monkeypatch, sheet
+    )
+
+    asyncio.run(view.children[0].callback(interaction))
+
+    assert saved == []
+    assert dungeon_saves == []
+    assert rooms == []
+    interaction.followup.send.assert_awaited_once()
+    assert "Aeridor Ruins" in interaction.followup.send.await_args.args[0]
+    assert view.is_finished()
+
+
+def test_spine_lift_revalidates_light_source_from_fresh_sheet(monkeypatch):
+    stale_view_sheet = _spine_sheet(inventory=["lightstone"])
+    fresh_sheet = _spine_sheet(inventory=[])
+    view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
+        monkeypatch, fresh_sheet, initial_sheet=stale_view_sheet
+    )
+
+    asyncio.run(view.children[0].callback(interaction))
+
+    assert saved == []
+    assert dungeon_saves == []
+    assert rooms == []
+    interaction.followup.send.assert_awaited_once()
+    assert "Lightstone or a Torch" in interaction.followup.send.await_args.args[0]
+    assert view._lift_started is False
+
+
+def test_spine_lift_rejects_an_already_active_spine_floor(monkeypatch):
+    sheet = _spine_sheet(inventory=["torch"])
+    active = {"floor_num": 10, "active": True}
+    view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
+        monkeypatch, sheet, active_dungeon=active
+    )
+
+    asyncio.run(view.children[0].callback(interaction))
+
+    assert saved == []
+    assert dungeon_saves == []
+    assert rooms == []
+    interaction.followup.send.assert_awaited_once()
+    assert "already inside the Spine" in interaction.followup.send.await_args.args[0]
+    assert view.is_finished()
+
+
+def test_spine_lift_rejects_a_checkpoint_that_is_no_longer_unlocked(monkeypatch):
+    sheet = _spine_sheet(inventory=["torch"])
+    view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
+        monkeypatch, sheet, target_floor="10"
+    )
+
+    asyncio.run(view.children[0].callback(interaction))
+
+    assert saved == []
+    assert dungeon_saves == []
+    assert rooms == []
+    interaction.followup.send.assert_awaited_once()
+    assert "no longer unlocked" in interaction.followup.send.await_args.args[0]
+    assert view.is_finished()
+
+
+def test_spine_lift_is_single_use_and_consumes_only_one_torch(monkeypatch):
+    sheet = _spine_sheet(inventory=["torch", "torch"])
+    view, interaction, disk, saved, dungeon_saves, rooms = _spine_lift_test_context(
+        monkeypatch, sheet
+    )
+
+    async def go():
+        await view.children[0].callback(interaction)
+        second = MagicMock()
+        second.user.id = 42
+        second.response.send_message = AsyncMock()
+        await view.children[0].callback(second)
+        return second
+
+    from unittest.mock import AsyncMock, MagicMock
+    second = asyncio.run(go())
+
+    assert len(saved) == 1
+    assert saved[0]["hunts_today"] == 2
+    assert saved[0]["inventory"] == ["torch"]
+    assert len(dungeon_saves) == 1
+    assert dungeon_saves[0]["floor_num"] == 5
+    assert dungeon_saves[0]["active"] is True
+    assert len(rooms) == 1
+    second.response.send_message.assert_awaited_once()
+    assert "already been used" in second.response.send_message.await_args.args[0]
+
+
+def test_spine_lift_prefers_fresh_lightstone_over_stale_torch_snapshot(monkeypatch):
+    stale_view_sheet = _spine_sheet(inventory=["torch"])
+    fresh_sheet = _spine_sheet(inventory=["lightstone", "torch"])
+    view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
+        monkeypatch, fresh_sheet, initial_sheet=stale_view_sheet
+    )
+
+    asyncio.run(view.children[0].callback(interaction))
+
+    assert len(saved) == 1
+    assert saved[0]["inventory"] == ["lightstone", "torch"]
+    assert saved[0]["hunts_today"] == 2
+    assert len(dungeon_saves) == 1
+    assert len(rooms) == 1
+
