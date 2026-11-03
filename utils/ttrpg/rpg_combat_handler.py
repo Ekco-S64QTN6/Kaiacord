@@ -142,6 +142,29 @@ def _grant_drop(sheet: dict, state: dict, item_key: str, icon: str) -> str:
     return f"🎒 **[Inventory Full]** Left behind: {name}"
 
 
+def _roll_wisp_lightstone_drop(sheet: dict, monster_key: str) -> str:
+    """Resolve the 1-in-3 wisp-core drop independently of character level-ups.
+
+    Returns "granted", "full", or "" (no drop / ineligible / already owned).
+    """
+    if monster_key not in {"wisp", "ice_wisp", "moldwynd", "crew_dust"}:
+        return ""
+
+    inventory = sheet.setdefault("inventory", [])
+    if "lightstone" in inventory:
+        return ""
+
+    if secrets.randbelow(3) != 0:
+        return ""
+
+    from utils.ttrpg.character_manager import INVENTORY_LIMIT
+    if len(set(inventory) | {"lightstone"}) > INVENTORY_LIMIT:
+        return "full"
+
+    inventory.append("lightstone")
+    return "granted"
+
+
 def _roll_dungeon_loot(sheet: dict, state: dict, tier: str, is_boss: bool) -> str:
     """Roll and grant a dungeon kill's drops; returns the loot line for the embed.
 
@@ -1183,6 +1206,14 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                         else:
                             await save(sheet)
     leveled, n_lvl = check_level_up(sheet)
+    # Lightstone is a kill drop, independent of whether this kill levels the player.
+    if res["monster_defeated"]:
+        wisp_drop = _roll_wisp_lightstone_drop(sheet, monster.get("key", ""))
+        if wisp_drop == "granted":
+            m_block += "\n💡 **Lightstone** — the wisp's core falls. Still glowing."
+        elif wisp_drop == "full":
+            m_block += "\n🎒 **[Inventory Full]** Lightstone left behind."
+
     if leveled:
         level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
         await _log_world_event(f"**{sheet['character_name']}** reached Level {n_lvl}. Oakhaven noted it cautiously.")
@@ -1194,12 +1225,6 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         lv_embed.set_footer(text=f"{sheet.get('advanced_class') or sheet.get('class', '?')} · {sheet.get('location','').replace('_',' ').title()}")
         await _broadcast_world_event(ctx, lv_embed)
         
-        # Wisp-specific drop: lightstone
-        WISP_KEYS = {"wisp", "ice_wisp", "moldwynd", "crew_dust"}
-        if monster.get("key") in WISP_KEYS and "lightstone" not in sheet.get("inventory", []):
-            if secrets.randbelow(3) == 0:  # 33%
-                sheet.setdefault("inventory", []).append("lightstone")
-                m_block += "\n💡 **Lightstone** — the wisp's core falls. Still glowing."
 
     await save(sheet)
     
