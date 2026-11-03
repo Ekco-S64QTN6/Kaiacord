@@ -128,3 +128,30 @@ def test_the_line_stays_out_until_the_bite_is_resolved():
         fh._LINES_OUT.discard("u2")
 
     asyncio.run(run())
+
+
+
+def test_blessed_lasts_until_the_combat_encounter_ends():
+    """Shrine Blessed must persist through every round, then be spent at fight end."""
+    sheet = _sheet(["blessed"])
+    monster = _monster(10_000)
+
+    with patch.object(ce.secrets, "randbelow", return_value=9):
+        first_round = ce._resolve_combat(sheet, monster)
+        assert first_round["monster_alive"]
+        assert "blessed" in first_round["sheet"]["conditions"]
+        assert "blessed" not in first_round["spent_buffs"]
+
+        # The same encounter continues. Once the monster falls, the blessing
+        # is reported as spent and removed from the saved character state.
+        first_round["monster"]["hp"]["current"] = 1
+        final_round = ce._resolve_combat(first_round["sheet"], first_round["monster"])
+
+    assert final_round["monster_defeated"]
+    assert "blessed" in final_round["spent_buffs"]
+    assert "blessed" not in final_round["sheet"]["conditions"]
+
+
+def test_blessed_is_registered_in_the_shared_one_fight_buff_lifecycle():
+    assert ce.ONE_FIGHT_BUFFS["blessed"] == (2, 0, 0)
+    assert ce.BUFF_LABELS["blessed"] == "✨ Blessed"
