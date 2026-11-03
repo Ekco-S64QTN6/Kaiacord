@@ -1727,6 +1727,19 @@ class MailMenuView(StaleSafeView):
         if fresh_sheet:
             self.sheet = fresh_sheet
 
+        # A view may be recreated after a process restart. Retry committed
+        # outgoing packages before presenting a fresh dispatch form.
+        _, pending = await recover_pending_mail_dispatches(self.uid)
+        if pending:
+            return await interaction.response.send_message(
+                f"Kupo! You still have {pending} package(s) safely queued, but a recipient's character "
+                "could not be loaded. The moogle will retry before another dispatch.",
+                ephemeral=True,
+            )
+        fresh_sheet = await load(self.uid)
+        if fresh_sheet:
+            self.sheet = fresh_sheet
+
         all_sheets = await load_all()
         # Filter out self and limit to 25 recent-ish players
         others = [s for s in all_sheets if str(s["user_id"]) != self.uid]
