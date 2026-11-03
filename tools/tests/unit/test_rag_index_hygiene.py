@@ -260,3 +260,31 @@ def test_a_write_during_indexing_is_picked_up_next_sweep(indexer, monkeypatch):
     monkeypatch.setattr(li, "SimpleDirectoryReader", ReadThenWrite)
     ix._index_regular_file(str(doc), str(doc.resolve()), "knowledge")
     assert str(doc.resolve()) in {os.path.abspath(p) for p, *_ in ix._find_changed_files()}
+
+
+def _node(method, source="general_knowledge", score=0.85):
+    return {"content": "x", "score": score, "metadata": {"retrieval_method": method, "source_type": source}}
+
+
+def test_padding_is_dropped_on_an_ordinary_turn():
+    from utils.core.kaia_rag_query import without_padding
+    nodes = [_node("hybrid", score=1.2), _node("vector"), _node("vector"), _node("vector", source="user_logs")]
+    kept = without_padding(nodes, "how e's are in strawberry")
+    assert [n["metadata"]["retrieval_method"] for n in kept] == ["hybrid", "vector"]
+    assert kept[1]["metadata"]["source_type"] == "user_logs", "her conversations stay"
+
+
+def test_a_question_keeps_the_nearest_two():
+    from utils.core.kaia_rag_query import VECTOR_ONLY_ON_A_QUESTION, without_padding
+    nodes = [_node("bm25", score=1.2)] + [_node("vector") for _ in range(5)]
+    kept = without_padding(nodes, "what is the answer to everything?")
+    assert len(kept) == 1 + VECTOR_ONLY_ON_A_QUESTION
+
+
+def test_nothing_is_dropped_when_keyword_search_found_nothing_or_a_document_was_asked_for():
+    from utils.core.kaia_rag_query import without_padding
+    only_vector = [_node("vector") for _ in range(4)]
+    assert without_padding(only_vector, "statement") == only_vector, "keyword search may be down"
+    mixed = [_node("hybrid"), _node("vector")]
+    assert without_padding(mixed, "statement", strategy="PRECISE_RECALL") == mixed
+    assert without_padding(mixed, "statement", strategy="SUMMARIZATION") == mixed

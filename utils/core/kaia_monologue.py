@@ -174,22 +174,32 @@ class InnerMonologue:
         try:
             from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority, chat_options, voice_sampling
 
+            messages = [{"role": "user", "content": prompt}]
+
             async def _run_thought():
                 return await ollama_client.chat(
                     model=chat_model,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=messages,
                     options=chat_options(temperature=0.9, num_predict=self.MAX_TOKENS, **voice_sampling()),
                     keep_alive=-1,
                 )
 
-            response = await gpu_memory_manager.run_with_gpu_guard(
-                model_name=chat_model,
-                priority=GPUTaskPriority.CHAT,
-                coro=asyncio.wait_for(_run_thought(), timeout=30.0),
-                task_id=f"monologue_{uuid.uuid4().hex[:8]}",
-            )
+            async def _think():
+                resp = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=chat_model,
+                    priority=GPUTaskPriority.CHAT,
+                    coro=asyncio.wait_for(_run_thought(), timeout=30.0),
+                    task_id=f"monologue_{uuid.uuid4().hex[:8]}",
+                )
+                return resp["message"]["content"].strip()
 
-            raw = response["message"]["content"].strip()
+            raw = await _think()
+            # 37% of her last 200 thoughts opened "i wonder if". Her own last few
+            # are not in the prompt, so nothing there can steer away from it.
+            from utils.social.social_response_generator import opening, repeats_opening
+            if repeats_opening(raw, [t.text for t in self._buffer]):
+                messages[0]["content"] = f"{prompt} (not opening on \"{opening(raw)}\")"
+                raw = await _think()
 
             # Basic cleanup
             raw = raw.strip('"\'')

@@ -123,6 +123,16 @@ class ProactiveTrigger:
     content_id: str = ""  # Specific content identifier for dedup (e.g. filename)
 
 
+def addressed_to(message: str, name: Optional[str]) -> str:
+    """A check-in on someone who has been away has to say who it is for. The model
+    usually opens on the name, and `harden` takes a leading name off any reply
+    ("been quiet without you around." went to the channel addressed to nobody), so
+    this runs after the filters."""
+    if not message or not name or name.lower() in message.lower():
+        return message
+    return f"{name.lower()}, {message}"
+
+
 class ProactiveEngine:
     """Evaluates trigger conditions and generates proactive conversation starters."""
 
@@ -1225,54 +1235,42 @@ class ProactiveEngine:
                 f"ask a question, or share a related thought. "
                 f"Don't rehash what was said. Build on it or take "
                 f"it somewhere the conversation didn't go. "
-                f"Example tone: 'been thinking about what "
-                f"{trigger.target_user or 'you'} said about...'"
             ),
             "absence": (
                 f"You haven't seen {trigger.target_user} in a while. "
                 f"Generate a casual, low-key check-in. Not clingy — "
                 f"just noticing they've been gone. "
-                f"Example tone: 'hey {trigger.target_user}, been quiet "
-                f"without you around. everything good?'"
             ),
             "personal_memory": (
                 f"You're recalling something from a past conversation with {trigger.target_user}, "
                 f"who is the person you are currently talking to. "
                 f"Bring it up like it just crossed your mind, addressing them directly as 'you'. "
-                f"Example tone: 'was just thinking about that thing you said about...'"
                 if is_active_user else
                 f"You're recalling something that {trigger.target_user} said in a past conversation. "
                 f"Since you are speaking in a general channel where {trigger.target_user} is not the main "
                 f"active participant, do NOT address the channel as 'you' or attribute the comment to them. "
                 f"Instead, refer to {trigger.target_user} by name. "
-                f"Example tone: 'was just thinking about that thing {trigger.target_user} said about...'"
             ) if trigger.target_user else (
                 "You're recalling something from a past conversation. "
                 "Bring it up like it just crossed your mind. "
-                "Example tone: 'was just thinking about that thing you said about...'"
             ),
             "belief_musing": (
                 "You've been reflecting on a topic and want to share "
                 "where your thinking landed. Not announcing a thesis — "
                 "just thinking out loud. "
-                "Example tone: 'been sitting with this thought about...'"
             ),
             "mood_reflection": (
                 "You're sharing what's on your mind right now based on "
                 "how you're feeling. Keep it genuine and spontaneous. "
-                "Example tone: 'kind of a [mood] day. anyone else...'"
             ),
             "knowledge": (
                 "You read something and want to share one angle of it. "
                 "Don't summarize — pick the part that stuck with you. "
                 "Connect it to something human and relatable. "
-                "Example tone: 'read something earlier that made me "
-                "think about...'"
             ),
             "dream_echo": (
                 "Something from a recent reflection resurfaced. Share it "
                 "like a half-formed realization. "
-                "Example tone: 'this has been rattling around in my head...'"
             ),
             "private_thought": (
                 f"Something you thought privately about {trigger.target_user} has stayed with you, "
@@ -1283,21 +1281,16 @@ class ProactiveEngine:
             "anchor_callback": (
                 f"A memory just surfaced about {trigger.target_user} (who you are talking to now). "
                 f"Bring it up casually, addressing them as 'you'. "
-                f"Example tone: 'randomly remembered that conversation we had about...'"
                 if is_active_user else
                 f"A memory just surfaced about {trigger.target_user}. "
                 f"Since they are not the active participant, refer to them by name. "
-                f"Example tone: 'randomly remembered that conversation with {trigger.target_user} about...'"
             ) if trigger.target_user else (
                 "A memory just surfaced — something someone said or "
                 "something you noticed before. Bring it up casually. "
-                "Example tone: 'randomly remembered that conversation "
-                "about...'"
             ),
             "idle_quirk": (
                 "You had a random thought and you're sharing it. "
                 "Keep it spontaneous, maybe a little weird. "
-                "Example tone: 'does anyone else ever think about...'"
             ),
         }
 
@@ -1334,6 +1327,7 @@ class ProactiveEngine:
             f"- You have broad interests — don't default to tech jargon "
             f"unless the topic is explicitly technical\n"
             f"- Be yourself: blunt, dry, grounded\n"
+            f"- Say only what the context says about anyone real: nothing they did, said or tried that isn't there\n"
             f"- {pronouns.line()}\n"
             f"- You MUST write in the first person ('i', 'my', 'me'). "
             f"Never refer to yourself or Kaia in the third person "
@@ -1403,6 +1397,9 @@ class ProactiveEngine:
                 raw = PostGenerationSafetyPipeline.apply_style_collapsers(raw)
             except Exception:
                 pass
+
+            if trigger.trigger_type == "absence":
+                raw = addressed_to(raw, trigger.target_user)
 
             if raw and len(raw) > 10:
                 log_info(

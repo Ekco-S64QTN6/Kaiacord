@@ -1854,6 +1854,14 @@ class CoreTaskManager:
         return [q for q in cls._QUOTED.findall(digest) if norm(q).strip(" .,!?") not in said]
 
     @staticmethod
+    def _recent_digests() -> list:
+        try:
+            with open("memory/observation_digest.json", "r", encoding="utf-8") as f:
+                return [d.get("theme_digest", "") for d in json.load(f) if isinstance(d, dict)]
+        except (OSError, ValueError):
+            return []
+
+    @staticmethod
     def _load_digest_watermark():
         """Newest turn timestamp already covered by a stored digest.
 
@@ -2104,8 +2112,8 @@ class CoreTaskManager:
                     "between users in the server. You did not participate in it.\n\n"
                     "CONVERSATION:\n"
                     f"{joined_messages}\n\n"
-                    "Task: Write a concise 1-2 sentence digest in first person ('I noticed...', 'They were talking about...') "
-                    "about the main themes of this conversation and anything that stood out. "
+                    "Task: Write a concise 1-2 sentence digest of what stood out, in first person and lowercase. "
+                    "Open on the thing itself, whatever it was, not on the fact that you noticed it. "
                     "Describe topics in your own words, but never put words in anyone's mouth: "
                     "if you say what a person said, quote them exactly, in double quotes, copied "
                     "character for character from the conversation above. "
@@ -2124,13 +2132,21 @@ class CoreTaskManager:
                         keep_alive=-1
                     )
 
-                resp = await gpu_memory_manager.run_with_gpu_guard(
-                    model_name=config.chat_model,
-                    priority=GPUTaskPriority.CHAT,
-                    coro=asyncio.wait_for(_run_digest_chat(), timeout=60.0),
-                    task_id=f"obs_digest_{uuid.uuid4().hex[:8]}"
-                )
-                digest_text = finish_cleanly(resp["message"]["content"].strip().replace("`", ""))
+                async def _digest():
+                    resp = await gpu_memory_manager.run_with_gpu_guard(
+                        model_name=config.chat_model,
+                        priority=GPUTaskPriority.CHAT,
+                        coro=asyncio.wait_for(_run_digest_chat(), timeout=60.0),
+                        task_id=f"obs_digest_{uuid.uuid4().hex[:8]}"
+                    )
+                    return finish_cleanly(resp["message"]["content"].strip().replace("`", ""))
+
+                digest_text = await _digest()
+                # These post several times a day, one above the other.
+                from utils.social.social_response_generator import opening, repeats_opening
+                if digest_text and repeats_opening(digest_text, self._recent_digests()):
+                    prompt += f" Don't open on \"{opening(digest_text)}\"."
+                    digest_text = await _digest()
 
                 if not digest_text or digest_text.strip(" .").upper() == "NOTHING":
                     return
