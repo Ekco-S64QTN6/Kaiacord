@@ -1596,6 +1596,23 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         # Smoke Bombs are an overworld escape only. Dungeon combat uses a
         # separate persisted dungeon state and retains its normal flee action.
         location = sheet.get("location", "oakhaven")
+        from utils.ttrpg.dungeon import load_dungeon
+        active_dungeon = await load_dungeon(uid)
+        active_spine = None
+        if location == "aeridor_ruins":
+            from utils.ttrpg.spine_dungeon import load_spine_dungeon
+            active_spine = await load_spine_dungeon(uid)
+        if (active_dungeon and active_dungeon.get("active")) or (
+            active_spine and active_spine.get("active")
+        ):
+            return await msg.channel.send(embed=discord.Embed(
+                description=(
+                    "Smoke Bombs only clear overworld encounters. Use the dungeon "
+                    "Flee action for dungeon combat. Nothing was consumed."
+                ),
+                color=0xcc4444,
+            ))
+
         session = await load_session(str(msg.channel.id))
         own_encounters = [
             monster for monster in (session or {}).get("monsters", [])
@@ -1615,10 +1632,13 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         # Escape the whole personal swarm without touching another player's
         # monsters in this shared channel session.
         escaped_names = [m.get("name", "a monster") for m in own_encounters]
-        escaped_ids = {id(m) for m in own_encounters}
         session["monsters"] = [
             monster for monster in session.get("monsters", [])
-            if id(monster) not in escaped_ids
+            if not (
+                isinstance(monster, dict)
+                and str(monster.get("aggro_uid")) == str(uid)
+                and monster.get("origin_location") == location
+            )
         ]
         session["combat_active"] = bool(session["monsters"])
 
