@@ -134,6 +134,40 @@ def _get_class_abbr_string(item):
     if not abbrs: return ""
     return f" [{'/'.join(abbrs)}]"
 
+_COMBAT_USABLE_ON_USE = frozenset({
+    "cure_poison", "luck_roll_bonus", "atk_boost", "def_boost",
+    "hunt_bonus", "xp_boost",
+})
+
+
+def _is_combat_usable_item(item):
+    """Whether a consumable is supported by the shared combat item action."""
+    return (
+        item.get("category") == "consumable"
+        and (
+            item.get("hp_restore", 0) > 0
+            or item.get("on_use", "") in _COMBAT_USABLE_ON_USE
+        )
+    )
+
+
+def _combat_item_option_label(item):
+    """Consistent label for an item in either combat menu."""
+    name = item.get("name", "Unknown item")
+    hp_restore = item.get("hp_restore", 0)
+    if hp_restore > 0:
+        return f"{name} (+{hp_restore} HP)"
+    effect = {
+        "cure_poison": "cures poison",
+        "luck_roll_bonus": "Lucky",
+        "atk_boost": "+2 ATK",
+        "def_boost": "+2 DEF",
+        "hunt_bonus": "+1 Hunt",
+        "xp_boost": "+25% XP",
+    }.get(item.get("on_use", ""), "usable")
+    return f"{name} ({effect})"
+
+
 def _get_item_effect_string(item):
     """Return a short description of what a consumable or item does."""
     if item.get("category") != "consumable":
@@ -750,19 +784,8 @@ class RPGCombatView(StaleSafeView):
                 item = _find_item(item_key)
                 if not item or item["category"] != "consumable":
                     continue
-                hp_restore = item.get("hp_restore", 0)
-                on_use = item.get("on_use", "")
-                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus", "atk_boost", "def_boost", "hunt_bonus", "xp_bonus"):
-                    if hp_restore > 0:
-                        label = f"{item['name']} (+{hp_restore} HP)"
-                    elif on_use == "cure_poison":
-                        label = f"{item['name']} (cures poison)"
-                    elif on_use == "atk_boost":
-                        label = f"{item['name']} (+2 ATK)"
-                    elif on_use == "def_boost":
-                        label = f"{item['name']} (+2 DEF)"
-                    else:
-                        label = f"{item['name']} (+1 next hit)"
+                if _is_combat_usable_item(item):
+                    label = _combat_item_option_label(item)
                     if count > 1:
                         label += f"  x{count}"
                     usable.append((item_key, label[:100]))
@@ -1587,26 +1610,10 @@ class DungeonCombatView(StaleSafeView):
             for item_key, count in inv_counts.items():
                 item = _fi(item_key)
                 if not item or item["category"] != "consumable": continue
-                hp_restore = item.get("hp_restore", 0)
-                on_use = item.get("on_use", "")
-                if hp_restore > 0 or on_use in ("cure_poison", "luck_roll_bonus", "atk_boost", "def_boost", "hunt_bonus", "xp_bonus"):
-                    if hp_restore > 0:
-                        label = f"{item['name']} (+{hp_restore} HP)"
-                    elif on_use == "cure_poison":
-                        label = f"{item['name']} (Cure Poison)"
-                    elif on_use == "luck_roll_bonus":
-                        label = f"{item['name']} (Lucky)"
-                    elif on_use == "atk_boost":
-                        label = f"{item['name']} (+2 ATK Encounter)"
-                    elif on_use == "def_boost":
-                        label = f"{item['name']} (+2 DEF Encounter)"
-                    elif on_use == "hunt_bonus":
-                        label = f"{item['name']} (+1 Hunt)"
-                    elif on_use == "xp_bonus":
-                        label = f"{item['name']} (+25% XP)"
-                    else:
-                        label = item["name"]
-                    if count > 1: label += f"  x{count}"
+                if _is_combat_usable_item(item):
+                    label = _combat_item_option_label(item)
+                    if count > 1:
+                        label += f"  x{count}"
                     usable.append((item_key, label[:100]))
             if not usable:
                 try:
