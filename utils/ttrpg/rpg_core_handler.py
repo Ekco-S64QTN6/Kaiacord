@@ -1559,6 +1559,14 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     item = find_item(item_key)
     if not item or item["category"] != "consumable":
         return await msg.channel.send(embed=discord.Embed(description=f"You can't use `{item_key}`.", color=0xcc4444))
+    if item.get("deprecated"):
+        return await msg.channel.send(embed=discord.Embed(
+            description=(
+                f"**{item['name']}** has been retired because its effect is not supported. "
+                "The item was not consumed; you can still sell it to a merchant."
+            ),
+            color=0xcc4444,
+        ))
     had = sheet["inventory"].count(item_key)
         
     if "hp_restore" in item and item["hp_restore"] > 0:
@@ -1584,6 +1592,59 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         sheet["inventory"].extend(["bandage", "healing_herb", "torch"])
         await save(sheet)
         await msg.channel.send(embed=discord.Embed(description=f"You open the **{item['name']}**.\n\nObtained:\n• Bandage\n• Healing Herb\n• Torch (lore item)", color=0x44aa44))
+    elif item.get("on_use") == "smoke_bomb":
+        # Smoke Bombs are an overworld escape only. Dungeon combat uses a
+        # separate persisted dungeon state and retains its normal flee action.
+        location = sheet.get("location", "oakhaven")
+        session = await load_session(str(msg.channel.id))
+        own_encounters = [
+            monster for monster in (session or {}).get("monsters", [])
+            if isinstance(monster, dict)
+            and str(monster.get("aggro_uid")) == str(uid)
+            and monster.get("origin_location") == location
+        ]
+        if not session or not session.get("combat_active") or not own_encounters:
+            return await msg.channel.send(embed=discord.Embed(
+                description=(
+                    "A Smoke Bomb can only clear your own overworld encounter "
+                    "at your current location. Nothing was consumed."
+                ),
+                color=0xcc4444,
+            ))
+
+        # Escape the whole personal swarm without touching another player's
+        # monsters in this shared channel session.
+        escaped_names = [m.get("name", "a monster") for m in own_encounters]
+        escaped_ids = {id(m) for m in own_encounters}
+        session["monsters"] = [
+            monster for monster in session.get("monsters", [])
+            if id(monster) not in escaped_ids
+        ]
+        session["combat_active"] = bool(session["monsters"])
+
+        # Persist the encounter removal before charging the item. If the
+        # character write fails after this point, the escape is still safe
+        # and the player keeps the unspent bomb.
+        from utils.ttrpg.session_manager import save_session
+        await save_session(session)
+
+        for condition in ("embered", "fortified"):
+            if condition in sheet.get("conditions", []):
+                sheet["conditions"].remove(condition)
+        sheet["inventory"].remove(item_key)
+        await save(sheet)
+
+        from utils.ttrpg import outing
+        await outing.note(uid, "fled", f"smoke bomb: {', '.join(escaped_names)}")
+        view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
+        await msg.channel.send(embed=discord.Embed(
+            title="💨 Smoke Bomb",
+            description=(
+                f"You vanish behind a wall of smoke and escape **{', '.join(escaped_names)}**.\n"
+                "No hunt stamina, XP, or Gil was lost."
+            ),
+            color=0x44aa44,
+        ), view=view)
     elif item.get("on_use") == "cure_poison":
         if "poisoned" in sheet.get("conditions", []):
             sheet["conditions"].remove("poisoned")
