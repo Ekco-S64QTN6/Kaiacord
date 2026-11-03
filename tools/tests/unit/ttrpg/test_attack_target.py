@@ -49,6 +49,18 @@ def test_legacy_monster_without_origin_location_fails_closed():
     assert combat.pick_target(legacy, "A", "goblin", "trade_road") is None
 
 
+def test_owner_id_type_is_normalized_across_spawn_and_attack_paths():
+    string_owned = [{
+        "id": "string-owned",
+        "key": "slime",
+        "aggro_uid": "42",
+        "origin_location": "oakhaven",
+    }]
+    picked = combat.pick_target(string_owned, 42, "slime", "oakhaven")
+    assert picked is not None
+    assert picked[1]["id"] == "string-owned"
+
+
 def test_attack_denies_same_location_foreign_monster_before_reward_pipeline(monkeypatch):
     sheet = {
         "user_id": "A",
