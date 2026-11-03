@@ -831,7 +831,7 @@ def test_spine_lift_revalidates_light_source_from_fresh_sheet(monkeypatch):
 def test_spine_lift_rejects_an_already_active_spine_floor(monkeypatch):
     sheet = _spine_sheet(inventory=["torch"])
     active = {"floor_num": 10, "active": True}
-    view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
+    view, interaction, _, saved, dungeon_saves, rooms, stop_calls = _spine_lift_test_context(
         monkeypatch, sheet, active_dungeon=active
     )
 
@@ -847,7 +847,7 @@ def test_spine_lift_rejects_an_already_active_spine_floor(monkeypatch):
 
 def test_spine_lift_rejects_a_checkpoint_that_is_no_longer_unlocked(monkeypatch):
     sheet = _spine_sheet(inventory=["torch"])
-    view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
+    view, interaction, _, saved, dungeon_saves, rooms, stop_calls = _spine_lift_test_context(
         monkeypatch, sheet, target_floor="10"
     )
 
