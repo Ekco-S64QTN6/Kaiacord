@@ -197,4 +197,4 @@ def test_harvest_at_capacity_keeps_new_item_types_on_their_plots(monkeypatch):
     save_sheet.assert_awaited_once_with(sheet)
     assert saved_homes == [home]
     assert "new crop item" in send.await_args.args[1]
-    assert "remain on their plots" in send.await_args.args[1]
+    assert "Left on the plots" in send.await_args.args[1]
