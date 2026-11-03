@@ -54,3 +54,76 @@ def test_look_at_matches_whole_words(monkeypatch):
     assert sheet["secrets"] == [] and "Nothing unusual" in sent[0].description
     sheet, _ = _look(monkeypatch, "at the flame")
     assert sheet["secrets"] == ["look_flame"]
+
+
+
+def test_admin_give_strips_mentioned_recipient_before_item_lookup(monkeypatch):
+    """!rpg give @player tonic must resolve tonic, not the mention token."""
+    sheet = {"user_id": "99", "character_name": "Target", "inventory": []}
+    loaded = []
+    saved = []
+
+    async def load(uid):
+        loaded.append(str(uid))
+        return sheet
+
+    async def save(value):
+        saved.append(dict(value))
+
+    sent = []
+    msg = types.SimpleNamespace(
+        mentions=[types.SimpleNamespace(id=99)],
+        channel=types.SimpleNamespace(send=AsyncMock(side_effect=lambda **kw: sent.append(kw["embed"])))
+    )
+    monkeypatch.setattr(cor, "load", load)
+    monkeypatch.setattr(cor, "save", save)
+
+    asyncio.run(cor._handle_give(_ctx(), msg, None, "<@99> tonic", "42", "Admin", True))
+
+    assert loaded == ["99"]
+    assert sheet["inventory"] == ["tonic"]
+    assert saved and "tonic" in sent[0].description
+
+
+def test_admin_mutations_hold_target_lock_but_do_not_reacquire_self_lock(monkeypatch):
+    from utils.ttrpg.session_manager import get_action_lock
+
+    target = {"user_id": "99", "character_name": "Target", "inventory": [],
+              "hp": {"current": 2, "max": 20}}
+    caller = {"user_id": "42", "character_name": "Admin", "inventory": [],
+              "hp": {"current": 1, "max": 10}}
+    lock_observations = []
+
+    async def load(uid):
+        return target if str(uid) == "99" else caller
+
+    async def save(sheet):
+        lock = await get_action_lock(f"user:{sheet['user_id']}")
+        lock_observations.append((sheet["user_id"], lock.locked()))
+
+    async def channel_send(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(cor, "load", load)
+    monkeypatch.setattr(cor, "save", save)
+    msg = types.SimpleNamespace(mentions=[types.SimpleNamespace(id=99)],
+                               channel=types.SimpleNamespace(send=channel_send))
+
+    async def go():
+        target_lock = await get_action_lock("user:99")
+        await cor._handle_give(_ctx(), msg, None, "<@99> tonic", "42", "Admin", True)
+        assert lock_observations[-1] == ("99", True)
+
+        caller_lock = await get_action_lock("user:42")
+        async with caller_lock:
+            self_msg = types.SimpleNamespace(mentions=[], channel=types.SimpleNamespace(send=channel_send))
+            await asyncio.wait_for(
+                cor._handle_heal(_ctx(), self_msg, None, "", "42", "Admin", True),
+                timeout=2
+            )
+        assert lock_observations[-1] == ("42", True)
+
+    asyncio.run(go())
+    assert target["inventory"] == ["tonic"]
+    assert target["hp"]["current"] == 2
+    assert caller["hp"]["current"] == 10
