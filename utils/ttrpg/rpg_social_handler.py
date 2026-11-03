@@ -315,8 +315,12 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                     sheet["xp"]  = sheet.get("xp",  0) + xp_reward
                     sheet["gil"] = sheet.get("gil", 0) + gil_reward
 
-                    if "item" in q["rewards"]:
-                        sheet.setdefault("inventory", []).append(q["rewards"]["item"])
+                    item_delivery = None
+                    if q["rewards"].get("item"):
+                        from utils.ttrpg.inventory_capacity import grant_item_or_mail
+                        item_delivery = grant_item_or_mail(
+                            sheet, q["rewards"]["item"], f"{q['name']} quest reward"
+                        )
                     if "recipe" in q["rewards"]:
                         rk = q["rewards"]["recipe"]
                         if rk not in sheet.setdefault("recipes", []):
@@ -337,8 +341,14 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                         f"**{q['name']}** — complete.",
                         f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
                     ]
-                    if "item" in q["rewards"]:
-                        completion_lines.append(f"🎁 Received: **{q['rewards']['item'].replace('_',' ').title()}**")
+                    if q["rewards"].get("item"):
+                        item_name = q["rewards"]["item"].replace("_", " ").title()
+                        if item_delivery == "mailbox":
+                            completion_lines.append(
+                                f"📬 **{item_name}** was sent to Moogle Mail because your inventory is full."
+                            )
+                        elif item_delivery == "inventory":
+                            completion_lines.append(f"🎁 Received: **{item_name}**")
                     if leveled:
                         completion_lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
 
