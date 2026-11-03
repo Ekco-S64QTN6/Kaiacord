@@ -1357,7 +1357,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             await msg.channel.send(embed=discord.Embed(description="You are back at the Shrine.", color=0x888888), view=view)
         elif res["monster_defeated"]:
             # Check for remaining swarm members
-            remaining_swarm = [m for m in s.get("monsters", []) if m.get("aggro_uid") == uid]
+            remaining_swarm = [m for m in s.get("monsters", []) if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid)]
             if remaining_swarm:
                 next_m = remaining_swarm[0]
                 next_key = next_m.get("key", "monster")
@@ -1389,7 +1389,7 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
     
     to_flee = -1
     for i, m in enumerate(s.get("monsters", [])):
-        if m.get("aggro_uid") == uid:
+        if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid):
             to_flee = i
             break
             
