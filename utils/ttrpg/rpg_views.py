@@ -1712,7 +1712,21 @@ class MailMenuView(StaleSafeView):
     @discord.ui.button(label="Send Mail", emoji="📩", style=discord.ButtonStyle.secondary)
     async def send_mail_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if str(interaction.user.id) != self.uid: return
-        
+
+        # The view may have been recreated after a process restart. Retry any
+        # committed-but-undelivered outgoing packages before presenting a new
+        # dispatch form; the persisted sender debit is never repeated.
+        _, pending = await recover_pending_mail_dispatches(self.uid)
+        if pending:
+            return await interaction.response.send_message(
+                f"Kupo! You still have {pending} package(s) safely queued, but a recipient's character "
+                "could not be loaded. The moogle will retry before another dispatch.",
+                ephemeral=True,
+            )
+        fresh_sheet = await load(self.uid)
+        if fresh_sheet:
+            self.sheet = fresh_sheet
+
         all_sheets = await load_all()
         # Filter out self and limit to 25 recent-ish players
         others = [s for s in all_sheets if str(s["user_id"]) != self.uid]
