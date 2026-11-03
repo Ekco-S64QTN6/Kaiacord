@@ -715,7 +715,7 @@ tab("stage", "STAGE", (root, x) => {
   x.cSrc.set(rank(pr, e => e[3] || "her pick").map(k => ({ label: k, value: pr.filter(e => (e[3] || "her pick") === k).length, color: P[5] }))); x.src.source(rec, "blank source = her own pick");
   x.cDeg.set(rec.degree, { color: P[4] }); x.deg.sub(`${rec.records} records · ${rec.with_partner} with a partner · ${Fmt.n(rec.edges)} measured pairs · method ${rec.method} · built ${Fmt.ago(rec.built)}`); x.deg.source(rec);
   x.cSets.set(rec.sets.map((s, i) => ({ label: String(i + 1), title: `set ${i + 1}: ${s.n} records` })), [{ name: "minutes", color: P[3], values: rec.sets.map(s => s.minutes) }], { labelW: 20 }); x.sets.source(rec, "before transition overlaps");
-  x.art.body.innerHTML = `<div class="gallery">${art.pieces.slice().reverse().map(p => `<figure>${p.image ? `<img loading="lazy" src="/art/${esc(p.id)}.png" alt="${esc(p.title || p.id)}">` : ""}<figcaption>${esc(p.title || "untitled")}<span>${esc(p.palette || "")} · k=${p.symmetry ?? "?"} · ${p.render_s != null ? p.render_s.toFixed(1) + " s" : ""} · ${Fmt.t(p.ts)}</span></figcaption></figure>`).join("")}</div>`;
+  x.art.body.innerHTML = `<div class="gallery">${art.pieces.slice().reverse().map(p => `<figure>${p.image ? `<img loading="lazy" src="/art/${esc(p.id)}.png" alt="${esc(p.title || p.id)}">` : ""}<figcaption>${esc(p.title || "untitled")}<span>${[p.palette, p.symmetry != null ? `k=${p.symmetry}` : ""].filter(Boolean).map(esc).join(" · ")}${p.palette || p.symmetry != null ? " · " : ""}${p.render_s != null ? p.render_s.toFixed(1) + " s" : ""} · ${Fmt.t(p.ts)}</span></figcaption></figure>`).join("")}</div>`;
   x.art.source(art, `${art.pieces.length} pieces in memory/art`);
 });
 
