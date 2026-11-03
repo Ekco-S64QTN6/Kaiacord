@@ -2624,9 +2624,10 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 loot_name = item["name"] if item else loot
                 if delivery == "inventory":
                     loot_text = f"\n\n💰 Found: **{loot_name}**"
+                    state.setdefault("loot_gained", []).append(loot)
                 else:
                     loot_text = f"\n\n📬 **{loot_name}** was sent to Moogle Mail (inventory full)."
-                state.setdefault("loot_gained", []).append(loot)
+                    state.setdefault("mailed_loot", []).append(loot)
                 # Iron Pup: a chance to sniff out a second chest.
                 from utils.ttrpg.housing import load_housing_async
                 from utils.ttrpg.pets import get_pet_passive
@@ -2636,12 +2637,13 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                     bonus = get_loot("medium")
                     if bonus:
                         bonus_delivery = grant_item_or_mail(sheet, bonus, "Iron Pup Bonus Chest")
-                        state["loot_gained"].append(bonus)
                         b_item = find_item(bonus)
                         bonus_name = b_item["name"] if b_item else bonus
                         if bonus_delivery == "inventory":
+                            state["loot_gained"].append(bonus)
                             loot_text += f"\n🐶 Your Iron Pup noses out a second chest: **{bonus_name}**"
                         else:
+                            state.setdefault("mailed_loot", []).append(bonus)
                             loot_text += f"\n🐶 **{bonus_name}** from the second chest was sent to Moogle Mail (inventory full)."
             else:
                 gil = secrets.randbelow(25) + 10
@@ -2732,8 +2734,10 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                     item = find_item(loot)
                     loot_name = item["name"] if item else loot
                     if delivery == "inventory":
+                        state.setdefault("loot_gained", []).append(loot)
                         loot_text = f"\nBut you find: **{loot_name}**"
                     else:
+                        state.setdefault("mailed_loot", []).append(loot)
                         loot_text = f"\n📬 **{loot_name}** was sent to Moogle Mail (inventory full)."
 
         room["cleared"] = True
