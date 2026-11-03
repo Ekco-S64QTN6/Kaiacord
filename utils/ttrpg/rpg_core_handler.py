@@ -2714,7 +2714,8 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
         "`!rpg sheet` — full stats\n"
         "`!rpg inventory` — gear & items\n"
         "`!rpg equip <item>`\n"
-        "`!rpg use <item>`\n"
+        "`!rpg use <item>` — use a supported consumable\n"
+        "Retired Eye Drops / Trap Kit cannot be used; sell existing copies.\n"
         "`!rpg leaderboard`"
     ), inline=True)
 
