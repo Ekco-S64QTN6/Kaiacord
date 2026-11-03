@@ -438,3 +438,65 @@ def test_stale_furniture_shop_cannot_buy_an_already_owned_bonus_again(monkeypatc
     assert homes["42"]["furniture"] == ["weapon_rack"]
     send.assert_awaited_once()
     assert "already own" in send.await_args.args[1]
+
+
+def test_stale_first_home_button_cannot_charge_twice_or_reset_estate(monkeypatch):
+    """A stale purchase view cannot replace a home created after it was opened."""
+    import copy
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.rpg_housing_handler as hh
+    import utils.ttrpg.housing as H
+
+    sheets = {"42": {"user_id": "42", "character_name": "P", "location": "housing_district",
+                    "gil": 500, "hp": {"current": 20, "max": 20}}}
+    homes = {}
+
+    async def load_sheet(uid):
+        return copy.deepcopy(sheets.get(str(uid)))
+
+    async def save_sheet(sheet):
+        sheets[str(sheet["user_id"])] = copy.deepcopy(sheet)
+
+    def load_home(uid):
+        return copy.deepcopy(homes.get(str(uid)))
+
+    def save_home(home):
+        homes[str(home["user_id"])] = copy.deepcopy(home)
+
+    monkeypatch.setattr(hh, "load", load_sheet)
+    monkeypatch.setattr(hh, "save", save_sheet)
+    monkeypatch.setattr(H, "load_housing", load_home)
+    monkeypatch.setattr(H, "save_housing", save_home)
+    monkeypatch.setattr(hh, "_log_world_event", AsyncMock())
+
+    sent = {}
+    async def channel_send(*args, embed=None, view=None, **kwargs):
+        sent["view"] = view
+
+    async def go():
+        msg = types.SimpleNamespace(channel=types.SimpleNamespace(send=channel_send))
+        await hh._handle_my_home(None, msg, None, "", "42", "P", False)
+        button = next(b for b in sent["view"].children if "Purchase Hut" in (b.label or ""))
+
+        def interaction():
+            i = MagicMock()
+            i.user.id = 42
+            i.response.send_message = AsyncMock()
+            return i
+
+        # First click creates the hut and charges once.
+        await button.callback(interaction())
+        homes["42"]["furniture"] = ["weapon_rack"]
+        homes["42"]["house_name"] = "The Kept Estate"
+
+        # The same still-live button is pressed again after the estate changed.
+        second = interaction()
+        await button.callback(second)
+        return second
+
+    second = asyncio.run(go())
+    assert sheets["42"]["gil"] == 500 - H.HOUSING_TIERS["hut"]["cost"]
+    assert homes["42"]["furniture"] == ["weapon_rack"]
+    assert homes["42"]["house_name"] == "The Kept Estate"
+    second.response.send_message.assert_awaited_once()
+    assert "already own" in second.response.send_message.await_args.args[0]
