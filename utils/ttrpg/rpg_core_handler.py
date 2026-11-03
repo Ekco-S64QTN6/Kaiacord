@@ -921,10 +921,21 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                     await save(sheet)
                     
                     if "look_flame" in secrets and "look_altar" in secrets and "symbol_of_the_silent_ones" not in sheet.get("inventory", []):
-                        sheet.setdefault("inventory", []).append("symbol_of_the_silent_ones")
+                        from utils.ttrpg.inventory_capacity import grant_item_or_mail
+                        delivery = grant_item_or_mail(
+                            sheet, "symbol_of_the_silent_ones", "Shrine Secret"
+                        )
+                        delivery_text = (
+                            "Acquired: symbol_of_the_silent_ones"
+                            if delivery == "inventory"
+                            else "Sent to Moogle Mail because your inventory is full"
+                        )
                         embed.add_field(
                             name="Secret Unlocked",
-                            value="You understand the pattern now. You can picture the seal perfectly in your mind.\n*(Acquired: symbol_of_the_silent_ones)*",
+                            value=(
+                                "You understand the pattern now. You can picture the seal perfectly in your mind.\n"
+                                f"*({delivery_text})*"
+                            ),
                             inline=False
                         )
                         await save(sheet)
