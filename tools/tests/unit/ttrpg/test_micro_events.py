@@ -39,6 +39,6 @@ def test_full_inventory_weather_discovery_queues_shard_in_moogle_mail(monkeypatc
     triggered, story = me._weather_discovery(sheet)
 
     assert triggered is True
-    assert "Moogle Mail" in story
+    assert "sent the shard to your mailbox" in story
     assert "aeridor_shard" not in sheet["inventory"]
     assert sheet["mailbox"][0]["item"] == "aeridor_shard"
