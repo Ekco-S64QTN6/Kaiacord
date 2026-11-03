@@ -2020,7 +2020,8 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
         # Success! Steal 80-120 Gil + 1 Stolen Trade Crate + ease inflation
         stolen_gil = secrets.randbelow(41) + 80  # 80-120
         sheet["gil"] = sheet.get("gil", 0) + stolen_gil
-        sheet.setdefault("inventory", []).append("stolen_trade_crate")
+        from utils.ttrpg.inventory_capacity import grant_item_or_mail
+        crate_delivery = grant_item_or_mail(sheet, "stolen_trade_crate", "Bandit Cache")
         sheet["xp"] = sheet.get("xp", 0) + 35
 
         # Ease shop price inflation
@@ -2038,10 +2039,13 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
             f"🗡️ **Stealth Infiltration Successful!** (Roll: {roll} vs DC 12)\n\n"
             f"**{sheet['character_name']}** slipped past the bandit sentries and raided their contraband tent!\n\n"
             f"💰 **Looted:** +{stolen_gil} Gil\n"
-            f"📦 **Recovered:** 1x **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)\n"
             f"📉 **Trade Route Relieved:** Shop price markup lowered to **{int(round((wstate['shop_price_mult']-1.0)*100))}%**\n"
             f"✨ **Reward:** +35 XP"
         )
+        if crate_delivery == "mailbox":
+            desc += "\n📬 **Stolen Trade Crate** was sent to Moogle Mail because your inventory is full."
+        else:
+            desc += "\n📦 **Recovered:** 1x **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)
         if leveled:
             desc += f"\n🎉 **Level Up!** Reached **Level {new_lvl}!**"
 
