@@ -143,3 +143,15 @@ def test_scout_daily_limits_state():
     assert sheet["home_scouts_today"] >= 2
 
 
+
+
+
+def test_experience_tonic_is_available_in_combat_item_menus():
+    """The registry uses xp_boost; both combat menus must accept that exact key."""
+    from utils.ttrpg.rpg_views import _is_combat_usable_item, _combat_item_option_label
+    from utils.ttrpg.shop import find_item
+
+    tonic = find_item("xp_tonic")
+    assert tonic["on_use"] == "xp_boost"
+    assert _is_combat_usable_item(tonic)
+    assert _combat_item_option_label(tonic) == "Experience Tonic (+25% XP)"
