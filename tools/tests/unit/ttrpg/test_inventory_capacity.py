@@ -168,7 +168,12 @@ def test_harvest_at_capacity_keeps_new_item_types_on_their_plots(monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    from utils.ttrpg import farming, furniture, rpg_housing_handler as housing
+    from utils.ttrpg import (
+        farming,
+        furniture,
+        housing as housing_store,
+        rpg_housing_handler as housing,
+    )
 
     existing_crop = {"crop_key": "existing_plot"}
     blocked_crop = {"crop_key": "new_plot"}
@@ -179,9 +184,9 @@ def test_harvest_at_capacity_keeps_new_item_types_on_their_plots(monkeypatch):
     monkeypatch.setattr(housing, "load", AsyncMock(return_value=sheet))
     save_sheet = AsyncMock()
     monkeypatch.setattr(housing, "save", save_sheet)
-    monkeypatch.setattr(housing, "load_housing", lambda uid: home)
+    monkeypatch.setattr(housing_store, "load_housing", lambda uid: home)
     saved_homes = []
-    monkeypatch.setattr(housing, "save_housing", lambda value: saved_homes.append(value))
+    monkeypatch.setattr(housing_store, "save_housing", lambda value: saved_homes.append(value))
     monkeypatch.setattr(farming, "is_harvestable", lambda plot: True)
     monkeypatch.setattr(
         farming,
