@@ -17,8 +17,10 @@ def can_add_items(inventory, item_keys) -> bool:
 
     if isinstance(item_keys, str):
         item_keys = [item_keys]
-    additions = {key for key in item_keys if key}
-    return len(set(inventory or []) | additions) <= INVENTORY_LIMIT
+    additions = list(item_keys or [])
+    if any(not isinstance(key, str) or not key for key in additions):
+        return False
+    return len(set(inventory or []) | set(additions)) <= INVENTORY_LIMIT
 
 
 def can_add_item(inventory, item_key: str) -> bool:
@@ -38,6 +40,8 @@ def grant_items(sheet: dict, item_keys) -> bool:
         additions = list(item_keys or [])
     if not additions:
         return True
+    if any(not isinstance(key, str) or not key for key in additions):
+        return False
 
     inventory = sheet.setdefault("inventory", [])
     if not isinstance(inventory, list) or not can_add_items(inventory, additions):
