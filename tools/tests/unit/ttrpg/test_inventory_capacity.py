@@ -278,3 +278,45 @@ def test_moogle_mail_partial_claim_preserves_item_but_delivers_gil():
     assert sheet["mailbox"] == []
     assert sheet["gil"] == 65
     assert "quest relic" in second_claim[0].lower()
+
+
+def test_player_reward_modules_do_not_bypass_the_shared_inventory_grant():
+    from pathlib import Path
+    import re
+
+    repository = Path(__file__).resolve().parents[4]
+    reward_modules = (
+        "utils/ttrpg/rpg_views.py",
+        "utils/ttrpg/rpg_social_handler.py",
+        "utils/commands/fishing_handler.py",
+        "utils/core/background_tasks.py",
+        "utils/ttrpg/rpg_core_handler.py",
+        "utils/ttrpg/rpg_combat_handler.py",
+        "utils/ttrpg/rpg_housing_handler.py",
+        "utils/ttrpg/micro_events.py",
+        "utils/ttrpg/alchemy.py",
+        "utils/ttrpg/shop.py",
+    )
+    direct_inventory_write = re.compile(
+        r"(?:"
+        r"\w+\.setdefault\(['\"]inventory['\"],\s*\[\]\)\.(?:append|extend)"
+        r"|\w+\[['\"]inventory['\"]\]\.(?:append|extend)"
+        r"|\b(?:inventory|inv)\.(?:append|extend)"
+        r")\s*\("
+    )
+
+    violations = {}
+    for relative_path in reward_modules:
+        source = (repository / relative_path).read_text(encoding="utf-8")
+        matches = [
+            f"{line_number}: {line.strip()}"
+            for line_number, line in enumerate(source.splitlines(), start=1)
+            if direct_inventory_write.search(line)
+        ]
+        if matches:
+            violations[relative_path] = matches
+
+    assert not violations, (
+        "Player-facing inventory grants must use utils.ttrpg.inventory_capacity; "
+        f"raw writes remain: {violations}"
+    )
