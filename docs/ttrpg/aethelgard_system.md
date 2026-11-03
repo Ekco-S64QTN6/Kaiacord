@@ -220,7 +220,7 @@ Consecutive wins → +1 to-hit, Gil multiplier on drops. Reset on flee/blackout.
 
 ## Hunting & Forest Events
 
-Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead of a monster. **Events are free — they do not consume a daily hunt.** The player still gets their full 5 hunts for combat XP. To prevent repeated free rerolls, each player has up to **5 forest-event roll attempts per day**; attempts count whether or not an event triggers and reset at the same daily boundary as hunts. Once those attempts are used, hunts proceed directly to monster encounters. This separate limit does not consume hunt stamina.
+Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead of a monster. **Events are free — they do not consume a daily hunt.** The player still gets their full 5 hunts for combat XP. To prevent repeated free rerolls, each player has up to **5 forest-event roll attempts per day**; attempts count whether or not an event triggers and reset at the same daily boundary as hunts. Once those attempts are used, hunts proceed directly to monster encounters. This separate limit does not consume hunt stamina. When a damaging event reduces a character to 0 HP, it uses the normal overworld blackout: the character wakes at the Shrine with 1 HP, loses 10% of current XP and 5% of current Gil, gains a death, loses their hunt streak, and the outing is closed.
 
 | Location | Event Chance | Rec. Level |
 |:--|:--|:--|

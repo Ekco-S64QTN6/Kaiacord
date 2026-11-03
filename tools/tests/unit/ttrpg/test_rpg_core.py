@@ -300,7 +300,7 @@ def test_free_forest_event_event_event_then_monster_spends_three_rolls_and_one_h
     async def save_sheet(current_sheet):
         saves.append(copy.deepcopy(current_sheet))
 
-    async def apply_event(ctx, msg, send, current_sheet, result, uname):
+    async def apply_event(ctx, msg, send, current_sheet, result, uname, **kwargs):
         applied_events.append(result["event_key"])
         current_sheet["xp"] += 1
         await save_sheet(current_sheet)
