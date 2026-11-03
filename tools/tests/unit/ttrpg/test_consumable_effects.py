@@ -8,7 +8,7 @@ import pytest
 
 def _prepare_use(monkeypatch, sheet, *, session=None):
     from utils.ttrpg import rpg_core_handler as core
-    from utils.ttrpg import session_manager, outing
+    from utils.ttrpg import session_manager, outing, dungeon
 
     save = AsyncMock()
     save_session = AsyncMock()
@@ -19,6 +19,7 @@ def _prepare_use(monkeypatch, sheet, *, session=None):
     monkeypatch.setattr(core, "load", AsyncMock(return_value=sheet))
     monkeypatch.setattr(core, "save", save)
     monkeypatch.setattr(core, "load_session", AsyncMock(return_value=session))
+    monkeypatch.setattr(dungeon, "load_dungeon", AsyncMock(return_value=None))
     monkeypatch.setattr(session_manager, "save_session", save_session)
     monkeypatch.setattr(outing, "note", note)
     monkeypatch.setattr(core, "_get_active_view", AsyncMock(return_value=None))
@@ -225,6 +226,32 @@ def test_smoke_bomb_is_not_consumed_without_an_owned_current_location_fight(monk
 
 
 @pytest.mark.parametrize("item_key", ["eye_drops", "trap_kit"])
+def test_smoke_bomb_is_not_an_alternative_dungeon_flee(monkeypatch):
+    from utils.ttrpg import dungeon
+
+    sheet = _sheet("smoke_bomb")
+    session = {
+        "combat_active": True,
+        "monsters": [
+            {"id": "mine", "name": "Goblin", "aggro_uid": "42", "origin_location": "trade_road"},
+        ],
+    }
+    core, msg, save, save_session, note, _, _, run = _prepare_use(
+        monkeypatch, sheet, session=session
+    )
+    monkeypatch.setattr(dungeon, "load_dungeon", AsyncMock(return_value={"active": True}))
+
+    asyncio.run(run("smoke_bomb"))
+
+    assert sheet["inventory"] == ["smoke_bomb"]
+    assert session["monsters"][0]["id"] == "mine"
+    save.assert_not_awaited()
+    save_session.assert_not_awaited()
+    note.assert_not_awaited()
+    core.load_session.assert_not_awaited()
+    assert "Use the dungeon Flee action" in msg.channel.send.await_args.kwargs["embed"].description
+
+
 def test_retired_consumables_cannot_be_used_or_consumed(monkeypatch, item_key):
     sheet = _sheet(item_key)
     _, msg, save, _, note, _, _, run = _prepare_use(monkeypatch, sheet)
