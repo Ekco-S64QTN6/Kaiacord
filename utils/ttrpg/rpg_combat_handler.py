@@ -2045,7 +2045,7 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
         if crate_delivery == "mailbox":
             desc += "\n📬 **Stolen Trade Crate** was sent to Moogle Mail because your inventory is full."
         else:
-            desc += "\n📦 **Recovered:** 1x **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)
+            desc += "\n📦 **Recovered:** 1x **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)"
         if leveled:
             desc += f"\n🎉 **Level Up!** Reached **Level {new_lvl}!**"
 
