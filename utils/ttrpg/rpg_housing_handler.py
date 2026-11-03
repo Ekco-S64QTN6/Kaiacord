@@ -957,8 +957,12 @@ async def _handle_buy_furniture(ctx, msg, send, rest, uid, uname, is_owner):
     if not f_data:
         return await send(msg.channel, f"No furniture called `{furn_key or '?'}`. See `!rpg furniture_shop`.")
 
+    owned_furniture = housing.get("furniture", [])
+    if furn_key in owned_furniture:
+        return await send(msg.channel, f"You already own **{f_data['name']}**.")
+
     tier_data = get_tier_data(housing["tier"])
-    if len(housing.get("furniture", [])) >= tier_data["furniture_slots"]:
+    if len(owned_furniture) >= tier_data["furniture_slots"]:
         return await send(msg.channel, "Your home has no room for more furniture.")
 
     if sheet["gil"] < f_data["cost"]:
