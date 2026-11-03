@@ -196,7 +196,9 @@ def test_smoke_bomb_escapes_only_the_owners_current_overworld_swarm(monkeypatch)
     assert sheet["gil"] == 500
     save_session.assert_awaited_once_with(session)
     save.assert_awaited_once_with(sheet)
-    note.assert_awaited_once_with("42", "fled", "smoke bomb: Goblin, Dire Wolf")
+    assert note.await_count == 2
+    assert note.await_args_list[0].args == ("42", "fled", "smoke bomb: Goblin, Dire Wolf")
+    assert note.await_args_list[1].args == ("42", "used", "Smoke Bomb")
     assert msg.channel.send.await_args.kwargs["view"] is hunt_view
     embed = msg.channel.send.await_args.kwargs["embed"]
     assert "Goblin, Dire Wolf" in embed.description
