@@ -116,3 +116,18 @@ def test_command_intent_is_the_whole_message(text, is_command):
     from utils.core.intent_classifier import IntentParser
     intent = IntentParser().fast_parse(text)
     assert (intent is not None and intent.suggested_strategy == "COMMAND_EXECUTION") is is_command
+
+
+def test_a_diagnostic_is_a_fault_in_software_not_the_word():
+    """Each of these ran at the grounded temperature with chat logs as its only retrieval."""
+    from utils.core.intent_classifier import IntentParser
+    parser = IntentParser()
+    for said in ("That jet crash is nuts", "Eat the bugs", "kaia, have you read snow crash",
+                 "bitcoin itself isn't crashing as much as you would think", "The error in initial detail was mine.",
+                 "yeah there's ways to bug pets out iirc", "Which we need to scan each medication, it catches errors"):
+        intent = parser.fast_parse(said)
+        assert intent is None or intent.suggested_strategy != "DIAGNOSTIC_DEEP_DIVE", said
+    for said in ("eqgame crashes when i zone in", "getting an error from the python script", "what's this error mean",
+                 "the client crashed again after the patch", "here's the traceback", "@Kaia error report",
+                 "It will be a literal bug in the code."):
+        assert parser.fast_parse(said).suggested_strategy == "DIAGNOSTIC_DEEP_DIVE", said

@@ -24,6 +24,12 @@ RE_MD_BLOCK_BACKTICKS = re.compile(r'```')
 RE_THINK_BLOCK = re.compile(r'<think>[\s\S]*?</think>')
 
 
+_SOFTWARE = (r"(?:code|script|python|bot|app|program|software|client|server|install(?:er)?|driver|windows|linux|gpu|cpu|"
+             r"logs?|ram|compiler?|build|patch|update|function|stack|kernel|browser|docker|ollama|api|eqgame|everquest|"
+             r"p99|wine|directx|dgvoodoo|launcher|desktop|pc|computer|laptop|dashboard|command|database|sql|plugin|"
+             r"firmware|the game|my game|the site|website)")
+
+
 class IntentParser:
     """
     Advanced Intent Understanding Engine. 
@@ -86,7 +92,14 @@ class IntentParser:
                 # every x.com link (…/status/…) were all diagnostics, which
                 # searches chat logs only and runs the turn at the grounded
                 # temperature.
-                r"\b(errors?|bugs?|crash(ed|es|ing)?|exceptions?|traceback|dogshit)\b",
+                # And a fault in software, not the word: "that jet crash is nuts", "eat
+                # the bugs", "snow crash", "the error in my logic" all went this way.
+                r"\b(traceback|stack ?trace|segfault)\b",
+                r"\b(?<!snow )(errors?|bugs?|crash(ed|es|ing)?)\b.{0,60}\b" + _SOFTWARE + r"\b",
+                r"\b" + _SOFTWARE + r"\b.{0,60}\b(?<!snow )(errors?|bugs?|crash(ed|es|ing)?)\b",
+                r"\b(i(?:'m| am)? (?:get|got|getting|keep getting)|throws?|throwing|returns?)\b.{0,30}\berrors?\b",
+                r"\berrors?\s+(?:code|message|report)\b|\bwhat(?:'s| is| does)\s+(?:this|that)\s+error\b",
+                r"\bfix(?:ing|ed)?\b.{0,20}\b(?:bugs?|errors?|crash(?:es)?)\b",
                 r"\b(your|kaia'?s)\s+(logs?|status|system|code|memory|filters?|pipeline)\b",
                 r"\b(restart|reboot|debug(ging)?)\b",
                 r"\b(why is it slow|latency|lockup)\b"
