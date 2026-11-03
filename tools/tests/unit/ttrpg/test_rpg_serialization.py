@@ -859,16 +859,22 @@ def test_spine_lift_is_single_use_and_consumes_only_one_torch(monkeypatch):
         monkeypatch, sheet
     )
 
-    async def go():
-        await view.children[0].callback(interaction)
-        second = MagicMock()
-        second.user.id = 42
-        second.response.send_message = AsyncMock()
-        await view.children[0].callback(second)
-        return second
-
     from unittest.mock import AsyncMock, MagicMock
-    second = asyncio.run(go())
+    second = MagicMock()
+    second.user.id = 42
+    second.data = {"values": ["5"]}
+    second.response.defer = AsyncMock()
+    second.response.send_message = AsyncMock()
+    second.followup.send = AsyncMock()
+    second.channel = object()
+
+    async def go():
+        await asyncio.gather(
+            view.children[0].callback(interaction),
+            view.children[0].callback(second),
+        )
+
+    asyncio.run(go())
 
     assert len(saved) == 1
     assert saved[0]["hunts_today"] == 2
@@ -877,8 +883,8 @@ def test_spine_lift_is_single_use_and_consumes_only_one_torch(monkeypatch):
     assert dungeon_saves[0]["floor_num"] == 5
     assert dungeon_saves[0]["active"] is True
     assert len(rooms) == 1
-    second.response.send_message.assert_awaited_once()
-    assert "already been used" in second.response.send_message.await_args.args[0]
+    assert interaction.response.defer.await_count + second.response.defer.await_count == 1
+    assert interaction.response.send_message.await_count + second.response.send_message.await_count == 1
 
 
 def test_spine_lift_does_not_consume_torch_when_fresh_sheet_has_lightstone(monkeypatch):
