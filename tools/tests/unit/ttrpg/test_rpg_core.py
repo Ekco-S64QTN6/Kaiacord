@@ -287,3 +287,38 @@ def test_alchemy_brewing():
     assert "blood_thistle" not in sheet["inventory"]
     assert "honey_sap" not in sheet["inventory"]
     assert sheet["xp"] == 0 # Recipe XP removed
+
+
+
+@pytest.mark.parametrize("item_key", [
+    "mognet_letter",
+    "letter",  # alias must resolve to the protected canonical key
+    "lightstone",
+    "torch",
+    "elaras_token",
+    "adventurers_pack",
+    "pearl",
+])
+def test_protected_progression_items_cannot_be_sold_individually(item_key):
+    from utils.ttrpg.shop import find_item
+
+    item = find_item(item_key)
+    assert item is not None
+    canonical = item["key"]
+    sheet = {"gil": 0, "inventory": [canonical], "reputation": 0}
+
+    success, message, updated = process_sell(sheet, item_key)
+
+    assert not success
+    assert canonical in updated["inventory"]
+    assert updated["gil"] == 0
+    assert "protected progression item" in message
+
+
+def test_ordinary_sellable_gatherable_still_sells():
+    sheet = {"gil": 0, "inventory": ["gilded_mushroom"], "reputation": 0}
+    success, message, updated = process_sell(sheet, "gilded_mushroom")
+
+    assert success
+    assert "gilded_mushroom" not in updated["inventory"]
+    assert updated["gil"] > 0
