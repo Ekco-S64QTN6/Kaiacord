@@ -98,7 +98,7 @@ def test_antidote_cures_poison_and_is_not_spent_when_unneeded(monkeypatch):
 
 def test_lucky_charm_applies_next_hit_condition(monkeypatch):
     sheet = _sheet("lucky_charm")
-    _, msg, save, _, note, _, status_view, run = _prepare_use(monkeypatch, sheet)
+    _, msg, save, _, note, status_view, _, run = _prepare_use(monkeypatch, sheet)
 
     asyncio.run(run("lucky_charm"))
 
@@ -112,7 +112,7 @@ def test_lucky_charm_applies_next_hit_condition(monkeypatch):
 
 def test_experience_tonic_applies_next_hunt_condition(monkeypatch):
     sheet = _sheet("xp_tonic")
-    _, msg, save, _, note, _, status_view, run = _prepare_use(monkeypatch, sheet)
+    _, msg, save, _, note, status_view, _, run = _prepare_use(monkeypatch, sheet)
 
     asyncio.run(run("xp_tonic"))
 
@@ -130,7 +130,7 @@ def test_hunters_draught_grants_bonus_hunt_condition(monkeypatch):
     sheet = _sheet("hunters_draught")
     monkeypatch.setattr(progression, "hunts_remaining", lambda current: 4)
     monkeypatch.setattr(progression, "get_max_hunts", lambda current: 5)
-    _, msg, save, _, note, _, status_view, run = _prepare_use(monkeypatch, sheet)
+    _, msg, save, _, note, status_view, _, run = _prepare_use(monkeypatch, sheet)
 
     asyncio.run(run("hunters_draught"))
 
@@ -156,7 +156,7 @@ def test_attack_and_defense_consumables_match_their_registered_effect(
     monkeypatch, item_key, condition, effect_text
 ):
     sheet = _sheet(item_key)
-    _, msg, save, _, note, _, status_view, run = _prepare_use(monkeypatch, sheet)
+    _, msg, save, _, note, status_view, _, run = _prepare_use(monkeypatch, sheet)
 
     asyncio.run(run(item_key))
 
