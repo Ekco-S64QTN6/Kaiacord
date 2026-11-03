@@ -898,7 +898,7 @@ def test_spine_lift_is_single_use_and_consumes_only_one_torch(monkeypatch):
 
 def test_spine_lift_does_not_consume_torch_when_fresh_sheet_has_lightstone(monkeypatch):
     fresh_sheet = _spine_sheet(inventory=["lightstone", "torch"])
-    view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
+    view, interaction, _, saved, dungeon_saves, rooms, _ = _spine_lift_test_context(
         monkeypatch, fresh_sheet
     )
 
