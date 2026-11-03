@@ -155,3 +155,18 @@ def test_blessed_lasts_until_the_combat_encounter_ends():
 def test_blessed_is_registered_in_the_shared_one_fight_buff_lifecycle():
     assert ce.ONE_FIGHT_BUFFS["blessed"] == (2, 0, 0)
     assert ce.BUFF_LABELS["blessed"] == "✨ Blessed"
+
+
+
+def test_blessed_is_consumed_when_the_player_is_defeated():
+    sheet = _sheet(["blessed"], hp=1)
+    monster = _monster(10_000)
+    monster["defense"] = 1_000
+    monster["attack"] = 1_000
+
+    with patch.object(ce.secrets, "randbelow", return_value=19):
+        result = ce._resolve_combat(sheet, monster)
+
+    assert not result["player_alive"]
+    assert "blessed" in result["spent_buffs"]
+    assert "blessed" not in result["sheet"]["conditions"]
