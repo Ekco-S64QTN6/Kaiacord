@@ -1908,6 +1908,17 @@ class MailSendView(StaleSafeView):
                     ephemeral=True,
                 )
 
+            # Confirm the selected recipient still has a character before
+            # debiting the sender. Never hold both players' locks together.
+            async with await get_action_lock(f"user:{recipient_uid}"):
+                recipient_sheet = await load(recipient_uid)
+            if not recipient_sheet:
+                self._dispatch_started = False
+                return await interaction.followup.send(
+                    "Kupo! That recipient no longer has a character. Nothing was charged; choose another recipient.",
+                    ephemeral=True,
+                )
+
             dispatch_id = _uuid.uuid4().hex
             async with await get_action_lock(f"user:{self.uid}"):
                 sender = await load(self.uid)
