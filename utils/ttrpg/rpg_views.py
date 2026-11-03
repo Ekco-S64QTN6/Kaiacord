@@ -1262,68 +1262,169 @@ class BossApproachView(StaleSafeView):
         await interaction.followup.send(embed=embed, view=view)
 
 class SpineLiftView(StaleSafeView):
-    def __init__(self, ctx_obj, uid, uname, is_owner, sheet, deepest_floor, has_lightstone=True):
+    def __init__(self, ctx_obj, uid, uname, is_owner, deepest_floor):
         super().__init__(timeout=120)
         self._ctx = ctx_obj
-        self._uid = uid
+        self._uid = str(uid)
         self._uname = uname
         self._is_owner = is_owner
-        self._sheet = sheet
-        self._has_lightstone = has_lightstone
-        
-        # Floor 1, then every fifth floor the player has reached (spine_dungeon.deepest_reached).
+        self._lift_started = False
+
+        # Floor 1, then every fifth floor the player has reached.
         options = [discord.SelectOption(label="Floor 1", description="The Working Tunnels", value="1")]
-        for f in range(5, deepest_floor + 1, 5):
-            options.append(discord.SelectOption(label=f"Floor {f}", description="Start from checkpoint", value=str(f)))
-            
+        for floor in range(5, deepest_floor + 1, 5):
+            options.append(discord.SelectOption(
+                label=f"Floor {floor}",
+                description="Start from checkpoint",
+                value=str(floor),
+            ))
+
         lift_sel = discord.ui.Select(
             placeholder="🔽 Select a floor to descend to...",
             options=options,
-            row=0
+            row=0,
         )
-        
+
         @player_locked(self._uid)
         async def _lift_cb(interaction: discord.Interaction):
             if str(interaction.user.id) != self._uid:
-                try: await interaction.response.send_message("Not your lift.", ephemeral=True)
-                except discord.NotFound: pass
-                return
-            await interaction.response.defer()
-            
-            target_floor = int(interaction.data["values"][0])
-            
-            from utils.ttrpg.progression import check_and_reset_hunts, hunts_remaining, get_max_hunts
-            from utils.ttrpg.character_manager import load, save
-            
-            fresh_sheet = await load(self._uid)
-            fresh_sheet = check_and_reset_hunts(fresh_sheet)
-            ENTRY_HUNTS = 2
-            
-            if hunts_remaining(fresh_sheet) < ENTRY_HUNTS:
                 try:
-                    await interaction.followup.send(embed=discord.Embed(
-                        description=f"Entering costs **{ENTRY_HUNTS} hunts**. You have {hunts_remaining(fresh_sheet)}/{get_max_hunts(fresh_sheet)}.",
-                        color=0xcc4444), ephemeral=True)
-                except discord.NotFound: pass
+                    await interaction.response.send_message("Not your lift.", ephemeral=True)
+                except discord.NotFound:
+                    pass
                 return
-            
-            # Consume torch on actual entry (lightstone is permanent)
-            if not self._has_lightstone and "torch" in fresh_sheet.get("inventory", []):
-                fresh_sheet["inventory"].remove("torch")
-                
-            fresh_sheet["hunts_today"] = fresh_sheet.get("hunts_today", 0) + ENTRY_HUNTS
-            await save(fresh_sheet)
-            
-            from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon
-            dungeon = generate_spine_floor(target_floor, fresh_sheet["level"])
+
+            # Set the guard before the first await. The player lock serializes
+            # callbacks, while this state makes the view itself single-use.
+            if self._lift_started:
+                try:
+                    await interaction.response.send_message(
+                        "This lift selection has already been used. Open a fresh lift menu.",
+                        ephemeral=True,
+                    )
+                except discord.NotFound:
+                    pass
+                return
+            self._lift_started = True
+            await interaction.response.defer()
+
+            from utils.ttrpg.progression import (
+                check_and_reset_hunts,
+                hunts_remaining,
+                get_max_hunts,
+            )
+            from utils.ttrpg.character_manager import load, save
+            from utils.ttrpg.spine_dungeon import (
+                deepest_reached,
+                generate_spine_floor,
+                load_spine_dungeon,
+                save_spine_dungeon,
+            )
+
+            fresh_sheet = await load(self._uid)
+            if not fresh_sheet:
+                self.stop()
+                return await interaction.followup.send(
+                    "Your character could not be loaded. Reopen the Resonance Lift and try again.",
+                    ephemeral=True,
+                )
+
+            if fresh_sheet.get("location") != "aeridor_ruins":
+                self.stop()
+                return await interaction.followup.send(
+                    "The Resonance Lift only works from the Aeridor Ruins. This menu is no longer valid.",
+                    ephemeral=True,
+                )
+
+            # A player may have entered through another command or an earlier
+            # menu since this view was created.
+            current_dungeon = await load_spine_dungeon(self._uid)
+            if current_dungeon and current_dungeon.get("active"):
+                self.stop()
+                return await interaction.followup.send(
+                    "You are already inside the Spine. This lift menu has expired.",
+                    ephemeral=True,
+                )
+
+            try:
+                target_floor = int(interaction.data["values"][0])
+            except (KeyError, IndexError, TypeError, ValueError):
+                self.stop()
+                return await interaction.followup.send(
+                    "That floor selection is invalid. Reopen the Resonance Lift.",
+                    ephemeral=True,
+                )
+
+            unlocked_through = deepest_reached(fresh_sheet)
+            unlocked_floors = {1}
+            unlocked_floors.update(range(5, unlocked_through + 1, 5))
+            if target_floor not in unlocked_floors:
+                self.stop()
+                return await interaction.followup.send(
+                    "That checkpoint is no longer unlocked. Reopen the Resonance Lift for your current progress.",
+                    ephemeral=True,
+                )
+
+            # Re-check the source from the fresh sheet; the constructor-time
+            # lightstone snapshot can be stale after inventory changes.
+            inventory = fresh_sheet.setdefault("inventory", [])
+            has_lightstone = "lightstone" in inventory
+            has_torch = "torch" in inventory
+            if not has_lightstone and not has_torch:
+                self._lift_started = False
+                return await interaction.followup.send(
+                    "You need a Lightstone or a Torch to enter the Spine. Nothing was consumed.",
+                    ephemeral=True,
+                )
+
+            fresh_sheet = check_and_reset_hunts(fresh_sheet)
+            entry_hunts = 2
+            remaining = hunts_remaining(fresh_sheet)
+            if remaining < entry_hunts:
+                self._lift_started = False
+                return await interaction.followup.send(
+                    embed=discord.Embed(
+                        description=(
+                            f"Entering costs **{entry_hunts} hunts**. "
+                            f"You have {remaining}/{get_max_hunts(fresh_sheet)}."
+                        ),
+                        color=0xcc4444,
+                    ),
+                    ephemeral=True,
+                )
+
+            dungeon = generate_spine_floor(target_floor, fresh_sheet.get("level", 1))
+            if not dungeon:
+                self.stop()
+                return await interaction.followup.send(
+                    "That Spine floor is unavailable. Reopen the Resonance Lift.",
+                    ephemeral=True,
+                )
+
+            # Spend a single-use torch only when the fresh character is
+            # actually committing to a valid entry. A Lightstone is permanent.
+            if not has_lightstone:
+                inventory.remove("torch")
+            fresh_sheet["hunts_today"] = fresh_sheet.get("hunts_today", 0) + entry_hunts
             dungeon["active"] = True
+
+            await save(fresh_sheet)
             await save_spine_dungeon(self._uid, dungeon)
-            
+            self.stop()
+
             from utils.ttrpg.rpg_combat_handler import _send_dungeon_room
-            await _send_dungeon_room(self._ctx, interaction.channel, self._uid, self._uname, self._is_owner, dungeon)
-            
+            await _send_dungeon_room(
+                self._ctx,
+                interaction.channel,
+                self._uid,
+                self._uname,
+                self._is_owner,
+                dungeon,
+            )
+
         lift_sel.callback = _lift_cb
         self.add_item(lift_sel)
+
 
 class DungeonView(StaleSafeView):
     def __init__(self, ctx_obj, uid, uname, is_owner, dungeon):

@@ -584,7 +584,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
         else:
             # Checkpoints unlocked, show lift menu — torch consumed in callback
             from utils.ttrpg.rpg_views import SpineLiftView
-            view = SpineLiftView(ctx, uid, uname, is_owner, sheet, reached, has_lightstone)
+            view = SpineLiftView(ctx, uid, uname, is_owner, reached)
             embed = discord.Embed(
                 title="⚙️ The Resonance Lift",
                 description="*The ancient lift shudders. Runes along the frame glow, recognizing the depths you have conquered.*" + torch_line,
