@@ -763,6 +763,14 @@ def _spine_lift_test_context(monkeypatch, fresh_sheet, target_floor="5",
         False,
         5,
     )
+    stop_calls = []
+    original_stop = view.stop
+
+    def track_stop():
+        stop_calls.append(True)
+        return original_stop()
+
+    view.stop = track_stop
 
     interaction = MagicMock()
     interaction.user.id = 42
@@ -772,7 +780,7 @@ def _spine_lift_test_context(monkeypatch, fresh_sheet, target_floor="5",
     interaction.followup.send = AsyncMock()
     interaction.channel = object()
 
-    return view, interaction, disk, saved_sheets, saved_dungeons, sent_rooms
+    return view, interaction, disk, saved_sheets, saved_dungeons, sent_rooms, stop_calls
 
 
 def _spine_sheet(location="aeridor_ruins", inventory=None, hunts_today=0):
@@ -790,7 +798,7 @@ def _spine_sheet(location="aeridor_ruins", inventory=None, hunts_today=0):
 
 def test_spine_lift_revalidates_location_before_entry(monkeypatch):
     sheet = _spine_sheet(location="trade_road", inventory=["torch"])
-    view, interaction, _, saved, dungeon_saves, rooms = _spine_lift_test_context(
+    view, interaction, _, saved, dungeon_saves, rooms, stop_calls = _spine_lift_test_context(
         monkeypatch, sheet
     )
 
@@ -801,7 +809,7 @@ def test_spine_lift_revalidates_location_before_entry(monkeypatch):
     assert rooms == []
     interaction.followup.send.assert_awaited_once()
     assert "Aeridor Ruins" in interaction.followup.send.await_args.args[0]
-    assert view.is_finished()
+    assert stop_calls == [True]
 
 
 def test_spine_lift_revalidates_light_source_from_fresh_sheet(monkeypatch):
@@ -834,7 +842,7 @@ def test_spine_lift_rejects_an_already_active_spine_floor(monkeypatch):
     assert rooms == []
     interaction.followup.send.assert_awaited_once()
     assert "already inside the Spine" in interaction.followup.send.await_args.args[0]
-    assert view.is_finished()
+    assert stop_calls == [True]
 
 
 def test_spine_lift_rejects_a_checkpoint_that_is_no_longer_unlocked(monkeypatch):
@@ -850,12 +858,12 @@ def test_spine_lift_rejects_a_checkpoint_that_is_no_longer_unlocked(monkeypatch)
     assert rooms == []
     interaction.followup.send.assert_awaited_once()
     assert "no longer unlocked" in interaction.followup.send.await_args.args[0]
-    assert view.is_finished()
+    assert stop_calls == [True]
 
 
 def test_spine_lift_is_single_use_and_consumes_only_one_torch(monkeypatch):
     sheet = _spine_sheet(inventory=["torch", "torch"])
-    view, interaction, disk, saved, dungeon_saves, rooms = _spine_lift_test_context(
+    view, interaction, disk, saved, dungeon_saves, rooms, stop_calls = _spine_lift_test_context(
         monkeypatch, sheet
     )
 
@@ -883,6 +891,7 @@ def test_spine_lift_is_single_use_and_consumes_only_one_torch(monkeypatch):
     assert dungeon_saves[0]["floor_num"] == 5
     assert dungeon_saves[0]["active"] is True
     assert len(rooms) == 1
+    assert stop_calls == [True]
     assert interaction.response.defer.await_count + second.response.defer.await_count == 1
     assert interaction.response.send_message.await_count + second.response.send_message.await_count == 1
 
