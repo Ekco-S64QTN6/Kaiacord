@@ -1304,17 +1304,19 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
             
     if to_flee == -1: return await msg.channel.send(embed=discord.Embed(description="You have nothing chasing you.", color=0xcc4444))
     
-    # Load sheet to deduct hunt
+    # Load sheet to deduct hunt and clear combat-only item buffs before
+    # persisting. Saving before this cleanup left Firebrew/Ironbark active
+    # after a flee, unlike victory, defeat, and dungeon-flee paths.
     sheet = await load(uid)
-    if sheet:
-        sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
-        await save(sheet)
-        hunt_note = "\n*(This escape cost 1 hunt stamina)*"
-    else:
-        hunt_note = ""
+    if not sheet:
+        return await no_character(msg)
 
-    for _cb in ["embered", "fortified"]:
-        if _cb in sheet.get("conditions", []): sheet["conditions"].remove(_cb)
+    sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
+    for _cb in ("embered", "fortified"):
+        if _cb in sheet.get("conditions", []):
+            sheet["conditions"].remove(_cb)
+    await save(sheet)
+    hunt_note = "\n*(This escape cost 1 hunt stamina)*"
     from utils.ttrpg import outing
     await outing.note(uid, "fled", s["monsters"][to_flee].get("name", "something"))
     s["monsters"].pop(to_flee)
