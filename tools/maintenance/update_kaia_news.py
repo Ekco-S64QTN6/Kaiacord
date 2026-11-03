@@ -18,6 +18,11 @@ from utils.core.atomic_write import write_atomic  # noqa: E402
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / '.env')
 
+GROUNDING_MAX_ATTEMPTS = 5
+GROUNDING_RETRY_BASE_SECONDS = 10
+GROUNDING_RETRY_MAX_SECONDS = 60
+
+
 def with_frontmatter(brief: str, date: str) -> str:
     """The brief with its frontmatter, written at creation: its executive
     summary as the summary and its section names as keywords. Filed bare, it
@@ -48,6 +53,14 @@ def story_count(brief: str) -> int:
                 and "no verified developments" not in line.lower():
             n += 1
     return n
+
+
+def grounding_retry_delay(attempt: int) -> int:
+    """Capped exponential backoff; attempt numbers are 1-based."""
+    if attempt < 1:
+        raise ValueError("attempt must be at least 1")
+    return min(GROUNDING_RETRY_BASE_SECONDS * (2 ** (attempt - 1)),
+               GROUNDING_RETRY_MAX_SECONDS)
 
 
 class KaiaNewsUpdater:
@@ -162,7 +175,7 @@ RULES:
 """
         
         # generativeai SDK: grounding via GoogleSearch tool with robust retries
-        max_attempts = 3
+        max_attempts = GROUNDING_MAX_ATTEMPTS
         last_exception = None
         
         for attempt in range(1, max_attempts + 1):
@@ -199,14 +212,14 @@ RULES:
                 last_exception = e
                 print(f"⚠️ API attempt {attempt} failed with transient error: {e}")
                 if attempt < max_attempts:
-                    sleep_time = 5 * attempt
+                    sleep_time = grounding_retry_delay(attempt)
                     print(f"Retrying in {sleep_time} seconds...")
                     time.sleep(sleep_time)
             except Exception as e:
                 last_exception = e
                 print(f"⚠️ Attempt {attempt} failed with error: {e}")
                 if attempt < max_attempts:
-                    sleep_time = 5 * attempt
+                    sleep_time = grounding_retry_delay(attempt)
                     print(f"Retrying in {sleep_time} seconds...")
                     time.sleep(sleep_time)
         
