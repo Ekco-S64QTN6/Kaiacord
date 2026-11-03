@@ -1326,7 +1326,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         xp_loss = blackout["xp_loss"]
         gil_loss = blackout["gil_loss"]
         m_block += f"\n\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine of the Silent Ones in Oakhaven. You dropped {xp_loss} XP and {gil_loss} Gil in the dirt."
-        await _announce_overworld_blackout(ctx, sheet, monster.get("name", "Something"), blackout);
+        await _announce_overworld_blackout(ctx, sheet, monster.get("name", "Something"), blackout)
         
     await save(sheet)
     
