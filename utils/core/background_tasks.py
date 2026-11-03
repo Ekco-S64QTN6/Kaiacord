@@ -2772,21 +2772,21 @@ async def run_village_raid(bot_ctx, channel):
 
 async def run_oracle_speaks(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
     }
-    BUFFS = [
-        ("battle_focus",    "STR checks +1 until next combat"),
-        ("forest_sight",    "DEX checks +1 until next combat"),
-        ("resonance_link",  "INT checks +2 until next combat"),
-        ("shadow_step",     "DEX checks +2 until next combat"),
-        ("divine_clarity",  "WIS checks +2 until next combat"),
-        ("sharp_mind",      "INT +2 on next check"),
+    buffs = [
+        ("battle_focus", "STR checks +1 until next combat"),
+        ("forest_sight", "DEX checks +1 until next combat"),
+        ("resonance_link", "INT checks +2 until next combat"),
+        ("shadow_step", "DEX checks +2 until next combat"),
+        ("divine_clarity", "WIS checks +2 until next combat"),
+        ("sharp_mind", "INT +2 on next check"),
         ("veiled_blessing", "+1 to next roll"),
     ]
 
@@ -2802,10 +2802,13 @@ async def run_oracle_speaks(bot_ctx, channel):
     ))
     await asyncio.sleep(4)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    # load_all is used only to discover candidate IDs; its detached sheets
+    # are never carried into a later write.
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*No one was there to receive it. The elder folded into shadow and was gone.*",
             color=0x888888
@@ -2813,56 +2816,65 @@ async def run_oracle_speaks(bot_ctx, channel):
         return
 
     result_lines = []
-    for s in present:
-        buff_key, buff_desc = BUFFS[secrets.randbelow(len(BUFFS))]
-        conds = s.setdefault("conditions", [])
-        if buff_key not in conds:
-            conds.append(buff_key)
-        await save(s)
-        result_lines.append(f"✨ **{s['character_name']}** — *{buff_desc}*")
+    for uid in candidate_ids:
+        buff_key, buff_desc = buffs[secrets.randbelow(len(buffs))]
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            conds = sheet.setdefault("conditions", [])
+            if buff_key not in conds:
+                conds.append(buff_key)
+            return sheet.get("character_name", "An adventurer"), buff_desc
+
+        result = await _mutate_player_sheet(uid, apply)
+        if result:
+            character_name, description = result
+            result_lines.append(f"✨ **{character_name}** — *{description}*")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*By the time the elder's gift settled, the square had emptied.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="✨ The Elder's Gift",
-        description=(
-            "*She was gone before anyone could speak.*\n\n"
-            + "\n".join(result_lines)
-        ),
+        description="*She was gone before anyone could speak.*\n\n" + "\n".join(result_lines),
         color=0xc0c0d8
     ))
     await _log_world_event("👁️ **A Veiled Elder** visited Oakhaven. Those present were blessed.")
 
 async def run_moogle_festival(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
     }
-    # Curated drop pool — useful but not overpowered
-    DROP_POOL = [
-        ("healing_herb", "Healing Herb", 40),
-        ("bandage",       "Bandage",      30),
-        ("tonic",         "Tonic",        20),
-        ("aeridor_shard", "Aeridor Crystal Shard", 5),
-        ("lucky_charm",   "Lucky Charm",  5),
+    drop_pool = [
+        ("bandage", "Bandage", 20),
+        ("healing_herb", "Healing Herb", 15),
+        ("tonic", "Tonic", 15),
+        ("potion", "Health Potion", 10),
+        ("antidote", "Antidote", 10),
+        ("lucky_charm", "Lucky Charm", 5),
     ]
 
     def roll_drop():
-        total = sum(w for _, _, w in DROP_POOL)
-        r = secrets.randbelow(total)
-        cum = 0
-        for key, name, w in DROP_POOL:
-            cum += w
-            if r < cum:
+        total = sum(weight for _, _, weight in drop_pool)
+        roll = secrets.randbelow(total)
+        cumulative = 0
+        for key, name, weight in drop_pool:
+            cumulative += weight
+            if roll < cumulative:
                 return key, name
-        return DROP_POOL[0][0], DROP_POOL[0][1]
+        return drop_pool[0][0], drop_pool[0][1]
 
-    # Not framed as mail: the items go straight into the pack, so wording like
-    # "Mail Drop" or "Packages Delivered" sends players to the pub mailbox to
-    # find nothing.
     await channel.send(embed=discord.Embed(
         title="🪶 Moogle Hand-Delivery",
         description=(
@@ -2876,10 +2888,11 @@ async def run_moogle_festival(bot_ctx, channel):
     ))
     await asyncio.sleep(3)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*No one to deliver to. The moogles left the packages on the ground and flew away, visibly offended.*",
             color=0x888888
@@ -2888,31 +2901,45 @@ async def run_moogle_festival(bot_ctx, channel):
 
     from utils.ttrpg.inventory_capacity import grant_item_or_mail
     result_lines = []
-    for s in present:
+    for uid in candidate_ids:
         key, name = roll_drop()
-        delivery = grant_item_or_mail(s, key, "Moogle Hand-Delivery")
-        await save(s)
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            delivery = grant_item_or_mail(sheet, key, "Moogle Hand-Delivery")
+            return sheet.get("character_name", "An adventurer"), name, delivery
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, name, delivery = result
         if delivery == "inventory":
-            result_lines.append(f"🎒 **{s['character_name']}** — **{name}** added to pack")
+            result_lines.append(f"🎒 **{character_name}** — **{name}** added to pack")
         else:
-            result_lines.append(f"📬 **{s['character_name']}** — **{name}** sent to Moogle Mail (inventory full)")
+            result_lines.append(f"📬 **{character_name}** — **{name}** sent to Moogle Mail (inventory full)")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The moogles arrived, but everyone had already left town.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🎒 Straight Into Your Pack",
-        description="\n".join(result_lines)
-        + "\n\n*The moogles left without waiting for thanks.*"
-        + "\n\nNo mailbox involved — check `!rpg inventory`.",
+        description="\n".join(result_lines) + "\n\n*The moogles left without waiting for thanks.*",
         color=0xf4a460
     ))
     await _log_world_event("🪶 **Moogle Hand-Delivery** — parcels pressed into the hands of everyone present in Oakhaven.")
 
 async def run_aeridorian_tremor(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
@@ -2930,10 +2957,11 @@ async def run_aeridorian_tremor(bot_ctx, channel):
     ))
     await asyncio.sleep(4)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The pulse washed over an empty square. Oakhaven's cats all looked east at the same time.*",
             color=0x888888
@@ -2942,38 +2970,58 @@ async def run_aeridorian_tremor(bot_ctx, channel):
 
     result_lines = []
     level_ups = []
-    for s in present:
+    for uid in candidate_ids:
         roll = secrets.randbelow(100)
-        if roll < 40:
-            # XP surge
-            gain = secrets.randbelow(30) + 20
-            s["xp"] = s.get("xp", 0) + gain
-            leveled, new_lvl = check_level_up(s)
-            await save(s)
-            result_lines.append(f"✨ **{s['character_name']}** — resonance surge (+{gain} XP)")
-            if leveled:
-                level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
-        elif roll < 65:
-            # HP restore
-            hp_gain = min(10, s["hp"]["max"] - s["hp"]["current"])
-            s["hp"]["current"] = min(s["hp"]["current"] + hp_gain, s["hp"]["max"])
-            await save(s)
-            result_lines.append(f"💚 **{s['character_name']}** — the pulse closes old wounds (+{hp_gain} HP)")
-        elif roll < 80:
-            # Item drop
-            from utils.ttrpg.inventory_capacity import grant_item_or_mail
-            delivery = grant_item_or_mail(s, "aeridor_shard", "Aeridorian Tremor")
-            await save(s)
-            if delivery == "inventory":
-                result_lines.append(f"💎 **{s['character_name']}** — a crystal shard lands at their feet")
+        value = secrets.randbelow(30) + 20 if roll < 40 else None
+        hp_drain = secrets.randbelow(4) + 2 if roll >= 80 else None
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            character_name = sheet.get("character_name", "An adventurer")
+            if roll < 40:
+                sheet["xp"] = sheet.get("xp", 0) + value
+                leveled, new_level = check_level_up(sheet)
+                return character_name, "xp", value, leveled, new_level
+            if roll < 65:
+                hp = sheet.setdefault("hp", {})
+                current = hp.get("current", 0)
+                maximum = hp.get("max", current)
+                gain = min(10, maximum - current)
+                hp["current"] = min(current + gain, maximum)
+                return character_name, "heal", gain, False, 0
+            if roll < 80:
+                from utils.ttrpg.inventory_capacity import grant_item_or_mail
+                delivery = grant_item_or_mail(sheet, "aeridor_shard", "Aeridorian Tremor")
+                return character_name, "item", delivery, False, 0
+            hp = sheet.setdefault("hp", {})
+            hp["current"] = max(1, hp.get("current", 1) - hp_drain)
+            return character_name, "drain", hp_drain, False, 0
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, kind, amount, leveled, new_level = result
+        if kind == "xp":
+            result_lines.append(f"✨ **{character_name}** — resonance surge (+{amount} XP)")
+        elif kind == "heal":
+            result_lines.append(f"💚 **{character_name}** — the pulse closes old wounds (+{amount} HP)")
+        elif kind == "item":
+            if amount == "inventory":
+                result_lines.append(f"💎 **{character_name}** — a crystal shard lands at their feet")
             else:
-                result_lines.append(f"📬 **{s['character_name']}** — a crystal shard was sent to Moogle Mail (inventory full)")
+                result_lines.append(f"📬 **{character_name}** — a crystal shard was sent to Moogle Mail (inventory full)")
         else:
-            # Minor HP drain
-            drain = secrets.randbelow(4) + 2
-            s["hp"]["current"] = max(1, s["hp"]["current"] - drain)
-            await save(s)
-            result_lines.append(f"⚡ **{s['character_name']}** — rejection. The pulse pushed back (-{drain} HP)")
+            result_lines.append(f"⚡ **{character_name}** — rejection. The pulse pushed back (-{amount} HP)")
+        if leveled:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The pulse passed over an empty square.*",
+            color=0x888888
+        ))
+        return
 
     embed = discord.Embed(
         title="💎 The Pulse Fades",
@@ -2987,10 +3035,11 @@ async def run_aeridorian_tremor(bot_ctx, channel):
 
 async def run_tonberry_procession(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
+    from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
@@ -3008,10 +3057,11 @@ async def run_tonberry_procession(bot_ctx, channel):
     ))
     await asyncio.sleep(4)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*They marched through an empty Oakhaven. Left a single coin on the well. Nobody knows why.*",
             color=0x888888
@@ -3019,29 +3069,46 @@ async def run_tonberry_procession(bot_ctx, channel):
         return
 
     result_lines = []
-    for s in present:
-        # 80% watched quietly, 20% disturbed them
+    for uid in candidate_ids:
         roll = secrets.randbelow(10)
-        if roll < 8:
-            xp = secrets.randbelow(15) + 10
-            gil = secrets.randbelow(20) + 10
-            s["xp"] = s.get("xp", 0) + xp
-            s["gil"] = s.get("gil", 0) + gil
-            from utils.ttrpg.progression import check_level_up
-            leveled, new_lvl = check_level_up(s)
-            await save(s)
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            character_name = sheet.get("character_name", "An adventurer")
+            if roll < 8:
+                xp = secrets.randbelow(15) + 10
+                gil = secrets.randbelow(20) + 10
+                sheet["xp"] = sheet.get("xp", 0) + xp
+                sheet["gil"] = sheet.get("gil", 0) + gil
+                leveled, new_level = check_level_up(sheet)
+                return character_name, "coin", xp, gil, leveled, new_level
+            damage = secrets.randbelow(8) + 5
+            hp = sheet.setdefault("hp", {})
+            hp["current"] = max(1, hp.get("current", 1) - damage)
+            return character_name, "hurt", damage, 0, False, 0
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, kind, value_a, value_b, leveled, new_level = result
+        if kind == "coin":
             result_lines.append(
-                f"🕯️ **{s['character_name']}** watched in silence. A tonberry dropped a coin purse as it passed. (+{xp} XP, +{gil}g)"
+                f"🕯️ **{character_name}** watched in silence. A tonberry dropped a coin purse as it passed. (+{value_a} XP, +{value_b}g)"
             )
             if leveled:
-                result_lines.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+                result_lines.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
         else:
-            dmg = secrets.randbelow(8) + 5
-            s["hp"]["current"] = max(1, s["hp"]["current"] - dmg)
-            await save(s)
             result_lines.append(
-                f"🔪 **{s['character_name']}** made eye contact. The closest tonberry stopped walking. (-{dmg} HP)"
+                f"🔪 **{character_name}** made eye contact. The closest tonberry stopped walking. (-{value_a} HP)"
             )
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The procession had passed by the time anyone remained in the square.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🔪 They Have Passed",
@@ -3052,21 +3119,21 @@ async def run_tonberry_procession(bot_ctx, channel):
 
 async def run_spine_storm(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
     }
-    CLASS_EFFECTS = {
-        "Warrior": ("battle_focus",   "The cold sharpens something. STR +1 until next combat."),
-        "Ranger":  ("forest_sight",   "The storm light clarifies distance. DEX +1 until next combat."),
-        "Mage":    ("resonance_link", "The charged air sings. INT +2 until next combat."),
-        "Rogue":   ("shadow_step",    "The fog gives excellent cover. DEX +2 until next combat."),
-        "Cleric":  ("divine_clarity", "The storm feels deliberate. WIS +2 until next combat."),
+    class_effects = {
+        "Warrior": ("battle_focus", "The cold sharpens something. STR +1 until next combat."),
+        "Ranger": ("forest_sight", "The storm light clarifies distance. DEX +1 until next combat."),
+        "Mage": ("resonance_link", "The charged air sings. INT +2 until next combat."),
+        "Rogue": ("shadow_step", "The fog gives excellent cover. DEX +2 until next combat."),
+        "Cleric": ("divine_clarity", "The storm feels deliberate. WIS +2 until next combat."),
     }
 
     await channel.send(embed=discord.Embed(
@@ -3081,10 +3148,11 @@ async def run_spine_storm(bot_ctx, channel):
     ))
     await asyncio.sleep(4)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The storm broke over an empty square. The puddles glow faintly. Nobody saw it.*",
             color=0x888888
@@ -3093,19 +3161,38 @@ async def run_spine_storm(bot_ctx, channel):
 
     result_lines = []
     level_ups = []
-    for s in present:
-        cls = s.get("class", "Warrior")
-        buff_key, buff_desc = CLASS_EFFECTS.get(cls, ("sharp_mind", "+1 to next roll."))
-        conds = s.setdefault("conditions", [])
-        if buff_key not in conds:
-            conds.append(buff_key)
+    for uid in candidate_ids:
         xp_bonus = secrets.randbelow(10) + 5
-        s["xp"] = s.get("xp", 0) + xp_bonus
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        result_lines.append(f"⚡ **{s['character_name']}** — *{buff_desc}* (+{xp_bonus} XP)")
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            character_name = sheet.get("character_name", "An adventurer")
+            character_class = sheet.get("class", "Warrior")
+            buff_key, buff_desc = class_effects.get(
+                character_class, ("sharp_mind", "+1 to next roll.")
+            )
+            conds = sheet.setdefault("conditions", [])
+            if buff_key not in conds:
+                conds.append(buff_key)
+            sheet["xp"] = sheet.get("xp", 0) + xp_bonus
+            leveled, new_level = check_level_up(sheet)
+            return character_name, buff_desc, leveled, new_level
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, buff_desc, leveled, new_level = result
+        result_lines.append(f"⚡ **{character_name}** — *{buff_desc}* (+{xp_bonus} XP)")
         if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            level_ups.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The storm passed after the square had emptied.*",
+            color=0x888888
+        ))
+        return
 
     embed = discord.Embed(
         title="⛈️ The Storm Passes",
@@ -3114,9 +3201,8 @@ async def run_spine_storm(bot_ctx, channel):
     )
     if level_ups:
         embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
-    
     await channel.send(embed=embed)
-    await _log_world_event("⛈️ **Storm of the Spine** swept through Oakhaven.")
+    await _log_world_event("⛈️ **Storm of the Spine** swept through Oakhaven, leaving class-aligned blessings.")
 
 async def run_caravan_arrival(bot_ctx, channel):
     """Full caravan merchant event — tier 3 gear, 1 gear per customer, buy + talk.
@@ -4647,11 +4733,11 @@ async def run_pilgrims_arrive(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
     from utils.ttrpg.world_state import load_world_state, save_world_state
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
@@ -4668,10 +4754,11 @@ async def run_pilgrims_arrive(bot_ctx, channel):
     ))
     await asyncio.sleep(3)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The pilgrims prayed at the empty shrine and proceeded north, leaving a quiet aura in the air.*",
             color=0x888888
@@ -4679,17 +4766,31 @@ async def run_pilgrims_arrive(bot_ctx, channel):
         return
 
     result_lines = []
-    for s in present:
-        # Restore 10 HP and grant Blessed condition
-        s["hp"]["current"] = min(s["hp"]["max"], s["hp"]["current"] + 10)
-        if "blessed" not in s.setdefault("conditions", []):
-            s["conditions"].append("blessed")
-        await save(s)
-        result_lines.append(f"✨ **{s['character_name']}** was restored (+10 HP, **Blessed**)")
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            hp = sheet.setdefault("hp", {})
+            hp["current"] = min(hp.get("max", 1), hp.get("current", 0) + 10)
+            if "blessed" not in sheet.setdefault("conditions", []):
+                sheet["conditions"].append("blessed")
+            return sheet.get("character_name", "An adventurer")
 
-    # Set temporary world_state pilgrim_blessing_until
+        character_name = await _mutate_player_sheet(uid, apply)
+        if character_name:
+            result_lines.append(f"✨ **{character_name}** was restored (+10 HP, **Blessed**)")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The pilgrims arrived after everyone had left the square.*",
+            color=0x888888
+        ))
+        return
+
+    # Set temporary world_state pilgrim_blessing_until; the player-sheet
+    # mutations above have already been committed under their own locks.
     wstate = load_world_state()
-    wstate["pilgrim_blessing_until"] = time.time() + 24 * 3600  # 24 hours
+    wstate["pilgrim_blessing_until"] = time.time() + 24 * 3600
     save_world_state(wstate)
 
     await channel.send(embed=discord.Embed(
@@ -4699,7 +4800,6 @@ async def run_pilgrims_arrive(bot_ctx, channel):
     ))
     await _log_world_event("🕯️ **Pilgrims Arrive** — Morvenna's relics brought to the Shrine, blessing those present in Oakhaven.")
     log_action("Noon Event: Pilgrims Arrive")
-
 
 async def run_night_terror_warning(bot_ctx, channel):
     """Noon event: A warning about dangerous beasts shifting solo hunts to a harder tier."""
@@ -4785,7 +4885,7 @@ async def run_silverstream_blackwater(bot_ctx, channel):
 async def run_hooded_figures_vigil(bot_ctx, channel):
     """Noon event: The Hooded Figure's Vigil."""
     import discord
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     await channel.send(embed=discord.Embed(
@@ -4797,10 +4897,11 @@ async def run_hooded_figures_vigil(bot_ctx, channel):
         color=0x2c3e50
     ))
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") == "stone_hearth"]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") == "stone_hearth"
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The tavern was empty. The figure sat alone in the dim light.*",
             color=0x888888
@@ -4808,12 +4909,25 @@ async def run_hooded_figures_vigil(bot_ctx, channel):
         return
 
     result_lines = []
-    for s in present:
-        conds = s.setdefault("conditions", [])
-        if "veiled_watched" not in conds:
-            conds.append("veiled_watched")
-        await save(s)
-        result_lines.append(f"🌘 **{s['character_name']}** — *Veiled Watched (+1 to next roll)*")
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") != "stone_hearth":
+                return None
+            sheet.setdefault("conditions", [])
+            if "veiled_watched" not in sheet["conditions"]:
+                sheet["conditions"].append("veiled_watched")
+            return sheet.get("character_name", "An adventurer")
+
+        character_name = await _mutate_player_sheet(uid, apply)
+        if character_name:
+            result_lines.append(f"🌘 **{character_name}** — *Veiled Watched (+1 to next roll)*")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The tavern emptied before the vigil could mark anyone.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🌘 Marked by the Vigil",
@@ -4823,11 +4937,10 @@ async def run_hooded_figures_vigil(bot_ctx, channel):
     await _log_world_event("🌘 **Hooded Figure Vigil** — The stranger marked Stone Hearth patrons with a watchful gaze.")
     log_action("Noon Event: Hooded Figures Vigil")
 
-
 async def run_caelindras_lost_verse(bot_ctx, channel):
     """Noon event: Caelindra's Lost Verse."""
     import discord
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
@@ -4844,21 +4957,33 @@ async def run_caelindras_lost_verse(bot_ctx, channel):
         color=0x8e44ad
     ))
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") == "stone_hearth"]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") == "stone_hearth"
+    ))
+    if not candidate_ids:
         return
 
     result_lines = []
     level_ups = []
-    for s in present:
-        s["xp"] = s.get("xp", 0) + 15
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        result_lines.append(f"📜 **{s['character_name']}** — *Heard the Verse* (+15 XP)")
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") != "stone_hearth":
+                return None
+            sheet["xp"] = sheet.get("xp", 0) + 15
+            leveled, new_level = check_level_up(sheet)
+            return sheet.get("character_name", "An adventurer"), leveled, new_level
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, leveled, new_level = result
+        result_lines.append(f"📜 **{character_name}** — *Heard the Verse* (+15 XP)")
         if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            level_ups.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
+
+    if not result_lines:
+        return
 
     embed = discord.Embed(title="📜 A Quiet Understanding", description="\n".join(result_lines), color=0x8e44ad)
     if level_ups:
@@ -4866,7 +4991,6 @@ async def run_caelindras_lost_verse(bot_ctx, channel):
     await channel.send(embed=embed)
     await _log_world_event("📜 **Caelindra's Verse** — The bard recited a lost Aeridorian verse at the Stone Hearth.")
     log_action("Noon Event: Caelindra's Lost Verse")
-
 
 async def run_watchtower_silence(bot_ctx, channel):
     """Noon event: The Watchtower's Silence."""
@@ -4896,10 +5020,10 @@ async def run_watchtower_silence(bot_ctx, channel):
 async def run_silvani_antidote_run(bot_ctx, channel):
     """Noon event: Silvani Antidote Run."""
     import discord
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
@@ -4915,10 +5039,11 @@ async def run_silvani_antidote_run(bot_ctx, channel):
         color=0x27ae60
     ))
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*No adventurers were present in town to collect the bundle. The guard stored it.*",
             color=0x888888
@@ -4927,13 +5052,28 @@ async def run_silvani_antidote_run(bot_ctx, channel):
 
     from utils.ttrpg.inventory_capacity import grant_item_or_mail
     result_lines = []
-    for s in present:
-        delivery = grant_item_or_mail(s, "bandage", "Silvani Supplies")
-        await save(s)
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            delivery = grant_item_or_mail(sheet, "bandage", "Silvani Supplies")
+            return sheet.get("character_name", "An adventurer"), delivery
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, delivery = result
         if delivery == "inventory":
-            result_lines.append(f"🧪 **{s['character_name']}** — *Acquired: Bandage*")
+            result_lines.append(f"🧪 **{character_name}** — *Acquired: Bandage*")
         else:
-            result_lines.append(f"📬 **{s['character_name']}** — *Bandage sent to Moogle Mail (inventory full)*")
+            result_lines.append(f"📬 **{character_name}** — *Bandage sent to Moogle Mail (inventory full)*")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*No adventurers remained in town to receive the bundle.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🧪 Supplies Distributed",
@@ -4942,7 +5082,6 @@ async def run_silvani_antidote_run(bot_ctx, channel):
     ))
     await _log_world_event("🧪 **Silvani Drop** — A Silvani hunter left emergency bandages for town residents.")
     log_action("Noon Event: Silvani Antidote Run")
-
 
 async def run_iron_magpies_heist(bot_ctx, channel):
     """Noon event: The Iron Magpies Bank Heist scaled combat event."""
@@ -5223,7 +5362,7 @@ async def run_sealed_wax_jar(bot_ctx, channel):
 async def run_elaras_private_ritual(bot_ctx, channel):
     """Noon event: Elara's Private Ritual."""
     import discord
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
@@ -5238,33 +5377,43 @@ async def run_elaras_private_ritual(bot_ctx, channel):
         color=0x9b59b6
     ))
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
     }
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         return
 
     result_lines = []
     level_ups = []
-    for s in present:
-        s["xp"] = s.get("xp", 0) + 10
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        result_lines.append(f"🌙 **{s['character_name']}** — *Witnessed the Ritual* (+10 XP)")
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            sheet["xp"] = sheet.get("xp", 0) + 10
+            leveled, new_level = check_level_up(sheet)
+            return sheet.get("character_name", "An adventurer"), leveled, new_level
 
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, leveled, new_level = result
+        result_lines.append(f"🌙 **{character_name}** — *Witnessed the Ritual* (+10 XP)")
+        if leveled:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
+
+    if not result_lines:
+        return
     embed = discord.Embed(title="🌙 A Quiet Connection", description="\n".join(result_lines), color=0x9b59b6)
     if level_ups:
         embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
     await channel.send(embed=embed)
     await _log_world_event("🌙 **Elara's Ritual** — Elder Elara performed a private ritual at the Shrine, witnessed by town dwellers.")
     log_action("Noon Event: Elara's Private Ritual")
-
 
