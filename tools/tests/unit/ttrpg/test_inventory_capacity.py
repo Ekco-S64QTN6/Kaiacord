@@ -23,6 +23,18 @@ def test_duplicate_copies_do_not_consume_additional_capacity():
     assert unique_item_type_count(sheet["inventory"]) == 1
 
 
+
+
+def test_fifty_unique_item_types_are_well_below_the_selected_cap():
+    inventory = [f"item_{i}" for i in range(50)]
+
+    assert unique_item_type_count(inventory) == 50
+    assert can_add_item(inventory, "item_50")
+    sheet = {"inventory": inventory}
+    assert grant_item(sheet, "item_50")
+    assert unique_item_type_count(sheet["inventory"]) == 51
+
+
 def test_one_hundred_unique_types_fit_but_the_one_hundred_first_does_not():
     sheet = {"inventory": [f"item_{i}" for i in range(99)]}
 
