@@ -604,7 +604,8 @@ async def _resolve_bite(ctx, interaction, uid, uname, is_owner, pole_key, bait_k
                 m_inst["key"] = m_key
                 m_inst["hp"] = {"current": m_inst["hp"], "max": m_inst["hp"]}
                 m_inst["id"] = f"{m_key}_{secrets.token_hex(2)}"
-                m_inst["aggro_uid"] = uid
+                m_inst["aggro_uid"] = str(uid)
+                m_inst["origin_location"] = sheet.get("location") or "tricklebrook_pond"
                 s["monsters"].append(m_inst)
                 s["combat_active"] = True
                 await save_session(s)
