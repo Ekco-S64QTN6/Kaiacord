@@ -353,3 +353,19 @@ def test_item_menu_helpers_advertise_smoke_bomb_only_for_overworld_combat():
         retired = {"category": "consumable", **CONSUMABLES[retired_key]}
         assert _is_combat_usable_item(retired) is False
         assert "retired" in _get_item_effect_string(retired)
+
+
+def test_starter_kit_is_not_consumed_when_its_contents_would_overflow(monkeypatch):
+    sheet = _sheet("adventurers_pack")
+    sheet["inventory"].extend(f"item_{i}" for i in range(99))
+    _, msg, save, _, note, _, _, run = _prepare_use(monkeypatch, sheet)
+
+    asyncio.run(run("adventurers_pack"))
+
+    assert "adventurers_pack" in sheet["inventory"]
+    assert "bandage" not in sheet["inventory"]
+    assert "healing_herb" not in sheet["inventory"]
+    assert "torch" not in sheet["inventory"]
+    save.assert_not_awaited()
+    note.assert_not_awaited()
+    assert "The kit was not consumed" in msg.channel.send.await_args.kwargs["embed"].description
