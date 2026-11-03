@@ -1731,6 +1731,72 @@ class MailMenuView(StaleSafeView):
         await interaction.response.edit_message(embed=embed, view=view)
 
 
+async def recover_pending_mail_dispatches(sender_uid: str) -> tuple[int, int]:
+    """Finish durable outgoing mail transfers without charging or crediting twice.
+
+    The sender's debit and pending record are saved together in one character
+    sheet. Delivery is idempotent on the recipient mailbox's dispatch_id. If
+    the process stops between those writes, the next dispatch retries the
+    queue. Sender and recipient locks are never held at the same time.
+    """
+    sender_uid = str(sender_uid)
+    delivered = 0
+
+    while True:
+        async with await get_action_lock(f"user:{sender_uid}"):
+            sender = await load(sender_uid)
+            if not sender:
+                return delivered, 0
+            pending = list(sender.get("pending_mail_dispatches", []))
+
+        if not pending:
+            return delivered, 0
+
+        progressed = False
+        for entry in pending:
+            dispatch_id = str(entry.get("dispatch_id", ""))
+            recipient_uid = str(entry.get("to_user_id", ""))
+            if not dispatch_id or not recipient_uid or recipient_uid == sender_uid:
+                continue
+
+            # A mailbox write can safely be replayed after a crash.
+            async with await get_action_lock(f"user:{recipient_uid}"):
+                recipient = await load(recipient_uid)
+                if not recipient:
+                    continue
+                mailbox = recipient.setdefault("mailbox", [])
+                if not any(str(m.get("dispatch_id", "")) == dispatch_id for m in mailbox):
+                    mailbox.append({
+                        "dispatch_id": dispatch_id,
+                        "from_name": entry.get("from_name", "Unknown"),
+                        "item": entry.get("item"),
+                        "gil": int(entry.get("gil", 0) or 0),
+                        "timestamp": entry.get("timestamp", time.time()),
+                    })
+                    await save(recipient)
+
+            # Clear the sender's queue only after the recipient's sheet is
+            # durable. If this save fails, the mailbox check above deduplicates
+            # the replay on the next attempt.
+            async with await get_action_lock(f"user:{sender_uid}"):
+                fresh_sender = await load(sender_uid)
+                if not fresh_sender:
+                    return delivered, len(pending)
+                fresh_sender["pending_mail_dispatches"] = [
+                    p for p in fresh_sender.get("pending_mail_dispatches", [])
+                    if str(p.get("dispatch_id", "")) != dispatch_id
+                ]
+                await save(fresh_sender)
+            delivered += 1
+            progressed = True
+
+        if not progressed:
+            async with await get_action_lock(f"user:{sender_uid}"):
+                fresh_sender = await load(sender_uid)
+                remaining = len((fresh_sender or {}).get("pending_mail_dispatches", []))
+            return delivered, remaining
+
+
 class MailSendView(StaleSafeView):
     def __init__(self, ctx, msg, uid, uname, is_owner, sheet, recipients):
         super().__init__(timeout=180)
@@ -1745,6 +1811,7 @@ class MailSendView(StaleSafeView):
         self.selected_recipient_id = None
         self.selected_item = None
         self.gil_to_send = 0
+        self._dispatch_started = False
 
         # Recipient Select
         options = [discord.SelectOption(label=s["character_name"], description=f"Lv.{s['level']} {s['class']}", value=str(s["user_id"])) for s in recipients]
@@ -1795,48 +1862,110 @@ class MailSendView(StaleSafeView):
     async def dispatch_callback(self, interaction: discord.Interaction):
         if str(interaction.user.id) != self.uid:
             return await interaction.response.send_message("This mail menu belongs to another player.", ephemeral=True)
-        if not self.selected_recipient_id: return
-        from utils.ttrpg.session_manager import get_action_lock
+        if self._dispatch_started:
+            return await interaction.response.send_message(
+                "This dispatch has already been submitted. Open a fresh mail menu to send another package.",
+                ephemeral=True,
+            )
 
-        # Validate and deduct against the sheet as it is now, under the
-        # sender's lock. The copy from when this menu opened was being saved
-        # back, undoing whatever the player had done since.
-        async with await get_action_lock(f"user:{self.uid}"):
-            fresh = await load(self.uid)
-            if fresh:
-                self.sheet = fresh
-            if self.gil_to_send > self.sheet.get("gil", 0):
-                return await interaction.response.send_message("Kupo! You don't have enough gil!", ephemeral=True)
-            if self.selected_item and self.selected_item not in self.sheet.get("inventory", []):
-                return await interaction.response.send_message("Kupo? That item seems to have vanished from your bag! Dispatch cancelled.", ephemeral=True)
-            await interaction.response.defer()
-            if self.selected_item: self.sheet["inventory"].remove(self.selected_item)
-            self.sheet["gil"] -= self.gil_to_send
-            await save(self.sheet)
+        allowed_recipients = {str(s.get("user_id")) for s in self.recipients}
+        recipient_uid = str(self.selected_recipient_id or "")
+        if not recipient_uid or recipient_uid not in allowed_recipients or recipient_uid == self.uid:
+            return await interaction.response.send_message("Choose a valid recipient first.", ephemeral=True)
+        if not self.selected_item and self.gil_to_send <= 0:
+            return await interaction.response.send_message(
+                "Choose an item or enter a positive gil amount before dispatching.", ephemeral=True
+            )
+        if self.gil_to_send < 0:
+            return await interaction.response.send_message("Kupo! You can't send a negative amount of gil.", ephemeral=True)
 
-        # The recipient under their own lock, after the sender's is released:
-        # two players mailing each other at once can't deadlock.
-        async with await get_action_lock(f"user:{self.selected_recipient_id}"):
-            target_sheet = await load(self.selected_recipient_id)
-            if target_sheet:
-                if "mailbox" not in target_sheet: target_sheet["mailbox"] = []
-                target_sheet["mailbox"].append({
-                    "from_name": self.sheet["character_name"],
+        # A view is single-use even when duplicate interactions arrive together.
+        self._dispatch_started = True
+        await interaction.response.defer()
+
+        try:
+            # Recover an earlier committed transfer before accepting a new one.
+            _, pending = await recover_pending_mail_dispatches(self.uid)
+            if pending:
+                self.stop()
+                return await interaction.followup.send(
+                    f"📬 An earlier package is safely queued, but its recipient is unavailable. "
+                    f"The moogle will retry it before another dispatch. (Pending: {pending})",
+                    ephemeral=True,
+                )
+
+            dispatch_id = _uuid.uuid4().hex
+            async with await get_action_lock(f"user:{self.uid}"):
+                sender = await load(self.uid)
+                if not sender:
+                    self.stop()
+                    return await interaction.followup.send(
+                        "No sender character was found. Nothing was dispatched.", ephemeral=True
+                    )
+                if self.gil_to_send > sender.get("gil", 0):
+                    self._dispatch_started = False
+                    return await interaction.followup.send("Kupo! You don't have enough gil!", ephemeral=True)
+                if self.selected_item and self.selected_item not in sender.get("inventory", []):
+                    self._dispatch_started = False
+                    return await interaction.followup.send(
+                        "Kupo? That item seems to have vanished from your bag! Dispatch cancelled.",
+                        ephemeral=True,
+                    )
+
+                # Debit and durable recovery record share one atomic sheet save.
+                if self.selected_item:
+                    sender["inventory"].remove(self.selected_item)
+                sender["gil"] = sender.get("gil", 0) - self.gil_to_send
+                sender.setdefault("pending_mail_dispatches", []).append({
+                    "dispatch_id": dispatch_id,
+                    "to_user_id": recipient_uid,
+                    "from_name": sender.get("character_name", self.uname),
                     "item": self.selected_item,
                     "gil": self.gil_to_send,
-                    "timestamp": time.time()
+                    "timestamp": time.time(),
                 })
-                await save(target_sheet)
-            
-        success_msg = f"📩 **Mail Dispatched!**\n*The moogle takes your package with a sharp salute and flies off toward {target_sheet['character_name'] if target_sheet else 'the horizon'}.*\n"
-        if self.selected_item: 
-            item_display = self.selected_item.replace('_', ' ').title()
-            success_msg += f"- Attached **{item_display}**\n"
-        if self.gil_to_send: success_msg += f"- Enclosed **{self.gil_to_send}g**"
-        
-        embed = discord.Embed(description=success_msg, color=0x44aa44)
-        view = _make_status_view(self.ctx, self.msg, self.uid, self.uname, self.is_owner)
-        await interaction.followup.send(embed=embed, view=view)
+                await save(sender)
+                self.sheet = sender
+
+            _, pending = await recover_pending_mail_dispatches(self.uid)
+            self.stop()
+            if pending:
+                return await interaction.followup.send(
+                    "📬 Your package has been charged once and safely queued for delivery. "
+                    "The recipient's character could not be loaded, so the moogle will retry it next time.",
+                    ephemeral=True,
+                )
+
+            recipient_name = next(
+                (s.get("character_name", "the horizon") for s in self.recipients
+                 if str(s.get("user_id")) == recipient_uid),
+                "the horizon",
+            )
+            success_msg = (
+                f"📩 **Mail Dispatched!**\n"
+                f"*The moogle takes your package with a sharp salute and flies off toward {recipient_name}.*\n"
+            )
+            if self.selected_item:
+                item_display = self.selected_item.replace("_", " ").title()
+                success_msg += f"- Attached **{item_display}**\n"
+            if self.gil_to_send:
+                success_msg += f"- Enclosed **{self.gil_to_send}g**"
+
+            embed = discord.Embed(description=success_msg, color=0x44aa44)
+            view = _make_status_view(self.ctx, self.msg, self.uid, self.uname, self.is_owner)
+            await interaction.followup.send(embed=embed, view=view)
+        except Exception:
+            log_error(
+                f"[rpg] Moogle Mail dispatch failed for {self.uid}; "
+                "any committed transfer remains queued for recovery."
+            )
+            self.stop()
+            await interaction.followup.send(
+                "Kupo! The dispatch was interrupted. Any committed package is safely queued "
+                "and will be retried before the next dispatch.",
+                ephemeral=True,
+            )
+
 
 
 class GilModal(discord.ui.Modal, title="Enclose Gil"):
