@@ -545,8 +545,8 @@ def test_moogle_mail_dispatch_is_single_use_and_delivered_once(monkeypatch):
     disk = {
         "42": {"user_id": "42", "character_name": "Sender", "gil": 500,
                "inventory": ["tonic"], "pending_mail_dispatches": []},
-        "99": {"user_id": "99", "character_name": "Recipient", "gil": 0,
-               "inventory": [], "mailbox": []},
+        "99": {"user_id": "99", "character_name": "Recipient", "level": 1, "class": "Mage",
+               "gil": 0, "inventory": [], "mailbox": []},
     }
 
     async def load_sheet(uid):
