@@ -346,7 +346,6 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Warding Salve | — | 45g | 3 |
 | Frenzy Draught | — | 50g | 3 |
 | Moonwater | 150 (Full) | 150g | 4 |
-| Trap Kit | — | 60g | 3 |
 
 Retired consumables: **Eye Drops** and **Trap Kit** are no longer sold, craftable, or usable. The current status system has no blindness condition and the dungeon system has no trap-placement mechanic. Existing copies remain in inventory and can still be sold to a merchant.
 
