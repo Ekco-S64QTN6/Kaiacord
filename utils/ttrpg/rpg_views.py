@@ -2618,9 +2618,14 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         elif rt == R_TREASURE:
             loot = get_loot("medium")
             if loot:
-                sheet.setdefault("inventory", []).append(loot)
+                from utils.ttrpg.inventory_capacity import grant_item_or_mail
                 item = find_item(loot)
-                loot_text = f"\n\n💰 Found: **{item['name'] if item else loot}**"
+                delivery = grant_item_or_mail(sheet, loot, "Dungeon Treasure")
+                loot_name = item["name"] if item else loot
+                if delivery == "inventory":
+                    loot_text = f"\n\n💰 Found: **{loot_name}**"
+                else:
+                    loot_text = f"\n\n📬 **{loot_name}** was sent to Moogle Mail (inventory full)."
                 state.setdefault("loot_gained", []).append(loot)
                 # Iron Pup: a chance to sniff out a second chest.
                 from utils.ttrpg.housing import load_housing_async
@@ -2630,11 +2635,14 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 if _chest_pct and secrets.randbelow(100) < int(_chest_pct * 100):
                     bonus = get_loot("medium")
                     if bonus:
-                        sheet["inventory"].append(bonus)
+                        bonus_delivery = grant_item_or_mail(sheet, bonus, "Iron Pup Bonus Chest")
                         state["loot_gained"].append(bonus)
                         b_item = find_item(bonus)
-                        loot_text += (f"\n🐶 Your Iron Pup noses out a second chest: "
-                                      f"**{b_item['name'] if b_item else bonus}**")
+                        bonus_name = b_item["name"] if b_item else bonus
+                        if bonus_delivery == "inventory":
+                            loot_text += f"\n🐶 Your Iron Pup noses out a second chest: **{bonus_name}**"
+                        else:
+                            loot_text += f"\n🐶 **{bonus_name}** from the second chest was sent to Moogle Mail (inventory full)."
             else:
                 gil = secrets.randbelow(25) + 10
                 sheet["gil"] = sheet.get("gil", 0) + gil
@@ -2719,9 +2727,14 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
             if total_roll < trap_dc and secrets.randbelow(3) == 0:
                 loot = get_loot("easy")
                 if loot:
-                    sheet.setdefault("inventory", []).append(loot)
+                    from utils.ttrpg.inventory_capacity import grant_item_or_mail
+                    delivery = grant_item_or_mail(sheet, loot, "Dungeon Trap Cache")
                     item = find_item(loot)
-                    loot_text = f"\nBut you find: **{item['name'] if item else loot}**"
+                    loot_name = item["name"] if item else loot
+                    if delivery == "inventory":
+                        loot_text = f"\nBut you find: **{loot_name}**"
+                    else:
+                        loot_text = f"\n📬 **{loot_name}** was sent to Moogle Mail (inventory full)."
 
         room["cleared"] = True
         state["rooms"][nk] = room
