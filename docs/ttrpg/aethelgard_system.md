@@ -323,11 +323,10 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Ironbark Tonic | Dire Root + Pearl | `ironbark_tonic` (+2 DEF) |
 | Firebrew | Blood Thistle + Fire Opal | `firebrew` (+2 ATK) |
 | Antidote | Silver Moss + Honey Sap | `antidote` (Cure poison) |
-| Smoke Bomb | Blood Thistle + Topaz | `smoke_bomb` (Flee combat with 0 XP loss) |
-| Warding Salve | Silver Moss + Pearl | `warding_salve` (Reduce next hit dmg by 5) |
-| Frenzy Draught | Blood Thistle + Star Ruby | `frenzy_draught` (+1 attack, -2 DEF) |
+| Smoke Bomb | Blood Thistle + Topaz | `smoke_bomb` (Safely escape your own overworld encounter; no hunt stamina or XP/Gil loss) |
+| Warding Salve | Silver Moss + Pearl | `warding_salve` (+2 DEF until combat ends) |
+| Frenzy Draught | Blood Thistle + Star Ruby | `frenzy_draught` (+2 ATK until combat ends) |
 | Moonwater | Silverleaf + Black Pearl | `moonwater` (Full HP restore) |
-| Trap Kit | Dire Root + Fire Opal + Topaz | `trap_kit` (2d8 damage trap) |
 
 ---
 
@@ -349,6 +348,8 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Moonwater | 150 (Full) | 150g | 4 |
 | Trap Kit | — | 60g | 3 |
 
+Retired consumables: **Eye Drops** and **Trap Kit** are no longer sold, craftable, or usable. The current status system has no blindness condition and the dungeon system has no trap-placement mechanic. Existing copies remain in inventory and can still be sold to a merchant.
+
 ### Buff Potions & Utility (Crafted)
 | Item | Effect |
 |:--|:--|
@@ -356,10 +357,9 @@ Recipes are discovered by picking up ingredients. Brewed at Sister Maren's Hut.
 | Hunter's Draught | Instantly refunds 1 daily hunt upon use |
 | Ironbark Tonic | Grants `Fortified` (+2 DEF for one entire combat encounter) |
 | Firebrew | Grants `Embered` (+2 ATK for one entire combat encounter) |
-| Smoke Bomb | Instantly escape combat safely without XP/Gil loss |
-| Warding Salve | Grants `Warded` (reduces next damage hit by 5) |
-| Frenzy Draught | Grants `Frenzied` (+1 extra attack, -2 DEF for one entire combat encounter) |
-| Trap Kit | Lay down a trap in a dungeon room, dealing 2d8 physical damage to next monster |
+| Smoke Bomb | Safely escape your own overworld encounter without spending a hunt or losing XP/Gil |
+| Warding Salve | Grants `Fortified` (+2 DEF until combat ends) |
+| Frenzy Draught | Grants `Embered` (+2 ATK until combat ends) |
 
 ---
 
@@ -420,10 +420,8 @@ All temporary conditions are cleared on daily reset (midnight). Only `Blessed` a
 | Blessed | Shrine prayer | +2 to all rolls (consumed after 1 combat) |
 | Ale Warmth | Stone Hearth drink | +3 temp HP (cleared on rest or day reset) |
 | XP Boosted | Experience Tonic | +25% XP on the next combat kill |
-| Fortified | Ironbark Tonic | +2 DEF applied for one entire combat encounter |
-| Embered | Firebrew | +2 ATK applied for one entire combat encounter |
-| Warded | Warding Salve | Reduces next incoming damage hit by 5 |
-| Frenzied | Frenzy Draught | +1 extra attack, but -2 DEF for one entire combat encounter |
+| Fortified | Ironbark Tonic / Warding Salve | +2 DEF applied for one entire combat encounter |
+| Embered | Firebrew / Frenzy Draught | +2 ATK applied for one entire combat encounter |
 | Sharp Mind | Old Man's Riddle | +2 to next INT check |
 | Battle Focus | Veiled Elder (Warrior) | +1 to STR checks |
 | Forest Sight | Veiled Elder (Ranger) | +1 to DEX checks |
