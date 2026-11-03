@@ -63,6 +63,38 @@ def _consume_blessing_if_combat_ended(sheet: dict, result: dict) -> None:
             conditions.remove("blessed")
 
 
+def _apply_overworld_blackout(sheet: dict) -> dict:
+    """Apply the canonical overworld knockout state transition to a character sheet."""
+    xp_loss = int(sheet.get("xp", 0) * 0.10)
+    gil_loss = int(sheet.get("gil", 0) * 0.05)
+    sheet["hunt_streak"] = 0
+    sheet["xp"] = max(0, sheet.get("xp", 0) - xp_loss)
+    sheet["gil"] = max(0, sheet.get("gil", 0) - gil_loss)
+    sheet.setdefault("hp", {})["current"] = 1
+    sheet["location"] = "shrine"
+    sheet["deaths"] = sheet.get("deaths", 0) + 1
+    return {"xp_loss": xp_loss, "gil_loss": gil_loss}
+
+
+async def _announce_overworld_blackout(ctx, sheet: dict, cause: str) -> None:
+    """Broadcast the same Shrine-threshold death notice for every overworld knockout."""
+    await _log_world_event(
+        f"**{sheet.get('character_name', 'An adventurer')}** was found at the Shrine threshold. Hemlock is taking bets."
+    )
+    death_embed = discord.Embed(
+        title=f"💀 {sheet.get('character_name', 'An adventurer')} fell",
+        description=(
+            f"*{cause or 'The wilds'} left them at the Shrine threshold. "
+            f"{int(sheet.get('deaths', 0))} deaths recorded.*"
+        ),
+        color=0x8B0000,
+    )
+    death_embed.set_footer(
+        text=f"Death #{sheet['deaths']} · {sheet.get('location', '').replace('_', ' ').title()}"
+    )
+    await _broadcast_world_event(ctx, death_embed)
+
+
 def _advanced_bonuses(sheet: dict):
     """The bonuses of the player's advanced class, or None without one."""
     adv = sheet.get("advanced_class", "")
@@ -795,7 +827,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     
     # Free forest events do not consume hunt stamina, but every roll (hit or
     # miss) uses one of five daily attempts. Reserve and persist before RNG.
-    if await _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname):
+    if await _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname, uid=uid, is_owner=is_owner):
         return  # event resolved, hunt NOT consumed
 
     # Pay hunt cost BEFORE spawn (crash-safe: hunt is consumed even if spawn fails)
@@ -1290,23 +1322,11 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         nx = xp_to_next_level(sheet["level"])
         m_block += f"\n+{xp_gain} XP ({sheet['xp']}/{nx})  +{gil_gain} Gil{streak_msg}{loot_msg}{level_up_msg}"
     elif not res["player_alive"]:
-        sheet["hunt_streak"] = 0
-        xp_loss = int(sheet["xp"] * 0.10)
-        gil_loss = int(sheet["gil"] * 0.05)
-        sheet["xp"] = max(0, sheet["xp"] - xp_loss)
-        sheet["gil"] = max(0, sheet["gil"] - gil_loss)
-        sheet["hp"]["current"] = 1
-        sheet["location"] = "shrine"
-        sheet["deaths"] = sheet.get("deaths", 0) + 1
+        blackout = _apply_overworld_blackout(sheet)
+        xp_loss = blackout["xp_loss"]
+        gil_loss = blackout["gil_loss"]
         m_block += f"\n\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine of the Silent Ones in Oakhaven. You dropped {xp_loss} XP and {gil_loss} Gil in the dirt."
-        await _log_world_event(f"**{sheet['character_name']}** was found at the Shrine threshold. Hemlock is taking bets.")
-        death_embed = discord.Embed(
-            title=f"💀 {sheet['character_name']} fell",
-            description=f"*{monster.get('name', 'Something')} left them at the Shrine threshold. {xp_loss} XP and {gil_loss} Gil in the dirt.*",
-            color=0x8B0000
-        )
-        death_embed.set_footer(text=f"Death #{sheet['deaths']} · {sheet.get('location','').replace('_',' ').title()}")
-        await _broadcast_world_event(ctx, death_embed)
+        await _announce_overworld_blackout(ctx, sheet, monster.get("name", "Something"));
         
     await save(sheet)
     
@@ -1651,7 +1671,7 @@ def _dungeon_room_color(room_type):
         "stairs_down":  0x4a4a6a,
     }.get(room_type, 0x888888)
 
-async def _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname):
+async def _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname, *, uid=None, is_owner=False):
     """Try one free forest event, durably spending an attempt before RNG.
 
     Returns True when an event was applied. A failed random roll or exhausted
@@ -1675,7 +1695,7 @@ async def _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname):
     return True
 
 
-async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
+async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=None, is_owner=False):
     """Apply a forest event's mechanical effects; its story joins the trip's (outing.py)."""
 
     if sheet.get("advanced_class") == "Shaman" and sheet["hp"]["current"] > 0 and sheet["hp"]["current"] < sheet["hp"]["max"]:
@@ -1708,6 +1728,9 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
         sheet.setdefault("inventory", []).append(result["item_add"])
 
     leveled_up, new_level = check_level_up(sheet)
+    blackout = None
+    if sheet["hp"]["current"] <= 0:
+        blackout = _apply_overworld_blackout(sheet)
     await save(sheet)
 
     # Post mechanical result as embed (matches combat log card style)
@@ -1741,6 +1764,12 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
         body_lines.append(f"🎯 Hunts remaining: {hunts_remaining(sheet)}/{get_max_hunts(sheet)}")
     if result["item_add"]:
         body_lines.append(f"📦 Added to inventory: `{result['item_add']}`")
+    if blackout:
+        body_lines.append(
+            "\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine "
+            f"of the Silent Ones in Oakhaven. You dropped {blackout['xp_loss']} XP "
+            f"and {blackout['gil_loss']} Gil in the dirt."
+        )
 
     embed = discord.Embed(
         title=result["title"],
@@ -1762,11 +1791,31 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname):
 
     # The event is told with the rest of the trip, when it ends
     # (utils/ttrpg/outing.py): narrating it here held up the hunt.
-    if result.get("narration_hook"):
+    if result.get("narration_hook") or blackout:
         from utils.ttrpg import outing
-        await outing.record_event(str(sheet.get("user_id", "")), sheet.get("location", "whisperwood_edge"),
-                                  result.get("title", "something happened"), result["narration_hook"])
+        outing_uid = str(uid if uid is not None else sheet.get("user_id", ""))
+        await outing.record_event(
+            outing_uid,
+            sheet.get("location_before_blackout", sheet.get("location", "whisperwood_edge")),
+            result.get("title", "something happened"),
+            result.get("narration_hook", ""),
+        )
 
+    if blackout:
+        await _announce_overworld_blackout(ctx, sheet, result.get("title", "A forest event"))
+        outing_uid = str(uid if uid is not None else sheet.get("user_id", ""))
+        await outing.close(
+            ctx, msg.channel, outing_uid, uname, sheet,
+            reason="was knocked out by a forest event and woke at the Shrine",
+        )
+        view = _make_status_view(ctx, msg, outing_uid, uname, is_owner)
+        await msg.channel.send(
+            embed=discord.Embed(
+                description="You are back at the Shrine.",
+                color=0x888888,
+            ),
+            view=view,
+        )
 
 
 async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
