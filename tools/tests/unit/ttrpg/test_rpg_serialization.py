@@ -500,3 +500,37 @@ def test_stale_first_home_button_cannot_charge_twice_or_reset_estate(monkeypatch
     assert homes["42"]["house_name"] == "The Kept Estate"
     second.response.send_message.assert_awaited_once()
     assert "already own" in second.response.send_message.await_args.args[0]
+
+
+def test_non_owner_cannot_dispatch_mail_from_another_players_view(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.rpg_views as rv
+
+    sender = {"user_id": "42", "character_name": "Victim", "gil": 500,
+              "inventory": ["tonic"], "mailbox": []}
+    recipient = {"user_id": "99", "character_name": "Recipient", "level": 1, "class": "Mage"}
+
+    load = AsyncMock(return_value=sender.copy())
+    save = AsyncMock()
+    monkeypatch.setattr(rv, "load", load)
+    monkeypatch.setattr(rv, "save", save)
+
+    view = rv.MailSendView(
+        types.SimpleNamespace(), types.SimpleNamespace(), "42", "Victim", False,
+        sender.copy(), [recipient]
+    )
+    view.selected_recipient_id = "99"
+    view.selected_item = "tonic"
+
+    interaction = MagicMock()
+    interaction.user.id = 666
+    interaction.response.send_message = AsyncMock()
+
+    asyncio.run(view.dispatch_callback(interaction))
+
+    interaction.response.send_message.assert_awaited_once()
+    assert interaction.response.send_message.await_args.kwargs["ephemeral"] is True
+    load.assert_not_awaited()
+    save.assert_not_awaited()
+    assert sender["gil"] == 500
+    assert sender["inventory"] == ["tonic"]

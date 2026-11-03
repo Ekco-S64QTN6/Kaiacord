@@ -1774,11 +1774,15 @@ class MailSendView(StaleSafeView):
         self.add_item(self.dispatch_btn)
 
     async def user_callback(self, interaction: discord.Interaction):
+        if str(interaction.user.id) != self.uid:
+            return await interaction.response.send_message("This mail menu belongs to another player.", ephemeral=True)
         self.selected_recipient_id = self.user_select.values[0]
         self.dispatch_btn.disabled = False
         await interaction.response.edit_message(view=self)
 
     async def item_callback(self, interaction: discord.Interaction):
+        if str(interaction.user.id) != self.uid:
+            return await interaction.response.send_message("This mail menu belongs to another player.", ephemeral=True)
         self.selected_item = self.item_select.values[0]
         await interaction.response.defer()
 
@@ -1789,6 +1793,8 @@ class MailSendView(StaleSafeView):
         await interaction.response.send_modal(modal)
 
     async def dispatch_callback(self, interaction: discord.Interaction):
+        if str(interaction.user.id) != self.uid:
+            return await interaction.response.send_message("This mail menu belongs to another player.", ephemeral=True)
         if not self.selected_recipient_id: return
         from utils.ttrpg.session_manager import get_action_lock
 
@@ -1841,6 +1847,8 @@ class GilModal(discord.ui.Modal, title="Enclose Gil"):
         self.parent_view = parent_view
 
     async def on_submit(self, interaction: discord.Interaction):
+        if str(interaction.user.id) != self.parent_view.uid:
+            return await interaction.response.send_message("This mail menu belongs to another player.", ephemeral=True)
         val = self.gil_input.value
         if not val.isdigit():
             return await interaction.response.send_message("Kupo! That's not a number!", ephemeral=True)
