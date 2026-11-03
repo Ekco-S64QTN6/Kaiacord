@@ -428,8 +428,8 @@ def test_stale_first_home_button_cannot_charge_twice_or_reset_estate(monkeypatch
 
     monkeypatch.setattr(hh, "load", load_sheet)
     monkeypatch.setattr(hh, "save", save_sheet)
-    monkeypatch.setattr(hh, "load_housing", load_home)
-    monkeypatch.setattr(hh, "save_housing", save_home)
+    monkeypatch.setattr(H, "load_housing", load_home)
+    monkeypatch.setattr(H, "save_housing", save_home)
     monkeypatch.setattr(hh, "_log_world_event", AsyncMock())
 
     sent = {}
