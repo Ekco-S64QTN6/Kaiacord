@@ -918,8 +918,7 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                 if f"look_{matched}" not in secrets:
                     secrets.append(f"look_{matched}")
                     embed.set_footer(text="A piece of the pattern clicks into place.")
-                    await save(sheet)
-                    
+
                     if "look_flame" in secrets and "look_altar" in secrets and "symbol_of_the_silent_ones" not in sheet.get("inventory", []):
                         from utils.ttrpg.inventory_capacity import grant_item_or_mail
                         delivery = grant_item_or_mail(
@@ -938,8 +937,11 @@ async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
                             ),
                             inline=False
                         )
-                        await save(sheet)
-                        
+                # Persist the looked-at secret and its reward together. Saving the
+                # first half before the item/mailbox grant could strand the
+                # second half of the puzzle and permanently lose the reward.
+                await save(sheet)
+
             return await msg.channel.send(embed=embed)
         else:
             return await msg.channel.send(embed=discord.Embed(
