@@ -54,6 +54,14 @@ _BOSS_TIER_BY_LEVEL = {
     13: "boss", 14: "boss", 15: "boss",
 }
 
+def _consume_blessing_if_combat_ended(sheet: dict, result: dict) -> None:
+    """Spend the Shrine blessing at the end of a fight, not after its first round."""
+    if result.get("monster_defeated") or not result.get("player_alive", True):
+        conditions = sheet.get("conditions", [])
+        if "blessed" in conditions:
+            conditions.remove("blessed")
+
+
 def _advanced_bonuses(sheet: dict):
     """The bonuses of the player's advanced class, or None without one."""
     adv = sheet.get("advanced_class", "")
@@ -235,9 +243,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     sheet = res["sheet"]
     monster = res["monster"]
 
-    # Consume blessed condition after use (mirrors overworld combat behaviour)
-    if "blessed" in sheet.get("conditions", []):
-        sheet["conditions"].remove("blessed")
+    _consume_blessing_if_combat_ended(sheet, res)
 
     # Accumulate for end-of-combat summary
     state.setdefault("dungeon_combat_log", []).append({
@@ -947,9 +953,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = res["sheet"]
     monster = res["monster"]
 
-    # After combat resolves, consume the blessing
-    if "blessed" in sheet.get("conditions", []):
-        sheet["conditions"].remove("blessed")
+    _consume_blessing_if_combat_ended(sheet, res)
     
     # Handle state cleanup
     if res["monster_defeated"] or not res["player_alive"]:
