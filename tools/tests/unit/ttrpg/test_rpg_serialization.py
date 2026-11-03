@@ -670,3 +670,43 @@ def test_moogle_mail_keeps_pending_dispatch_when_recipient_is_missing(monkeypatc
     assert pending == 1
     assert sender["gil"] == 450
     assert sender["pending_mail_dispatches"] == [dispatch]
+
+
+
+def test_moogle_mail_does_not_charge_when_recipient_no_longer_exists(monkeypatch):
+    import copy
+    import types
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.rpg_views as rv
+
+    sender = {"user_id": "42", "character_name": "Sender", "gil": 500,
+              "inventory": ["tonic"], "pending_mail_dispatches": []}
+
+    async def load_sheet(uid):
+        return copy.deepcopy(sender) if str(uid) == "42" else None
+
+    save = AsyncMock()
+    monkeypatch.setattr(rv, "load", load_sheet)
+    monkeypatch.setattr(rv, "save", save)
+
+    view = rv.MailSendView(
+        types.SimpleNamespace(), types.SimpleNamespace(), "42", "Sender", False,
+        copy.deepcopy(sender),
+        [{"user_id": "99", "character_name": "Recipient", "level": 1, "class": "Mage"}],
+    )
+    view.selected_recipient_id = "99"
+    view.gil_to_send = 125
+
+    interaction = MagicMock()
+    interaction.user.id = 42
+    interaction.response.defer = AsyncMock()
+    interaction.followup.send = AsyncMock()
+
+    asyncio.run(view.dispatch_callback(interaction))
+
+    save.assert_not_awaited()
+    assert sender["gil"] == 500
+    assert sender["inventory"] == ["tonic"]
+    assert sender["pending_mail_dispatches"] == []
+    interaction.followup.send.assert_awaited_once()
+    assert view._dispatch_started is False
