@@ -88,7 +88,7 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     session = await load_session(chan_id)
     if session and session.get("combat_active"):
         # Check if author is in this fight
-        mine = [m for m in session.get("monsters", []) if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid)]
+        mine = [m for m in session.get("monsters", []) if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid) and m.get("origin_location") == sheet.get("location", "oakhaven")]
         if mine:
             resume_desc = f"\n\n⚔️ **You are currently in combat here!**\nUse `!rpg hunt` to re-open the interface."
     
@@ -148,7 +148,7 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner):
     in_combat = False
     if s and s.get("combat_active"):
         for m in s.get("monsters", []):
-            if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid):
+            if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid) and m.get("origin_location") == sheet.get("location", "oakhaven"):
                 in_combat = True
                 break
                 
