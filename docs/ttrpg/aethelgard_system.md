@@ -191,6 +191,10 @@ Fully automatic. Player never touches dice.
 **Crit (nat 20):** Damage dice doubled
 **Fumble (nat 1):** Auto-miss
 
+### Overworld Encounter Ownership
+
+Overworld monsters are personal encounters, not shared party fights. Only the player who spawned a monster may attack it, and only while at the RPG location recorded when it spawned. This includes monsters hooked while fishing and blockade raid encounters. Same-channel and same-location players cannot assist another player's monster yet: the game does not currently track party membership, contributions, or fair XP, gil, drop, quest-credit, and streak shares. A player who moves away must return to the encounter location or use `!rpg flee` to abandon the old encounter. Older monsters without a recorded origin location are not attackable; flee and start a new hunt.
+
 ### Weapon Procs
 Select T3+ weapons possess inherent elemental procs. These trigger independently on standard hits (10% chance) and critical hits (50% chance). They scale in extra damage from 1d4 to 1d12 based on weapon tier, and can trigger simultaneously alongside Class Procs.
 
