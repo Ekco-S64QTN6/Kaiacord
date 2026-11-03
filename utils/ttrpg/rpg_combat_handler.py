@@ -134,24 +134,27 @@ def _grant_drop(sheet: dict, state: dict, item_key: str, icon: str) -> str:
     return f"🎒 **[Inventory Full]** Left behind: {name}"
 
 
-def _maybe_grant_wisp_lightstone(sheet: dict, monster_key: str) -> bool:
-    """Roll the 1-in-3 wisp-core drop on every eligible kill, not only level-ups."""
+def _roll_wisp_lightstone_drop(sheet: dict, monster_key: str) -> str:
+    """Resolve the 1-in-3 wisp-core drop independently of character level-ups.
+
+    Returns "granted", "full", or "" (no drop / ineligible / already owned).
+    """
     if monster_key not in {"wisp", "ice_wisp", "moldwynd", "crew_dust"}:
-        return False
+        return ""
 
     inventory = sheet.setdefault("inventory", [])
     if "lightstone" in inventory:
-        return False
+        return ""
+
+    if secrets.randbelow(3) != 0:
+        return ""
 
     from utils.ttrpg.character_manager import INVENTORY_LIMIT
     if len(set(inventory) | {"lightstone"}) > INVENTORY_LIMIT:
-        return False
-
-    if secrets.randbelow(3) != 0:
-        return False
+        return "full"
 
     inventory.append("lightstone")
-    return True
+    return "granted"
 
 
 def _roll_dungeon_loot(sheet: dict, state: dict, tier: str, is_boss: bool) -> str:
@@ -1201,8 +1204,12 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     leveled, n_lvl = check_level_up(sheet)
     # Wisp cores are a kill drop, not a level-up reward. Roll on every
     # eligible wisp kill regardless of whether the XP crossed a threshold.
-    if res["monster_defeated"] and _maybe_grant_wisp_lightstone(sheet, monster.get("key", "")):
-        m_block += "\n💡 **Lightstone** — the wisp's core falls. Still glowing."
+    if res["monster_defeated"]:
+        wisp_drop = _roll_wisp_lightstone_drop(sheet, monster.get("key", ""))
+        if wisp_drop == "granted":
+            m_block += "\n💡 **Lightstone** — the wisp's core falls. Still glowing."
+        elif wisp_drop == "full":
+            m_block += "\n🎒 **[Inventory Full]** Lightstone left behind."
 
     if leveled:
         level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
