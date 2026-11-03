@@ -389,6 +389,13 @@ uneven and code ran longer, and the months and a repeat-after-me stayed right. T
 system prompt gave the same short-sentence share (0.71 against 0.67), and swapping out "if you can say it in one sentence,
 do so" changed nothing (0.70 both). Guards stay the last resort for what sampling lets through.
 
+**A prompt's example is the output.** Every proactive opener opened on its hint's "Example tone" word for word ("randomly
+remembered that conversation…", "been sitting with this thought…"), and all 14 digests in a log opened "I noticed they were",
+the prompt's own example. The examples are gone, and a post that opens like two of her last five is drafted once more
+(`repeats_opening`: the monologue, the digest). Five of eight impressions read "<name> is a whirlwind", written minutes apart
+with no sight of each other: `relationship_impressions.stock_image` redrafts one that calls someone what another is already
+called.
+
 ### Output filters
 
 > [!IMPORTANT]
@@ -1331,7 +1338,8 @@ person who spoke before the post, quoted it as "Kaia (replying to Ekco)", and sh
 GuardNGnowm as ekco.
 
 **An absence check-in is addressed to a person.** It goes out unlabelled and is never
-cross-posted. Key that on `trigger_type == "absence"`, not on `target_user` being set —
+cross-posted, and it names them: `harden` strips a leading name from any reply, which sent "been quiet without you
+around." to the channel addressed to nobody, so `kaia_proactive.addressed_to` runs after the filters. Key that on `trigger_type == "absence"`, not on `target_user` being set —
 `conversation_followup`, `personal_memory` and `anchor_callback` populate that field with the
 person the thought is *about*.
 
@@ -1656,6 +1664,10 @@ retrieval never reported:
   no longer writes.
 - **News and dreams are dated by their filename.** `timestamp` was the file mtime, and
   enrichment rewrites old briefs, so recency could not tell February from yesterday.
+- **The top-k is not filled with padding** (`kaia_rag_query.without_padding`). Every chunk scores 0.8 or better on cosine
+  alone, so keyword hits (1.1 and up) were topped up with whatever was nearest: "how many e's are in strawberry" brought
+  supermarket hacks and Brave New World. On an ordinary turn a document only the vector search found is dropped; a question
+  keeps the nearest two. Known-answer questions (`compare_book_chunking.QUESTIONS`) found the same 12 of 16 before and after.
 - **Retrieval, not just indexing, decides what she can know.** Chat always passed
   `include_news=False`, and the scorer drops every news node then — the corpus that costs a
   Gemini call a day was never retrieved. News is included when the turn asks about it; a turn

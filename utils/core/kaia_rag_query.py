@@ -146,6 +146,35 @@ def _whole_document(chunks, query_words, path) -> List[Dict[str, Any]]:
             for text, meta in selected]
 
 
+#: A document only the vector search found shares no keyword with the turn. Every
+#: chunk scores 0.8 or better on cosine alone, so the slots left over from a
+#: top-k were filled with whatever was nearest: "how many e's are in strawberry"
+#: brought supermarket hacks and Brave New World. A question may still get the
+#: nearest two, since it may be asking in other words than the document's.
+VECTOR_ONLY_ON_A_QUESTION = 2
+
+
+def without_padding(nodes: List[Dict[str, Any]], query: str, strategy=None) -> List[Dict[str, Any]]:
+    """`nodes` without the documents that are only there to fill the top-k, on an
+    ordinary turn. Needs a keyword hit somewhere to know keyword search is running;
+    a turn with none is left as it is, and so is any turn asking for a document."""
+    if strategy not in (None, "", "GENERAL", "CONVERSATIONAL"):
+        return nodes
+    methods = [(n.get("metadata") or {}).get("retrieval_method") for n in nodes]
+    if not any(m in ("hybrid", "bm25") for m in methods):
+        return nodes
+    allowed = VECTOR_ONLY_ON_A_QUESTION if "?" in query else 0
+    kept = []
+    for node, method in zip(nodes, methods):
+        meta = node.get("metadata") or {}
+        if method == "vector" and meta.get("source_type") == "general_knowledge":
+            if allowed <= 0:
+                continue
+            allowed -= 1
+        kept.append(node)
+    return kept
+
+
 class RAGQueryMixin:
     """Mixin class providing retrieval and query methods for KaiaRAG."""
 
@@ -909,7 +938,7 @@ class RAGQueryMixin:
         scored_nodes.sort(key=lambda x: x["score"], reverse=True)
 
         # Compute aggregate confidence for this result set
-        top_results = scored_nodes[:top_k]
+        top_results = without_padding(scored_nodes[:top_k], query_lower, strategy)
         if top_results:
             avg_score = sum(n["score"] for n in top_results) / len(top_results)
             # Normalize: scores typically 0.3–2.0 after boosting; practical ceiling 1.5

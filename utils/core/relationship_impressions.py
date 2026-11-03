@@ -27,7 +27,7 @@ IMPRESSION_ACTIVE_DAYS = 30
 MAX_PER_NIGHT = 12
 EVENTS_SHOWN = 25
 #: Bumped when the prompt changes, so every impression is rewritten under it.
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 # "Okay, here's my characterization of Lune, as Kaia, based on…" is the model
 # talking about the task, not an impression.
 _PREAMBLE = re.compile(r"^\W*(?:okay|ok|sure|certainly|here(?:'|’)?s|here is|as kaia)\b|characteri[sz]ation|"
@@ -80,6 +80,22 @@ def build_prompt(name: str, events: List[rm.RelationshipEvent], stage: str) -> s
     )
 
 
+_IMAGE = re.compile(r"\b(?:is|are|'s|’s)\s+(?:an?|such\s+an?)\s+(?:[a-z\-]+ly\s+)?([a-z\-]+)")
+#: Words of a stock description, not of a person: five of eight impressions on 2 Nov
+#: opened "<name> is a whirlwind", written minutes apart with no sight of each other.
+_NOT_AN_IMAGE = frozenset(("person", "bit", "lot", "little", "kind", "sort", "good", "great", "real", "friend"))
+
+
+def stock_image(text: str, others) -> str:
+    """The word `text` calls someone that another impression already calls someone
+    else, or ""."""
+    def image(t):
+        m = _IMAGE.search((t or "").lower())
+        return m.group(1) if m and m.group(1) not in _NOT_AN_IMAGE else ""
+    word = image(text)
+    return word if word and any(image(o) == word for o in others) else ""
+
+
 def _needs_refresh(user_id: str, events: List[rm.RelationshipEvent], now: float) -> bool:
     if not events or now - events[-1].timestamp > IMPRESSION_ACTIVE_DAYS * 86400:
         return False
@@ -101,17 +117,30 @@ async def refresh_all(ctx) -> int:
         if _needs_refresh(uid, events, now):
             due.append((events[-1].timestamp, uid, events))
     written = 0
+    taken = [(load(f[:-len(".impression.json")]) or {}).get("text", "") for f in os.listdir(rm.RELATIONSHIPS_DIR)
+             if f.endswith(".impression.json")] if os.path.isdir(rm.RELATIONSHIPS_DIR) else []
+
+    async def _write(prompt):
+        resp = await gpu_memory_manager.run_with_gpu_guard(
+            model_name=model, priority=GPUTaskPriority.BACKGROUND,
+            coro=asyncio.wait_for(ctx.ollama_client.chat(
+                model=model, messages=[{"role": "user", "content": prompt}],
+                options=chat_options(temperature=0.4, num_predict=120, **voice_sampling()), keep_alive=-1), timeout=120),
+            task_id=f"impression_{uuid.uuid4().hex[:8]}")
+        return " ".join(resp["message"]["content"].split()).strip('"')
+
     for _, uid, events in sorted(due, reverse=True)[:MAX_PER_NIGHT]:
         name = (bot_state.relationships.get(uid) or {}).get("display_name") or "them"
         prompt = build_prompt(name, events, bot_state.get_relationship_stage(uid))
+        own = (load(uid) or {}).get("text", "")
+        others = [t for t in taken if t and t != own]
         try:
-            resp = await gpu_memory_manager.run_with_gpu_guard(
-                model_name=model, priority=GPUTaskPriority.BACKGROUND,
-                coro=asyncio.wait_for(ctx.ollama_client.chat(
-                    model=model, messages=[{"role": "user", "content": prompt}],
-                    options=chat_options(temperature=0.4, num_predict=120, **voice_sampling()), keep_alive=-1), timeout=120),
-                task_id=f"impression_{uuid.uuid4().hex[:8]}")
-            text = " ".join(resp["message"]["content"].split()).strip('"')
+            text = await _write(prompt)
+            worn = stock_image(text, others)
+            if worn:
+                retry = await _write(prompt + f" You have called someone else \"{worn}\": say what is particular to {name} instead.")
+                if retry and not stock_image(retry, others):
+                    text = retry
         except Exception as e:
             log_warning(f"Relationship impression for {name} failed: {type(e).__name__}: {e}")
             continue
@@ -122,5 +151,6 @@ async def refresh_all(ctx) -> int:
             "text": text[:400], "written": now, "latest_event": events[-1].timestamp, "v": PROMPT_VERSION,
             "events_used": min(len(events), EVENTS_SHOWN)}, indent=1, ensure_ascii=False))
         written += 1
+        taken = [t for t in taken if t != own] + [text]
         log_info(f"👥 Impression of {name} rewritten: {text[:80]}")
     return written
