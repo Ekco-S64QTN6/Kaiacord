@@ -108,3 +108,99 @@ def test_tonberry_knife_drop(base_sheet):
         result = resolve_event("timid_tonberry", sheet)
         
     assert result.get("item_add") == "tonberry_knife"
+
+
+def test_forest_event_knockout_uses_normal_overworld_blackout_flow(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+
+    from utils.ttrpg import outing
+    from utils.ttrpg import rpg_combat_handler as combat
+
+    sheet = {
+        "user_id": "42",
+        "character_name": "TestHero",
+        "class": "Warrior",
+        "level": 5,
+        "location": "whisperwood_edge",
+        "hp": {"current": 5, "max": 30},
+        "xp": 1000,
+        "gil": 200,
+        "deaths": 2,
+        "hunt_streak": 3,
+        "hunts_today": 1,
+        "conditions": ["blessed", "fortified"],
+        "inventory": [],
+    }
+    result = {
+        "event_key": "crystal_resonance",
+        "title": "Crystal Resonance",
+        "outcome": "The resonance shatters through you.",
+        "xp": 100,
+        "gil": 50,
+        "hp_change": -10,
+        "condition_add": None,
+        "condition_remove": None,
+        "extra_hunt": False,
+        "item_add": None,
+        "narration_hook": "a crystal pulse felled the traveler",
+    }
+
+    saves = AsyncMock()
+    announce = AsyncMock()
+    record_event = AsyncMock()
+    close = AsyncMock(return_value=True)
+    actions = []
+    record_event.side_effect = lambda *a, **k: actions.append(("record_event", a, k))
+    close.side_effect = lambda *a, **k: actions.append(("close", a, k)) or True
+
+    monkeypatch.setattr(combat, "save", saves)
+    monkeypatch.setattr(combat, "check_level_up", lambda current: (False, current["level"]))
+    monkeypatch.setattr(combat, "xp_to_next_level", lambda level: 1500)
+    monkeypatch.setattr(combat, "_announce_overworld_blackout", announce)
+    monkeypatch.setattr(combat, "_make_status_view", lambda *args: "status-view")
+    monkeypatch.setattr(outing, "record_event", record_event)
+    monkeypatch.setattr(outing, "close", close)
+
+    channel = SimpleNamespace(send=AsyncMock())
+    msg = SimpleNamespace(channel=channel)
+    ctx = SimpleNamespace()
+
+    asyncio.run(combat._apply_and_narrate_event(
+        ctx, msg, None, sheet, result, "TestHero", uid="42", is_owner=False
+    ))
+
+    # Event rewards apply first, then the same 10% XP / 5% Gil blackout
+    # penalty as ordinary overworld combat.
+    assert sheet["xp"] == 990
+    assert sheet["gil"] == 238
+    assert sheet["hp"] == {"current": 1, "max": 30}
+    assert sheet["location"] == "shrine"
+    assert sheet["deaths"] == 3
+    assert sheet["hunt_streak"] == 0
+    # Conditions have the same retention behavior as the existing combat path.
+    assert sheet["conditions"] == ["blessed", "fortified"]
+    saves.assert_awaited_once_with(sheet)
+    announce.assert_awaited_once()
+    assert announce.await_args.args == (ctx, sheet, "Crystal Resonance", {
+        "xp_loss": 110,
+        "gil_loss": 12,
+    })
+
+    record_event.assert_awaited_once_with(
+        "42", "whisperwood_edge", "Crystal Resonance",
+        "a crystal pulse felled the traveler",
+    )
+    close.assert_awaited_once()
+    assert actions[0][0] == "record_event"
+    assert actions[1][0] == "close"
+    assert actions[1][2]["reason"] == "was knocked out by a forest event and woke at the Shrine"
+
+    assert channel.send.await_count == 2
+    event_embed = channel.send.await_args_list[0].kwargs["embed"]
+    assert "You blacked out" in event_embed.description
+    assert "dropped 110 XP and 12 Gil" in event_embed.description
+    recovery = channel.send.await_args_list[1]
+    assert recovery.kwargs["view"] == "status-view"
+    assert "back at the Shrine" in recovery.kwargs["embed"].description
