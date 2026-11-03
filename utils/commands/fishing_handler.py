@@ -655,8 +655,11 @@ async def _resolve_bite(ctx, interaction, uid, uname, is_owner, pole_key, bait_k
             await interaction.followup.send(embed=snag_embed, view=view)
             return
         else:
-            # 10% Sunken Artifact
-            sheet.setdefault("inventory", []).append("aeridor_shard")
+            # 10% Sunken Artifact. Preserve it in Moogle Mail if the bag is full.
+            from utils.ttrpg.inventory_capacity import grant_item_or_mail
+            artifact_delivery = grant_item_or_mail(
+                sheet, "aeridor_shard", "Sunken Artifact Dredged"
+            )
             fishing_stats = sheet.setdefault("fishing_stats", {})
             bait_stock = fishing_stats.get("bait_stock", {})
             if bait_stock.get(bait_key, 0) > 0:
@@ -666,7 +669,11 @@ async def _resolve_bite(ctx, interaction, uid, uname, is_owner, pole_key, bait_k
                 title="💎 Sunken Artifact Dredged!",
                 description=(
                     "Your hook dredges up something heavy from the disturbed creek bed!\n\n"
-                    "✨ **Acquired:** **Aeridor Crystal Shard** (Can be used to `!rpg purify` the pond!)"
+                    + (
+                        "✨ **Acquired:** **Aeridor Crystal Shard** (Can be used to purify the pond!)"
+                        if artifact_delivery == "inventory"
+                        else "📬 **Aeridor Crystal Shard** was sent to Moogle Mail because your inventory is full. Check !rpg mail."
+                    )
                 ),
                 color=0x9b59b6
             )
