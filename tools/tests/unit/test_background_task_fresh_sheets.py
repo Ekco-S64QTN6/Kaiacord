@@ -123,7 +123,7 @@ def test_combat_event_applies_only_hp_and_reward_deltas_to_fresh_sheet(monkeypat
 
 def test_blight_event_preserves_crop_planted_after_candidate_snapshot(monkeypatch):
     from utils.core import background_tasks
-    from utils.ttrpg import broadcast, character_manager, farming, housing, session_manager
+    from utils.ttrpg import broadcast, farming, housing, session_manager
 
     user_id = "42003"
     old_plot = {"crop_key": "blood_thistle_seed", "stage": 2, "blighted": False}
@@ -132,9 +132,6 @@ def test_blight_event_preserves_crop_planted_after_candidate_snapshot(monkeypatc
         "character_name": "Gardener",
         "farming": {"plots": [copy.deepcopy(old_plot)]},
     }
-
-    async def load_all_sheets():
-        return [{"user_id": user_id, "character_name": "Current Gardener"}]
 
     def load_all_homes():
         # Detached pre-event snapshot: only the original crop exists.
@@ -148,7 +145,6 @@ def test_blight_event_preserves_crop_planted_after_candidate_snapshot(monkeypatc
         live_housing.clear()
         live_housing.update(copy.deepcopy(value))
 
-    monkeypatch.setattr(character_manager, "load_all", load_all_sheets)
     monkeypatch.setattr(housing, "load_all_housing", load_all_homes)
     monkeypatch.setattr(housing, "load_housing_async", load_home)
     monkeypatch.setattr(housing, "save_housing_async", save_home)
@@ -167,6 +163,7 @@ def test_blight_event_preserves_crop_planted_after_candidate_snapshot(monkeypatc
         nonlocal interleaved
         if not interleaved:
             async with await session_manager.get_action_lock(f"user:{uid}"):
+                live_housing["character_name"] = "Current Gardener"
                 live_housing["farming"]["plots"].append({
                     "crop_key": "honey_sap_seed",
                     "stage": 1,
