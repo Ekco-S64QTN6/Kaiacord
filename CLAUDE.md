@@ -234,6 +234,12 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   before handing anything to a writer thread: `BotState.save()` serialises on the caller's
   thread, because `json.dump` over live dicts on the writer raised mid-iteration and dropped
   the save. `write_atomic` names its temporary per process *and* thread for the same reason.
+- **Background RPG character mutations use the same per-player action lock as commands and views.**
+  Discover IDs with `character_manager.load_all()` if needed, but never carry those detached
+  snapshots into a save. Use `_mutate_player_sheet(uid, mutation)`: it acquires
+  `session_manager.get_action_lock("user:<uid>")`, reloads the current character, applies a
+  synchronous mutation, and saves only when changed. The character manager's own file lock
+  protects one read or one write at a time; it does not make a read-modify-write atomic.
 - **RPG multi-file writes use the resource's recovery journal.** Character + housing, dungeon or
   Spine snapshots go through `housing_transactions.commit_character_resource()`; character +
   shared pond/town updates go through `world_state.mutate_world_state()`; combat rewards and

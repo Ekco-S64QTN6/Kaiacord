@@ -149,6 +149,100 @@ async def _commit_background_combat_result(
 
 
 
+async def _reset_dawn_character(user_id, today):
+    """Apply dawn-only character flags to a fresh sheet under its action lock.
+
+    character_manager.load() also performs its idempotent daily hunt/condition
+    reset under the character manager's file lock. The action lock held by
+    _mutate_player_sheet protects the full read-modify-write against live
+    commands, views, and other background events.
+    """
+    from utils.ttrpg.calendar import SPECIAL_DAYS
+    from utils.ttrpg.progression import PERMANENT_CONDITIONS
+
+    def reset(sheet):
+        modified = False
+        if sheet.get("hunts_reset_date") != today:
+            sheet["hunts_today"] = 0
+            sheet["hunts_reset_date"] = today
+            sheet["forest_event_attempts_today"] = 0
+            modified = True
+
+        flags = sheet.get("flags")
+        if isinstance(flags, dict) and flags.get("caravan_gear_bought"):
+            flags["caravan_gear_bought"] = False
+            modified = True
+
+        # First Day of Winter grants temporary max HP. Remove only when the
+        # matching receipt flag is present, so repeated dawn runs cannot stack.
+        if sheet.pop("_winter_resolve_applied", None):
+            winter_bonus = next(
+                (day.get("buff_value", 0) for day in SPECIAL_DAYS.values()
+                 if day.get("buff") == "winter_resolve"),
+                0,
+            )
+            if winter_bonus:
+                hp = sheet.setdefault("hp", {})
+                hp["max"] = max(1, int(hp.get("max", 1)) - winter_bonus)
+                hp["current"] = min(
+                    int(hp.get("current", 0) or 0), hp["max"]
+                )
+            modified = True
+
+        if sheet.pop("_new_year_applied", None) is not None:
+            modified = True
+
+        old_conditions = sheet.get("conditions", [])
+        if not isinstance(old_conditions, list):
+            old_conditions = []
+        if "ale_warmth" in old_conditions:
+            hp = sheet.setdefault("hp", {})
+            hp["max"] = max(1, int(hp.get("max", 1)) - 3)
+            hp["current"] = min(int(hp.get("current", 0) or 0), hp["max"])
+
+        remaining_conditions = [
+            condition for condition in old_conditions
+            if condition in PERMANENT_CONDITIONS
+        ]
+        if old_conditions != remaining_conditions:
+            sheet["conditions"] = remaining_conditions
+            modified = True
+
+        return {"modified": True} if modified else None
+
+    return await _mutate_player_sheet(user_id, reset)
+
+
+async def _process_dawn_character_resets(today):
+    """Discover characters, then reset each through its own action lock.
+
+    Detached snapshots from load_all() are used only to discover IDs and count
+    sheets that were due for a new hunt day. Every write re-loads the latest
+    sheet under the owner's user-action lock.
+    """
+    from utils.ttrpg.character_manager import load_all
+
+    candidates = await load_all()
+    reset_count = 0
+    total_interest = 0  # Bank interest was intentionally retired.
+
+    for candidate in candidates:
+        user_id = candidate.get("user_id")
+        if user_id is None:
+            continue
+        needs_hunt_reset = candidate.get("hunts_reset_date") != today
+        try:
+            await _reset_dawn_character(str(user_id), today)
+            if needs_hunt_reset:
+                reset_count += 1
+        except Exception as exc:
+            log_warning(
+                f"[dawn] Failed to process character {user_id}: {exc}"
+            )
+
+    return reset_count, total_interest
+
+
 class CoreTaskManager:
     """Manager for core background loops with dependency injection and error handling."""
     def __init__(self, ctx):
@@ -1116,73 +1210,9 @@ class CoreTaskManager:
                 # Reload the committed values for the dawn announcement below.
                 state = load_world_state()
 
-                # Through character_manager's own load/save: they hold the lock
-                # every other sheet write holds, and share its temp file. A
-                # write of our own here raced them on that same `.tmp`.
-                from utils.ttrpg.character_manager import _load_sync, _save_sync
-
-                def _process_characters():
-                    files = [f for f in os.listdir(characters_dir) if f.endswith(".json")]
-                    r_count = 0
-                    t_interest = 0
-
-                    for fname in files:
-                        try:
-                            sheet = _load_sync(fname[:-len(".json")])
-                            if not sheet:
-                                continue
-
-                            modified = False
-                            # Reset both hunt stamina and free forest-event attempts.
-                            # The attempt counter must reset even when no monster hunt
-                            # was spent (a day of free events leaves hunts_today at 0).
-                            if sheet.get("hunts_reset_date") != today:
-                                sheet["hunts_today"] = 0
-                                sheet["hunts_reset_date"] = today
-                                sheet["forest_event_attempts_today"] = 0
-                                modified = True
-                                r_count += 1
-
-                            # Clear Caravan Flags
-                            if sheet.get("flags", {}).get("caravan_gear_bought"):
-                                sheet["flags"]["caravan_gear_bought"] = False
-                                modified = True
-
-                            # Clear stale calendar buff flags. First Day of Winter's
-                            # max HP is "+5 today": take it back with its flag.
-                            if sheet.pop("_winter_resolve_applied", None):
-                                from utils.ttrpg.calendar import SPECIAL_DAYS
-                                _wr = next((d.get("buff_value", 0) for d in SPECIAL_DAYS.values()
-                                            if d.get("buff") == "winter_resolve"), 0)
-                                sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - _wr)
-                                sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
-                                modified = True
-                            if sheet.pop("_new_year_applied", None) is not None:
-                                modified = True
-
-                            # Clear temporary conditions at dawn
-                            from utils.ttrpg.progression import PERMANENT_CONDITIONS
-                            old_conds = sheet.get("conditions", [])
-                            # Ale warmth carries a +3 max HP — strip it before clearing
-                            if "ale_warmth" in old_conds:
-                                sheet["hp"]["max"] = max(1, sheet["hp"]["max"] - 3)
-                                sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
-                            new_conds = [c for c in old_conds if c in PERMANENT_CONDITIONS]
-                            if old_conds != new_conds:
-                                sheet["conditions"] = new_conds
-                                modified = True
-                            
-                            # Bank Interest (2%, max 10g + bonus) has been removed
-                            
-                            if modified:
-                                _save_sync(sheet)
-
-                        except Exception as e:
-                            log_warning(f"[dawn] Failed to process {fname}: {e}")
-                    
-                    return r_count, t_interest
-
-                reset_count, total_interest = await asyncio.to_thread(_process_characters)
+                # Discover candidate IDs only. Each mutation re-loads the fresh sheet
+                # under the same per-player action lock used by commands and views.
+                reset_count, total_interest = await _process_dawn_character_resets(today)
 
 
 

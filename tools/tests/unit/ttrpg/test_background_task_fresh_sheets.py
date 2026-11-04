@@ -191,3 +191,147 @@ def test_blight_event_preserves_crop_planted_after_candidate_snapshot(monkeypatc
     final_embed = channel.send.await_args.kwargs["embed"]
     assert "Current Gardener" in final_embed.description
     assert "Blood Thistle Seed" in final_embed.description
+
+
+
+def test_dawn_reset_reloads_after_player_action_and_holds_user_lock(monkeypatch):
+    from datetime import date
+    from utils.core import background_tasks
+    from utils.ttrpg import character_manager, session_manager
+
+    uid = "42011"
+    today = date.today().isoformat()
+    stale_candidate = {
+        "user_id": uid,
+        "character_name": "Old Snapshot",
+        "hunts_reset_date": "2000-01-01",
+        "hunts_today": 4,
+        "forest_event_attempts_today": 3,
+        "gil": 200,
+        "inventory": [],
+        "conditions": [],
+        "hp": {"current": 20, "max": 20},
+    }
+    live_sheet = copy.deepcopy(stale_candidate)
+    saves = []
+
+    async def load_all():
+        # A real player action commits after candidate discovery and before the
+        # dawn worker starts its per-player read-modify-write.
+        async with await session_manager.get_action_lock(f"user:{uid}"):
+            live_sheet["character_name"] = "Current Adventurer"
+            live_sheet["gil"] -= 25
+            live_sheet["inventory"].append("potion_standard")
+            live_sheet["conditions"].append("blessed")
+        return [copy.deepcopy(stale_candidate)]
+
+    async def load(user_id):
+        assert str(user_id) == uid
+        assert session_manager._action_locks[f"user:{uid}"].locked()
+        return copy.deepcopy(live_sheet)
+
+    async def save(sheet):
+        assert session_manager._action_locks[f"user:{uid}"].locked()
+        saves.append(copy.deepcopy(sheet))
+        live_sheet.clear()
+        live_sheet.update(copy.deepcopy(sheet))
+
+    monkeypatch.setattr(character_manager, "load_all", load_all)
+    monkeypatch.setattr(character_manager, "load", load)
+    monkeypatch.setattr(character_manager, "save", save)
+
+    reset_count, total_interest = asyncio.run(
+        background_tasks._process_dawn_character_resets(today)
+    )
+
+    assert reset_count == 1
+    assert total_interest == 0
+    assert live_sheet["character_name"] == "Current Adventurer"
+    assert live_sheet["gil"] == 175
+    assert live_sheet["inventory"] == ["potion_standard"]
+    assert live_sheet["conditions"] == ["blessed"]
+    assert live_sheet["hunts_today"] == 0
+    assert live_sheet["hunts_reset_date"] == today
+    assert live_sheet["forest_event_attempts_today"] == 0
+    assert len(saves) == 1
+
+
+def test_dawn_reset_skips_noop_sheets_without_saving(monkeypatch):
+    from datetime import date
+    from utils.core import background_tasks
+    from utils.ttrpg import character_manager
+
+    uid = "42012"
+    today = date.today().isoformat()
+    sheet = {
+        "user_id": uid,
+        "hunts_reset_date": today,
+        "hunts_today": 2,
+        "forest_event_attempts_today": 1,
+        "conditions": ["blessed", "rested"],
+        "flags": {"caravan_gear_bought": False},
+        "hp": {"current": 20, "max": 20},
+    }
+    saves = []
+
+    monkeypatch.setattr(character_manager, "load_all", AsyncMock(return_value=[copy.deepcopy(sheet)]))
+    monkeypatch.setattr(character_manager, "load", AsyncMock(return_value=copy.deepcopy(sheet)))
+    monkeypatch.setattr(character_manager, "save", AsyncMock(side_effect=lambda value: saves.append(value)))
+
+    result = asyncio.run(background_tasks._process_dawn_character_resets(today))
+
+    assert result == (0, 0)
+    assert saves == []
+
+
+def test_dawn_reset_removes_only_flagged_hp_buffs_and_is_idempotent(monkeypatch):
+    from datetime import date
+    from utils.core import background_tasks
+    from utils.ttrpg import calendar, character_manager
+
+    uid = "42013"
+    today = date.today().isoformat()
+    live_sheet = {
+        "user_id": uid,
+        "hunts_reset_date": today,
+        "hunts_today": 2,
+        "forest_event_attempts_today": 1,
+        "character_name": "Winter Adventurer",
+        "_winter_resolve_applied": True,
+        "_new_year_applied": True,
+        "flags": {"caravan_gear_bought": True},
+        "conditions": ["ale_warmth", "blind", "blessed"],
+        "hp": {"current": 40, "max": 40},
+    }
+    saves = []
+
+    async def load_all():
+        return [copy.deepcopy(live_sheet)]
+
+    async def load(user_id):
+        return copy.deepcopy(live_sheet)
+
+    async def save(sheet):
+        saves.append(copy.deepcopy(sheet))
+        live_sheet.clear()
+        live_sheet.update(copy.deepcopy(sheet))
+
+    monkeypatch.setattr(calendar, "SPECIAL_DAYS", {
+        "winter_resolve": {"buff": "winter_resolve", "buff_value": 5}
+    })
+    monkeypatch.setattr(character_manager, "load_all", load_all)
+    monkeypatch.setattr(character_manager, "load", load)
+    monkeypatch.setattr(character_manager, "save", save)
+
+    asyncio.run(background_tasks._process_dawn_character_resets(today))
+    assert live_sheet["hp"] == {"current": 32, "max": 32}
+    assert live_sheet["conditions"] == ["blessed"]
+    assert live_sheet["flags"]["caravan_gear_bought"] is False
+    assert "_winter_resolve_applied" not in live_sheet
+    assert "_new_year_applied" not in live_sheet
+    assert len(saves) == 1
+
+    # A repeat does not strip the same max-HP modifiers twice.
+    asyncio.run(background_tasks._process_dawn_character_resets(today))
+    assert live_sheet["hp"] == {"current": 32, "max": 32}
+    assert len(saves) == 1
