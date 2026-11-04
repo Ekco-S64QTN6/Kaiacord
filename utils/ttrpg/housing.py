@@ -66,6 +66,7 @@ TIER_ORDER = ["hut", "cottage", "longhouse", "keep"]
 
 def default_housing_sheet(user_id: str, character_name: str, tier: str = "hut") -> dict:
     import time
+    from datetime import date
     return {
         "user_id": user_id,
         "character_name": character_name,
@@ -79,6 +80,7 @@ def default_housing_sheet(user_id: str, character_name: str, tier: str = "hut") 
         "house_name": f"{character_name}'s {HOUSING_TIERS[tier]['name']}",
         "created_at": time.time(),
         "last_updated": time.time(),
+        "last_farm_reset": date.today().isoformat(),
     }
 
 # ── Persistence ────────────────────────────────────────────────────────────────
@@ -94,23 +96,40 @@ def _housing_path(user_id: str) -> str:
     return os.path.join(HOUSING_DIR, f"{user_id}.json")
 
 def load_housing(user_id: str) -> dict | None:
+    """Read one housing record without applying daily resets or writing it.
+
+    Daily farm/pet resets are explicit in-memory mutations coordinated by
+    character_manager.load(), which owns the player's lock and commits any
+    changed character + housing snapshots through the recovery journal.
+    """
     p = _housing_path(str(user_id))
     with _lock:
         if not os.path.exists(p):
             return None
-        with open(p, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+
+def apply_daily_housing_reset(housing: dict, *, today: str | None = None) -> bool:
+    """Apply the daily farm/pet transition in memory, once per calendar day.
+
+    This function performs no I/O. The caller persists a changed housing
+    snapshot under the owner's action lock, paired with the character sheet
+    when invoked from character_manager.load().
+    """
+    if not isinstance(housing, dict):
+        return False
     from datetime import date
-    today = date.today().strftime("%Y-%m-%d")
-    if data.get("last_farm_reset") != today:
-        from utils.ttrpg.farming import reset_daily_farm
-        from utils.ttrpg.pets import reset_daily_pets
-        data = reset_daily_farm(data)
-        data = reset_daily_pets(data)
-        save_housing(data)
-        
-    return data
+
+    reset_day = today or date.today().isoformat()
+    if housing.get("last_farm_reset") == reset_day:
+        return False
+
+    from utils.ttrpg.farming import reset_daily_farm
+    from utils.ttrpg.pets import reset_daily_pets
+    reset_daily_farm(housing, today=reset_day)
+    reset_daily_pets(housing)
+    return True
 
 def _write_housing(user_id: str, text: str) -> None:
     from utils.core.atomic_write import write_atomic

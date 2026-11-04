@@ -120,9 +120,9 @@ def harvest_crop(crop: dict, season: str, furniture_yield_bonus: int = 0) -> tup
 
     return crop_data["yield_item"], max(1, qty)
 
-def reset_daily_farm(housing: dict) -> dict:
-    """Call on daily reset — clear watered_today flags."""
-    today = date.today().isoformat()
+def reset_daily_farm(housing: dict, *, today: str | None = None) -> dict:
+    """Clear watered_today flags for an explicit daily reset."""
+    today = today or date.today().isoformat()
     for plot in housing.get("farming", {}).get("plots", []):
         plot["watered_today"] = False
     housing["last_farm_reset"] = today

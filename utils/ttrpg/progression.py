@@ -130,7 +130,12 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
 
 
 def check_and_reset_hunts(sheet: dict, housing: dict = None) -> dict:
-    """Reset daily hunts if it's a new day."""
+    """Reset character-only daily hunts and temporary conditions.
+
+    The optional housing argument remains for older callers, but housing is
+    never loaded, mutated, or saved here. Daily farm/pet state is coordinated
+    by character_manager.load() under the player's lock and recovery journal.
+    """
     from datetime import date
     today = date.today().strftime("%Y-%m-%d")
     # Older character sheets predate the separate free-event budget.
@@ -156,17 +161,7 @@ def check_and_reset_hunts(sheet: dict, housing: dict = None) -> dict:
                 sheet["conditions"].append("rested")
             sheet["inn_rest_pending"] = False
 
-        from utils.ttrpg.housing import load_housing, save_housing
-        from utils.ttrpg.pets import reset_daily_pets
-        from utils.ttrpg.farming import reset_daily_farm
 
-        if housing is None:
-            housing = load_housing(str(sheet.get("user_id", "")))
-        if housing and housing.get("last_farm_reset") != today:
-            housing = reset_daily_farm(housing)
-            housing = reset_daily_pets(housing)
-            save_housing(housing)
-            
     return sheet
 
 
