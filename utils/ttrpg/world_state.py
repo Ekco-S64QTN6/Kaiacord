@@ -155,10 +155,15 @@ def save_world_state(state: Dict[str, Any]):
 def get_current_state() -> Dict[str, Any]:
     return load_world_state()
 
-async def async_save_world_state(state: Dict[str, Any]):
-    import asyncio
-    # Serialised and copied on the caller's thread; the dict is live.
+async def _async_write_world_state_unlocked(state: Dict[str, Any]) -> None:
+    """Write one already-serialized state while the caller owns _transaction_lock."""
     await asyncio.to_thread(_write_world_state, state.copy(), json.dumps(state, indent=2))
+
+
+async def async_save_world_state(state: Dict[str, Any]):
+    """Serialize writes from async callers with multi-file world transactions."""
+    async with _transaction_lock:
+        await _async_write_world_state_unlocked(state)
 
 
 
@@ -213,7 +218,7 @@ async def _recover_pending_transaction_locked() -> bool:
 
     # Both writes are snapshot replays and therefore idempotent. Keep the
     # journal until both destinations are durable.
-    await async_save_world_state(record["world_state"])
+    await _async_write_world_state_unlocked(record["world_state"])
     from utils.ttrpg.character_manager import save as save_character
     await save_character(sheet)
     _clear_pending_transaction()
