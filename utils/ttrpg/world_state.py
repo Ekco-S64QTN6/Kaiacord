@@ -188,7 +188,13 @@ def _read_pending_transaction() -> dict | None:
     except (OSError, json.JSONDecodeError) as exc:
         # Never continue with a possibly half-committed shared action.
         raise RuntimeError(f"Cannot read pending world-state transaction: {exc}") from exc
-    return record if isinstance(record, dict) and record.get("transaction_id") else None
+    if record == {}:
+        return None
+    if not isinstance(record, dict) or not record.get("transaction_id"):
+        raise RuntimeError(
+            "Pending world-state transaction is malformed; refusing to continue."
+        )
+    return record
 
 
 def _write_pending_transaction(record: dict) -> None:

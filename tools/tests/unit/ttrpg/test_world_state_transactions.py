@@ -321,3 +321,34 @@ def test_world_only_outcome_mutation_recovers_after_world_file_failure(monkeypat
     assert persisted["shop_price_mult_expiry"] == 0
     assert persisted["town_fund"] == 12_345
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        None,
+        [],
+        "pending",
+        {"world_state": {}, "character_sheet": {"user_id": "alice"}},
+    ],
+)
+def test_malformed_world_transaction_journal_fails_closed_and_is_preserved(
+    monkeypatch, tmp_path, record
+):
+    _, journal_path, _ = _isolated_world_state(monkeypatch, tmp_path)
+    journal_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="malformed"):
+        asyncio.run(world_state.recover_pending_world_state_transaction())
+
+    # Invalid records must remain available for diagnosis; never clear them.
+    assert json.loads(journal_path.read_text(encoding="utf-8")) == record
+
+
+def test_empty_world_transaction_journal_is_the_only_cleared_sentinel(
+    monkeypatch, tmp_path
+):
+    _, journal_path, _ = _isolated_world_state(monkeypatch, tmp_path)
+    journal_path.write_text("{}", encoding="utf-8")
+
+    assert asyncio.run(world_state.recover_pending_world_state_transaction()) is False
