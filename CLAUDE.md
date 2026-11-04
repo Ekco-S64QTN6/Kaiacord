@@ -193,6 +193,11 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   The paragraph goes to #aethelgard (`discord.rpg_channel`) so everyone can follow the day, never
   through a button's follow-up; a closed trip waits in `outings/untold/` with its text until the
   post succeeds, and the boot tells whatever is still waiting.
+- **Spine stair guardians are floor-scaled encounter instances.** Build them with
+  `spine_dungeon.scale_stair_guardian()`; do not mutate `monster_registry.MONSTERS`. Keep the
+  floor HP/ATK/DEF curve and milestone Resonance Ward in sync with
+  `docs/ttrpg/aethelgard_system.md`. The ward is an encounter-only field consumed by
+  `combat_engine.py`; ordinary monsters and story bosses outside the Spine keep their own rules.
 - **A Spine death keeps progress.** Beaten guardians (and so the Resonance Lift's stops) live on
   the sheet; dying restocks the floor and ends the run. It must never call `dungeon.clear_dungeon()`,
   which deletes the *regular* dungeon's save (`test_outing.py` pins both).

@@ -367,6 +367,24 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
             if pd_bonus:
                 player_damage += pd_bonus
 
+            # Stair guardians gain a floor-band Resonance Ward. It is carried
+            # on the encounter instance (never the shared monster registry),
+            # so ordinary monsters and other uses of the bestiary are unchanged.
+            guardian_ward_pct = max(
+                0, min(25, int(monster.get("guardian_ward_pct", 0) or 0))
+            )
+            if guardian_ward_pct:
+                damage_before_ward = player_damage
+                player_damage = max(
+                    1, (player_damage * (100 - guardian_ward_pct)) // 100
+                )
+                ward_absorbed = damage_before_ward - player_damage
+                if ward_absorbed > 0:
+                    status_logs.append(
+                        f"💎 *{monster.get('name', 'The guardian')}'s Resonance Ward "
+                        f"absorbs {ward_absorbed} damage ({guardian_ward_pct}% ward).*"
+                    )
+
             die_str = f"{'2' if player_crit else '1'}d{weapon_dmg_die}"
             bonus_str = f"{'+' if total_dmg_bonus >= 0 else ''}{total_dmg_bonus}" if total_dmg_bonus != 0 else ""
             if pd_bonus:

@@ -286,6 +286,30 @@ Procedurally generated 5×5 grid, 9-12 rooms. Entered via button at hunting loca
 ### The Spine of the World
 A massive 77-floor mega-dungeon — the Ironvein Deep — entered with `!rpg dungeon` from the Aeridor Ruins (Grimstone, the town once planned in front of it, was cut in May 2026). Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses. It features checkpoint lifts every 5 floors (a stop unlocks when the player reaches that floor: beating floor N's stair guardian opens N + 1) and progressive floor-based monster scaling (e.g. `mob_hp_cap = 80 + floor_num * 3` and `mob_atk_cap = 12 + floor_num // 5`).
 
+### Stair Guardian Progression
+
+The 77 stair guardians are **floor-scaled progression checks**, not fixed-stat story bosses. The
+bestiary entries remain the narrative/stat templates; the stair path scales a deep copy for that
+floor and never changes the shared registry. The ordinary Spine room path uses difficulty-5
+scaling (1.6x base stats) and the documented HP/ATK caps. Guardian instances sit above that curve:
+
+- **HP:** at least 1.2x the floor HP cap (`ceil((80 + floor_num * 3) * 1.2)`), and at least
+  one point above the same monster's ordinary difficulty-scaled room HP.
+- **ATK:** at least two points above the ordinary floor attack cap and the same monster's
+  difficulty-scaled attack. The floor cap uses the current level-15 maximum (`int(15 * 1.5 + 2)`)
+  before adding the guardian margin.
+- **DEF:** `20 + floor_num // 8`, rising from 20 on floor 1 to 29 on floor 77. This is above
+  the ordinary difficulty-scaled DEF range of the registered guardians.
+- **Special mechanic — Resonance Ward:** no ward on floors 1–14; it absorbs 5% of incoming
+  player damage on floors 15–29, then gains another 5 percentage points at floors 30, 45, 60,
+  and 75, reaching 25% on floors 75–77. The ward is stored on the individual guardian instance
+  and applied by combat resolution; ordinary monsters are unaffected.
+
+At floor 77, **The Mountain Heart** is 374 HP / 26 ATK / 29 DEF with a 25% Resonance Ward,
+compared with its ordinary difficulty-scaled room values of 160 HP / 19 ATK / 19 DEF. Other
+campaign story bosses retain their existing encounter-specific rules (including player-level
+scaling for procedural dungeon bosses); this floor curve applies only to named stair guardians.
+
 ### Room Types
 
 | Type | Weight | Description |
