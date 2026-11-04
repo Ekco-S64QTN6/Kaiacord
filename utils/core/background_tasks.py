@@ -101,17 +101,14 @@ async def _commit_background_combat_result(
         # The bank heist pays a half reward to a defender who was knocked out
         # while the team won. Other background fights use the normal blackout
         # penalties when the fresh sheet is still at 0 HP.
-        if simulated_knockout and (knockout_xp_reward or knockout_gil_reward):
+        blackout = None
+        rewarded_knockout = simulated_knockout and bool(
+            knockout_xp_reward or knockout_gil_reward
+        )
+        if rewarded_knockout:
             hp["current"] = 1
             sheet["location"] = "shrine"
             sheet["deaths"] = sheet.get("deaths", 0) + 1
-        elif hp["current"] <= 0:
-            blackout = _apply_overworld_blackout(sheet)
-            for condition in ("embered", "fortified"):
-                if condition in conditions:
-                    conditions.remove(condition)
-        else:
-            blackout = None
 
         xp_to_add = knockout_xp_reward if simulated_knockout else xp_reward
         gil_to_add = knockout_gil_reward if simulated_knockout else gil_reward
@@ -128,15 +125,13 @@ async def _commit_background_combat_result(
 
         # If the encounter snapshot showed a knockout but a concurrent heal
         # left the fresh character standing, do not force the stale death onto
-        # them. Otherwise apply standard blackout after rewards/level-up.
-        if simulated_knockout and not (knockout_xp_reward or knockout_gil_reward):
-            if hp["current"] <= 0:
-                blackout = _apply_overworld_blackout(sheet)
-                for condition in ("embered", "fortified"):
-                    if condition in conditions:
-                        conditions.remove(condition)
-            else:
-                blackout = None
+        # them. A fresh character reduced to 0 HP by the event delta still uses
+        # the standard blackout, after any applicable reward has been applied.
+        if not rewarded_knockout and hp["current"] <= 0:
+            blackout = _apply_overworld_blackout(sheet)
+            for condition in ("embered", "fortified"):
+                if condition in conditions:
+                    conditions.remove(condition)
 
         return {
             "character_name": character_name,
