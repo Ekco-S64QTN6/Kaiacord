@@ -172,3 +172,68 @@ def test_progression_daily_hunt_reset_never_mutates_passed_housing():
     progression.check_and_reset_hunts(sheet, housing=home)
     assert sheet["hunts_today"] == 0
     assert home == original_home
+
+
+
+def test_repeated_character_load_does_not_repeat_daily_mognet_delivery(monkeypatch):
+    uid = "42023"
+    today = date.today().isoformat()
+    persisted_sheet = {
+        "user_id": uid, "character_name": "Once Only",
+        "hunts_today": 4, "hunts_reset_date": "2000-01-01",
+        "forest_event_attempts_today": 2, "conditions": [],
+        "hp": {"current": 10, "max": 10}, "mailbox": [],
+    }
+    persisted_home = {
+        "user_id": uid, "character_name": "Once Only",
+        "last_farm_reset": "2000-01-01",
+        "farming": {"plots": []},
+        "pets": [{"key": "moogle", "fed_today": True, "fed_days": 6, "days_owned": 1}],
+        "mognet_deliveries": 0,
+    }
+    commits = []
+
+    async def no_world_recovery():
+        return False
+
+    async def no_housing_recovery(_uid):
+        return False
+
+    async def get_test_lock(_uid):
+        return asyncio.Lock()
+
+    async def commit(sheet_snapshot, home_snapshot, *, action, character_lock_held=False):
+        commits.append(action)
+        persisted_sheet.clear()
+        persisted_sheet.update(copy.deepcopy(sheet_snapshot))
+        persisted_home.clear()
+        persisted_home.update(copy.deepcopy(home_snapshot))
+
+    monkeypatch.setattr(world_state, "recover_pending_world_state_transaction", no_world_recovery)
+    monkeypatch.setattr(housing_transactions, "recover_pending_housing_transaction", no_housing_recovery)
+    monkeypatch.setattr(character_manager, "get_user_lock", get_test_lock)
+    monkeypatch.setattr(
+        character_manager, "_load_sync", lambda _uid: copy.deepcopy(persisted_sheet)
+    )
+    monkeypatch.setattr(housing, "load_housing", lambda _uid: copy.deepcopy(persisted_home))
+    monkeypatch.setattr(housing_transactions, "commit_character_housing", commit)
+    monkeypatch.setattr(
+        character_manager, "_save_sync",
+        lambda current: (persisted_sheet.clear(), persisted_sheet.update(copy.deepcopy(current))),
+    )
+
+    async def load_twice():
+        first = await character_manager.load(uid)
+        second = await character_manager.load(uid)
+        return first, second
+
+    first, second = asyncio.run(load_twice())
+
+    assert commits == ["daily_mognet_delivery"]
+    assert first["hunts_reset_date"] == today
+    assert second["hunts_reset_date"] == today
+    assert len(first["mailbox"]) == 1
+    assert len(second["mailbox"]) == 1
+    assert persisted_home["mognet_deliveries"] == 0
+    assert persisted_home["pets"][0]["fed_days"] == 0
+    assert persisted_home["pets"][0]["days_owned"] == 2
