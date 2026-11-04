@@ -4261,6 +4261,8 @@ async def run_caravan_ambush(bot_ctx, channel):
     defeated_monsters_count = 0
     player_defeated_count = 0
     
+    # Refresh shared modifiers after the player response delay.
+    wstate = load_world_state()
     world_atk_mod = wstate.get("atk_mod", 0)
     from utils.ttrpg.town_projects import raid_def_bonus
     world_def_mod = wstate.get("def_mod", 0) + raid_def_bonus(wstate)
@@ -4404,7 +4406,7 @@ async def run_market_glut(bot_ctx, channel):
     from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     now = time.time()
     
     is_glut = secrets.randbelow(2) == 0
@@ -4454,7 +4456,7 @@ async def run_whisperwood_bloom(bot_ctx, channel):
     from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     now = time.time()
     
     wstate["forest_event_bonus"] = 0.15
@@ -4486,7 +4488,7 @@ async def run_shrine_vigil(bot_ctx, channel):
     from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     now = time.time()
     
     wstate["blessing_window_until"] = now + 24 * 3600
@@ -4534,7 +4536,7 @@ async def run_missing_persons(bot_ctx, channel):
     chosen_name = secrets.choice(names)
     chosen_key, chosen_desc = secrets.choice(locs)
     
-    wstate = load_world_state()
+    wstate = {}
     now = time.time()
     wstate["missing_person_name"] = chosen_name
     wstate["missing_person_loc"] = chosen_key
@@ -4984,7 +4986,7 @@ async def run_pilgrims_arrive(bot_ctx, channel):
 
     # Set temporary world_state pilgrim_blessing_until; the player-sheet
     # mutations above have already been committed under their own locks.
-    wstate = load_world_state()
+    wstate = {}
     wstate["pilgrim_blessing_until"] = time.time() + 24 * 3600
     await update_world_state(lambda state: state.update({
         "pilgrim_blessing_until": wstate["pilgrim_blessing_until"],
@@ -5017,7 +5019,7 @@ async def run_night_terror_warning(bot_ctx, channel):
     ))
 
     # Write a temporary flag into world_state
-    wstate = load_world_state()
+    wstate = {}
     wstate["encounter_mod"] = {"tier_shift": 1}
     wstate["encounter_mod_expiry"] = time.time() + 24 * 3600  # 24 hours
     await update_world_state(lambda state: state.update({
@@ -5036,7 +5038,7 @@ async def run_ironclad_envoys(bot_ctx, channel):
     from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["shop_price_mult"] = 1.15
     wstate["shop_price_mult_expiry"] = time.time() + 24 * 3600
     await update_world_state(lambda state: state.update({
@@ -5066,7 +5068,7 @@ async def run_silverstream_blackwater(bot_ctx, channel):
     from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["fishing_water_tainted"] = True
     wstate["fishing_water_tainted_expiry"] = time.time() + 24 * 3600
     await update_world_state(lambda state: state.update({
@@ -5205,7 +5207,7 @@ async def run_watchtower_silence(bot_ctx, channel):
     from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["watchtower_bonus"] = True
     wstate["watchtower_bonus_expiry"] = time.time() + 24 * 3600
     await update_world_state(lambda state: state.update({
@@ -5570,7 +5572,7 @@ async def run_boundary_shift(bot_ctx, channel):
     from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["encounter_mod"] = {"tier_shift": 1}
     wstate["encounter_mod_expiry"] = time.time() + 24 * 3600
     await update_world_state(lambda state: state.update({
@@ -5599,7 +5601,7 @@ async def run_sealed_wax_jar(bot_ctx, channel):
     from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["special_item_sale"] = {"item": "lucky_charm", "price": 20}
     wstate["special_item_sale_expiry"] = time.time() + 24 * 3600
     await update_world_state(lambda state: state.update({

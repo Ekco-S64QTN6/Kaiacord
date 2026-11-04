@@ -252,8 +252,9 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   no-I/O mutator, and committing the atomic JSON replacement. Never do
   `load_world_state(); mutate; save_world_state()`, and do not pass a snapshot created before the
   lock to `async_save_world_state()`: serializing the final write does not prevent stale-key loss.
-  `load_world_state()` is read-only; expired modifiers are normalized in its returned copy and are
-  persisted by the next explicit transaction. Synchronous `save_world_state()` is for isolated
+  `load_world_state()` is read-only, returns deep copies, and fails closed on corrupt/unreadable JSON;
+  expired modifiers are normalized in its returned copy and are persisted by the next explicit
+  transaction. Synchronous `save_world_state()` is for isolated
   tests/bootstrap only. The hunt entry stamina debit is an intentional one-way reservation before
   encounter generation, not a refundable two-file write. Fault-inject each write boundary and test
   repeated recovery.

@@ -456,3 +456,28 @@ def test_missing_person_world_event_and_character_reward_are_claimed_once(
     assert saved_sheets[0]["xp"] == 100
     assert saved_sheets[0]["gil"] == 100
     assert saved_sheets[0]["reputation"] == 10
+
+
+
+@pytest.mark.parametrize("payload", ["{not-json", "[]", "null", '"not-an-object"'])
+def test_corrupt_world_state_fails_closed(monkeypatch, tmp_path, payload):
+    state_path, _, _ = _isolated_world_state(monkeypatch, tmp_path)
+    state_path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Cannot safely load RPG world state"):
+        world_state.load_world_state()
+
+
+def test_nested_world_state_reads_do_not_mutate_cached_state(monkeypatch, tmp_path):
+    state_path, _, _ = _isolated_world_state(monkeypatch, tmp_path)
+    state_path.write_text(json.dumps({
+        **world_state.DEFAULT_STATE,
+        "special_item_sale": {"item": "lucky_charm", "price": 20},
+    }), encoding="utf-8")
+
+    first = world_state.load_world_state()
+    first["special_item_sale"]["price"] = 0
+    second = world_state.load_world_state()
+
+    assert second["special_item_sale"] == {"item": "lucky_charm", "price": 20}
+    assert json.loads(state_path.read_text(encoding="utf-8"))["special_item_sale"]["price"] == 20

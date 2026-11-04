@@ -42,21 +42,23 @@ def load_world_state() -> Dict[str, Any]:
     path = _path()
     with _lock:
         if not os.path.exists(path):
-            return DEFAULT_STATE.copy()
+            return copy.deepcopy(DEFAULT_STATE)
         try:
             mtime = os.path.getmtime(path)
             if _cache and mtime <= _cache_date:
-                state = _cache.copy()
+                state = copy.deepcopy(_cache)
             else:
                 with open(path, "r", encoding="utf-8") as f:
                     state = json.load(f)
-                    # Ensure all keys exist
+                    if not isinstance(state, dict):
+                        raise ValueError("world state must be a JSON object")
+                    # Ensure all keys exist.
                     for k, v in DEFAULT_STATE.items():
                         if k not in state:
-                            state[k] = v
-                    _cache = state
+                            state[k] = copy.deepcopy(v)
+                    _cache = copy.deepcopy(state)
                     _cache_date = mtime
-                    state = state.copy()
+                    state = copy.deepcopy(state)
             
             # Evaluate expiries
             import time
@@ -114,13 +116,14 @@ def load_world_state() -> Dict[str, Any]:
             # it from this getter bypasses _transaction_lock and can race a
             # journaled read-modify-write, restoring stale values or losing keys.
             # The next explicit transaction persists its own fresh snapshot.
-            return state.copy()
+            return copy.deepcopy(state)
         except (OSError, json.JSONDecodeError, ValueError, KeyError) as e:
-            # Logged, not printed: stderr is the terminal the dashboard draws on,
-            # and a world state silently reset to defaults is worth seeing.
+            # Atomic writes should never leave partial JSON. Treat corruption or
+            # unreadable state as a hard error so a later update cannot replace
+            # the campaign's world state with defaults.
             from utils.infrastructure.logging.kaia_logger import log_warning
-            log_warning(f"[world_state] Failed to load {path}, using defaults: {e}")
-            return DEFAULT_STATE.copy()
+            log_warning(f"[world_state] Refusing to use malformed or unreadable state at {path}: {e}")
+            raise RuntimeError(f"Cannot safely load RPG world state from {path}") from e
 
 def _write_world_state(state: Dict[str, Any], text: str):
     global _cache, _cache_date
@@ -128,7 +131,7 @@ def _write_world_state(state: Dict[str, Any], text: str):
     path = _path()
     with _lock:
         write_atomic(path, text)
-        _cache = state
+        _cache = copy.deepcopy(state)
         _cache_date = os.path.getmtime(path)
 
 
