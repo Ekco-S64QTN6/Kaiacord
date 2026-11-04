@@ -1243,6 +1243,10 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     xp_gain, gil_gain, level_up_msg, loot_msg, streak_msg = 0, 0, "", "", ""
     loot_lines = []
+    clear_blockade = bool(
+        res["monster_defeated"]
+        and (monster.get("key") == "bandit_captain" or monster.get("is_blockade_raid"))
+    )
     if res["monster_defeated"]:
         xp_gain = int(monster.get("xp", 10) * state.get("xp_mult", 1.0))
         gil_gain = int(monster.get("gil", 5) * state.get("gil_mult", 1.0))
@@ -1358,14 +1362,9 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             else:
                 loot_lines.append(f"🎒 **[Inventory Full]** Left behind: {cons_display}")
 
-        # Blockade Raid Victory check
-        if monster.get("key") == "bandit_captain" or monster.get("is_blockade_raid"):
-            from utils.ttrpg.world_state import load_world_state, async_save_world_state
-            _ws = load_world_state()
-            _ws["blockade_active"] = False
-            _ws["shop_price_mult"] = 1.0
-            _ws["shop_price_mult_expiry"] = 0
-            await async_save_world_state(_ws)
+        # Blockade Raid Victory is replayed from the pending combat outcome
+        # together with the character reward and encounter removal.
+        if clear_blockade:
             if grant_item(sheet, "stolen_trade_crate"):
                 loot_lines.append("📦 **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)")
             await _log_world_event(f"⚔️ **Blockade Broken:** {sheet['character_name']} defeated the Bandit Captain and liberated the Trade Road!")
@@ -1479,6 +1478,16 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         from utils.ttrpg.combat_outcomes import commit_outcome
 
         async def _persist_overworld_session(_outcome):
+            if _outcome.get("clear_blockade"):
+                from utils.ttrpg.world_state import mutate_world_state_only
+
+                def _clear_blockade(state):
+                    state["blockade_active"] = False
+                    state["shop_price_mult"] = 1.0
+                    state["shop_price_mult_expiry"] = 0
+                    return True
+
+                await mutate_world_state_only(_clear_blockade)
             await _apply_overworld_combat_update(_outcome, remove_monster=True)
 
         await commit_outcome(
@@ -1493,6 +1502,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 "monster_key": monster.get("key"),
                 "origin_location": monster.get("origin_location", loc),
                 "combat_log_entry": copy.deepcopy(s["combat_log"][-1]),
+                "clear_blockade": clear_blockade,
             },
             save_sheet=save,
             persist_encounter=_persist_overworld_session,
