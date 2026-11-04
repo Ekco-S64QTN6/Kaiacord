@@ -171,21 +171,25 @@ def test_outing_rejects_structurally_damaged_nested_values(tmp_path, monkeypatch
 
 def test_midnight_open_outing_is_retained_when_daily_digest_is_corrupt(tmp_path, monkeypatch):
     day = "2026-11-04"
-    open_path = tmp_path / "42.json"
+    outing_dir = tmp_path / "outings"
+    daily_dir = outing_dir / "daily"
+    outing_dir.mkdir()
+    daily_dir.mkdir()
+    open_path = outing_dir / "42.json"
     open_record = {
         "uid": "42", "outing_id": "42:test", "day": day, "started": 1,
-        "zones": ["whisperwood_edge"], "fights": [], "events": [],
+        "zones": ["whisperwood_edge"], "fights": [{"monster": "cave bat"}], "events": [],
         "fight_count": 1, "wins": 1, "losses": 0, "xp": 10, "gil": 2,
         "loot": [], "levels": [],
     }
     open_bytes = json.dumps(open_record).encode("utf-8")
     open_path.write_bytes(open_bytes)
-    daily_path = tmp_path / f"{day}_42.json"
+    daily_path = daily_dir / f"{day}_42.json"
     daily_bytes = b"broken daily json"
     daily_path.write_bytes(daily_bytes)
 
-    monkeypatch.setattr(outing, "OUTING_DIR", str(tmp_path))
-    monkeypatch.setattr(outing, "DAILY_DIR", str(tmp_path))
+    monkeypatch.setattr(outing, "OUTING_DIR", str(outing_dir))
+    monkeypatch.setattr(outing, "DAILY_DIR", str(daily_dir))
 
     assert outing._take_open_outings_sync(day) == 0
     assert open_path.read_bytes() == open_bytes
