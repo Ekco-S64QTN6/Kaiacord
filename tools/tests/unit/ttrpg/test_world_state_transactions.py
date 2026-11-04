@@ -13,6 +13,8 @@ def _isolated_world_state(monkeypatch, tmp_path):
     journal_path = tmp_path / "world_state_pending.json"
     monkeypatch.setattr(world_state, "_path", lambda: str(state_path))
     monkeypatch.setattr(world_state, "_transaction_path", lambda: str(journal_path))
+    monkeypatch.setattr(world_state, "_cache", None)
+    monkeypatch.setattr(world_state, "_cache_date", 0.0)
     # asyncio.Lock is loop-bound after contention. Give each test an isolated
     # transaction lock so tests can use independent pytest event loops.
     monkeypatch.setattr(world_state, "_transaction_lock", asyncio.Lock())
@@ -66,9 +68,10 @@ def test_two_players_cannot_claim_the_same_global_pond_purification(monkeypatch,
         )
 
     results = asyncio.run(run())
-    assert sorted(results) == [False, True]
-    assert sum("tonic" not in s["inventory"] for s in (alice, bob)) == 1
-    assert sum("healing_herb" not in s["inventory"] for s in (alice, bob)) == 1
+    assert results[0] != results[1]
+    winner, loser = (alice, bob) if results[0] else (bob, alice)
+    assert winner["inventory"] == []
+    assert loser["inventory"] in (["tonic"], ["healing_herb"])
     assert sum(s["xp"] for s in (alice, bob)) == 350
     assert sum(s["reputation"] for s in (alice, bob)) == 18
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
