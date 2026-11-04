@@ -220,3 +220,56 @@ def test_rejected_world_action_does_not_persist_either_file(monkeypatch, tmp_pat
     assert json.loads(state_path.read_text(encoding="utf-8"))["town_fund"] == 10
     assert not journal_path.exists()
     assert saved_sheets == []
+
+
+def test_pending_world_transaction_recovers_after_world_state_save_failure(
+    monkeypatch, tmp_path
+):
+    state_path, journal_path, _ = _isolated_world_state(monkeypatch, tmp_path)
+    world_state.save_world_state({
+        **world_state.DEFAULT_STATE,
+        "fishing_water_tainted": True,
+        "fishing_water_tainted_expiry": 4_000_000_000,
+    })
+    sheet = {
+        "user_id": "alice",
+        "character_name": "Alice",
+        "inventory": ["aeridor_shard"],
+        "xp": 500,
+        "reputation": 10,
+    }
+    original_write = world_state._write_world_state
+    write_calls = []
+
+    def fail_first_world_write(state, serialized):
+        write_calls.append(copy.deepcopy(state))
+        if len(write_calls) == 1:
+            raise OSError("simulated world-state disk failure")
+        return original_write(state, serialized)
+
+    monkeypatch.setattr(world_state, "_write_world_state", fail_first_world_write)
+
+    with pytest.raises(OSError, match="simulated world-state"):
+        asyncio.run(world_state.mutate_world_state(_purify, sheet))
+
+    # The atomic world-state file is still old, while the journal holds both
+    # intended snapshots. Recovery must finish the same purification.
+    assert json.loads(state_path.read_text(encoding="utf-8"))["fishing_water_tainted"] is True
+    record = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert record["world_state"]["fishing_water_tainted"] is False
+    assert record["character_sheet"]["inventory"] == []
+    assert record["character_sheet"]["xp"] == 550
+    assert record["character_sheet"]["reputation"] == 25
+
+    recovered_sheets = []
+
+    async def save_recovered(current):
+        recovered_sheets.append(copy.deepcopy(current))
+
+    monkeypatch.setattr(character_manager, "save", save_recovered)
+
+    assert asyncio.run(world_state.recover_pending_world_state_transaction()) is True
+    assert asyncio.run(world_state.recover_pending_world_state_transaction()) is False
+    assert json.loads(state_path.read_text(encoding="utf-8"))["fishing_water_tainted"] is False
+    assert json.loads(journal_path.read_text(encoding="utf-8")) == {}
+    assert recovered_sheets == [record["character_sheet"]]
