@@ -154,3 +154,52 @@ def test_attack_denies_different_location_foreign_monster_before_reward_pipeline
     save.assert_not_awaited()
     resolve.assert_not_awaited()
     assert session["monsters"][0]["hp"]["current"] == 1
+
+
+def _restore_active_overworld_view(monkeypatch, origin_location, current_location):
+    from types import SimpleNamespace
+    from utils.ttrpg import rpg_views, spine_dungeon
+
+    sheet = {"user_id": "42", "location": current_location}
+    monster = {
+        "id": "old-wolf",
+        "key": "dire_wolf",
+        "aggro_uid": "42",
+    }
+    if origin_location is not None:
+        monster["origin_location"] = origin_location
+    session = {"combat_active": True, "monsters": [monster]}
+
+    monkeypatch.setattr(rpg_views, "load", AsyncMock(return_value=sheet))
+    monkeypatch.setattr(rpg_views, "load_session", AsyncMock(return_value=session))
+    monkeypatch.setattr(rpg_views, "load_dungeon", AsyncMock(return_value=None))
+    monkeypatch.setattr(spine_dungeon, "load_spine_dungeon", AsyncMock(return_value=None))
+    sentinel = object()
+    monkeypatch.setattr(rpg_views, "RPGCombatView", lambda *args: sentinel)
+
+    msg = SimpleNamespace(channel=SimpleNamespace(id=123))
+    result = asyncio.run(
+        rpg_views._get_active_view(None, msg, "42", "Player", False)
+    )
+    return result, sentinel
+
+
+def test_active_view_restores_only_owned_encounter_at_current_location(monkeypatch):
+    result, sentinel = _restore_active_overworld_view(
+        monkeypatch, "trade_road", "trade_road"
+    )
+    assert result is sentinel
+
+
+def test_active_view_does_not_restore_encounter_after_player_moves(monkeypatch):
+    result, _ = _restore_active_overworld_view(
+        monkeypatch, "trade_road", "whisperwood_edge"
+    )
+    assert result is None
+
+
+def test_active_view_fails_closed_for_legacy_encounter_without_origin(monkeypatch):
+    result, _ = _restore_active_overworld_view(
+        monkeypatch, None, "trade_road"
+    )
+    assert result is None
