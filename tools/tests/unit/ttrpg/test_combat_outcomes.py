@@ -233,6 +233,95 @@ def test_overworld_victory_recovery_removes_only_resolved_monster():
     assert persisted_sheet["xp"] == 440
 
 
+def test_overworld_defeat_recovers_after_character_penalty_write():
+    persisted_sheet = {}
+    session = {
+        "channel_id": "456",
+        "combat_active": True,
+        "monsters": [
+            {"id": "fallen-monster", "aggro_uid": "42", "key": "dire_wolf"},
+            {"id": "other-player", "aggro_uid": "99", "key": "goblin"},
+        ],
+    }
+    writes = {"session": 0}
+
+    async def save_sheet(sheet):
+        persisted_sheet.clear()
+        persisted_sheet.update(deepcopy(sheet))
+
+    async def save_session(outcome):
+        writes["session"] += 1
+        if writes["session"] == 1:
+            raise OSError("simulated crash before defeat session update")
+        session["monsters"] = [
+            monster for monster in session["monsters"]
+            if not (
+                str(monster.get("aggro_uid")) == str(outcome["owner_id"])
+                and str(monster.get("id")) == str(outcome["monster_id"])
+            )
+        ]
+        session["combat_active"] = bool(session["monsters"])
+
+    # The terminal handler has already applied the normal knockout penalty.
+    sheet = {
+        "user_id": "42",
+        "xp": 810,
+        "gil": 190,
+        "deaths": 2,
+        "hp": {"current": 1, "max": 30},
+        "location": "shrine",
+        "hunt_streak": 0,
+    }
+    outcome = {
+        "outcome_id": "overworld:42:456:fallen-monster:defeat",
+        "kind": "overworld",
+        "result": "defeat",
+        "channel_id": "456",
+        "owner_id": "42",
+        "monster_id": "fallen-monster",
+    }
+
+    with pytest.raises(OSError):
+        asyncio.run(commit_outcome(
+            sheet,
+            outcome,
+            save_sheet=save_sheet,
+            persist_encounter=save_session,
+        ))
+
+    assert persisted_sheet["xp"] == 810
+    assert persisted_sheet["gil"] == 190
+    assert persisted_sheet["deaths"] == 2
+    assert persisted_sheet["location"] == "shrine"
+    assert [monster["id"] for monster in session["monsters"]] == [
+        "fallen-monster", "other-player"
+    ]
+
+    recovered_sheet = deepcopy(persisted_sheet)
+
+    async def recover_overworld(pending):
+        await save_session(pending)
+
+    assert asyncio.run(recover_pending_outcomes(
+        recovered_sheet,
+        save_sheet=save_sheet,
+        recoverers={"overworld": recover_overworld},
+    )) == 1
+
+    assert [monster["id"] for monster in session["monsters"]] == ["other-player"]
+    assert session["combat_active"] is True
+    assert persisted_sheet["xp"] == 810
+    assert persisted_sheet["gil"] == 190
+    assert persisted_sheet["deaths"] == 2
+    assert "pending_combat_outcomes" not in persisted_sheet
+    assert asyncio.run(recover_pending_outcomes(
+        recovered_sheet,
+        save_sheet=save_sheet,
+        recoverers={"overworld": recover_overworld},
+    )) == 0
+    assert writes["session"] == 2
+
+
 def test_unknown_journal_kind_is_preserved_for_future_recovery():
     persisted_sheet = {}
     async def save_sheet(sheet):
