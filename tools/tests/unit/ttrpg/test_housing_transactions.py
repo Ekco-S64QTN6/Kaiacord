@@ -319,3 +319,142 @@ def test_unsupported_resource_kind_fails_closed(monkeypatch, tmp_path):
         asyncio.run(housing_transactions.commit_character_resource(
             sheet, resource, resource_kind="shared_session", action="fishing_hook"
         ))
+
+
+@pytest.mark.parametrize("failure_boundary", ["character_save", "resource_save"])
+def test_character_session_transaction_recovers_both_save_boundaries(
+    monkeypatch, tmp_path, failure_boundary
+):
+    from utils.ttrpg import session_manager
+
+    _isolate(monkeypatch, tmp_path)
+    sheet = {
+        "user_id": "42",
+        "character_name": "Tester",
+        "hp": {"current": 8, "max": 10},
+        "hunts_today": 3,
+    }
+    session = {
+        "channel_id": "guild-channel-7",
+        "active": True,
+        "combat_active": True,
+        "monsters": [{"id": "wolf-1", "hp": {"current": 7, "max": 12}}],
+    }
+    character_calls = []
+    session_calls = []
+
+    async def save_character(current):
+        character_calls.append(copy.deepcopy(current))
+        if failure_boundary == "character_save" and len(character_calls) == 1:
+            raise OSError("injected character save failure")
+
+    async def save_session_snapshot(current):
+        session_calls.append(copy.deepcopy(current))
+        if failure_boundary == "resource_save" and len(session_calls) == 1:
+            raise OSError("injected session save failure")
+
+    monkeypatch.setattr(character_manager, "save", save_character)
+    monkeypatch.setattr(session_manager, "save_session", save_session_snapshot)
+
+    from utils.ttrpg.housing_transactions import commit_character_session
+
+    with pytest.raises(OSError, match="injected"):
+        asyncio.run(commit_character_session(
+            sheet, session, action="overworld_combat_round"
+        ))
+
+    record = json.loads(
+        open(housing_transactions._journal_path("42"), encoding="utf-8").read()
+    )
+    assert record["action"] == "overworld_combat_round"
+    assert record["resource_kind"] == "session"
+    assert record["character_sheet"] == sheet
+    assert record["resource_state"] == session
+
+    recovered_character = []
+    recovered_session = []
+
+    async def save_character_recovered(current):
+        recovered_character.append(copy.deepcopy(current))
+
+    async def save_session_recovered(current):
+        recovered_session.append(copy.deepcopy(current))
+
+    monkeypatch.setattr(character_manager, "save", save_character_recovered)
+    monkeypatch.setattr(session_manager, "save_session", save_session_recovered)
+
+    assert asyncio.run(housing_transactions.recover_pending_housing_transaction("42"))
+    assert not asyncio.run(housing_transactions.recover_pending_housing_transaction("42"))
+    assert recovered_character == [sheet]
+    assert recovered_session == [session]
+    assert json.loads(
+        open(housing_transactions._journal_path("42"), encoding="utf-8").read()
+    ) == {}
+
+
+def test_character_load_recovers_pending_housing_transaction_before_loading_sheet(
+    monkeypatch, tmp_path
+):
+    from datetime import date
+    from utils.ttrpg import housing, world_state
+
+    _isolate(monkeypatch, tmp_path)
+    intended_sheet = {
+        "user_id": "42",
+        "character_name": "Tester",
+        "gil": 450,
+        "hunts_reset_date": date.today().strftime("%Y-%m-%d"),
+    }
+    home = {
+        "user_id": "42",
+        "character_name": "Tester",
+        "tier": "hut",
+        "pets": [{"key": "cat", "name": "Oakhaven Cat"}],
+        "furniture": [],
+        "farming": {"plots": []},
+    }
+    housing_transactions._write_journal("42", {
+        "version": 1,
+        "transaction_id": "42:load-recovery",
+        "user_id": "42",
+        "action": "buy_pet",
+        "resource_kind": "housing",
+        "character_sheet": copy.deepcopy(intended_sheet),
+        "resource_state": copy.deepcopy(home),
+    })
+
+    events = []
+    persisted_sheet = {"user_id": "42", "character_name": "Tester", "gil": 500}
+
+    async def save_character(current):
+        events.append("save_character")
+        persisted_sheet.clear()
+        persisted_sheet.update(copy.deepcopy(current))
+
+    async def save_housing_snapshot(current):
+        events.append("save_housing")
+
+    async def no_world_recovery():
+        return False
+
+    async def get_test_lock(_user_id):
+        return asyncio.Lock()
+
+    def load_sheet(_user_id):
+        events.append("load_sheet")
+        return copy.deepcopy(persisted_sheet)
+
+    monkeypatch.setattr(character_manager, "save", save_character)
+    monkeypatch.setattr(character_manager, "get_user_lock", get_test_lock)
+    monkeypatch.setattr(character_manager, "_load_sync", load_sheet)
+    monkeypatch.setattr(housing, "save_housing_async", save_housing_snapshot)
+    monkeypatch.setattr(world_state, "recover_pending_world_state_transaction", no_world_recovery)
+
+    loaded = asyncio.run(character_manager.load("42"))
+
+    assert events == ["save_character", "save_housing", "load_sheet"]
+    assert loaded["gil"] == 450
+    assert len(loaded["hunts_reset_date"]) == 10
+    assert json.loads(
+        open(housing_transactions._journal_path("42"), encoding="utf-8").read()
+    ) == {}
