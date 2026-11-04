@@ -4825,7 +4825,6 @@ async def run_blight_on_the_crops(bot_ctx, channel):
     import asyncio
     import secrets
     import random
-    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.housing import load_all_housing
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
@@ -4854,12 +4853,6 @@ async def run_blight_on_the_crops(bot_ctx, channel):
         return
 
     affected_ids = random.sample(candidate_ids, min(3, len(candidate_ids)))
-    all_sheets = await load_all()
-    uid_to_name = {
-        str(s.get("user_id")): s.get("character_name", "Unknown")
-        for s in all_sheets if s.get("user_id")
-    }
-
     result_lines = []
     from utils.ttrpg.farming import CROPS
     for uid in affected_ids:
@@ -4870,11 +4863,14 @@ async def run_blight_on_the_crops(bot_ctx, channel):
             index = secrets.randbelow(len(plots))
             plots[index]["blighted"] = True
             crop_data = CROPS.get(plots[index].get("crop_key"), {})
-            return crop_data.get("name", "crop")
+            return (
+                housing.get("character_name", "Unknown"),
+                crop_data.get("name", "crop"),
+            )
 
-        crop_name = await _mutate_player_housing(uid, infect_one_plot)
-        if crop_name:
-            char_name = uid_to_name.get(uid, f"User {uid}")
+        result = await _mutate_player_housing(uid, infect_one_plot)
+        if result:
+            char_name, crop_name = result
             result_lines.append(
                 f"🥀 **{char_name}**'s plot of **{crop_name}** has been infected with blight!"
             )
