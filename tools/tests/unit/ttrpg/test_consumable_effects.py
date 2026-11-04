@@ -19,6 +19,7 @@ def _prepare_use(monkeypatch, sheet, *, session=None):
     monkeypatch.setattr(core, "load", AsyncMock(return_value=sheet))
     monkeypatch.setattr(core, "save", save)
     monkeypatch.setattr(core, "load_session", AsyncMock(return_value=session))
+    monkeypatch.setattr(session_manager, "load_session", AsyncMock(return_value=session))
     monkeypatch.setattr(dungeon, "load_dungeon", AsyncMock(return_value=None))
     monkeypatch.setattr(session_manager, "save_session", save_session)
     monkeypatch.setattr(outing, "note", note)
