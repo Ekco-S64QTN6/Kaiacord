@@ -1443,10 +1443,26 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                                 )
                                 quest_embed.set_footer(text=f"+{xp_reward} XP · +{gil_reward} Gil")
                                 await _broadcast_world_event(ctx, quest_embed)
-                        else:
-                            pass
     leveled, n_lvl = check_level_up(sheet)
     # Lightstone is a kill drop, independent of whether this kill levels the player.
+    if res["monster_defeated"]:
+        wisp_drop = _roll_wisp_lightstone_drop(sheet, monster.get("key", ""))
+        if wisp_drop == "granted":
+            m_block += "\n💡 **Lightstone** — the wisp's core falls. Still glowing."
+        elif wisp_drop == "full":
+            m_block += "\n🎒 **[Inventory Full]** Lightstone left behind."
+
+    if leveled:
+        level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
+        await _log_world_event(f"**{sheet['character_name']}** reached Level {n_lvl}. Oakhaven noted it cautiously.")
+        lv_embed = discord.Embed(
+            title=f"⬆️ {sheet['character_name']} — Level {n_lvl}",
+            description=_level_up_flavor(sheet, n_lvl),
+            color=0xffcc00
+        )
+        lv_embed.set_footer(text=f"{sheet.get('advanced_class') or sheet.get('class', '?')} · {sheet.get('location','').replace('_',' ').title()}")
+        await _broadcast_world_event(ctx, lv_embed)
+
     if res["monster_defeated"]:
         nx = xp_to_next_level(sheet["level"])
         m_block += f"\n+{xp_gain} XP ({sheet['xp']}/{nx})  +{gil_gain} Gil{streak_msg}{loot_msg}{level_up_msg}"
