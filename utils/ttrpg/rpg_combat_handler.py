@@ -2052,7 +2052,12 @@ async def _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname, *, uid=N
     from utils.ttrpg.forest_events import resolve_event
     event_key = random_event(loc)
     result = resolve_event(event_key, sheet)
-    return await _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, uid=uid, is_owner=is_owner)
+    handled = await _apply_and_narrate_event(
+        ctx, msg, send, sheet, result, uname, uid=uid, is_owner=is_owner
+    )
+    # Legacy/test handlers may return None after applying the event; only an
+    # explicit False denotes a rejected/expired one-time event claim.
+    return handled is not False
 
 
 def _apply_forest_event_mechanics(sheet, result):
