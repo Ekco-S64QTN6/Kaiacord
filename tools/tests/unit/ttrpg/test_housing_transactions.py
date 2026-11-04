@@ -182,6 +182,20 @@ def test_character_housing_action_recovers_after_either_save_boundary(
     assert json.loads(open(journal_path, encoding="utf-8").read()) == {}
 
 
+def test_malformed_nonempty_housing_journal_fails_closed(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    journal_path = housing_transactions._journal_path("42")
+    from utils.core.atomic_write import write_atomic
+    write_atomic(journal_path, json.dumps({"version": 1, "user_id": "42"}))
+
+    with pytest.raises(RuntimeError, match="malformed"):
+        asyncio.run(housing_transactions.recover_pending_housing_transaction("42"))
+
+    assert json.loads(open(journal_path, encoding="utf-8").read()) == {
+        "version": 1, "user_id": "42"
+    }
+
+
 def test_unknown_housing_journal_version_fails_closed(monkeypatch, tmp_path):
     _isolate(monkeypatch, tmp_path)
     journal_path = housing_transactions._journal_path("42")
