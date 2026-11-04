@@ -211,7 +211,7 @@ def test_missing_world_event_log_initializes_and_serializes_concurrent_writes(tm
     assert set(events) <= {f"event-{i}" for i in range(12)}
 
 
-@pytest.mark.parametrize("payload", ["{broken", "[]", "null", '{"event": "not a list"}'])
+@pytest.mark.parametrize("payload", ["{broken", "null", '{"event": "not a list"}'])
 def test_corrupt_world_event_log_is_preserved(tmp_path, monkeypatch, payload):
     from utils.ttrpg import broadcast
     monkeypatch.chdir(tmp_path)
@@ -224,3 +224,18 @@ def test_corrupt_world_event_log_is_preserved(tmp_path, monkeypatch, payload):
         asyncio.run(broadcast.log_world_event("new event"))
 
     assert path.read_bytes() == original
+
+
+
+def test_empty_world_event_log_is_valid_and_appends(tmp_path, monkeypatch):
+    from utils.ttrpg import broadcast
+
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "memory" / "ttrpg" / "world_events.json"
+    path.parent.mkdir(parents=True)
+    original = b"[]"
+    path.write_bytes(original)
+
+    asyncio.run(broadcast.log_world_event("first event"))
+
+    assert json.loads(path.read_text(encoding="utf-8")) == ["first event"]
