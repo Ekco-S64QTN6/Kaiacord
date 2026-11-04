@@ -229,6 +229,9 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | Whisperwood Deep | 15% | 4+ |
 | Aeridor Ruins | 10% | 7+ |
 
+These are the base probabilities. Temporary world-state and weather bonuses are applied separately
+when the event roll is made.
+
 ### Forest Events (31 total)
 
 | Event | Key Mechanic |
