@@ -2,29 +2,43 @@ import os
 import json
 import discord
 import secrets
-from utils.infrastructure.logging.kaia_logger import log_error
+import threading
+from utils.infrastructure.logging.kaia_logger import log_error, log_warning
 from utils.infrastructure.system.yaml_config import config
+
+_WORLD_EVENTS_LOCK = threading.Lock()
+
 
 async def log_world_event(event_text):
     import asyncio
     import functools
-    def _sync_log(event_text):
+
+    def _sync_log(text):
         path = os.path.join("memory", "ttrpg", "world_events.json")
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        events = []
-        if os.path.exists(path):
+        with _WORLD_EVENTS_LOCK:
             try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    events = json.load(f)
-            except (OSError, json.JSONDecodeError, ValueError):
+                with open(path, "r", encoding="utf-8") as handle:
+                    events = json.load(handle)
+            except FileNotFoundError:
                 events = []
-        if not isinstance(events, list):
-            events = []
-        events.append(event_text)
-        if len(events) > 10:
-            events = list(events)[-10:]
-        from utils.core.atomic_write import write_atomic
-        write_atomic(path, json.dumps(events, indent=2))
+            except (OSError, json.JSONDecodeError, ValueError, UnicodeDecodeError) as exc:
+                log_warning(
+                    f"[rpg broadcast] Refusing to reset unreadable world event log {path}: {exc}"
+                )
+                raise RuntimeError(f"Cannot safely load RPG world event log {path}") from exc
+
+            if not isinstance(events, list) or any(not isinstance(item, str) for item in events):
+                error = "event log must be a JSON array of strings"
+                log_warning(f"[rpg broadcast] Refusing to reset malformed world event log {path}: {error}")
+                raise RuntimeError(f"Cannot safely load RPG world event log {path}: {error}")
+
+            events.append(str(text))
+            if len(events) > 10:
+                events = events[-10:]
+            from utils.core.atomic_write import write_atomic
+            write_atomic(path, json.dumps(events, indent=2))
+
     await asyncio.to_thread(functools.partial(_sync_log, event_text))
 
 async def broadcast_world_event(ctx, embed: discord.Embed):

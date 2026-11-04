@@ -121,21 +121,87 @@ def _merge_daily_sync(trip: dict) -> None:
     write_atomic(path, json.dumps(current, indent=1))
 
 
+def _validate_outing_record(data: object, path: str) -> dict:
+    """Validate durable outing JSON before any read-modify-write can proceed."""
+    error = None
+    if not isinstance(data, dict) or not data:
+        error = "root value must be a non-empty JSON object"
+    else:
+        list_fields = ("zones", "fights", "events", "loot", "levels", "trip_ids")
+        dict_fields = ("notes",)
+        numeric_fields = (
+            "fight_count", "wins", "losses", "xp", "gil", "trips",
+            "duration_seconds", "started", "ended",
+        )
+        for field in list_fields:
+            if field in data and not isinstance(data[field], list):
+                error = f"{field} must be a JSON array"
+                break
+        if error is None:
+            for field in ("fights", "events"):
+                if field in data and any(not isinstance(item, dict) for item in data[field]):
+                    error = f"{field} entries must be JSON objects"
+                    break
+        if error is None:
+            for field in ("zones", "loot", "trip_ids"):
+                if field in data and any(not isinstance(item, str) for item in data[field]):
+                    error = f"{field} entries must be strings"
+                    break
+        if error is None and "levels" in data:
+            if any(isinstance(item, bool) or not isinstance(item, (int, float))
+                   for item in data["levels"]):
+                error = "levels entries must be numeric"
+        if error is None:
+            for field in dict_fields:
+                if field in data and not isinstance(data[field], dict):
+                    error = f"{field} must be a JSON object"
+                    break
+        if error is None and "notes" in data:
+            for kind, items in data["notes"].items():
+                if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
+                    error = f"notes[{kind!r}] must be an array of strings"
+                    break
+        if error is None:
+            for field in numeric_fields:
+                value = data.get(field)
+                if value is not None and (
+                    isinstance(value, bool) or not isinstance(value, (int, float))
+                ):
+                    error = f"{field} must be numeric"
+                    break
+
+    if error:
+        log_warning(
+            f"[rpg outing] Refusing to reset malformed record {path}: {error}"
+        )
+        raise RuntimeError(f"Cannot safely load RPG outing record {path}: {error}")
+    return data
+
+
 def _load_sync(uid: str) -> Optional[dict]:
+    path = _path(uid)
     try:
-        with open(_path(uid)) as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
         return None
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        log_warning(
+            f"[rpg outing] Refusing to reset unreadable record {path}: {exc}"
+        )
+        raise RuntimeError(f"Cannot safely load RPG outing record {path}") from exc
+    return _validate_outing_record(data, path)
 
 
 def _update_sync(uid: str, fn) -> dict:
     from utils.core.atomic_write import write_atomic
     with _lock:
-        data = _load_sync(uid) or {"uid": str(uid), "outing_id": f"{uid}_{time.time_ns()}",
-                                    "day": _local_day(), "started": time.time(), "zones": [],
-                                    "fights": [], "events": [], "fight_count": 0, "wins": 0,
-                                    "losses": 0, "xp": 0, "gil": 0, "loot": [], "levels": []}
+        data = _load_sync(uid)
+        if data is None:
+            data = {"uid": str(uid), "outing_id": f"{uid}_{time.time_ns()}",
+                    "day": _local_day(), "started": time.time(), "zones": [],
+                    "fights": [], "events": [], "fight_count": 0, "wins": 0,
+                    "losses": 0, "xp": 0, "gil": 0, "loot": [], "levels": []}
         data.setdefault("uid", str(uid))
         data.setdefault("outing_id", f"{uid}_{time.time_ns()}")
         data.setdefault("day", _local_day(data.get("started")))
@@ -181,8 +247,13 @@ def _take_open_outings_sync(through_day: str) -> int:
             return 0
         for name in names:
             uid = name[:-5]
-            data = _load_sync(uid)
-            if not data:
+            try:
+                data = _load_sync(uid)
+            except RuntimeError:
+                # Leave damaged history intact; one player's file must not stop
+                # the remaining daily digests from being finalized.
+                continue
+            if data is None:
                 continue
             day = data.get("day") or _local_day(data.get("started"))
             if day > through_day:
@@ -208,7 +279,12 @@ def _take_open_outings_sync(through_day: str) -> int:
             }
             data.update(tale)
             if _has_activity(data):
-                _merge_daily_sync(data)
+                try:
+                    _merge_daily_sync(data)
+                except RuntimeError:
+                    # Keep the open outing too: its daily target is damaged, so
+                    # it cannot yet be merged without risking data loss.
+                    continue
                 moved += 1
             try:
                 os.remove(_path(uid))
@@ -232,8 +308,12 @@ def _finalize_daily_sync(through_day: str) -> list:
             if len(day) != 10 or day > through_day:
                 continue
             src = os.path.join(DAILY_DIR, name)
-            data = _load_path_sync(src)
-            if not data:
+            try:
+                data = _load_path_sync(src)
+            except RuntimeError:
+                # Leave the damaged source in place and continue with other users.
+                continue
+            if data is None:
                 continue
             uid = str(data.get("uid") or name[11:-5])
             target = os.path.join(UNTOLD_DIR, f"daily_{day}_{uid}.json")
@@ -419,8 +499,11 @@ async def tell(ctx, path: str, *, channel=None) -> bool:
         return False
     _telling.add(path)
     try:
-        data = await asyncio.to_thread(_load_path_sync, path)
-        if not data:
+        try:
+            data = await asyncio.to_thread(_load_path_sync, path)
+        except RuntimeError:
+            return False
+        if data is None:
             return False
         if not data.get("text"):
             text = await _narrate(ctx, data)
@@ -446,11 +529,18 @@ async def tell(ctx, path: str, *, channel=None) -> bool:
 
 
 def _load_path_sync(path: str) -> Optional[dict]:
+    """Read an outing/daily/untold record, distinguishing absence from damage."""
     try:
-        with open(path) as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
         return None
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        log_warning(
+            f"[rpg outing] Refusing to reset unreadable record {path}: {exc}"
+        )
+        raise RuntimeError(f"Cannot safely load RPG outing record {path}") from exc
+    return _validate_outing_record(data, path)
 
 
 def _title(data: dict, reason: str) -> str:
