@@ -204,3 +204,40 @@ def test_forest_event_knockout_uses_normal_overworld_blackout_flow(monkeypatch):
     recovery = channel.send.await_args_list[1]
     assert recovery.kwargs["view"] == "status-view"
     assert "back at the Shrine" in recovery.kwargs["embed"].description
+
+
+
+def test_missing_person_event_defers_reputation_until_atomic_claim(base_sheet):
+    from utils.ttrpg.forest_events import claim_missing_person
+
+    sheet = {**base_sheet, "location": "whisperwood_edge", "reputation": 4}
+    result = resolve_event("missing_persons_found", sheet)
+
+    assert result["event_key"] == "missing_persons_found"
+    assert result["xp"] == 100
+    assert result["gil"] == 100
+    assert sheet["reputation"] == 4
+
+    state = {
+        "missing_person_name": "Mira",
+        "missing_person_loc": "whisperwood_edge",
+        "missing_person_expiry": 2_000,
+    }
+    assert claim_missing_person(state, "whisperwood_edge", now=1_000) == "Mira"
+    assert state["missing_person_name"] == ""
+    assert state["missing_person_loc"] == ""
+    assert state["missing_person_expiry"] == 0
+    assert claim_missing_person(state, "whisperwood_edge", now=1_001) is None
+
+
+def test_missing_person_claim_requires_matching_unexpired_location():
+    from utils.ttrpg.forest_events import claim_missing_person
+
+    state = {
+        "missing_person_name": "Mira",
+        "missing_person_loc": "whisperwood_deep",
+        "missing_person_expiry": 2_000,
+    }
+    assert claim_missing_person(state, "whisperwood_edge", now=1_000) is None
+    assert claim_missing_person(state, "whisperwood_deep", now=2_000) is None
+    assert state["missing_person_loc"] == "whisperwood_deep"

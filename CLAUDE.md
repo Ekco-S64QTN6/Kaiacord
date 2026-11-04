@@ -244,11 +244,19 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   combat-log entries by outcome ID. Ordinary flee and Smoke Bomb use pending combat outcomes;
   smoke-bomb recovery removes only the monster IDs captured by that player's escape. Fishing
   monster hooks use stable cast receipts plus per-character consumed-cast IDs, so retries debit bait
-  once without respawning a resolved encounter. Pond purification, town donations, and blockade
-  cache rewards use `world_state.mutate_world_state()`; the Bandit Captain's blockade clear is
-  replayed by its pending combat outcome. The hunt entry stamina debit is an intentional one-way
-  reservation before encounter generation, not a refundable two-file write. Fault-inject each
-  write boundary and test repeated recovery.
+  once without respawning a resolved encounter. Pond purification, town donations, blockade cache
+  rewards, and cross-file event claims use `world_state.mutate_world_state()`; the Bandit Captain's
+  blockade clear is replayed by its pending combat outcome.
+- **Every async world-only write uses `world_state.update_world_state(mutator)`.** It acquires the
+  transaction lock before recovering pending work, loading a fresh snapshot, applying a synchronous
+  no-I/O mutator, and committing the atomic JSON replacement. Never do
+  `load_world_state(); mutate; save_world_state()`, and do not pass a snapshot created before the
+  lock to `async_save_world_state()`: serializing the final write does not prevent stale-key loss.
+  `load_world_state()` is read-only; expired modifiers are normalized in its returned copy and are
+  persisted by the next explicit transaction. Synchronous `save_world_state()` is for isolated
+  tests/bootstrap only. The hunt entry stamina debit is an intentional one-way reservation before
+  encounter generation, not a refundable two-file write. Fault-inject each write boundary and test
+  repeated recovery.
 - **Appends to a user log are serialised by a sidecar `flock`.** `append_atomic` and the RAG
   interaction logger (`_write_interaction_to_disk`) both lock `.<log name>.append.lock` beside the
   log and decide "first write, add the header" inside the lock — two worker threads each carried

@@ -50,11 +50,16 @@ memory/ttrpg/world_events.json     ← Rolling log of world events
 
 ### Data Flow
 
-1. **Player sends `!rpg <command>`** → `rpg_handler.py` routes to handler function
-2. **Handler loads sheet** via `character_manager.load(uid)` → JSON from `memory/ttrpg/characters/`
-3. **Game logic** runs deterministically (dice_engine, combat_engine, shop, etc.)
-4. **Kaia narrates** via `rpg_prompt_builder.py` → GPU-guarded LLM call → flavor text embed
-5. **Sheet saved** back to disk → UI view (discord buttons) returned to player
+1. **Player sends `!rpg <command>`** → the RPG router dispatches to the relevant handler.
+2. **Handler loads the sheet** via `character_manager.load(uid)` → JSON from `memory/ttrpg/characters/`.
+3. **Game logic** runs deterministically (dice_engine, combat_engine, shop, etc.).
+4. **Shared world reads** use `world_state.load_world_state()`, which returns an expiry-normalized view and does not write.
+5. **World-only updates** use `world_state.update_world_state(mutator)`; the transaction lock covers fresh load, mutation, and atomic save.
+6. **Character + world actions** use `world_state.mutate_world_state()` so resource costs/rewards and global state share one recovery journal. Combat, housing, dungeon, and Spine use their corresponding outcome/resource journals.
+7. **Kaia narrates** via `rpg_prompt_builder.py` → GPU-guarded LLM call → flavor text embed.
+8. **Sheet/UI state** is persisted before the Discord view is returned.
+
+Do not build an async read-modify-write by loading a complete world-state snapshot and later passing it to `async_save_world_state()`: the final write lock cannot make the earlier read fresh. Synchronous `save_world_state()` is reserved for isolated tests/bootstrap.
 
 ---
 

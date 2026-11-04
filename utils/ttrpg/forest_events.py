@@ -43,6 +43,31 @@ def resolve_event(event_key: str, sheet: dict) -> dict:
     return handler(sheet)
 
 
+def claim_missing_person(world_state: dict, location: str, *, now: float | None = None) -> str | None:
+    """Claim the active missing-person notice while the world transaction lock is held.
+
+    This is a pure in-memory mutator: it performs no I/O and clears the event
+    only when it is still active for this exact location.
+    """
+    import time
+
+    if not isinstance(world_state, dict) or world_state.get("missing_person_loc") != location:
+        return None
+    try:
+        expiry = float(world_state.get("missing_person_expiry", 0) or 0)
+        current_time = time.time() if now is None else float(now)
+    except (TypeError, ValueError):
+        return None
+    if current_time >= expiry:
+        return None
+
+    name = str(world_state.get("missing_person_name") or "a lost traveler")
+    world_state["missing_person_loc"] = ""
+    world_state["missing_person_name"] = ""
+    world_state["missing_person_expiry"] = 0
+    return name
+
+
 def _base() -> dict:
     return {
         "event_key": "", "title": "", "outcome": "",
@@ -595,29 +620,15 @@ def _ancient_coin(sheet: dict) -> dict:
 
 
 def _missing_persons_found(sheet: dict) -> dict:
-    """Find a missing villager."""
+    """Describe the reward; the caller must claim the live notice atomically."""
     r = _base()
     r["event_key"] = "missing_persons_found"
     r["title"] = "📋 Missing Person Found"
-    
-    from utils.ttrpg.world_state import load_world_state, save_world_state
-    wstate = load_world_state()
-    name = wstate.get("missing_person_name", "a lost traveler")
-    
-    # End the event in world state
-    wstate["missing_person_loc"] = ""
-    wstate["missing_person_name"] = ""
-    wstate["missing_person_expiry"] = 0
-    save_world_state(wstate)
-    
-    # Award player
     r["xp"] = 100
     r["gil"] = 100
-    sheet["reputation"] = sheet.get("reputation", 0) + 10
-    
-    r["outcome"] = f"You found {name} safe and escorted them back. +100 XP, +100 gil, +10 Reputation."
+    r["outcome"] = "You found a missing villager safe and escorted them back."
     r["narration_hook"] = (
-        f"While scouting, you heard a faint call. Huddled under a roots shelter was {name}, "
+        "While scouting, you heard a faint call. Huddled under a roots shelter was a missing villager, "
         "terrified but alive. You kept watch, shared your rations, and guided them back safely. "
         "The family wept, Elder Elara nodded in silent approval, and you were rewarded for your valor."
     )
