@@ -256,14 +256,47 @@ def get_bag_summary(sheet: dict) -> tuple[int, int, list[str]]:
 
 # ── Global fishing records I/O ────────────────────────────────────────────────
 
+def _empty_records() -> dict:
+    return {"world_records": {}, "species_totals": {}, "angler_totals": {}}
+
+
 def _ensure_records() -> dict:
-    if not os.path.exists(FISHING_RECORDS_PATH):
-        return {"world_records": {}, "species_totals": {}, "angler_totals": {}}
+    """Load the global record book without ever replacing damaged history."""
     try:
-        with open(FISHING_RECORDS_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {"world_records": {}, "species_totals": {}, "angler_totals": {}}
+        with open(FISHING_RECORDS_PATH, "r", encoding="utf-8") as handle:
+            records = json.load(handle)
+    except FileNotFoundError:
+        return _empty_records()
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        from utils.infrastructure.logging.kaia_logger import log_warning
+        log_warning(
+            f"[fishing records] Refusing to reset unreadable record book "
+            f"{FISHING_RECORDS_PATH}: {exc}"
+        )
+        raise RuntimeError(
+            f"Cannot safely load fishing records from {FISHING_RECORDS_PATH}"
+        ) from exc
+
+    if not isinstance(records, dict):
+        error = "root value must be a JSON object"
+    else:
+        error = None
+        for key in ("world_records", "species_totals", "angler_totals"):
+            value = records.setdefault(key, {})
+            if not isinstance(value, dict):
+                error = f"{key} must be a JSON object"
+                break
+
+    if error:
+        from utils.infrastructure.logging.kaia_logger import log_warning
+        log_warning(
+            f"[fishing records] Refusing to reset malformed record book "
+            f"{FISHING_RECORDS_PATH}: {error}"
+        )
+        raise RuntimeError(
+            f"Cannot safely load fishing records from {FISHING_RECORDS_PATH}: {error}"
+        )
+    return records
 
 
 def _save_records(records: dict):
