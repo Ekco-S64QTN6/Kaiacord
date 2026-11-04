@@ -19,6 +19,135 @@ from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
 
+async def _mutate_player_sheet(user_id, mutation):
+    """Apply a synchronous mutation to a fresh sheet under the RPG user-action lock.
+
+    The caller may use load_all() to discover candidate IDs, but must not carry
+    those detached snapshots into this function. Re-load only after taking the
+    same user:<uid> lock as typed commands and views. The mutation callback must
+    not perform Discord I/O, sleeps, or other awaits.
+    """
+    from utils.ttrpg.character_manager import load, save
+    from utils.ttrpg.session_manager import get_action_lock
+
+    uid = str(user_id)
+    async with await get_action_lock(f"user:{uid}"):
+        sheet = await load(uid)
+        if not sheet:
+            return None
+        result = mutation(sheet)
+        if result is None:
+            return None
+        await save(sheet)
+        return result
+
+
+async def _mutate_player_housing(user_id, mutation):
+    """Fresh-load and mutate one housing file under its owner's action lock."""
+    from utils.ttrpg.housing import load_housing_async, save_housing_async
+    from utils.ttrpg.session_manager import get_action_lock
+
+    uid = str(user_id)
+    async with await get_action_lock(f"user:{uid}"):
+        housing = await load_housing_async(uid)
+        if not housing:
+            return None
+        result = mutation(housing)
+        if result is None:
+            return None
+        await save_housing_async(housing)
+        return result
+
+
+async def _commit_background_combat_result(
+    user_id,
+    *,
+    starting_hp,
+    simulated_hp,
+    consumed_conditions=(),
+    xp_reward=0,
+    gil_reward=0,
+    reputation_delta=0,
+    knockout_xp_reward=0,
+    knockout_gil_reward=0,
+):
+    """Apply a raid's combat delta and reward to the latest character sheet.
+
+    Combat is simulated on an event-start snapshot without holding a user's
+    lock through Discord narration or the encounter. At commit time, apply
+    only the simulated HP delta and consumed conditions to a freshly loaded
+    sheet. Rewards are additive; level-up and knockout consequences are
+    recomputed from the fresh character state.
+    """
+    from utils.ttrpg.progression import check_level_up
+    from utils.ttrpg.rpg_combat_handler import _apply_overworld_blackout
+
+    simulated_knockout = simulated_hp <= 0
+    consumed = set(consumed_conditions or ())
+
+    def apply(sheet):
+        character_name = sheet.get("character_name", "An adventurer")
+        hp = sheet.setdefault("hp", {})
+        current_hp = int(hp.get("current", 0) or 0)
+        max_hp = int(hp.get("max", max(current_hp, 1)) or 1)
+        hp_delta = int(simulated_hp) - int(starting_hp)
+        hp["current"] = max(0, min(max_hp, current_hp + hp_delta))
+
+        conditions = sheet.setdefault("conditions", [])
+        for condition in consumed:
+            if condition in conditions:
+                conditions.remove(condition)
+
+        # The bank heist pays a half reward to a defender who was knocked out
+        # while the team won. Other background fights use the normal blackout
+        # penalties when the fresh sheet is still at 0 HP.
+        blackout = None
+        rewarded_knockout = simulated_knockout and bool(
+            knockout_xp_reward or knockout_gil_reward
+        )
+        knockout_applied = rewarded_knockout and hp["current"] <= 0
+        if knockout_applied:
+            hp["current"] = 1
+            sheet["location"] = "shrine"
+            sheet["deaths"] = sheet.get("deaths", 0) + 1
+
+        xp_to_add = knockout_xp_reward if simulated_knockout else xp_reward
+        gil_to_add = knockout_gil_reward if simulated_knockout else gil_reward
+        if xp_to_add:
+            sheet["xp"] = sheet.get("xp", 0) + int(xp_to_add)
+        if gil_to_add:
+            sheet["gil"] = sheet.get("gil", 0) + int(gil_to_add)
+        if reputation_delta:
+            sheet["reputation"] = sheet.get("reputation", 0) + int(reputation_delta)
+            if reputation_delta < 0:
+                sheet["reputation"] = max(-100, sheet["reputation"])
+
+        # If the encounter snapshot showed a knockout but a concurrent heal
+        # left the fresh character standing, do not force the stale death onto
+        # them. A fresh character reduced to 0 HP by the event delta still uses
+        # the standard blackout after the event's rewards are applied.
+        if not rewarded_knockout and hp["current"] <= 0:
+            blackout = _apply_overworld_blackout(sheet)
+            for condition in ("embered", "fortified"):
+                if condition in conditions:
+                    conditions.remove(condition)
+
+        leveled, new_level = check_level_up(sheet)
+
+        return {
+            "character_name": character_name,
+            "leveled": leveled,
+            "new_level": new_level,
+            "blackout": blackout,
+            "simulated_knockout": simulated_knockout,
+            "knockout_applied": knockout_applied,
+            "hp": hp.get("current", 0),
+            "deaths": sheet.get("deaths", 0),
+        }
+
+    return await _mutate_player_sheet(user_id, apply)
+
+
 
 class CoreTaskManager:
     """Manager for core background loops with dependency injection and error handling."""
@@ -2465,7 +2594,7 @@ async def run_village_raid(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
@@ -2500,6 +2629,14 @@ async def run_village_raid(bot_ctx, channel):
             color=0x888888
         ))
         return
+
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
 
     # 3. Select a random theme
     theme_key = secrets.choice(["undead", "constructs", "beasts", "deepwood", "demons"])
@@ -2641,49 +2778,61 @@ async def run_village_raid(bot_ctx, channel):
     casualty_count = 0
     
     for s, monster, rounds_log, won, escaped in combat_results:
-        if s["hp"]["current"] <= 0:
-            # Player fell
-            casualty_count += 1
-            s["hunt_streak"] = 0
-            xp_loss = int(s["xp"] * 0.10)
-            gil_loss = int(s["gil"] * 0.05)
-            s["xp"] = max(0, s["xp"] - xp_loss)
-            s["gil"] = max(0, s["gil"] - gil_loss)
-            s["hp"]["current"] = 1
-            s["location"] = "shrine"
-            s["deaths"] = s.get("deaths", 0) + 1
-            # Clear temporary conditions
-            for _cb in ["embered", "fortified"]:
-                if _cb in s.get("conditions", []):
-                    s["conditions"].remove(_cb)
-            
-            result_lines.append(f"💀 **{s['character_name']}** blacked out (lost {xp_loss} XP, {gil_loss} gil)")
-            
-            # Log individual death in bestiary voice
-            death_embed = discord.Embed(
-                title=f"💀 {s['character_name']} fell in defense of Oakhaven",
-                description=f"*{monster['name']} left them at the Shrine threshold. Lost {xp_loss} XP and {gil_loss} Gil.*",
-                color=0x8B0000
-            )
-            death_embed.set_footer(text=f"Death #{s['deaths']}")
-            await broadcast_world_event(bot_ctx, death_embed)
-        else:
-            # Player survived
+        uid = str(s.get("user_id", ""))
+        start = starting_states_by_uid.get(uid, {})
+        simulated_hp = s.get("hp", {}).get("current", 0)
+        consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+        reward_xp = 0
+        reward_gil = 0
+        reputation_delta = 0
+        if simulated_hp > 0:
             if defenders_won:
-                s["xp"] += xp_each
-                s["gil"] += gil_each
-                s["reputation"] = s.get("reputation", 0) + 10
-                result_lines.append(f"⚔️ **{s['character_name']}** held the line (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
+                reward_xp, reward_gil, reputation_delta = xp_each, gil_each, 10
             else:
-                # Defenders held out against overwhelming odds — no rep penalty for fighting
-                consolation_xp = max(1, xp_each // 2)
-                s["xp"] += consolation_xp
-                result_lines.append(f"⚔️ **{s['character_name']}** fought valiantly to cover the perimeter (+{consolation_xp} XP)")
-                
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+                reward_xp = max(1, xp_each // 2)
+
+        result = await _commit_background_combat_result(
+            uid,
+            starting_hp=start.get("hp", 0),
+            simulated_hp=simulated_hp,
+            consumed_conditions=consumed_conditions,
+            xp_reward=reward_xp,
+            gil_reward=reward_gil,
+            reputation_delta=reputation_delta,
+        )
+        if not result:
+            continue
+        character_name = result["character_name"]
+        blackout = result["blackout"]
+        if blackout:
+            casualty_count += 1
+            result_lines.append(
+                f"💀 **{character_name}** blacked out (lost {blackout['xp_loss']} XP, {blackout['gil_loss']} gil)"
+            )
+            death_embed = discord.Embed(
+                title=f"💀 {character_name} fell in defense of Oakhaven",
+                description=(
+                    f"*{monster['name']} left them at the Shrine threshold. "
+                    f"Lost {blackout['xp_loss']} XP and {blackout['gil_loss']} Gil.*"
+                ),
+                color=0x8B0000,
+            )
+            death_embed.set_footer(text=f"Death #{result['deaths']}")
+            await broadcast_world_event(bot_ctx, death_embed)
+        elif simulated_hp <= 0:
+            result_lines.append(
+                f"⚔️ **{character_name}** recovered before the attack could leave them at the Shrine."
+            )
+        elif defenders_won:
+            result_lines.append(
+                f"⚔️ **{character_name}** held the line (received +{reward_xp} XP, +{reward_gil} gil, +10 Rep)"
+            )
+        else:
+            result_lines.append(
+                f"⚔️ **{character_name}** fought valiantly to cover the perimeter (+{reward_xp} XP)"
+            )
+        if result["leveled"]:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
             
     # Apply global World State updates
     wstate = load_world_state()
@@ -2732,21 +2881,21 @@ async def run_village_raid(bot_ctx, channel):
 
 async def run_oracle_speaks(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
     }
-    BUFFS = [
-        ("battle_focus",    "STR checks +1 until next combat"),
-        ("forest_sight",    "DEX checks +1 until next combat"),
-        ("resonance_link",  "INT checks +2 until next combat"),
-        ("shadow_step",     "DEX checks +2 until next combat"),
-        ("divine_clarity",  "WIS checks +2 until next combat"),
-        ("sharp_mind",      "INT +2 on next check"),
+    buffs = [
+        ("battle_focus", "STR checks +1 until next combat"),
+        ("forest_sight", "DEX checks +1 until next combat"),
+        ("resonance_link", "INT checks +2 until next combat"),
+        ("shadow_step", "DEX checks +2 until next combat"),
+        ("divine_clarity", "WIS checks +2 until next combat"),
+        ("sharp_mind", "INT +2 on next check"),
         ("veiled_blessing", "+1 to next roll"),
     ]
 
@@ -2762,10 +2911,13 @@ async def run_oracle_speaks(bot_ctx, channel):
     ))
     await asyncio.sleep(4)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    # load_all is used only to discover candidate IDs; its detached sheets
+    # are never carried into a later write.
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*No one was there to receive it. The elder folded into shadow and was gone.*",
             color=0x888888
@@ -2773,56 +2925,65 @@ async def run_oracle_speaks(bot_ctx, channel):
         return
 
     result_lines = []
-    for s in present:
-        buff_key, buff_desc = BUFFS[secrets.randbelow(len(BUFFS))]
-        conds = s.setdefault("conditions", [])
-        if buff_key not in conds:
-            conds.append(buff_key)
-        await save(s)
-        result_lines.append(f"✨ **{s['character_name']}** — *{buff_desc}*")
+    for uid in candidate_ids:
+        buff_key, buff_desc = buffs[secrets.randbelow(len(buffs))]
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            conds = sheet.setdefault("conditions", [])
+            if buff_key not in conds:
+                conds.append(buff_key)
+            return sheet.get("character_name", "An adventurer"), buff_desc
+
+        result = await _mutate_player_sheet(uid, apply)
+        if result:
+            character_name, description = result
+            result_lines.append(f"✨ **{character_name}** — *{description}*")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*By the time the elder's gift settled, the square had emptied.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="✨ The Elder's Gift",
-        description=(
-            "*She was gone before anyone could speak.*\n\n"
-            + "\n".join(result_lines)
-        ),
+        description="*She was gone before anyone could speak.*\n\n" + "\n".join(result_lines),
         color=0xc0c0d8
     ))
     await _log_world_event("👁️ **A Veiled Elder** visited Oakhaven. Those present were blessed.")
 
 async def run_moogle_festival(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
     }
-    # Curated drop pool — useful but not overpowered
-    DROP_POOL = [
-        ("healing_herb", "Healing Herb", 40),
-        ("bandage",       "Bandage",      30),
-        ("tonic",         "Tonic",        20),
-        ("aeridor_shard", "Aeridor Crystal Shard", 5),
-        ("lucky_charm",   "Lucky Charm",  5),
+    drop_pool = [
+        ("bandage", "Bandage", 20),
+        ("healing_herb", "Healing Herb", 15),
+        ("tonic", "Tonic", 15),
+        ("potion", "Health Potion", 10),
+        ("antidote", "Antidote", 10),
+        ("lucky_charm", "Lucky Charm", 5),
     ]
 
     def roll_drop():
-        total = sum(w for _, _, w in DROP_POOL)
-        r = secrets.randbelow(total)
-        cum = 0
-        for key, name, w in DROP_POOL:
-            cum += w
-            if r < cum:
+        total = sum(weight for _, _, weight in drop_pool)
+        roll = secrets.randbelow(total)
+        cumulative = 0
+        for key, name, weight in drop_pool:
+            cumulative += weight
+            if roll < cumulative:
                 return key, name
-        return DROP_POOL[0][0], DROP_POOL[0][1]
+        return drop_pool[0][0], drop_pool[0][1]
 
-    # Not framed as mail: the items go straight into the pack, so wording like
-    # "Mail Drop" or "Packages Delivered" sends players to the pub mailbox to
-    # find nothing.
     await channel.send(embed=discord.Embed(
         title="🪶 Moogle Hand-Delivery",
         description=(
@@ -2836,10 +2997,11 @@ async def run_moogle_festival(bot_ctx, channel):
     ))
     await asyncio.sleep(3)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*No one to deliver to. The moogles left the packages on the ground and flew away, visibly offended.*",
             color=0x888888
@@ -2848,31 +3010,45 @@ async def run_moogle_festival(bot_ctx, channel):
 
     from utils.ttrpg.inventory_capacity import grant_item_or_mail
     result_lines = []
-    for s in present:
+    for uid in candidate_ids:
         key, name = roll_drop()
-        delivery = grant_item_or_mail(s, key, "Moogle Hand-Delivery")
-        await save(s)
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            delivery = grant_item_or_mail(sheet, key, "Moogle Hand-Delivery")
+            return sheet.get("character_name", "An adventurer"), name, delivery
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, name, delivery = result
         if delivery == "inventory":
-            result_lines.append(f"🎒 **{s['character_name']}** — **{name}** added to pack")
+            result_lines.append(f"🎒 **{character_name}** — **{name}** added to pack")
         else:
-            result_lines.append(f"📬 **{s['character_name']}** — **{name}** sent to Moogle Mail (inventory full)")
+            result_lines.append(f"📬 **{character_name}** — **{name}** sent to Moogle Mail (inventory full)")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The moogles arrived, but everyone had already left town.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🎒 Straight Into Your Pack",
-        description="\n".join(result_lines)
-        + "\n\n*The moogles left without waiting for thanks.*"
-        + "\n\nNo mailbox involved — check `!rpg inventory`.",
+        description="\n".join(result_lines) + "\n\n*The moogles left without waiting for thanks.*",
         color=0xf4a460
     ))
     await _log_world_event("🪶 **Moogle Hand-Delivery** — parcels pressed into the hands of everyone present in Oakhaven.")
 
 async def run_aeridorian_tremor(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
@@ -2890,10 +3066,11 @@ async def run_aeridorian_tremor(bot_ctx, channel):
     ))
     await asyncio.sleep(4)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The pulse washed over an empty square. Oakhaven's cats all looked east at the same time.*",
             color=0x888888
@@ -2902,38 +3079,58 @@ async def run_aeridorian_tremor(bot_ctx, channel):
 
     result_lines = []
     level_ups = []
-    for s in present:
+    for uid in candidate_ids:
         roll = secrets.randbelow(100)
-        if roll < 40:
-            # XP surge
-            gain = secrets.randbelow(30) + 20
-            s["xp"] = s.get("xp", 0) + gain
-            leveled, new_lvl = check_level_up(s)
-            await save(s)
-            result_lines.append(f"✨ **{s['character_name']}** — resonance surge (+{gain} XP)")
-            if leveled:
-                level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
-        elif roll < 65:
-            # HP restore
-            hp_gain = min(10, s["hp"]["max"] - s["hp"]["current"])
-            s["hp"]["current"] = min(s["hp"]["current"] + hp_gain, s["hp"]["max"])
-            await save(s)
-            result_lines.append(f"💚 **{s['character_name']}** — the pulse closes old wounds (+{hp_gain} HP)")
-        elif roll < 80:
-            # Item drop
-            from utils.ttrpg.inventory_capacity import grant_item_or_mail
-            delivery = grant_item_or_mail(s, "aeridor_shard", "Aeridorian Tremor")
-            await save(s)
-            if delivery == "inventory":
-                result_lines.append(f"💎 **{s['character_name']}** — a crystal shard lands at their feet")
+        value = secrets.randbelow(30) + 20 if roll < 40 else None
+        hp_drain = secrets.randbelow(4) + 2 if roll >= 80 else None
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            character_name = sheet.get("character_name", "An adventurer")
+            if roll < 40:
+                sheet["xp"] = sheet.get("xp", 0) + value
+                leveled, new_level = check_level_up(sheet)
+                return character_name, "xp", value, leveled, new_level
+            if roll < 65:
+                hp = sheet.setdefault("hp", {})
+                current = hp.get("current", 0)
+                maximum = hp.get("max", current)
+                gain = min(10, maximum - current)
+                hp["current"] = min(current + gain, maximum)
+                return character_name, "heal", gain, False, 0
+            if roll < 80:
+                from utils.ttrpg.inventory_capacity import grant_item_or_mail
+                delivery = grant_item_or_mail(sheet, "aeridor_shard", "Aeridorian Tremor")
+                return character_name, "item", delivery, False, 0
+            hp = sheet.setdefault("hp", {})
+            hp["current"] = max(1, hp.get("current", 1) - hp_drain)
+            return character_name, "drain", hp_drain, False, 0
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, kind, amount, leveled, new_level = result
+        if kind == "xp":
+            result_lines.append(f"✨ **{character_name}** — resonance surge (+{amount} XP)")
+        elif kind == "heal":
+            result_lines.append(f"💚 **{character_name}** — the pulse closes old wounds (+{amount} HP)")
+        elif kind == "item":
+            if amount == "inventory":
+                result_lines.append(f"💎 **{character_name}** — a crystal shard lands at their feet")
             else:
-                result_lines.append(f"📬 **{s['character_name']}** — a crystal shard was sent to Moogle Mail (inventory full)")
+                result_lines.append(f"📬 **{character_name}** — a crystal shard was sent to Moogle Mail (inventory full)")
         else:
-            # Minor HP drain
-            drain = secrets.randbelow(4) + 2
-            s["hp"]["current"] = max(1, s["hp"]["current"] - drain)
-            await save(s)
-            result_lines.append(f"⚡ **{s['character_name']}** — rejection. The pulse pushed back (-{drain} HP)")
+            result_lines.append(f"⚡ **{character_name}** — rejection. The pulse pushed back (-{amount} HP)")
+        if leveled:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The pulse passed over an empty square.*",
+            color=0x888888
+        ))
+        return
 
     embed = discord.Embed(
         title="💎 The Pulse Fades",
@@ -2947,10 +3144,11 @@ async def run_aeridorian_tremor(bot_ctx, channel):
 
 async def run_tonberry_procession(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
+    from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
@@ -2968,10 +3166,11 @@ async def run_tonberry_procession(bot_ctx, channel):
     ))
     await asyncio.sleep(4)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*They marched through an empty Oakhaven. Left a single coin on the well. Nobody knows why.*",
             color=0x888888
@@ -2979,29 +3178,46 @@ async def run_tonberry_procession(bot_ctx, channel):
         return
 
     result_lines = []
-    for s in present:
-        # 80% watched quietly, 20% disturbed them
+    for uid in candidate_ids:
         roll = secrets.randbelow(10)
-        if roll < 8:
-            xp = secrets.randbelow(15) + 10
-            gil = secrets.randbelow(20) + 10
-            s["xp"] = s.get("xp", 0) + xp
-            s["gil"] = s.get("gil", 0) + gil
-            from utils.ttrpg.progression import check_level_up
-            leveled, new_lvl = check_level_up(s)
-            await save(s)
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            character_name = sheet.get("character_name", "An adventurer")
+            if roll < 8:
+                xp = secrets.randbelow(15) + 10
+                gil = secrets.randbelow(20) + 10
+                sheet["xp"] = sheet.get("xp", 0) + xp
+                sheet["gil"] = sheet.get("gil", 0) + gil
+                leveled, new_level = check_level_up(sheet)
+                return character_name, "coin", xp, gil, leveled, new_level
+            damage = secrets.randbelow(8) + 5
+            hp = sheet.setdefault("hp", {})
+            hp["current"] = max(1, hp.get("current", 1) - damage)
+            return character_name, "hurt", damage, 0, False, 0
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, kind, value_a, value_b, leveled, new_level = result
+        if kind == "coin":
             result_lines.append(
-                f"🕯️ **{s['character_name']}** watched in silence. A tonberry dropped a coin purse as it passed. (+{xp} XP, +{gil}g)"
+                f"🕯️ **{character_name}** watched in silence. A tonberry dropped a coin purse as it passed. (+{value_a} XP, +{value_b}g)"
             )
             if leveled:
-                result_lines.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+                result_lines.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
         else:
-            dmg = secrets.randbelow(8) + 5
-            s["hp"]["current"] = max(1, s["hp"]["current"] - dmg)
-            await save(s)
             result_lines.append(
-                f"🔪 **{s['character_name']}** made eye contact. The closest tonberry stopped walking. (-{dmg} HP)"
+                f"🔪 **{character_name}** made eye contact. The closest tonberry stopped walking. (-{value_a} HP)"
             )
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The procession had passed by the time anyone remained in the square.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🔪 They Have Passed",
@@ -3012,21 +3228,21 @@ async def run_tonberry_procession(bot_ctx, channel):
 
 async def run_spine_storm(bot_ctx, channel):
     import discord, secrets
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
     }
-    CLASS_EFFECTS = {
-        "Warrior": ("battle_focus",   "The cold sharpens something. STR +1 until next combat."),
-        "Ranger":  ("forest_sight",   "The storm light clarifies distance. DEX +1 until next combat."),
-        "Mage":    ("resonance_link", "The charged air sings. INT +2 until next combat."),
-        "Rogue":   ("shadow_step",    "The fog gives excellent cover. DEX +2 until next combat."),
-        "Cleric":  ("divine_clarity", "The storm feels deliberate. WIS +2 until next combat."),
+    class_effects = {
+        "Warrior": ("battle_focus", "The cold sharpens something. STR +1 until next combat."),
+        "Ranger": ("forest_sight", "The storm light clarifies distance. DEX +1 until next combat."),
+        "Mage": ("resonance_link", "The charged air sings. INT +2 until next combat."),
+        "Rogue": ("shadow_step", "The fog gives excellent cover. DEX +2 until next combat."),
+        "Cleric": ("divine_clarity", "The storm feels deliberate. WIS +2 until next combat."),
     }
 
     await channel.send(embed=discord.Embed(
@@ -3041,10 +3257,11 @@ async def run_spine_storm(bot_ctx, channel):
     ))
     await asyncio.sleep(4)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The storm broke over an empty square. The puddles glow faintly. Nobody saw it.*",
             color=0x888888
@@ -3053,19 +3270,38 @@ async def run_spine_storm(bot_ctx, channel):
 
     result_lines = []
     level_ups = []
-    for s in present:
-        cls = s.get("class", "Warrior")
-        buff_key, buff_desc = CLASS_EFFECTS.get(cls, ("sharp_mind", "+1 to next roll."))
-        conds = s.setdefault("conditions", [])
-        if buff_key not in conds:
-            conds.append(buff_key)
+    for uid in candidate_ids:
         xp_bonus = secrets.randbelow(10) + 5
-        s["xp"] = s.get("xp", 0) + xp_bonus
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        result_lines.append(f"⚡ **{s['character_name']}** — *{buff_desc}* (+{xp_bonus} XP)")
+
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            character_name = sheet.get("character_name", "An adventurer")
+            character_class = sheet.get("class", "Warrior")
+            buff_key, buff_desc = class_effects.get(
+                character_class, ("sharp_mind", "+1 to next roll.")
+            )
+            conds = sheet.setdefault("conditions", [])
+            if buff_key not in conds:
+                conds.append(buff_key)
+            sheet["xp"] = sheet.get("xp", 0) + xp_bonus
+            leveled, new_level = check_level_up(sheet)
+            return character_name, buff_desc, leveled, new_level
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, buff_desc, leveled, new_level = result
+        result_lines.append(f"⚡ **{character_name}** — *{buff_desc}* (+{xp_bonus} XP)")
         if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            level_ups.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The storm passed after the square had emptied.*",
+            color=0x888888
+        ))
+        return
 
     embed = discord.Embed(
         title="⛈️ The Storm Passes",
@@ -3074,9 +3310,8 @@ async def run_spine_storm(bot_ctx, channel):
     )
     if level_ups:
         embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
-    
     await channel.send(embed=embed)
-    await _log_world_event("⛈️ **Storm of the Spine** swept through Oakhaven.")
+    await _log_world_event("⛈️ **Storm of the Spine** swept through Oakhaven, leaving class-aligned blessings.")
 
 async def run_caravan_arrival(bot_ctx, channel):
     """Full caravan merchant event — tier 3 gear, 1 gear per customer, buy + talk.
@@ -3656,7 +3891,7 @@ async def run_construct_breach(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
@@ -3688,6 +3923,14 @@ async def run_construct_breach(bot_ctx, channel):
             color=0x888888
         ))
         return
+
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
 
     theme_key = "constructs"
     theme_data = DUNGEON_THEMES[theme_key]
@@ -3806,41 +4049,46 @@ async def run_construct_breach(bot_ctx, channel):
     casualty_count = 0
     
     for s, monster, rounds_log, won, escaped in combat_results:
-        if s["hp"]["current"] <= 0:
+        uid = str(s.get("user_id", ""))
+        start = starting_states_by_uid.get(uid, {})
+        simulated_hp = s.get("hp", {}).get("current", 0)
+        consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+        reward_xp = xp_each if simulated_hp > 0 and defenders_won else 0
+        reward_gil = gil_each if simulated_hp > 0 and defenders_won else 0
+        reputation_delta = 10 if simulated_hp > 0 and defenders_won else (-10 if simulated_hp > 0 else 0)
+        result = await _commit_background_combat_result(
+            uid, starting_hp=start.get("hp", 0), simulated_hp=simulated_hp,
+            consumed_conditions=consumed_conditions, xp_reward=reward_xp,
+            gil_reward=reward_gil, reputation_delta=reputation_delta,
+        )
+        if not result:
+            continue
+        character_name = result["character_name"]
+        blackout = result["blackout"]
+        if blackout:
             casualty_count += 1
-            s["hunt_streak"] = 0
-            xp_loss = int(s["xp"] * 0.10)
-            gil_loss = int(s["gil"] * 0.05)
-            s["xp"] = max(0, s["xp"] - xp_loss)
-            s["gil"] = max(0, s["gil"] - gil_loss)
-            s["hp"]["current"] = 1
-            s["location"] = "shrine"
-            s["deaths"] = s.get("deaths", 0) + 1
-            for _cb in ["embered", "fortified"]:
-                if _cb in s.get("conditions", []): s["conditions"].remove(_cb)
-            
-            result_lines.append(f"💀 **{s['character_name']}** blacked out (lost {xp_loss} XP, {gil_loss} gil)")
-            
+            result_lines.append(
+                f"💀 **{character_name}** blacked out (lost {blackout['xp_loss']} XP, {blackout['gil_loss']} gil)"
+            )
             death_embed = discord.Embed(
-                title=f"💀 {s['character_name']} fell during Construct Breach",
-                description=f"*{monster['name']} left them at the Shrine threshold.*",
-                color=0x8B0000
+                title=f"💀 {character_name} fell during Construct Breach",
+                description=(
+                    f"*{monster['name']} left them at the Shrine threshold. "
+                    f"Lost {blackout['xp_loss']} XP and {blackout['gil_loss']} Gil.*"
+                ),
+                color=0x8B0000,
             )
             await broadcast_world_event(bot_ctx, death_embed)
+        elif simulated_hp <= 0:
+            result_lines.append(f"⚔️ **{character_name}** recovered before reaching the Shrine.")
+        elif defenders_won:
+            result_lines.append(
+                f"⚔️ **{character_name}** survived (received +{reward_xp} XP, +{reward_gil} gil, +10 Rep)"
+            )
         else:
-            if defenders_won:
-                s["xp"] += xp_each
-                s["gil"] += gil_each
-                s["reputation"] = s.get("reputation", 0) + 10
-                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
-            else:
-                s["reputation"] = max(-100, s["reputation"] - 10)
-                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
-                
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            result_lines.append(f"⚔️ **{character_name}** survived but withdrew (lost 10 Rep)")
+        if result["leveled"]:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
             
     wstate = load_world_state()
     now = time.time()
@@ -3888,7 +4136,7 @@ async def run_caravan_ambush(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
@@ -3930,6 +4178,14 @@ async def run_caravan_ambush(bot_ctx, channel):
         ))
         await _log_world_event("❌ **Caravan Destroyed** — bandits and beasts ransacked the Trade Road caravan.")
         return
+
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
 
     theme_key = secrets.choice(["beasts", "demons"])
     theme_data = DUNGEON_THEMES[theme_key]
@@ -4047,41 +4303,46 @@ async def run_caravan_ambush(bot_ctx, channel):
     casualty_count = 0
     
     for s, monster, rounds_log, won, escaped in combat_results:
-        if s["hp"]["current"] <= 0:
+        uid = str(s.get("user_id", ""))
+        start = starting_states_by_uid.get(uid, {})
+        simulated_hp = s.get("hp", {}).get("current", 0)
+        consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+        reward_xp = xp_each if simulated_hp > 0 and defenders_won else 0
+        reward_gil = gil_each if simulated_hp > 0 and defenders_won else 0
+        reputation_delta = 15 if simulated_hp > 0 and defenders_won else (-10 if simulated_hp > 0 else 0)
+        result = await _commit_background_combat_result(
+            uid, starting_hp=start.get("hp", 0), simulated_hp=simulated_hp,
+            consumed_conditions=consumed_conditions, xp_reward=reward_xp,
+            gil_reward=reward_gil, reputation_delta=reputation_delta,
+        )
+        if not result:
+            continue
+        character_name = result["character_name"]
+        blackout = result["blackout"]
+        if blackout:
             casualty_count += 1
-            s["hunt_streak"] = 0
-            xp_loss = int(s["xp"] * 0.10)
-            gil_loss = int(s["gil"] * 0.05)
-            s["xp"] = max(0, s["xp"] - xp_loss)
-            s["gil"] = max(0, s["gil"] - gil_loss)
-            s["hp"]["current"] = 1
-            s["location"] = "shrine"
-            s["deaths"] = s.get("deaths", 0) + 1
-            for _cb in ["embered", "fortified"]:
-                if _cb in s.get("conditions", []): s["conditions"].remove(_cb)
-            
-            result_lines.append(f"💀 **{s['character_name']}** blacked out (lost {xp_loss} XP, {gil_loss} gil)")
-            
+            result_lines.append(
+                f"💀 **{character_name}** blacked out (lost {blackout['xp_loss']} XP, {blackout['gil_loss']} gil)"
+            )
             death_embed = discord.Embed(
-                title=f"💀 {s['character_name']} fell protecting the Caravan",
-                description=f"*{monster['name']} left them at the Shrine threshold.*",
-                color=0x8B0000
+                title=f"💀 {character_name} fell protecting the Caravan",
+                description=(
+                    f"*{monster['name']} left them at the Shrine threshold. "
+                    f"Lost {blackout['xp_loss']} XP and {blackout['gil_loss']} Gil.*"
+                ),
+                color=0x8B0000,
             )
             await broadcast_world_event(bot_ctx, death_embed)
+        elif simulated_hp <= 0:
+            result_lines.append(f"⚔️ **{character_name}** recovered before reaching the Shrine.")
+        elif defenders_won:
+            result_lines.append(
+                f"⚔️ **{character_name}** survived (received +{reward_xp} XP, +{reward_gil} gil, +15 Rep)"
+            )
         else:
-            if defenders_won:
-                s["xp"] += xp_each
-                s["gil"] += gil_each
-                s["reputation"] = s.get("reputation", 0) + 15
-                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +15 Rep)")
-            else:
-                s["reputation"] = max(-100, s["reputation"] - 10)
-                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
-                
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            result_lines.append(f"⚔️ **{character_name}** survived but withdrew (lost 10 Rep)")
+        if result["leveled"]:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
             
     wstate = load_world_state()
     if defenders_won:
@@ -4278,7 +4539,7 @@ async def run_construct_incursion(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
@@ -4319,6 +4580,14 @@ async def run_construct_incursion(bot_ctx, channel):
             color=0x888888
         ))
         return
+
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
 
     # 3. Select constructs theme
     theme_data = DUNGEON_THEMES["constructs"]
@@ -4456,44 +4725,54 @@ async def run_construct_incursion(bot_ctx, channel):
     casualty_count = 0
 
     for s, monster, rounds_log, won, escaped in combat_results:
-        if s["hp"]["current"] <= 0:
-            casualty_count += 1
-            s["hunt_streak"] = 0
-            xp_loss = int(s["xp"] * 0.10)
-            gil_loss = int(s["gil"] * 0.05)
-            s["xp"] = max(0, s["xp"] - xp_loss)
-            s["gil"] = max(0, s["gil"] - gil_loss)
-            s["hp"]["current"] = 1
-            s["location"] = "shrine"
-            s["deaths"] = s.get("deaths", 0) + 1
-            for _cb in ["embered", "fortified"]:
-                if _cb in s.get("conditions", []):
-                    s["conditions"].remove(_cb)
-
-            result_lines.append(f"💀 **{s['character_name']}** fell (lost {xp_loss} XP, {gil_loss} gil)")
-
-            death_embed = discord.Embed(
-                title=f"💀 {s['character_name']} fell to constructs",
-                description=f"*{monster['name']} left them at the Shrine threshold. Lost {xp_loss} XP and {gil_loss} Gil.*",
-                color=0x8B0000
-            )
-            death_embed.set_footer(text=f"Death #{s['deaths']}")
-            await broadcast_world_event(bot_ctx, death_embed)
-        else:
+        uid = str(s.get("user_id", ""))
+        start = starting_states_by_uid.get(uid, {})
+        simulated_hp = s.get("hp", {}).get("current", 0)
+        consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+        reward_xp = 0
+        reward_gil = 0
+        reputation_delta = 0
+        if simulated_hp > 0:
             if defenders_won:
-                s["xp"] += xp_each
-                s["gil"] += gil_each
-                s["reputation"] = s.get("reputation", 0) + 10
-                result_lines.append(f"⚔️ **{s['character_name']}** held the watchtower (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
+                reward_xp, reward_gil, reputation_delta = xp_each, gil_each, 10
             else:
-                consolation_xp = max(1, xp_each // 2)
-                s["xp"] += consolation_xp
-                result_lines.append(f"⚔️ **{s['character_name']}** fought valiantly to hold the gate (+{consolation_xp} XP)")
-
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+                reward_xp = max(1, xp_each // 2)
+        result = await _commit_background_combat_result(
+            uid, starting_hp=start.get("hp", 0), simulated_hp=simulated_hp,
+            consumed_conditions=consumed_conditions, xp_reward=reward_xp,
+            gil_reward=reward_gil, reputation_delta=reputation_delta,
+        )
+        if not result:
+            continue
+        character_name = result["character_name"]
+        blackout = result["blackout"]
+        if blackout:
+            casualty_count += 1
+            result_lines.append(
+                f"💀 **{character_name}** fell (lost {blackout['xp_loss']} XP, {blackout['gil_loss']} gil)"
+            )
+            death_embed = discord.Embed(
+                title=f"💀 {character_name} fell to constructs",
+                description=(
+                    f"*{monster['name']} left them at the Shrine threshold. "
+                    f"Lost {blackout['xp_loss']} XP and {blackout['gil_loss']} Gil.*"
+                ),
+                color=0x8B0000,
+            )
+            death_embed.set_footer(text=f"Death #{result['deaths']}")
+            await broadcast_world_event(bot_ctx, death_embed)
+        elif simulated_hp <= 0:
+            result_lines.append(f"⚔️ **{character_name}** recovered before reaching the Shrine.")
+        elif defenders_won:
+            result_lines.append(
+                f"⚔️ **{character_name}** held the watchtower (received +{reward_xp} XP, +{reward_gil} gil, +10 Rep)"
+            )
+        else:
+            result_lines.append(
+                f"⚔️ **{character_name}** fought valiantly to hold the gate (+{reward_xp} XP)"
+            )
+        if result["leveled"]:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
 
     # Apply global updates
     wstate = load_world_state()
@@ -4546,8 +4825,7 @@ async def run_blight_on_the_crops(bot_ctx, channel):
     import asyncio
     import secrets
     import random
-    from utils.ttrpg.character_manager import load_all
-    from utils.ttrpg.housing import load_all_housing, save_housing
+    from utils.ttrpg.housing import load_all_housing
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     await channel.send(embed=discord.Embed(
@@ -4561,37 +4839,48 @@ async def run_blight_on_the_crops(bot_ctx, channel):
     ))
     await asyncio.sleep(3)
 
-    all_housing = load_all_housing()
-    farm_owners = [h for h in all_housing if h.get("farming", {}).get("plots")]
-
-    if not farm_owners:
+    # Housing snapshots are for candidate discovery only. Each selected owner
+    # is reloaded under their user-action lock before a plot is changed.
+    candidate_ids = list(dict.fromkeys(
+        str(h.get("user_id")) for h in load_all_housing()
+        if h.get("user_id") and h.get("farming", {}).get("plots")
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The mist dissipated harmlessly. No active fields or crops were in use in the housing district.*",
             color=0x888888
         ))
         return
 
-    # Select up to 3 random farm owners
-    affected_count = min(3, len(farm_owners))
-    affected_owners = random.sample(farm_owners, affected_count)
-
-    all_sheets = await load_all()
-    uid_to_name = {s.get("user_id"): s.get("character_name", "Unknown") for s in all_sheets if s.get("user_id")}
-
+    affected_ids = random.sample(candidate_ids, min(3, len(candidate_ids)))
     result_lines = []
-    for h in affected_owners:
-        plots = h["farming"]["plots"]
-        idx = secrets.randbelow(len(plots))
-        plots[idx]["blighted"] = True
-        h["farming"]["plots"] = plots
-        save_housing(h)
+    from utils.ttrpg.farming import CROPS
+    for uid in affected_ids:
+        def infect_one_plot(housing):
+            plots = housing.get("farming", {}).get("plots", [])
+            if not plots:
+                return None
+            index = secrets.randbelow(len(plots))
+            plots[index]["blighted"] = True
+            crop_data = CROPS.get(plots[index].get("crop_key"), {})
+            return (
+                housing.get("character_name", "Unknown"),
+                crop_data.get("name", "crop"),
+            )
 
-        uid = str(h.get("user_id", ""))
-        char_name = uid_to_name.get(uid, f"User {uid}")
-        from utils.ttrpg.farming import CROPS
-        crop_data = CROPS.get(plots[idx].get("crop_key"), {})
-        crop_name = crop_data.get("name", "crop")
-        result_lines.append(f"🥀 **{char_name}**'s plot of **{crop_name}** has been infected with blight!")
+        result = await _mutate_player_housing(uid, infect_one_plot)
+        if result:
+            char_name, crop_name = result
+            result_lines.append(
+                f"🥀 **{char_name}**'s plot of **{crop_name}** has been infected with blight!"
+            )
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The mist dissipated after all active fields had been tended.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🥀 Blight Infection Report",
@@ -4600,18 +4889,16 @@ async def run_blight_on_the_crops(bot_ctx, channel):
     ))
     await _log_world_event("🥀 **Whisperwood Blight** sours Oakhaven soil. Several crops in the housing district were lost.")
     log_action("Noon Event: Blight on Crops")
-
-
 async def run_pilgrims_arrive(bot_ctx, channel):
     """Noon event: Pilgrims arrive at the Shrine, granting a blessing window in world_state."""
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
     from utils.ttrpg.world_state import load_world_state, save_world_state
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
@@ -4628,10 +4915,11 @@ async def run_pilgrims_arrive(bot_ctx, channel):
     ))
     await asyncio.sleep(3)
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The pilgrims prayed at the empty shrine and proceeded north, leaving a quiet aura in the air.*",
             color=0x888888
@@ -4639,17 +4927,31 @@ async def run_pilgrims_arrive(bot_ctx, channel):
         return
 
     result_lines = []
-    for s in present:
-        # Restore 10 HP and grant Blessed condition
-        s["hp"]["current"] = min(s["hp"]["max"], s["hp"]["current"] + 10)
-        if "blessed" not in s.setdefault("conditions", []):
-            s["conditions"].append("blessed")
-        await save(s)
-        result_lines.append(f"✨ **{s['character_name']}** was restored (+10 HP, **Blessed**)")
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            hp = sheet.setdefault("hp", {})
+            hp["current"] = min(hp.get("max", 1), hp.get("current", 0) + 10)
+            if "blessed" not in sheet.setdefault("conditions", []):
+                sheet["conditions"].append("blessed")
+            return sheet.get("character_name", "An adventurer")
 
-    # Set temporary world_state pilgrim_blessing_until
+        character_name = await _mutate_player_sheet(uid, apply)
+        if character_name:
+            result_lines.append(f"✨ **{character_name}** was restored (+10 HP, **Blessed**)")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The pilgrims arrived after everyone had left the square.*",
+            color=0x888888
+        ))
+        return
+
+    # Set temporary world_state pilgrim_blessing_until; the player-sheet
+    # mutations above have already been committed under their own locks.
     wstate = load_world_state()
-    wstate["pilgrim_blessing_until"] = time.time() + 24 * 3600  # 24 hours
+    wstate["pilgrim_blessing_until"] = time.time() + 24 * 3600
     save_world_state(wstate)
 
     await channel.send(embed=discord.Embed(
@@ -4659,7 +4961,6 @@ async def run_pilgrims_arrive(bot_ctx, channel):
     ))
     await _log_world_event("🕯️ **Pilgrims Arrive** — Morvenna's relics brought to the Shrine, blessing those present in Oakhaven.")
     log_action("Noon Event: Pilgrims Arrive")
-
 
 async def run_night_terror_warning(bot_ctx, channel):
     """Noon event: A warning about dangerous beasts shifting solo hunts to a harder tier."""
@@ -4745,7 +5046,7 @@ async def run_silverstream_blackwater(bot_ctx, channel):
 async def run_hooded_figures_vigil(bot_ctx, channel):
     """Noon event: The Hooded Figure's Vigil."""
     import discord
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     await channel.send(embed=discord.Embed(
@@ -4757,10 +5058,11 @@ async def run_hooded_figures_vigil(bot_ctx, channel):
         color=0x2c3e50
     ))
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") == "stone_hearth"]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") == "stone_hearth"
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The tavern was empty. The figure sat alone in the dim light.*",
             color=0x888888
@@ -4768,12 +5070,25 @@ async def run_hooded_figures_vigil(bot_ctx, channel):
         return
 
     result_lines = []
-    for s in present:
-        conds = s.setdefault("conditions", [])
-        if "veiled_watched" not in conds:
-            conds.append("veiled_watched")
-        await save(s)
-        result_lines.append(f"🌘 **{s['character_name']}** — *Veiled Watched (+1 to next roll)*")
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") != "stone_hearth":
+                return None
+            sheet.setdefault("conditions", [])
+            if "veiled_watched" not in sheet["conditions"]:
+                sheet["conditions"].append("veiled_watched")
+            return sheet.get("character_name", "An adventurer")
+
+        character_name = await _mutate_player_sheet(uid, apply)
+        if character_name:
+            result_lines.append(f"🌘 **{character_name}** — *Veiled Watched (+1 to next roll)*")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*The tavern emptied before the vigil could mark anyone.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🌘 Marked by the Vigil",
@@ -4783,11 +5098,10 @@ async def run_hooded_figures_vigil(bot_ctx, channel):
     await _log_world_event("🌘 **Hooded Figure Vigil** — The stranger marked Stone Hearth patrons with a watchful gaze.")
     log_action("Noon Event: Hooded Figures Vigil")
 
-
 async def run_caelindras_lost_verse(bot_ctx, channel):
     """Noon event: Caelindra's Lost Verse."""
     import discord
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
@@ -4804,21 +5118,33 @@ async def run_caelindras_lost_verse(bot_ctx, channel):
         color=0x8e44ad
     ))
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") == "stone_hearth"]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") == "stone_hearth"
+    ))
+    if not candidate_ids:
         return
 
     result_lines = []
     level_ups = []
-    for s in present:
-        s["xp"] = s.get("xp", 0) + 15
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        result_lines.append(f"📜 **{s['character_name']}** — *Heard the Verse* (+15 XP)")
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") != "stone_hearth":
+                return None
+            sheet["xp"] = sheet.get("xp", 0) + 15
+            leveled, new_level = check_level_up(sheet)
+            return sheet.get("character_name", "An adventurer"), leveled, new_level
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, leveled, new_level = result
+        result_lines.append(f"📜 **{character_name}** — *Heard the Verse* (+15 XP)")
         if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            level_ups.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
+
+    if not result_lines:
+        return
 
     embed = discord.Embed(title="📜 A Quiet Understanding", description="\n".join(result_lines), color=0x8e44ad)
     if level_ups:
@@ -4826,7 +5152,6 @@ async def run_caelindras_lost_verse(bot_ctx, channel):
     await channel.send(embed=embed)
     await _log_world_event("📜 **Caelindra's Verse** — The bard recited a lost Aeridorian verse at the Stone Hearth.")
     log_action("Noon Event: Caelindra's Lost Verse")
-
 
 async def run_watchtower_silence(bot_ctx, channel):
     """Noon event: The Watchtower's Silence."""
@@ -4856,10 +5181,10 @@ async def run_watchtower_silence(bot_ctx, channel):
 async def run_silvani_antidote_run(bot_ctx, channel):
     """Noon event: Silvani Antidote Run."""
     import discord
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
@@ -4875,10 +5200,11 @@ async def run_silvani_antidote_run(bot_ctx, channel):
         color=0x27ae60
     ))
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*No adventurers were present in town to collect the bundle. The guard stored it.*",
             color=0x888888
@@ -4887,13 +5213,28 @@ async def run_silvani_antidote_run(bot_ctx, channel):
 
     from utils.ttrpg.inventory_capacity import grant_item_or_mail
     result_lines = []
-    for s in present:
-        delivery = grant_item_or_mail(s, "bandage", "Silvani Supplies")
-        await save(s)
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            delivery = grant_item_or_mail(sheet, "bandage", "Silvani Supplies")
+            return sheet.get("character_name", "An adventurer"), delivery
+
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, delivery = result
         if delivery == "inventory":
-            result_lines.append(f"🧪 **{s['character_name']}** — *Acquired: Bandage*")
+            result_lines.append(f"🧪 **{character_name}** — *Acquired: Bandage*")
         else:
-            result_lines.append(f"📬 **{s['character_name']}** — *Bandage sent to Moogle Mail (inventory full)*")
+            result_lines.append(f"📬 **{character_name}** — *Bandage sent to Moogle Mail (inventory full)*")
+
+    if not result_lines:
+        await channel.send(embed=discord.Embed(
+            description="*No adventurers remained in town to receive the bundle.*",
+            color=0x888888
+        ))
+        return
 
     await channel.send(embed=discord.Embed(
         title="🧪 Supplies Distributed",
@@ -4903,14 +5244,13 @@ async def run_silvani_antidote_run(bot_ctx, channel):
     await _log_world_event("🧪 **Silvani Drop** — A Silvani hunter left emergency bandages for town residents.")
     log_action("Noon Event: Silvani Antidote Run")
 
-
 async def run_iron_magpies_heist(bot_ctx, channel):
     """Noon event: The Iron Magpies Bank Heist scaled combat event."""
     import secrets
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save, load_all
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
@@ -4965,17 +5305,20 @@ async def run_iron_magpies_heist(bot_ctx, channel):
         import time as _time
         from utils.ttrpg.character_manager import active_since
         _active = await asyncio.to_thread(active_since, _time.time() - 48 * 3600)
-        all_sheets = await load_all()
         stolen_details = []
-        for s in all_sheets:
-            if str(s.get("user_id")) not in _active:
-                continue
-            bal = s.get("bank_balance", 0)
-            if bal > 0:
-                stolen = max(1, int(bal * 0.05))
-                s["bank_balance"] = max(0, bal - stolen)
-                await save(s)
-                stolen_details.append(f"🏦 **{s['character_name']}**: -{stolen} Gil")
+        for uid in sorted(_active):
+            def apply_bank_loss(sheet):
+                balance = sheet.get("bank_balance", 0)
+                if balance <= 0:
+                    return None
+                stolen = max(1, int(balance * 0.05))
+                sheet["bank_balance"] = max(0, balance - stolen)
+                return sheet.get("character_name", f"User {uid}"), stolen
+
+            bank_loss = await _mutate_player_sheet(uid, apply_bank_loss)
+            if bank_loss:
+                character_name, stolen = bank_loss
+                stolen_details.append(f"🏦 **{character_name}**: -{stolen} Gil")
         
         desc = f"*No adventurers responded to the alarm. {thief['name']} of the Iron Magpies cleaned out the vault and vanished into the shadows.*\n\n"
         if stolen_details:
@@ -4987,6 +5330,15 @@ async def run_iron_magpies_heist(bot_ctx, channel):
         await _log_world_event(f"❌ **Bank Robbed** — {thief['name']} of the Iron Magpies broke into the vaults and stole Gil deposits.")
         log_action(f"Noon Event: Iron Magpies Bank Heist ({thief['name']} - Undefended)")
         return
+
+
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
 
     # Combat setup
     avg_level = sum(s.get("level", 1) for s in defenders) / len(defenders)
@@ -5057,50 +5409,94 @@ async def run_iron_magpies_heist(bot_ctx, channel):
     
     if defenders_won:
         for s in defenders:
-            if s["hp"]["current"] <= 0:
-                s["hp"]["current"] = 1
-                s["location"] = "shrine"
-                s["deaths"] = s.get("deaths", 0) + 1
-                s["xp"] = s.get("xp", 0) + xp_each // 2
-                s["gil"] = s.get("gil", 0) + gil_each // 2
-                leveled, new_lvl = check_level_up(s)
-                await save(s)
-                result_lines.append(f"💀 **{s['character_name']}** was knocked out, but the team prevailed! (+{xp_each // 2} XP, +{gil_each // 2}g)")
-                if leveled:
-                    level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            uid = str(s.get("user_id", ""))
+            start = starting_states_by_uid.get(uid, {})
+            simulated_hp = s.get("hp", {}).get("current", 0)
+            consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+            result = await _commit_background_combat_result(
+                uid,
+                starting_hp=start.get("hp", 0),
+                simulated_hp=simulated_hp,
+                consumed_conditions=consumed_conditions,
+                xp_reward=xp_each if simulated_hp > 0 else 0,
+                gil_reward=gil_each if simulated_hp > 0 else 0,
+                knockout_xp_reward=xp_each // 2 if simulated_hp <= 0 else 0,
+                knockout_gil_reward=gil_each // 2 if simulated_hp <= 0 else 0,
+            )
+            if not result:
+                continue
+            character_name = result["character_name"]
+            if result["blackout"]:
+                result_lines.append(
+                    f"💀 **{character_name}** was knocked out, but the team prevailed! "
+                    f"(lost {result['blackout']['xp_loss']} XP, {result['blackout']['gil_loss']}g)"
+                )
+            elif result["knockout_applied"]:
+                result_lines.append(
+                    f"💀 **{character_name}** was knocked out, but the team prevailed! "
+                    f"(+{xp_each // 2} XP, +{gil_each // 2}g)"
+                )
+            elif simulated_hp <= 0:
+                result_lines.append(
+                    f"⚔️ **{character_name}** recovered during the defense and remained standing."
+                )
             else:
-                s["xp"] = s.get("xp", 0) + xp_each
-                s["gil"] = s.get("gil", 0) + gil_each
-                leveled, new_lvl = check_level_up(s)
-                await save(s)
-                result_lines.append(f"⚔️ **{s['character_name']}** helped subdue {thief['name']} and secured the vaults! (+{xp_each} XP, +{gil_each}g)")
-                if leveled:
-                    level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+                result_lines.append(
+                    f"⚔️ **{character_name}** helped subdue {thief['name']} and secured the vaults! "
+                    f"(+{xp_each} XP, +{gil_each}g)"
+                )
+            if result["leveled"]:
+                level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
     else:
-        # Theft loss penalty if defenders lose / time runs out: 5% of bank balances stolen (uncapped sink)
-        all_sheets = await load_all()
+        # The loss applies to active players' current bank balances, not
+        # detached load_all() snapshots.
+        import time as _time
+        from utils.ttrpg.character_manager import active_since
+        active_ids = await asyncio.to_thread(active_since, _time.time() - 48 * 3600)
         stolen_details = []
-        for s_other in all_sheets:
-            bal = s_other.get("bank_balance", 0)
-            if bal > 0:
-                stolen = max(1, int(bal * 0.05))
-                s_other["bank_balance"] = max(0, bal - stolen)
-                await save(s_other)
-                stolen_details.append(f"🏦 **{s_other['character_name']}**: -{stolen} Gil")
+        for uid in sorted(active_ids):
+            def apply_bank_loss(sheet):
+                balance = sheet.get("bank_balance", 0)
+                if balance <= 0:
+                    return None
+                stolen = max(1, int(balance * 0.05))
+                sheet["bank_balance"] = max(0, balance - stolen)
+                return sheet.get("character_name", f"User {uid}"), stolen
+
+            bank_loss = await _mutate_player_sheet(uid, apply_bank_loss)
+            if bank_loss:
+                character_name, stolen = bank_loss
+                stolen_details.append(f"🏦 **{character_name}**: -{stolen} Gil")
+
         for s in defenders:
-            if s["hp"]["current"] <= 0:
-                s["xp"] = max(0, s["xp"] - int(s["xp"] * 0.10))
-                s["gil"] = max(0, s["gil"] - int(s["gil"] * 0.05))
-                s["hp"]["current"] = 1
-                s["location"] = "shrine"
-                s["deaths"] = s.get("deaths", 0) + 1
-                await save(s)
-                result_lines.append(f"💀 **{s['character_name']}** was knocked out defending the bank.")
+            uid = str(s.get("user_id", ""))
+            start = starting_states_by_uid.get(uid, {})
+            simulated_hp = s.get("hp", {}).get("current", 0)
+            consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+            result = await _commit_background_combat_result(
+                uid,
+                starting_hp=start.get("hp", 0),
+                simulated_hp=simulated_hp,
+                consumed_conditions=consumed_conditions,
+            )
+            if not result:
+                continue
+            character_name = result["character_name"]
+            if result["blackout"]:
+                result_lines.append(
+                    f"💀 **{character_name}** was knocked out defending the bank "
+                    f"(lost {result['blackout']['xp_loss']} XP, {result['blackout']['gil_loss']} Gil)."
+                )
+            elif simulated_hp <= 0:
+                result_lines.append(
+                    f"🛡️ **{character_name}** recovered during the defense and remained standing."
+                )
             else:
-                await save(s)
-                result_lines.append(f"🛡️ **{s['character_name']}** survived, but {thief['name']} overpowered the defense and escaped with the loot.")
+                result_lines.append(
+                    f"🛡️ **{character_name}** survived, but {thief['name']} overpowered the defense and escaped with the loot."
+                )
         if stolen_details:
-            result_lines.append("\n**Stolen Bank Balances (5% Vault Heist Loss):**\n" + "\n".join(stolen_details))
+            result_lines.append("\\n**Stolen Bank Balances (5% Vault Heist Loss):**\\n" + "\\n".join(stolen_details))
 
     embed = discord.Embed(
         title="🕳️ Bank Defense Outcome",
@@ -5183,7 +5579,7 @@ async def run_sealed_wax_jar(bot_ctx, channel):
 async def run_elaras_private_ritual(bot_ctx, channel):
     """Noon event: Elara's Private Ritual."""
     import discord
-    from utils.ttrpg.character_manager import load_all, save
+    from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
@@ -5198,33 +5594,43 @@ async def run_elaras_private_ritual(bot_ctx, channel):
         color=0x9b59b6
     ))
 
-    TOWN_LOCATIONS = {
+    town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
         "shrine", "watchtower", "oakhaven_bank", "herbalists_hut",
         "housing_district", "tricklebrook_pond"
     }
 
-    all_sheets = await load_all()
-    present = [s for s in all_sheets if s.get("location") in TOWN_LOCATIONS]
-
-    if not present:
+    candidate_ids = list(dict.fromkeys(
+        str(s.get("user_id")) for s in await load_all()
+        if s.get("user_id") and s.get("location") in town_locations
+    ))
+    if not candidate_ids:
         return
 
     result_lines = []
     level_ups = []
-    for s in present:
-        s["xp"] = s.get("xp", 0) + 10
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        result_lines.append(f"🌙 **{s['character_name']}** — *Witnessed the Ritual* (+10 XP)")
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+    for uid in candidate_ids:
+        def apply(sheet):
+            if sheet.get("location") not in town_locations:
+                return None
+            sheet["xp"] = sheet.get("xp", 0) + 10
+            leveled, new_level = check_level_up(sheet)
+            return sheet.get("character_name", "An adventurer"), leveled, new_level
 
+        result = await _mutate_player_sheet(uid, apply)
+        if not result:
+            continue
+        character_name, leveled, new_level = result
+        result_lines.append(f"🌙 **{character_name}** — *Witnessed the Ritual* (+10 XP)")
+        if leveled:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {new_level}!**")
+
+    if not result_lines:
+        return
     embed = discord.Embed(title="🌙 A Quiet Connection", description="\n".join(result_lines), color=0x9b59b6)
     if level_ups:
         embed.add_field(name="\u200b", value="\n".join(level_ups), inline=False)
     await channel.send(embed=embed)
     await _log_world_event("🌙 **Elara's Ritual** — Elder Elara performed a private ritual at the Shrine, witnessed by town dwellers.")
     log_action("Noon Event: Elara's Private Ritual")
-
 
