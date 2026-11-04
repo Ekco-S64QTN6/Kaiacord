@@ -441,9 +441,10 @@ async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
             return await interaction.response.send_message(e, ephemeral=True)
 
         s["gil"] -= tier_data["cost"]
-        await save(s)
+        s["gil"] -= 0  # affordability was revalidated against the fresh sheet above
         h["tier"] = next_tier
-        await save_housing_async(h)
+        from utils.ttrpg.housing_transactions import commit_character_housing
+        await commit_character_housing(s, h, action="upgrade_house")
         
         await _log_world_event(f"🏰 **{s['character_name']}** has upgraded their estate to a **{tier_data['name']}**.")
         
@@ -607,12 +608,12 @@ async def _handle_farm_treat(ctx, msg, send, rest, uid, uname, is_owner):
         p["blight_hardened"] = True
 
     housing["farming"]["plots"] = plots
-    save_housing(housing)
 
     sheet["xp"] = sheet.get("xp", 0) + 25
     from utils.ttrpg.progression import check_level_up
     leveled, new_lvl = check_level_up(sheet)
-    await save(sheet)
+    from utils.ttrpg.housing_transactions import commit_character_housing
+    await commit_character_housing(sheet, housing, action="treat_blight")
 
     from utils.ttrpg.shop import find_item
     item_data = find_item(used_item)
@@ -677,9 +678,8 @@ async def _handle_plant_crop(ctx, msg, send, rest, uid, uname, is_owner):
     if len(plots) >= max_plots:
         return await send(msg.channel, "No empty plots available.")
 
-    # Consume seed
+    # Consume seed and add the plot in memory; the journal commits both files.
     sheet["inventory"].remove(crop_key)
-    await save(sheet)
 
     # Plant
     new_plot = {
@@ -690,7 +690,8 @@ async def _handle_plant_crop(ctx, msg, send, rest, uid, uname, is_owner):
     }
     plots.append(new_plot)
     housing["farming"]["plots"] = plots
-    save_housing(housing)
+    from utils.ttrpg.housing_transactions import commit_character_housing
+    await commit_character_housing(sheet, housing, action="plant_crop")
 
     c_data = CROPS[crop_key]
     await send(msg.channel, f"🌱 You planted **{c_data['name']}** in Plot {len(plots)}.")
@@ -777,8 +778,8 @@ async def _handle_harvest_crops(ctx, msg, send, rest, uid, uname, is_owner):
         return await send(msg.channel, "Nothing is ready to harvest yet.")
 
     housing["farming"]["plots"] = to_keep
-    save_housing(housing)
-    await save(sheet)
+    from utils.ttrpg.housing_transactions import commit_character_housing
+    await commit_character_housing(sheet, housing, action="harvest_crops")
 
     result = f"🪣 **Harvest Complete!**\n\nGained: {', '.join(harvested)}."
     if left_behind:
@@ -858,8 +859,7 @@ async def _handle_buy_pet(ctx, msg, send, rest, uid, uname, is_owner):
         return await send(msg.channel, f"Not enough gil ({pet_data['cost']}g).")
 
     sheet["gil"] -= pet_data["cost"]
-    await save(sheet)
-    
+
     new_pet = {
         "key": pet_key,
         "name": pet_data["name"],
@@ -867,8 +867,9 @@ async def _handle_buy_pet(ctx, msg, send, rest, uid, uname, is_owner):
         "days_owned": 0
     }
     housing.setdefault("pets", []).append(new_pet)
-    save_housing(housing)
-    
+    from utils.ttrpg.housing_transactions import commit_character_housing
+    await commit_character_housing(sheet, housing, action="buy_pet")
+
     await _log_world_event(f"🐾 **{sheet['character_name']}** adopted a {pet_data['name']}.")
     await send(msg.channel, f"🐾 **{pet_data['name']} adopted!** It seems happy to follow you home.")
 
@@ -929,8 +930,8 @@ async def _handle_feed_pet(ctx, msg, send, rest, uid, uname, is_owner):
                         })
                         moogle_delivery_msg = "\n💌 *Your House Moogle gratefully accepts the Kupo Nut and drops a letter in your mailbox!*"
 
-    await save(sheet)
-    save_housing(housing)
+    from utils.ttrpg.housing_transactions import commit_character_housing
+    await commit_character_housing(sheet, housing, action="feed_pets")
     await send(msg.channel, f"🐾 You fed {fed_count} pet(s) for {gil_cost}g. They look content.{moogle_delivery_msg}")
     await _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner)
 
@@ -1002,11 +1003,11 @@ async def _handle_buy_furniture(ctx, msg, send, rest, uid, uname, is_owner):
         return await send(msg.channel, f"Not enough gil ({f_data['cost']}g).")
 
     sheet["gil"] -= f_data["cost"]
-    await save(sheet)
-    
+
     housing.setdefault("furniture", []).append(furn_key)
-    save_housing(housing)
-    
+    from utils.ttrpg.housing_transactions import commit_character_housing
+    await commit_character_housing(sheet, housing, action="buy_furniture")
+
     await send(msg.channel, f"🪑 **{f_data['name']} purchased!** Barnaby promises to deliver it 'soon'. It's already there.")
 
 
@@ -1119,11 +1120,11 @@ async def _handle_home_training(ctx, msg, send, rest, uid, uname, is_owner):
         return await send(msg.channel, embed=discord.Embed(description="You've already trained today.", color=0x888888))
 
     housing["last_training"] = today
-    save_housing(housing)
 
-    # Grant a bonus hunt condition to respect the hard ceiling
+    # Grant a bonus hunt condition to respect the hard ceiling.
     sheet.setdefault("conditions", []).append("hunt_bonus")
-    await save(sheet)
+    from utils.ttrpg.housing_transactions import commit_character_housing
+    await commit_character_housing(sheet, housing, action="home_training")
 
     from utils.ttrpg.progression import hunts_remaining
     remaining = hunts_remaining(sheet)
