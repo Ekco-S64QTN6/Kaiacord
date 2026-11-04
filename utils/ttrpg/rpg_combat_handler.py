@@ -1195,6 +1195,14 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = res["sheet"]
     monster = res["monster"]
+    monster_instance_id = str(monster.get("id") or "")
+    if not monster_instance_id:
+        # Legacy saved encounters may predate the spawn ID; pin one so the
+        # pending outcome can safely remove exactly this monster on recovery.
+        monster_instance_id = _uuid.uuid4().hex
+        monster["id"] = monster_instance_id
+        s["monsters"][monster_idx]["id"] = monster_instance_id
+
 
     _consume_blessing_if_combat_ended(sheet, res)
     
@@ -1226,7 +1234,6 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         "player_hp_max": sheet["hp"]["max"],
     })
         
-    await save_session(s)
     
     xp_gain, gil_gain, level_up_msg, loot_msg, streak_msg = 0, 0, "", "", ""
     loot_lines = []
@@ -1436,29 +1443,6 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     leveled, n_lvl = check_level_up(sheet)
     # Lightstone is a kill drop, independent of whether this kill levels the player.
     if res["monster_defeated"]:
-        wisp_drop = _roll_wisp_lightstone_drop(sheet, monster.get("key", ""))
-        if wisp_drop == "granted":
-            m_block += "\n💡 **Lightstone** — the wisp's core falls. Still glowing."
-        elif wisp_drop == "full":
-            m_block += "\n🎒 **[Inventory Full]** Lightstone left behind."
-
-    if leveled:
-        level_up_msg = f"\n🎉 **LEVEL UP! {sheet['character_name']} grew to level {n_lvl}!**"
-        await _log_world_event(f"**{sheet['character_name']}** reached Level {n_lvl}. Oakhaven noted it cautiously.")
-        lv_embed = discord.Embed(
-            title=f"⬆️ {sheet['character_name']} — Level {n_lvl}",
-            description=_level_up_flavor(sheet, n_lvl),
-            color=0xffcc00
-        )
-        lv_embed.set_footer(text=f"{sheet.get('advanced_class') or sheet.get('class', '?')} · {sheet.get('location','').replace('_',' ').title()}")
-        await _broadcast_world_event(ctx, lv_embed)
-        
-
-    await save(sheet)
-    
-
-
-    if res["monster_defeated"]:
         nx = xp_to_next_level(sheet["level"])
         m_block += f"\n+{xp_gain} XP ({sheet['xp']}/{nx})  +{gil_gain} Gil{streak_msg}{loot_msg}{level_up_msg}"
     elif not res["player_alive"]:
@@ -1466,10 +1450,38 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         xp_loss = blackout["xp_loss"]
         gil_loss = blackout["gil_loss"]
         m_block += f"\n\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine of the Silent Ones in Oakhaven. You dropped {xp_loss} XP and {gil_loss} Gil in the dirt."
-        await _announce_overworld_blackout(ctx, sheet, monster.get("name", "Something"), blackout)
-        
-    await save(sheet)
-    
+
+    if res["monster_defeated"] or not res["player_alive"]:
+        outcome_kind = "victory" if res["monster_defeated"] else "defeat"
+        outcome_id = f"overworld:{uid}:{msg.channel.id}:{monster_instance_id}:{outcome_kind}"
+        from utils.ttrpg.combat_outcomes import commit_outcome
+
+        async def _persist_overworld_session(_outcome):
+            await save_session(s)
+
+        await commit_outcome(
+            sheet,
+            {
+                "outcome_id": outcome_id,
+                "kind": "overworld",
+                "result": outcome_kind,
+                "channel_id": str(msg.channel.id),
+                "owner_id": str(uid),
+                "monster_id": monster_instance_id,
+                "monster_key": monster.get("key"),
+                "origin_location": monster.get("origin_location", loc),
+            },
+            save_sheet=save,
+            persist_encounter=_persist_overworld_session,
+        )
+        if not res["player_alive"]:
+            await _announce_overworld_blackout(
+                ctx, sheet, monster.get("name", "Something"), blackout
+            )
+    else:
+        await save(sheet)
+        await save_session(s)
+
     embed_color = 0xFF4500 if res["monster_alive"] else 0x2D5A27
     if not res["player_alive"]:
         embed_color = 0x8B0000
