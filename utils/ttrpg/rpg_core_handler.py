@@ -1810,12 +1810,10 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
 
 
 async def _handle_purify(ctx, msg, send, rest, uid, uname, is_owner):
-    """Purify Tricklebrook Pond when fishing waters are tainted."""
+    """Purify Tricklebrook Pond as one global, recoverable player/world action."""
     sheet = await load(uid)
-    if not sheet: return await no_character(msg)
-
-    from utils.ttrpg.world_state import load_world_state, save_world_state
-    wstate = load_world_state()
+    if not sheet:
+        return await no_character(msg)
 
     loc = sheet.get("location", "oakhaven")
     if loc != "tricklebrook_pond":
@@ -1824,21 +1822,40 @@ async def _handle_purify(ctx, msg, send, rest, uid, uname, is_owner):
             color=0xcc4444
         ))
 
-    if not wstate.get("fishing_water_tainted", False):
-        return await msg.channel.send(embed=discord.Embed(
-            description="🌊 *The waters of Tricklebrook Pond are already clear and peaceful.*",
-            color=0x3a8fc1
-        ))
+    def _purify(current_sheet, wstate):
+        if not wstate.get("fishing_water_tainted", False):
+            return False, {"ok": False, "reason": "clear"}
+        inventory = current_sheet.get("inventory", [])
+        used_item = next(
+            (candidate for candidate in ("aeridor_shard", "tonic", "healing_herb")
+             if candidate in inventory),
+            None,
+        )
+        if not used_item:
+            return False, {"ok": False, "reason": "reagent"}
 
-    # Check for reagent: aeridor_shard, tonic, healing_herb
-    inv = sheet.get("inventory", [])
-    used_item = None
-    for candidate in ["aeridor_shard", "tonic", "healing_herb"]:
-        if candidate in inv:
-            used_item = candidate
-            break
+        inventory.remove(used_item)
+        wstate["fishing_water_tainted"] = False
+        wstate["fishing_water_tainted_expiry"] = 0
+        current_sheet["xp"] = current_sheet.get("xp", 0) + 50
+        current_sheet["reputation"] = current_sheet.get("reputation", 0) + 15
+        from utils.ttrpg.progression import check_level_up
+        leveled, new_level = check_level_up(current_sheet)
+        return True, {
+            "ok": True,
+            "item": used_item,
+            "leveled": leveled,
+            "new_level": new_level,
+        }
 
-    if not used_item:
+    from utils.ttrpg.world_state import mutate_world_state
+    result = await mutate_world_state(_purify, sheet)
+    if not result["ok"]:
+        if result["reason"] == "clear":
+            return await msg.channel.send(embed=discord.Embed(
+                description="🌊 *The waters of Tricklebrook Pond are already clear and peaceful.*",
+                color=0x3a8fc1
+            ))
         return await msg.channel.send(embed=discord.Embed(
             title="🧪 Purification Reagent Needed",
             description=(
@@ -1851,43 +1868,33 @@ async def _handle_purify(ctx, msg, send, rest, uid, uname, is_owner):
             color=0xcc4444
         ))
 
-    inv.remove(used_item)
-    wstate["fishing_water_tainted"] = False
-    wstate["fishing_water_tainted_expiry"] = 0
-    save_world_state(wstate)
-
-    sheet["xp"] = sheet.get("xp", 0) + 50
-    sheet["reputation"] = sheet.get("reputation", 0) + 15
-    from utils.ttrpg.progression import check_level_up
-    leveled, new_lvl = check_level_up(sheet)
-    await save(sheet)
-
-    item_name = find_item(used_item).get("name", used_item.replace("_", " ").title())
+    used_item = result["item"]
+    item_data = find_item(used_item)
+    item_name = item_data.get("name", used_item.replace("_", " ").title()) if item_data else used_item
     desc = (
         f"**{sheet['character_name']}** crushed a **{item_name}** into the pond headwaters!\n\n"
-        f"A shimmering wave of resonance washes through the reeds. The oily black sludge dissolves, "
-        f"and the Silverstream runs pure again!\n\n"
-        f"✨ **Rewards:** +50 XP, +15 Town Reputation"
+        "A shimmering wave of resonance washes through the reeds. The oily black sludge dissolves, "
+        "and the Silverstream runs pure again!\n\n"
+        "✨ **Rewards:** +50 XP, +15 Town Reputation"
     )
-    if leveled:
-        desc += f"\n🎉 **Level Up!** You reached **Level {new_lvl}!**"
+    if result["leveled"]:
+        desc += f"\n🎉 **Level Up!** You reached **Level {result['new_level']}!**"
 
-    embed = discord.Embed(
+    await msg.channel.send(embed=discord.Embed(
         title="🌊 Tricklebrook Pond Purified!",
         description=desc,
         color=0x2ecc71
-    )
-    await msg.channel.send(embed=embed)
-    
+    ))
+
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
-    await _log_world_event(f"🌊 **Pond Purified:** {sheet['character_name']} cleansed Tricklebrook Pond using {item_name}.")
-    
-    broadcast_embed = discord.Embed(
+    await _log_world_event(
+        f"🌊 **Pond Purified:** {sheet['character_name']} cleansed Tricklebrook Pond using {item_name}."
+    )
+    await broadcast_world_event(ctx, discord.Embed(
         title="🌊 Waters Cleansed — Tricklebrook Pond",
         description=f"*{sheet['character_name']} neutralized the dark sludge at Tricklebrook Pond! Fishing waters are restored.*",
         color=0x2ecc71
-    )
-    await broadcast_world_event(ctx, broadcast_embed)
+    ))
 
 
 async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner):

@@ -164,6 +164,11 @@ def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
 
 async def load(user_id: str) -> Optional[Dict[str, Any]]:
     """Async load with per-user locking. Applies daily reset if needed."""
+    # A world-state journal can involve another player. Recover it before
+    # taking this user's sheet lock so recovery can safely acquire the owner
+    # lock recorded in the journal without reversing lock order.
+    from utils.ttrpg.world_state import recover_pending_world_state_transaction
+    await recover_pending_world_state_transaction()
     lock = await get_user_lock(user_id)
     async with lock:
         sheet = await asyncio.to_thread(functools.partial(_load_sync, user_id))
@@ -185,6 +190,8 @@ async def load(user_id: str) -> Optional[Dict[str, Any]]:
 
 async def load_all() -> List[Dict[str, Any]]:
     """Load every character sheet on disk. Returns a list of dicts."""
+    from utils.ttrpg.world_state import recover_pending_world_state_transaction
+    await recover_pending_world_state_transaction()
     return await asyncio.to_thread(_load_all_sync)
 
 def _load_all_sync() -> List[Dict[str, Any]]:
