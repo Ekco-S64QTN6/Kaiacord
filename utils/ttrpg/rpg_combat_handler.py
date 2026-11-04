@@ -1359,12 +1359,12 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
 
         # Blockade Raid Victory check
         if monster.get("key") == "bandit_captain" or monster.get("is_blockade_raid"):
-            from utils.ttrpg.world_state import load_world_state, save_world_state
+            from utils.ttrpg.world_state import load_world_state, async_save_world_state
             _ws = load_world_state()
             _ws["blockade_active"] = False
             _ws["shop_price_mult"] = 1.0
             _ws["shop_price_mult_expiry"] = 0
-            save_world_state(_ws)
+            await async_save_world_state(_ws)
             if grant_item(sheet, "stolen_trade_crate"):
                 loot_lines.append("📦 **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)")
             await _log_world_event(f"⚔️ **Blockade Broken:** {sheet['character_name']} defeated the Bandit Captain and liberated the Trade Road!")
@@ -2283,7 +2283,7 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
 
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, async_save_world_state
     wstate = load_world_state()
 
     loc = sheet.get("location", "oakhaven")
@@ -2326,7 +2326,7 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
         wstate["shop_price_mult"] = max(1.0, round(current_mult - 0.10, 2))
         if wstate["shop_price_mult"] <= 1.0:
             wstate["blockade_active"] = False
-        save_world_state(wstate)
+        await async_save_world_state(wstate)
 
         from utils.ttrpg.progression import check_level_up
         leveled, new_lvl = check_level_up(sheet)
