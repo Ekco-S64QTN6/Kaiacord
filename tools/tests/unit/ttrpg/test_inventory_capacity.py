@@ -177,7 +177,7 @@ def test_harvest_at_capacity_keeps_new_item_types_on_their_plots(monkeypatch):
 
     existing_crop = {"crop_key": "existing_plot"}
     blocked_crop = {"crop_key": "new_plot"}
-    sheet = {"inventory": [f"item_{i}" for i in range(100)]}
+    sheet = {"user_id": "42", "inventory": [f"item_{i}" for i in range(100)]}
     sheet["inventory"][0] = "existing_crop_item"
     home = {"farming": {"plots": [existing_crop, blocked_crop]}}
 
