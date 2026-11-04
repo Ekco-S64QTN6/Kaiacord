@@ -105,7 +105,8 @@ async def _commit_background_combat_result(
         rewarded_knockout = simulated_knockout and bool(
             knockout_xp_reward or knockout_gil_reward
         )
-        if rewarded_knockout:
+        knockout_applied = rewarded_knockout and hp["current"] <= 0
+        if knockout_applied:
             hp["current"] = 1
             sheet["location"] = "shrine"
             sheet["deaths"] = sheet.get("deaths", 0) + 1
@@ -139,6 +140,7 @@ async def _commit_background_combat_result(
             "new_level": new_level,
             "blackout": blackout,
             "simulated_knockout": simulated_knockout,
+            "knockout_applied": knockout_applied,
             "hp": hp.get("current", 0),
             "deaths": sheet.get("deaths", 0),
         }
