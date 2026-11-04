@@ -8,11 +8,22 @@ removing one monster ID is idempotent.
 """
 
 
+def _remember_completed(sheet: dict, outcome_id: str) -> None:
+    """Retain a bounded deduplication window after the pending journal clears."""
+    history = sheet.setdefault("completed_combat_outcomes", [])
+    if outcome_id not in history:
+        history.append(outcome_id)
+    if len(history) > 256:
+        del history[:-256]
+
+
 def stage_outcome(sheet: dict, outcome: dict) -> bool:
     """Add one pending outcome to the character sheet exactly once."""
     outcome_id = str(outcome.get("outcome_id") or "")
     if not outcome_id:
         raise ValueError("combat outcome requires a durable outcome_id")
+    if outcome_id in sheet.get("completed_combat_outcomes", []):
+        return False
     pending = sheet.setdefault("pending_combat_outcomes", {})
     if outcome_id in pending:
         return False
@@ -44,6 +55,7 @@ async def commit_outcome(
     pending.pop(str(outcome["outcome_id"]), None)
     if not pending:
         sheet.pop("pending_combat_outcomes", None)
+    _remember_completed(sheet, str(outcome["outcome_id"]))
     await save_sheet(sheet)
     return True
 
@@ -60,6 +72,7 @@ async def recover_pending_outcomes(sheet: dict, *, save_sheet, recoverers: dict)
             continue
         await recover(outcome)
         pending.pop(outcome_id, None)
+        _remember_completed(sheet, str(outcome_id))
         recovered += 1
 
     if recovered:
