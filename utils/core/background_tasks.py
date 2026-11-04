@@ -2592,7 +2592,7 @@ async def run_village_raid(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
@@ -2627,6 +2627,14 @@ async def run_village_raid(bot_ctx, channel):
             color=0x888888
         ))
         return
+
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
 
     # 3. Select a random theme
     theme_key = secrets.choice(["undead", "constructs", "beasts", "deepwood", "demons"])
@@ -2768,49 +2776,61 @@ async def run_village_raid(bot_ctx, channel):
     casualty_count = 0
     
     for s, monster, rounds_log, won, escaped in combat_results:
-        if s["hp"]["current"] <= 0:
-            # Player fell
-            casualty_count += 1
-            s["hunt_streak"] = 0
-            xp_loss = int(s["xp"] * 0.10)
-            gil_loss = int(s["gil"] * 0.05)
-            s["xp"] = max(0, s["xp"] - xp_loss)
-            s["gil"] = max(0, s["gil"] - gil_loss)
-            s["hp"]["current"] = 1
-            s["location"] = "shrine"
-            s["deaths"] = s.get("deaths", 0) + 1
-            # Clear temporary conditions
-            for _cb in ["embered", "fortified"]:
-                if _cb in s.get("conditions", []):
-                    s["conditions"].remove(_cb)
-            
-            result_lines.append(f"💀 **{s['character_name']}** blacked out (lost {xp_loss} XP, {gil_loss} gil)")
-            
-            # Log individual death in bestiary voice
-            death_embed = discord.Embed(
-                title=f"💀 {s['character_name']} fell in defense of Oakhaven",
-                description=f"*{monster['name']} left them at the Shrine threshold. Lost {xp_loss} XP and {gil_loss} Gil.*",
-                color=0x8B0000
-            )
-            death_embed.set_footer(text=f"Death #{s['deaths']}")
-            await broadcast_world_event(bot_ctx, death_embed)
-        else:
-            # Player survived
+        uid = str(s.get("user_id", ""))
+        start = starting_states_by_uid.get(uid, {})
+        simulated_hp = s.get("hp", {}).get("current", 0)
+        consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+        reward_xp = 0
+        reward_gil = 0
+        reputation_delta = 0
+        if simulated_hp > 0:
             if defenders_won:
-                s["xp"] += xp_each
-                s["gil"] += gil_each
-                s["reputation"] = s.get("reputation", 0) + 10
-                result_lines.append(f"⚔️ **{s['character_name']}** held the line (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
+                reward_xp, reward_gil, reputation_delta = xp_each, gil_each, 10
             else:
-                # Defenders held out against overwhelming odds — no rep penalty for fighting
-                consolation_xp = max(1, xp_each // 2)
-                s["xp"] += consolation_xp
-                result_lines.append(f"⚔️ **{s['character_name']}** fought valiantly to cover the perimeter (+{consolation_xp} XP)")
-                
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+                reward_xp = max(1, xp_each // 2)
+
+        result = await _commit_background_combat_result(
+            uid,
+            starting_hp=start.get("hp", 0),
+            simulated_hp=simulated_hp,
+            consumed_conditions=consumed_conditions,
+            xp_reward=reward_xp,
+            gil_reward=reward_gil,
+            reputation_delta=reputation_delta,
+        )
+        if not result:
+            continue
+        character_name = result["character_name"]
+        blackout = result["blackout"]
+        if blackout:
+            casualty_count += 1
+            result_lines.append(
+                f"💀 **{character_name}** blacked out (lost {blackout['xp_loss']} XP, {blackout['gil_loss']} gil)"
+            )
+            death_embed = discord.Embed(
+                title=f"💀 {character_name} fell in defense of Oakhaven",
+                description=(
+                    f"*{monster['name']} left them at the Shrine threshold. "
+                    f"Lost {blackout['xp_loss']} XP and {blackout['gil_loss']} Gil.*"
+                ),
+                color=0x8B0000,
+            )
+            death_embed.set_footer(text=f"Death #{result['deaths']}")
+            await broadcast_world_event(bot_ctx, death_embed)
+        elif simulated_hp <= 0:
+            result_lines.append(
+                f"⚔️ **{character_name}** recovered before the attack could leave them at the Shrine."
+            )
+        elif defenders_won:
+            result_lines.append(
+                f"⚔️ **{character_name}** held the line (received +{reward_xp} XP, +{reward_gil} gil, +10 Rep)"
+            )
+        else:
+            result_lines.append(
+                f"⚔️ **{character_name}** fought valiantly to cover the perimeter (+{reward_xp} XP)"
+            )
+        if result["leveled"]:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
             
     # Apply global World State updates
     wstate = load_world_state()
@@ -3869,7 +3889,7 @@ async def run_construct_breach(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
@@ -4101,7 +4121,7 @@ async def run_caravan_ambush(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
@@ -4491,7 +4511,7 @@ async def run_construct_incursion(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
@@ -5188,7 +5208,7 @@ async def run_iron_magpies_heist(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, save, load_all
+    from utils.ttrpg.character_manager import get_active_town_defenders, load_all
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
