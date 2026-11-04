@@ -194,7 +194,7 @@ def test_unknown_housing_journal_version_fails_closed(monkeypatch, tmp_path):
         "housing": {"user_id": "42"},
     }))
 
-    with pytest.raises(RuntimeError, match="Unknown housing transaction version"):
+    with pytest.raises(RuntimeError, match="Unknown RPG transaction version"):
         asyncio.run(housing_transactions.recover_pending_housing_transaction("42"))
     assert json.loads(open(journal_path, encoding="utf-8").read())["transaction_id"] == "unknown"
 
