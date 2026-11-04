@@ -32,6 +32,7 @@ from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_ch
 
 
 from utils.ttrpg.rpg_views import *
+from utils.ttrpg.session_manager import serialize_user_action
 
 MAX_ACTIVE_QUESTS = 3
 
@@ -573,6 +574,7 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=view)
 
 
+@serialize_user_action
 async def _handle_abandon(ctx, msg, send, rest, uid, uname, is_owner):
     sheet = await load(uid)
     active = sheet.get("active_quests", []) if sheet else []
