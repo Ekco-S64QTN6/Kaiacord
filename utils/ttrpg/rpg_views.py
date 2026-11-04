@@ -1890,7 +1890,9 @@ class MailMenuView(StaleSafeView):
         if fresh_sheet:
             self.sheet = fresh_sheet
 
-        all_sheets = await load_all()
+        from utils.ttrpg.character_manager import load_all_report
+        recipient_scan = await load_all_report()
+        all_sheets = recipient_scan.records
         # Filter out self and limit to 25 recent-ish players
         others = [s for s in all_sheets if str(s["user_id"]) != self.uid]
         others.sort(key=lambda s: s.get("last_updated", 0), reverse=True)
@@ -1905,6 +1907,11 @@ class MailMenuView(StaleSafeView):
             description="\"Kupo! Who are we sending this to? And don't forget the delivery fee is included!\"",
             color=0xf4a460
         )
+        if recipient_scan.failures:
+            embed.description += (
+                f"\n\n⚠️ {len(recipient_scan.failures)} unreadable player record(s) "
+                "were omitted. Administrators have been alerted."
+            )
         await interaction.response.edit_message(embed=embed, view=view)
 
 
