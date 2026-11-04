@@ -3,6 +3,7 @@ import json
 import time
 import threading
 import asyncio
+import copy
 import functools
 import inspect
 from typing import Dict
@@ -152,6 +153,101 @@ async def save_session(session: dict) -> None:
     lock = await get_session_lock(chan_id)
     async with lock:
         await asyncio.to_thread(_write_session_sync, chan_id, text)
+
+
+async def apply_overworld_combat_update(
+    outcome: dict, *, remove_monster: bool = False
+) -> None:
+    """Replay one player's change to a shared channel session.
+
+    Sessions contain encounters for multiple players. Recovery patches only
+    the named owner's stable monster IDs and appends the combat-log event once;
+    it never restores a stale whole-session snapshot.
+    """
+    channel_id = str(outcome.get("channel_id") or "")
+    owner_id = str(outcome.get("owner_id") or "")
+    outcome_id = str(outcome.get("outcome_id") or "")
+    monster_id = str(outcome.get("monster_id") or "")
+    monster_ids = outcome.get("monster_ids")
+    if not channel_id or not owner_id or not outcome_id:
+        raise RuntimeError("Pending overworld update is missing its identity.")
+    if not remove_monster and not monster_id:
+        raise RuntimeError("Pending overworld round is missing its monster ID.")
+    if monster_ids is not None and (
+        not isinstance(monster_ids, list)
+        or any(not str(value) for value in monster_ids)
+    ):
+        raise RuntimeError("Pending overworld escape has invalid monster IDs.")
+
+    session = await load_session(channel_id)
+    if not session:
+        raise RuntimeError(
+            f"Cannot recover overworld update: session {channel_id} is missing."
+        )
+
+    monsters = session.setdefault("monsters", [])
+    if remove_monster:
+        target_ids = {str(value) for value in (monster_ids or []) if str(value)}
+        if monster_id:
+            target_ids.add(monster_id)
+        if target_ids:
+            session["monsters"] = [
+                monster for monster in monsters
+                if not (
+                    isinstance(monster, dict)
+                    and str(monster.get("aggro_uid")) == owner_id
+                    and str(monster.get("id", "")) in target_ids
+                )
+            ]
+        else:
+            # Compatibility with terminal outcomes written before stable spawn IDs.
+            removed = False
+            kept = []
+            for monster in monsters:
+                matches = (
+                    isinstance(monster, dict)
+                    and str(monster.get("aggro_uid")) == owner_id
+                    and monster.get("key") == outcome.get("monster_key")
+                    and monster.get("origin_location") == outcome.get("origin_location")
+                )
+                if matches and not removed:
+                    removed = True
+                else:
+                    kept.append(monster)
+            session["monsters"] = kept
+        session["combat_active"] = bool(session["monsters"])
+    else:
+        monster_after = outcome.get("monster_after")
+        if not isinstance(monster_after, dict):
+            raise RuntimeError("Pending overworld round has no monster snapshot.")
+        replaced = False
+        for index, current in enumerate(monsters):
+            if (
+                isinstance(current, dict)
+                and str(current.get("aggro_uid")) == owner_id
+                and str(current.get("id", "")) == monster_id
+            ):
+                session["monsters"][index] = copy.deepcopy(monster_after)
+                replaced = True
+                break
+        if not replaced:
+            raise RuntimeError(
+                f"Cannot recover overworld round: monster {monster_id} is missing."
+            )
+
+    log_entry = outcome.get("combat_log_entry")
+    if isinstance(log_entry, dict):
+        log_id = str(log_entry.get("outcome_id") or outcome_id)
+        log = session.setdefault("combat_log", [])
+        if not any(
+            isinstance(entry, dict) and str(entry.get("outcome_id") or "") == log_id
+            for entry in log
+        ):
+            entry = copy.deepcopy(log_entry)
+            entry["outcome_id"] = log_id
+            log.append(entry)
+
+    await save_session(session)
 
 async def create_session(channel_id: str, scene: str) -> dict:
     session = {

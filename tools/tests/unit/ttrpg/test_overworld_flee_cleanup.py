@@ -37,8 +37,11 @@ def test_overworld_flee_saves_buff_cleanup_with_hunt_cost(monkeypatch):
 
     monkeypatch.setattr(combat, "load", load_sheet)
     monkeypatch.setattr(combat, "save", save_sheet)
+    from utils.ttrpg import session_manager
     monkeypatch.setattr(combat, "load_session", load_channel_session)
     monkeypatch.setattr(combat, "save_session", save_channel_session)
+    monkeypatch.setattr(session_manager, "load_session", load_channel_session)
+    monkeypatch.setattr(session_manager, "save_session", save_channel_session)
     monkeypatch.setattr(combat, "_make_hunt_status_view", lambda *args, **kwargs: None)
 
     from utils.ttrpg import outing
@@ -56,7 +59,7 @@ def test_overworld_flee_saves_buff_cleanup_with_hunt_cost(monkeypatch):
     assert saved_sheets == [{
         "hunts_today": 2,
         "conditions": ["poisoned", "ale_warmth"],
-    }]
+    }] * 2
     assert session["monsters"] == []
     assert session["combat_active"] is False
     assert saved_sessions == [session]

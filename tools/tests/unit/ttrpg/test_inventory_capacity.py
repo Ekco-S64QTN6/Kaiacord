@@ -177,16 +177,23 @@ def test_harvest_at_capacity_keeps_new_item_types_on_their_plots(monkeypatch):
 
     existing_crop = {"crop_key": "existing_plot"}
     blocked_crop = {"crop_key": "new_plot"}
-    sheet = {"inventory": [f"item_{i}" for i in range(100)]}
+    sheet = {"user_id": "42", "inventory": [f"item_{i}" for i in range(100)]}
     sheet["inventory"][0] = "existing_crop_item"
-    home = {"farming": {"plots": [existing_crop, blocked_crop]}}
+    home = {"user_id": "42", "farming": {"plots": [existing_crop, blocked_crop]}}
 
     monkeypatch.setattr(housing, "load", AsyncMock(return_value=sheet))
     save_sheet = AsyncMock()
+    from utils.ttrpg import character_manager
     monkeypatch.setattr(housing, "save", save_sheet)
+    monkeypatch.setattr(character_manager, "save", save_sheet)
     monkeypatch.setattr(housing_store, "load_housing", lambda uid: home)
     saved_homes = []
     monkeypatch.setattr(housing_store, "save_housing", lambda value: saved_homes.append(value))
+
+    async def save_housing_async(value):
+        saved_homes.append(value)
+
+    monkeypatch.setattr(housing_store, "save_housing_async", save_housing_async)
     monkeypatch.setattr(farming, "is_harvestable", lambda plot: True)
     monkeypatch.setattr(
         farming,

@@ -1431,8 +1431,10 @@ class SpineLiftView(StaleSafeView):
             fresh_sheet["hunts_today"] = fresh_sheet.get("hunts_today", 0) + entry_hunts
             dungeon["active"] = True
 
-            await save(fresh_sheet)
-            await save_spine_dungeon(self._uid, dungeon)
+            from utils.ttrpg.housing_transactions import commit_character_spine_dungeon
+            await commit_character_spine_dungeon(
+                fresh_sheet, dungeon, action="spine_lift_entry"
+            )
             self.stop()
 
             from utils.ttrpg.rpg_combat_handler import _send_dungeon_room
@@ -2518,6 +2520,7 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         return
 
     is_spine = state.get("is_spine", False)
+    resource_kind = "spine_dungeon" if is_spine else "dungeon"
 
     px, py = state["player_pos"]
     dx, dy = DIRECTIONS[direction]
@@ -2625,8 +2628,11 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                     "boss_name": room.get("boss_name"),
                     "room_key": nk,
                 }
-                await save(sheet)
-                await save_func(uid, state)
+                from utils.ttrpg.housing_transactions import commit_character_resource
+                await commit_character_resource(
+                    sheet, state, resource_kind=resource_kind,
+                    action="dungeon_room_combat_start",
+                )
 
                 tier_icon = TIER_ICONS.get(monster.get("tier", "medium"), "🟠")
                 name_used = room.get("boss_name") if is_boss else monster.get("name", "Unknown")
@@ -2787,8 +2793,11 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
         if sheet["hp"]["current"] <= sheet["hp"]["max"] // 4 else ""
 
     leveled, new_level = check_level_up(sheet)
-    await save(sheet)
-    await save_func(uid, state)
+    from utils.ttrpg.housing_transactions import commit_character_resource
+    await commit_character_resource(
+        sheet, state, resource_kind=resource_kind,
+        action="dungeon_room_resolved",
+    )
 
     level_text = f"\n\n🎉 **Level Up! Now Lv.{new_level}!**" if leveled else ""
     hp_str = f"\n\n❤️ {sheet['hp']['current']}/{sheet['hp']['max']} HP"
@@ -2817,13 +2826,13 @@ async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
 
     loc = sheet.get("location", "whisperwood_edge")
     if loc == "aeridor_ruins":
-        from utils.ttrpg.spine_dungeon import load_spine_dungeon, save_spine_dungeon
+        from utils.ttrpg.spine_dungeon import load_spine_dungeon
         state = await load_spine_dungeon(uid)
-        save_func = save_spine_dungeon
+        resource_kind = "spine_dungeon"
     else:
-        from utils.ttrpg.dungeon import load_dungeon, save_dungeon
+        from utils.ttrpg.dungeon import load_dungeon
         state = await load_dungeon(uid)
-        save_func = save_dungeon
+        resource_kind = "dungeon"
 
     if not state or not state.get("active_combat"):
         await interaction.followup.send("No combat to flee from.", ephemeral=True)
@@ -2833,14 +2842,16 @@ async def _dungeon_combat_flee(ctx_obj, interaction, uid, uname, is_owner):
     from utils.ttrpg import outing
     await outing.note(uid, "fled", (state["active_combat"].get("monster") or {}).get("name", "something"))
     del state["active_combat"]
-    await save_func(uid, state)
+    for _cb in ["embered", "fortified"]:
+        if _cb in sheet.get("conditions", []):
+            sheet["conditions"].remove(_cb)
+    sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
 
-    sheet = await load(uid)
-    if sheet:
-        for _cb in ["embered", "fortified"]:
-            if _cb in sheet.get("conditions", []): sheet["conditions"].remove(_cb)
-        sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
-        await save(sheet)
+    from utils.ttrpg.housing_transactions import commit_character_resource
+    await commit_character_resource(
+        sheet, state, resource_kind=resource_kind,
+        action="dungeon_combat_flee",
+    )
 
     embed = discord.Embed(
         description="*You scramble back into the corridor.*\n*(1 hunt consumed)*",

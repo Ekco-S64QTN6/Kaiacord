@@ -270,3 +270,22 @@ async def mutate_world_state(mutator: Callable[[dict, Dict[str, Any]], Tuple[boo
         await save_character(record["character_sheet"])
         _clear_pending_transaction()
         return result
+
+
+async def mutate_world_state_only(mutator: Callable[[Dict[str, Any]], Any]) -> Any:
+    """Apply an idempotent world-only mutation under the global transaction lock.
+
+    This is for a side effect whose durable write-ahead record already lives
+    in another subsystem (currently a pending combat outcome on the character
+    sheet). The caller must persist that record before invoking this helper,
+    and recovery must replay the same mutation until the outer journal clears.
+    The mutator is synchronous, receives a fresh state, and must not do I/O.
+    """
+    async with _transaction_lock:
+        await _recover_pending_transaction_locked()
+        state = load_world_state()
+        changed = mutator(state)
+        if changed is False:
+            return False
+        await _async_write_world_state_unlocked(state)
+        return True

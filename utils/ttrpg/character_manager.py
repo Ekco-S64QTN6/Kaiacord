@@ -168,7 +168,9 @@ async def load(user_id: str) -> Optional[Dict[str, Any]]:
     # taking this user's sheet lock so recovery can safely acquire the owner
     # lock recorded in the journal without reversing lock order.
     from utils.ttrpg.world_state import recover_pending_world_state_transaction
+    from utils.ttrpg.housing_transactions import recover_pending_housing_transaction
     await recover_pending_world_state_transaction()
+    await recover_pending_housing_transaction(str(user_id))
     lock = await get_user_lock(user_id)
     async with lock:
         sheet = await asyncio.to_thread(functools.partial(_load_sync, user_id))
@@ -180,18 +182,29 @@ async def load(user_id: str) -> Optional[Dict[str, Any]]:
                 from utils.ttrpg.housing import load_housing
                 housing = await asyncio.to_thread(functools.partial(load_housing, str(sheet.get("user_id", ""))))
                 sheet = check_and_reset_hunts(sheet, housing=housing)
+                delivered = 0
                 if housing:
-                    from utils.ttrpg.housing import save_housing
                     from utils.ttrpg.pets import deliver_mognet
-                    if deliver_mognet(sheet, housing):
-                        await asyncio.to_thread(save_housing, housing)
-                await asyncio.to_thread(functools.partial(_save_sync, sheet))
+                    delivered = deliver_mognet(sheet, housing)
+                if delivered and housing:
+                    # This path already owns the character-manager lock. Use
+                    # the journal's non-reentrant save mode for the paired
+                    # mailbox + housing delivery counter snapshots.
+                    from utils.ttrpg.housing_transactions import commit_character_housing
+                    await commit_character_housing(
+                        sheet, housing, action="daily_mognet_delivery",
+                        character_lock_held=True,
+                    )
+                else:
+                    await asyncio.to_thread(functools.partial(_save_sync, sheet))
         return sheet
 
 async def load_all() -> List[Dict[str, Any]]:
     """Load every character sheet on disk. Returns a list of dicts."""
     from utils.ttrpg.world_state import recover_pending_world_state_transaction
+    from utils.ttrpg.housing_transactions import recover_all_pending_housing_transactions
     await recover_pending_world_state_transaction()
+    await recover_all_pending_housing_transactions()
     return await asyncio.to_thread(_load_all_sync)
 
 def _load_all_sync() -> List[Dict[str, Any]]:

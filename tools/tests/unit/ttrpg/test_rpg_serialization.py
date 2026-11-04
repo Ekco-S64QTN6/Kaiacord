@@ -174,13 +174,21 @@ def test_the_estate_upgrade_confirms_once_against_the_current_estate(monkeypatch
     from unittest.mock import AsyncMock, MagicMock
     import utils.ttrpg.housing as H
     import utils.ttrpg.rpg_housing_handler as hh
+    from utils.ttrpg import character_manager
 
     tiers = list(H.HOUSING_TIERS)
     sheets = {"9": {"user_id": "9", "character_name": "P", "level": 99, "gil": 10**7}}
     homes = {"9": {"user_id": "9", "tier": tiers[0], "furniture": ["old"]}}
     monkeypatch.setattr(hh, "load", AsyncMock(side_effect=lambda uid: copy.deepcopy(sheets[uid])))
-    monkeypatch.setattr(hh, "save", AsyncMock(side_effect=lambda s: sheets.__setitem__(s["user_id"], copy.deepcopy(s))))
+    save_character = AsyncMock(side_effect=lambda s: sheets.__setitem__(s["user_id"], copy.deepcopy(s)))
+    monkeypatch.setattr(hh, "save", save_character)
+    monkeypatch.setattr(character_manager, "save", save_character)
     monkeypatch.setattr(H, "load_housing", lambda uid: copy.deepcopy(homes[uid]))
+
+    async def save_housing_async(value):
+        homes[str(value["user_id"])] = copy.deepcopy(value)
+
+    monkeypatch.setattr(H, "save_housing_async", save_housing_async)
     monkeypatch.setattr(H, "_write_housing", lambda uid, data: homes.__setitem__(uid, data))
     monkeypatch.setattr(H, "_serialise_housing", copy.deepcopy)
     monkeypatch.setattr(hh, "_log_world_event", AsyncMock())
@@ -446,6 +454,7 @@ def test_stale_first_home_button_cannot_charge_twice_or_reset_estate(monkeypatch
     from unittest.mock import AsyncMock, MagicMock
     import utils.ttrpg.rpg_housing_handler as hh
     import utils.ttrpg.housing as H
+    from utils.ttrpg import character_manager
 
     sheets = {"42": {"user_id": "42", "character_name": "P", "location": "housing_district",
                     "gil": 500, "hp": {"current": 20, "max": 20}}}
@@ -465,8 +474,14 @@ def test_stale_first_home_button_cannot_charge_twice_or_reset_estate(monkeypatch
 
     monkeypatch.setattr(hh, "load", load_sheet)
     monkeypatch.setattr(hh, "save", save_sheet)
+    monkeypatch.setattr(character_manager, "save", save_sheet)
     monkeypatch.setattr(H, "load_housing", load_home)
     monkeypatch.setattr(H, "save_housing", save_home)
+
+    async def save_housing_async(home):
+        homes[str(home["user_id"])] = copy.deepcopy(home)
+
+    monkeypatch.setattr(H, "save_housing_async", save_housing_async)
     monkeypatch.setattr(hh, "_log_world_event", AsyncMock())
 
     sent = {}

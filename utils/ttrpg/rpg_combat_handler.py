@@ -4,6 +4,7 @@ from utils.ttrpg.narration import finish_cleanly
 from utils.ttrpg.session_manager import serialize_combat_action
 from utils.infrastructure.monitoring.async_task_registry import task_registry
 import asyncio
+import copy
 import time
 import uuid as _uuid
 import discord
@@ -14,7 +15,10 @@ from utils.infrastructure.logging.kaia_logger import log_error
 from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.world_state import get_current_state
 from utils.ttrpg.character_manager import load, save
-from utils.ttrpg.session_manager import load_session, save_session
+from utils.ttrpg.session_manager import (
+    load_session, save_session,
+    apply_overworld_combat_update as _apply_overworld_combat_update,
+)
 from utils.ttrpg.progression import (
     harvest_bonus, streak_bonus, golden_tongue_bonus, check_and_reset_hunts, hunts_remaining,
     check_level_up, get_max_hunts, xp_to_next_level, reserve_forest_event_attempt,
@@ -71,39 +75,23 @@ async def _recover_pending_combat_outcomes(uid: str, sheet: dict) -> int:
         await save_spine_dungeon(uid, outcome["state_after"])
 
     async def _recover_overworld(outcome):
-        channel_id = str(outcome["channel_id"])
-        session = await load_session(channel_id)
-        if not session:
-            return
-        owner_id = str(outcome.get("owner_id", uid))
-        monster_id = str(outcome.get("monster_id") or "")
-        if monster_id:
-            session["monsters"] = [
-                monster for monster in session.get("monsters", [])
-                if not (
-                    isinstance(monster, dict)
-                    and str(monster.get("aggro_uid")) == owner_id
-                    and str(monster.get("id", "")) == monster_id
-                )
-            ]
-        else:
-            # Compatibility path for a legacy spawned monster without an ID.
-            removed = False
-            kept = []
-            for monster in session.get("monsters", []):
-                matches = (
-                    isinstance(monster, dict)
-                    and str(monster.get("aggro_uid")) == owner_id
-                    and monster.get("key") == outcome.get("monster_key")
-                    and monster.get("origin_location") == outcome.get("origin_location")
-                )
-                if matches and not removed:
-                    removed = True
-                else:
-                    kept.append(monster)
-            session["monsters"] = kept
-        session["combat_active"] = bool(session.get("monsters"))
-        await save_session(session)
+        if outcome.get("clear_blockade"):
+            from utils.ttrpg.world_state import mutate_world_state_only
+
+            def _clear_blockade(state):
+                state["blockade_active"] = False
+                state["shop_price_mult"] = 1.0
+                state["shop_price_mult_expiry"] = 0
+                return True
+
+            await mutate_world_state_only(_clear_blockade)
+        await _apply_overworld_combat_update(outcome, remove_monster=True)
+
+    async def _recover_overworld_escape(outcome):
+        await _apply_overworld_combat_update(outcome, remove_monster=True)
+
+    async def _recover_overworld_round(outcome):
+        await _apply_overworld_combat_update(outcome, remove_monster=False)
 
     return await recover_pending_outcomes(
         sheet,
@@ -112,6 +100,8 @@ async def _recover_pending_combat_outcomes(uid: str, sheet: dict) -> int:
             "dungeon": _recover_dungeon,
             "spine": _recover_spine,
             "overworld": _recover_overworld,
+            "overworld_escape": _recover_overworld_escape,
+            "overworld_round": _recover_overworld_round,
         },
     )
 
@@ -643,8 +633,13 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         # Combat continues — update monster HP in state
         combat["monster"] = monster
         state["active_combat"] = combat
-        await save(sheet)
-        await save_func(uid, state)
+        from utils.ttrpg.housing_transactions import commit_character_resource
+        await commit_character_resource(
+            sheet,
+            state,
+            resource_kind="spine_dungeon" if state.get("is_spine") else "dungeon",
+            action="dungeon_combat_round",
+        )
 
         name_used = boss_name if (is_boss and boss_name) else monster.get("name", "Enemy")
         embed = discord.Embed(
@@ -724,12 +719,14 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
             if not has_lightstone and has_torch:
                 sheet["inventory"].remove("torch")
             sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
-            await save(sheet)
             dungeon = await load_spine_dungeon(uid)
             if not dungeon:
                 dungeon = generate_spine_floor(1, sheet["level"])
             dungeon["active"] = True
-            await save_spine_dungeon(uid, dungeon)
+            from utils.ttrpg.housing_transactions import commit_character_spine_dungeon
+            await commit_character_spine_dungeon(
+                sheet, dungeon, action="spine_floor_entry"
+            )
             t_emoji = dungeon.get("theme_emoji", "⛏️")
             t_name = dungeon.get("theme_name", "The Working Tunnels")
             t_flavor = dungeon.get("theme_flavor", "Active mine workings.")
@@ -749,12 +746,12 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
         if not has_lightstone and has_torch:
             sheet["inventory"].remove("torch")
         sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
-        await save(sheet)
         from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
         loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
         difficulty = max(1, min(4, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
         dungeon = generate_dungeon(difficulty, player_level=sheet["level"], location=loc)
-        await save_dungeon(uid, dungeon)
+        from utils.ttrpg.housing_transactions import commit_character_dungeon
+        await commit_character_dungeon(sheet, dungeon, action="dungeon_entry")
 
         theme_key  = dungeon.get("theme_key", "undead")
         theme_data = DUNGEON_THEMES.get(theme_key, {})
@@ -1222,7 +1219,11 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
 
     # Accumulate the fight's rounds; the outing record takes them when it ends.
     # Tagged with the player: the session (and so this log) is the channel's.
+    round_outcome_id = (
+        f"overworld-round:{uid}:{msg.channel.id}:{monster_instance_id}:{_uuid.uuid4().hex}"
+    )
     s.setdefault("combat_log", []).append({
+        "outcome_id": round_outcome_id,
         "uid": uid,
         "monster_name": monster.get("name", "enemy"),
         "monster_tier": monster.get("tier"),
@@ -1242,6 +1243,10 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     xp_gain, gil_gain, level_up_msg, loot_msg, streak_msg = 0, 0, "", "", ""
     loot_lines = []
+    clear_blockade = bool(
+        res["monster_defeated"]
+        and (monster.get("key") == "bandit_captain" or monster.get("is_blockade_raid"))
+    )
     if res["monster_defeated"]:
         xp_gain = int(monster.get("xp", 10) * state.get("xp_mult", 1.0))
         gil_gain = int(monster.get("gil", 5) * state.get("gil_mult", 1.0))
@@ -1357,14 +1362,9 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             else:
                 loot_lines.append(f"🎒 **[Inventory Full]** Left behind: {cons_display}")
 
-        # Blockade Raid Victory check
-        if monster.get("key") == "bandit_captain" or monster.get("is_blockade_raid"):
-            from utils.ttrpg.world_state import load_world_state, async_save_world_state
-            _ws = load_world_state()
-            _ws["blockade_active"] = False
-            _ws["shop_price_mult"] = 1.0
-            _ws["shop_price_mult_expiry"] = 0
-            await async_save_world_state(_ws)
+        # Blockade Raid Victory is replayed from the pending combat outcome
+        # together with the character reward and encounter removal.
+        if clear_blockade:
             if grant_item(sheet, "stolen_trade_crate"):
                 loot_lines.append("📦 **Stolen Trade Crate** (`!rpg use stolen_trade_crate`)")
             await _log_world_event(f"⚔️ **Blockade Broken:** {sheet['character_name']} defeated the Bandit Captain and liberated the Trade Road!")
@@ -1478,7 +1478,17 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         from utils.ttrpg.combat_outcomes import commit_outcome
 
         async def _persist_overworld_session(_outcome):
-            await save_session(s)
+            if _outcome.get("clear_blockade"):
+                from utils.ttrpg.world_state import mutate_world_state_only
+
+                def _clear_blockade(state):
+                    state["blockade_active"] = False
+                    state["shop_price_mult"] = 1.0
+                    state["shop_price_mult_expiry"] = 0
+                    return True
+
+                await mutate_world_state_only(_clear_blockade)
+            await _apply_overworld_combat_update(_outcome, remove_monster=True)
 
         await commit_outcome(
             sheet,
@@ -1491,6 +1501,8 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 "monster_id": monster_instance_id,
                 "monster_key": monster.get("key"),
                 "origin_location": monster.get("origin_location", loc),
+                "combat_log_entry": copy.deepcopy(s["combat_log"][-1]),
+                "clear_blockade": clear_blockade,
             },
             save_sheet=save,
             persist_encounter=_persist_overworld_session,
@@ -1500,8 +1512,25 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 ctx, sheet, monster.get("name", "Something"), blackout
             )
     else:
-        await save(sheet)
-        await save_session(s)
+        from utils.ttrpg.combat_outcomes import commit_outcome
+
+        async def _persist_overworld_round(_outcome):
+            await _apply_overworld_combat_update(_outcome, remove_monster=False)
+
+        await commit_outcome(
+            sheet,
+            {
+                "outcome_id": round_outcome_id,
+                "kind": "overworld_round",
+                "channel_id": str(msg.channel.id),
+                "owner_id": str(uid),
+                "monster_id": monster_instance_id,
+                "monster_after": copy.deepcopy(monster),
+                "combat_log_entry": copy.deepcopy(s["combat_log"][-1]),
+            },
+            save_sheet=save,
+            persist_encounter=_persist_overworld_round,
+        )
 
     embed_color = 0xFF4500 if res["monster_alive"] else 0x2D5A27
     if not res["player_alive"]:
@@ -1570,6 +1599,11 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
 @serialize_combat_action
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
 
+    sheet = await load(uid)
+    if not sheet:
+        return await no_character(msg)
+    await _recover_pending_combat_outcomes(uid, sheet)
+
     s = await load_session(str(msg.channel.id))
     if not s or not s.get("combat_active"):
         return await send(msg.channel, "There is no fight here to flee from.")
@@ -1582,24 +1616,44 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
             
     if to_flee == -1: return await msg.channel.send(embed=discord.Embed(description="You have nothing chasing you.", color=0xcc4444))
     
-    # Load sheet to deduct hunt and clear combat-only item buffs before
-    # persisting. Saving before this cleanup left Firebrew/Ironbark active
-    # after a flee, unlike victory, defeat, and dungeon-flee paths.
-    sheet = await load(uid)
-    if not sheet:
-        return await no_character(msg)
-
+    # Persist the stamina/buff change and encounter removal as one replayable
+    # outcome. A crash cannot charge a hunt while leaving the monster active.
+    monster = s["monsters"][to_flee]
+    monster_name = monster.get("name", "something")
+    monster_id = str(monster.get("id") or "")
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
     for _cb in ("embered", "fortified"):
         if _cb in sheet.get("conditions", []):
             sheet["conditions"].remove(_cb)
-    await save(sheet)
+
+    outcome_id = (
+        f"overworld-flee:{uid}:{msg.channel.id}:{monster_id or 'legacy'}:{_uuid.uuid4().hex}"
+    )
+    outcome = {
+        "outcome_id": outcome_id,
+        "kind": "overworld_escape",
+        "channel_id": str(msg.channel.id),
+        "owner_id": str(uid),
+        "monster_key": monster.get("key"),
+        "origin_location": monster.get("origin_location"),
+    }
+    if monster_id:
+        outcome["monster_id"] = monster_id
+
+    from utils.ttrpg.combat_outcomes import commit_outcome
+    async def _persist_flee(pending):
+        await _apply_overworld_combat_update(pending, remove_monster=True)
+
+    await commit_outcome(
+        sheet,
+        outcome,
+        save_sheet=save,
+        persist_encounter=_persist_flee,
+    )
+
     hunt_note = "\n*(This escape cost 1 hunt stamina)*"
     from utils.ttrpg import outing
-    await outing.note(uid, "fled", s["monsters"][to_flee].get("name", "something"))
-    s["monsters"].pop(to_flee)
-    if not s["monsters"]: s["combat_active"] = False
-    await save_session(s)
+    await outing.note(uid, "fled", monster_name)
     
     view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
@@ -2278,12 +2332,14 @@ async def _handle_raid_blockade(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=cview)
 
 
+@serialize_combat_action
 async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
     """Infiltrate the bandit camp to steal contraband and undermine the blockade."""
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
+    await _recover_pending_combat_outcomes(uid, sheet)
 
-    from utils.ttrpg.world_state import load_world_state, async_save_world_state
+    from utils.ttrpg.world_state import load_world_state, mutate_world_state
     wstate = load_world_state()
 
     loc = sheet.get("location", "oakhaven")
@@ -2314,29 +2370,40 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
     roll = (secrets.randbelow(20) + 1) + dex_mod + class_bonus
 
     if roll >= 12:
-        # Success! Steal 80-120 Gil + 1 Stolen Trade Crate + ease inflation
+        # Commit the character reward and shared blockade relief under the
+        # world-state transaction lock, using one durable cross-file journal.
         stolen_gil = secrets.randbelow(41) + 80  # 80-120
-        sheet["gil"] = sheet.get("gil", 0) + stolen_gil
         from utils.ttrpg.inventory_capacity import grant_item_or_mail
-        crate_delivery = grant_item_or_mail(sheet, "stolen_trade_crate", "Bandit Cache")
-        sheet["xp"] = sheet.get("xp", 0) + 35
-
-        # Ease shop price inflation
-        current_mult = wstate.get("shop_price_mult", 1.25)
-        wstate["shop_price_mult"] = max(1.0, round(current_mult - 0.10, 2))
-        if wstate["shop_price_mult"] <= 1.0:
-            wstate["blockade_active"] = False
-        await async_save_world_state(wstate)
-
         from utils.ttrpg.progression import check_level_up
-        leveled, new_lvl = check_level_up(sheet)
-        await save(sheet)
+
+        def _commit_cache_raid(character, state):
+            if not state.get("blockade_active", False):
+                return False, (False, None, False, character.get("level", 1), state.get("shop_price_mult", 1.0))
+            character["gil"] = character.get("gil", 0) + stolen_gil
+            delivery = grant_item_or_mail(character, "stolen_trade_crate", "Bandit Cache")
+            character["xp"] = character.get("xp", 0) + 35
+            leveled_now, new_level = check_level_up(character)
+            current_mult = state.get("shop_price_mult", 1.25)
+            state["shop_price_mult"] = max(1.0, round(current_mult - 0.10, 2))
+            if state["shop_price_mult"] <= 1.0:
+                state["blockade_active"] = False
+            return True, (True, delivery, leveled_now, new_level, state["shop_price_mult"])
+
+        success, crate_delivery, leveled, new_lvl, resulting_mult = await mutate_world_state(
+            _commit_cache_raid, sheet
+        )
+        if not success:
+            return await msg.channel.send(embed=discord.Embed(
+                description="The bandit supply camp has already been cleared. Nothing was taken.",
+                color=0x888888,
+            ))
+        wstate["shop_price_mult"] = resulting_mult
 
         desc = (
             f"🗡️ **Stealth Infiltration Successful!** (Roll: {roll} vs DC 12)\n\n"
             f"**{sheet['character_name']}** slipped past the bandit sentries and raided their contraband tent!\n\n"
             f"💰 **Looted:** +{stolen_gil} Gil\n"
-            f"📉 **Trade Route Relieved:** Shop price markup lowered to **{int(round((wstate['shop_price_mult']-1.0)*100))}%**\n"
+            f"📉 **Trade Route Relieved:** Shop price markup lowered to **{int(round((resulting_mult-1.0)*100))}%**\n"
             f"✨ **Reward:** +35 XP"
         )
         if crate_delivery == "mailbox":
