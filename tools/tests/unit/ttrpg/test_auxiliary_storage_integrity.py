@@ -194,3 +194,32 @@ def test_midnight_open_outing_is_retained_when_daily_digest_is_corrupt(tmp_path,
     assert outing._take_open_outings_sync(day) == 0
     assert open_path.read_bytes() == open_bytes
     assert daily_path.read_bytes() == daily_bytes
+
+
+
+def test_missing_world_event_log_initializes_and_serializes_concurrent_writes(tmp_path, monkeypatch):
+    from utils.ttrpg import broadcast
+    monkeypatch.chdir(tmp_path)
+
+    async def go():
+        await asyncio.gather(*(broadcast.log_world_event(f"event-{i}") for i in range(12)))
+    asyncio.run(go())
+
+    events = json.loads((tmp_path / "memory" / "ttrpg" / "world_events.json").read_text(encoding="utf-8"))
+    assert len(events) == 10
+    assert set(events) == {f"event-{i}" for i in range(12)} - {"event-0", "event-1"}
+
+
+@pytest.mark.parametrize("payload", ["{broken", "[]", "null", '{"event": "not a list"}'])
+def test_corrupt_world_event_log_is_preserved(tmp_path, monkeypatch, payload):
+    from utils.ttrpg import broadcast
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "memory" / "ttrpg" / "world_events.json"
+    path.parent.mkdir(parents=True)
+    original = payload.encode("utf-8")
+    path.write_bytes(original)
+
+    with pytest.raises(RuntimeError, match="Cannot safely load RPG world event log"):
+        asyncio.run(broadcast.log_world_event("new event"))
+
+    assert path.read_bytes() == original
