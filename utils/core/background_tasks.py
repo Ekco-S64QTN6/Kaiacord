@@ -140,6 +140,7 @@ async def _commit_background_combat_result(
             "blackout": blackout,
             "simulated_knockout": simulated_knockout,
             "hp": hp.get("current", 0),
+            "deaths": sheet.get("deaths", 0),
         }
 
     return await _mutate_player_sheet(user_id, apply)
