@@ -1608,151 +1608,285 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
     ), view=view)
 
 
+def _duel_created_at(challenge) -> float:
+    """Support the current challenge record and any legacy in-memory timestamp."""
+    if isinstance(challenge, dict):
+        return float(challenge.get("created_at", 0) or 0)
+    try:
+        return float(challenge)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 async def _handle_duel(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg duel <@user> — challenge another player to a non-lethal duel."""
-    # Clean expired challenges (60s timeout)
     now = time.time()
-    expired = [k for k, ts in PENDING_DUELS.items() if now - ts >= 60]
-    for k in expired:
-        del PENDING_DUELS[k]
-        
+    expired = [
+        key for key, challenge in PENDING_DUELS.items()
+        if now - _duel_created_at(challenge) >= 60
+    ]
+    for key in expired:
+        PENDING_DUELS.pop(key, None)
+
     if not msg.mentions:
         return await send(msg.channel, "You must mention someone to duel. `!rpg duel @user`")
-    
+
     target = msg.mentions[0]
     target_id = str(target.id)
-    
-    if target_id == uid:
+    if target_id == str(uid):
         return await send(msg.channel, "You cannot duel yourself.")
-    
+
     target_sheet = await load(target_id)
     if not target_sheet:
         return await send(msg.channel, f"{target.display_name} has no character in Aethelgard.")
-        
+
     sheet = await load(uid)
-    if not sheet: return await no_character(msg)
-    
-    if sheet.get("location") != target_sheet.get("location"):
+    if not sheet:
+        return await no_character(msg)
+
+    location = sheet.get("location")
+    if not location or location != target_sheet.get("location"):
         return await send(msg.channel, "You must be in the same location to duel.")
 
-    PENDING_DUELS[(uid, target_id)] = time.time()
-    
+    # Keep the challenge-time location. Acceptance rejects the invitation if
+    # either player has moved since it was created, even if they later happen
+    # to be in some other shared location.
+    PENDING_DUELS[(str(uid), target_id)] = {
+        "created_at": now,
+        "location": location,
+    }
+
     embed = discord.Embed(
         title="⚔️ DUEL CHALLENGE",
-        description=f"**{uname}** has challenged **{target.display_name}** to a duel!\n\n**{target.display_name}**, type `!rpg accept` to engage.\n*Duels are non-lethal (stop at 1 HP).*",
-        color=0xffcc00
+        description=(
+            f"**{uname}** has challenged **{target.display_name}** to a duel!\n\n"
+            f"**{target.display_name}**, type `!rpg accept` to engage.\n"
+            "*Duels are non-lethal (stop at 1 HP).*"
+        ),
+        color=0xffcc00,
     )
     await msg.channel.send(target.mention, embed=embed)
 
 
 async def _handle_accept(ctx, msg, send, rest, uid, uname, is_owner):
-    """!rpg accept — accept a pending duel or quest."""
-    # Check for duels first
-    challenger_id = None
-    for (c_id, t_id), ts in list(PENDING_DUELS.items()):
-        if t_id == uid and time.time() - ts < 60: # 60s timeout
-            challenger_id = c_id
-            del PENDING_DUELS[(c_id, t_id)]
-            break
-            
-    if challenger_id:
-        from utils.ttrpg.combat_engine import _resolve_combat, _compute_player_defense
-        
-        c_sheet = await load(challenger_id)
-        t_sheet = await load(uid)
-        
-        if not c_sheet or not t_sheet: return
-        
-        # Build "monster" data from target sheet using proper defense pipeline
-        def _get_k(val): return val.get("key") if isinstance(val, dict) else val
-        
-        from utils.ttrpg.equipment_registry import WEAPONS, ACCESSORIES
-        eq = t_sheet.get("equipment", {})
-        w = WEAPONS.get(_get_k(eq.get("weapon"))) or {}
-        acc = ACCESSORIES.get(_get_k(eq.get("accessory"))) or {}
-        
-        # Target attack (simplified — just for the counter-attack stat)
-        c = t_sheet.get("class", "Warrior")
-        adv_class_t = t_sheet.get("advanced_class", "")
-        if adv_class_t == "Wizard": astat = "int"
-        elif adv_class_t == "High Priest": astat = "wis"
-        else: astat = {"Warrior":"str", "Ranger":"dex", "Mage":"int", "Rogue":"dex", "Cleric":"wis"}.get(c, "str")
-        atk_val = t_sheet.get("stats", {}).get(astat, 10)
-        t_atk = ((atk_val - 10) // 2) + w.get("attack_bonus", 0) + acc.get("attack_bonus", 0)
-        if w:
-            from utils.ttrpg.enhancement import weapon_bonus
-            t_atk += weapon_bonus(t_sheet, _get_k(eq.get("weapon")))[0]
+    """Accept a pending duel using both participants' locks in stable order."""
+    from contextlib import AsyncExitStack
+    from utils.ttrpg.session_manager import get_action_lock
+    from utils.ttrpg.combat_engine import _resolve_combat, _compute_player_defense
+    from utils.ttrpg.equipment_registry import WEAPONS, ACCESSORIES
+    from utils.ttrpg.housing import load_housing_async
+    from utils.ttrpg.pets import get_pet_passive
 
-        # BUG-H1 fix: use proper defense calculation with soft-cap, global cap, etc.
-        from utils.ttrpg.housing import load_housing_async
-        from utils.ttrpg.pets import get_pet_passive
-        t_housing = await load_housing_async(str(t_sheet.get("user_id", "")))
-        t_pet_bonuses = get_pet_passive(t_housing) if t_housing else {}
-        t_def = _compute_player_defense(t_sheet, pet_bonuses=t_pet_bonuses)
+    now = time.time()
+    pending = next(
+        (
+            (challenger_id, target_id, challenge)
+            for (challenger_id, target_id), challenge in list(PENDING_DUELS.items())
+            if str(target_id) == str(uid) and now - _duel_created_at(challenge) < 60
+        ),
+        None,
+    )
+    if pending is None:
+        return await msg.channel.send(embed=discord.Embed(
+            description="No pending duel or quest acceptance. Use `!rpg duel @user` to challenge someone.",
+            color=0x888888,
+        ))
 
-        # BUG-M5 fix: set tier based on target level for correct damage scaling
-        t_level = t_sheet.get("level", 1)
-        if t_level >= 9:    t_tier = "hard"
-        elif t_level >= 7:  t_tier = "medium"
-        elif t_level >= 4:  t_tier = "easy"
-        else:               t_tier = "trivial"
+    challenger_id, target_id, challenge = pending
+    challenge_key = (challenger_id, target_id)
+    error = None
+    duel_result = None
 
-        m_from_t = {
-            "name": t_sheet["character_name"],
-            "hp": t_sheet["hp"].copy(),  # BUG-H3 fix: copy to prevent reference mutation
-            "attack": t_atk,
-            "defense": t_def,
-            "tier": t_tier,
-            "id": f"player_{uid}"
-        }
-        
-        if c_sheet["hp"]["current"] <= 1 or m_from_t["hp"]["current"] <= 1:
-            return await send(msg.channel, f"One or both participants are too injured to duel.")
+    # The command dispatcher must not hold the accepting player's lock before
+    # this point. The two participant locks are always acquired in sorted ID
+    # order, so two duels with reversed challenger/target roles cannot deadlock.
+    participant_ids = sorted({str(challenger_id), str(target_id)})
+    async with AsyncExitStack() as lock_stack:
+        for participant_id in participant_ids:
+            lock = await get_action_lock(f"user:{participant_id}")
+            await lock_stack.enter_async_context(lock)
 
-        round_num = 1
-        all_exchanges = []
-        max_rounds = 20
-        
-        # BUG-H2 fix: load CHALLENGER's pet bonuses (not target's)
-        c_housing = await load_housing_async(str(c_sheet.get("user_id", "")))
-        c_pet_bonuses = get_pet_passive(c_housing) if c_housing else {}
-        
-        while c_sheet["hp"]["current"] > 1 and m_from_t["hp"]["current"] > 1 and round_num <= max_rounds:
-            all_exchanges.append(f"**--- Round {round_num} ---**")
-            res = _resolve_combat(c_sheet, m_from_t, is_duel=True, pet_bonuses=c_pet_bonuses)
-            all_exchanges.extend(res["exchanges"])
-            c_sheet = res["sheet"]
-            m_from_t = res["monster"]
-            if c_sheet["hp"]["current"] <= 1 or m_from_t["hp"]["current"] <= 1:
-                break
-            round_num += 1
-            
-        if round_num > max_rounds:
-            all_exchanges.append(f"**--- The duel ends in a draw after {max_rounds} rounds! ---**")
-        
-        # Apply results back
-        await save(c_sheet) # challenger
-        t_sheet["hp"] = m_from_t["hp"]
-        await save(t_sheet) # target
-        
-        desc = "\n".join(all_exchanges)
-        if len(desc) > 4096:
-            desc = desc[:4000] + "\n...[Combat log truncated due to length]"
-            
-        embed = discord.Embed(
-            title="⚔️ DUEL RESULTS",
-            description=desc,
-            color=0x4488cc
-        )
-        await msg.channel.send(embed=embed)
-        
-        await _log_world_event(f"⚔️ **DUEL:** {c_sheet['character_name']} vs {t_sheet['character_name']} in {c_sheet['location'].replace('_',' ').title()}.")
-        return
+        current_challenge = PENDING_DUELS.get(challenge_key)
+        if (
+            current_challenge is None
+            or current_challenge != challenge
+            or time.time() - _duel_created_at(current_challenge) >= 60
+        ):
+            error = "That duel challenge has expired or has already been accepted."
+        else:
+            # Both sheets are loaded only after both player locks are held.
+            c_sheet = await load(str(challenger_id))
+            t_sheet = await load(str(target_id))
+            if not c_sheet or not t_sheet:
+                PENDING_DUELS.pop(challenge_key, None)
+                error = "The duel cannot proceed because one participant no longer has a character."
+            else:
+                challenge_location = (
+                    current_challenge.get("location")
+                    if isinstance(current_challenge, dict)
+                    else None
+                )
+                challenger_location = c_sheet.get("location")
+                target_location = t_sheet.get("location")
+                if (
+                    not challenge_location
+                    or challenger_location != challenge_location
+                    or target_location != challenge_location
+                    or challenger_location != target_location
+                ):
+                    PENDING_DUELS.pop(challenge_key, None)
+                    error = (
+                        "The duel challenge is stale because one or both participants moved. "
+                        "Both players must remain at the challenge location; issue a new challenge."
+                    )
+                elif (
+                    int((c_sheet.get("hp") or {}).get("current", 0)) <= 1
+                    or int((t_sheet.get("hp") or {}).get("current", 0)) <= 1
+                ):
+                    PENDING_DUELS.pop(challenge_key, None)
+                    error = "One or both participants are too injured to duel."
+                else:
+                    def _get_k(val):
+                        return val.get("key") if isinstance(val, dict) else val
 
-    await msg.channel.send(embed=discord.Embed(
-        description="No pending duel or quest acceptance. Use `!rpg duel @user` to challenge someone.",
-        color=0x888888
-    ))
+                    eq = t_sheet.get("equipment", {})
+                    weapon = WEAPONS.get(_get_k(eq.get("weapon"))) or {}
+                    accessory = ACCESSORIES.get(_get_k(eq.get("accessory"))) or {}
+
+                    target_class = t_sheet.get("class", "Warrior")
+                    advanced_class = t_sheet.get("advanced_class", "")
+                    if advanced_class == "Wizard":
+                        attack_stat = "int"
+                    elif advanced_class == "High Priest":
+                        attack_stat = "wis"
+                    else:
+                        attack_stat = {
+                            "Warrior": "str",
+                            "Ranger": "dex",
+                            "Mage": "int",
+                            "Rogue": "dex",
+                            "Cleric": "wis",
+                        }.get(target_class, "str")
+
+                    attack_value = t_sheet.get("stats", {}).get(attack_stat, 10)
+                    target_attack = (
+                        ((attack_value - 10) // 2)
+                        + weapon.get("attack_bonus", 0)
+                        + accessory.get("attack_bonus", 0)
+                    )
+                    if weapon:
+                        from utils.ttrpg.enhancement import weapon_bonus
+                        target_attack += weapon_bonus(
+                            t_sheet, _get_k(eq.get("weapon"))
+                        )[0]
+
+                    target_housing = await load_housing_async(
+                        str(t_sheet.get("user_id", target_id))
+                    )
+                    target_pet_bonuses = (
+                        get_pet_passive(target_housing) if target_housing else {}
+                    )
+                    target_defense = _compute_player_defense(
+                        t_sheet, pet_bonuses=target_pet_bonuses
+                    )
+
+                    target_level = t_sheet.get("level", 1)
+                    if target_level >= 9:
+                        target_tier = "hard"
+                    elif target_level >= 7:
+                        target_tier = "medium"
+                    elif target_level >= 4:
+                        target_tier = "easy"
+                    else:
+                        target_tier = "trivial"
+
+                    target_combatant = {
+                        "name": t_sheet["character_name"],
+                        "hp": dict(t_sheet["hp"]),
+                        "attack": target_attack,
+                        "defense": target_defense,
+                        "tier": target_tier,
+                        "id": f"player_{target_id}",
+                    }
+
+                    challenger_housing = await load_housing_async(
+                        str(c_sheet.get("user_id", challenger_id))
+                    )
+                    challenger_pet_bonuses = (
+                        get_pet_passive(challenger_housing)
+                        if challenger_housing else {}
+                    )
+
+                    round_num = 1
+                    all_exchanges = []
+                    max_rounds = 20
+                    while (
+                        c_sheet["hp"]["current"] > 1
+                        and target_combatant["hp"]["current"] > 1
+                        and round_num <= max_rounds
+                    ):
+                        all_exchanges.append(f"**--- Round {round_num} ---**")
+                        result = _resolve_combat(
+                            c_sheet,
+                            target_combatant,
+                            is_duel=True,
+                            pet_bonuses=challenger_pet_bonuses,
+                        )
+                        all_exchanges.extend(result["exchanges"])
+                        c_sheet = result["sheet"]
+                        target_combatant = result["monster"]
+                        if (
+                            c_sheet["hp"]["current"] <= 1
+                            or target_combatant["hp"]["current"] <= 1
+                        ):
+                            break
+                        round_num += 1
+
+                    if round_num > max_rounds:
+                        all_exchanges.append(
+                            f"**--- The duel ends in a draw after {max_rounds} rounds! ---**"
+                        )
+
+                    # Persist both results while holding both locks. A normal
+                    # action for either participant can only run after these
+                    # writes and will therefore reload the duel's final sheet.
+                    await save(c_sheet)
+                    t_sheet["hp"] = target_combatant["hp"]
+                    await save(t_sheet)
+                    PENDING_DUELS.pop(challenge_key, None)
+                    duel_result = {
+                        "exchanges": all_exchanges,
+                        "challenger_name": c_sheet["character_name"],
+                        "target_name": t_sheet["character_name"],
+                        "location": challenger_location,
+                    }
+
+    if error:
+        return await msg.channel.send(embed=discord.Embed(
+            description=error,
+            color=0xcc4444,
+        ))
+
+    description = "\n".join(duel_result["exchanges"])
+    if len(description) > 4096:
+        description = description[:4000] + "\n...[Combat log truncated due to length]"
+
+    embed = discord.Embed(
+        title="⚔️ DUEL RESULTS",
+        description=description,
+        color=0x4488cc,
+    )
+    await msg.channel.send(embed=embed)
+    await _log_world_event(
+        f"⚔️ **DUEL:** {duel_result['challenger_name']} vs "
+        f"{duel_result['target_name']} in "
+        f"{duel_result['location'].replace('_', ' ').title()}."
+    )
+
+
+# The dispatcher must not acquire the accepting player's lock first; this
+# handler acquires both participant locks in deterministic order itself.
+_handle_accept._serialized = True
 
 
 def _get_dungeon_loot_tier(player_level: int, is_boss: bool = False) -> str:
