@@ -1038,7 +1038,7 @@ def test_concurrent_house_rename_modals_share_owner_lock_and_reload_estate(monke
     from utils.ttrpg.session_manager import get_action_lock
 
     sheet = {"user_id": "42", "character_name": "P"}
-    estate = {"user_id": "42", "house_name": "Starting Home"}
+    estate = {"user_id": "42", "house_name": "Starting Home", "furniture": ["weapon_rack"]}
     saved = []
 
     monkeypatch.setattr(rv, "load", AsyncMock(return_value=sheet))
@@ -1060,6 +1060,8 @@ def test_concurrent_house_rename_modals_share_owner_lock_and_reload_estate(monke
 
     first = rv.RenameHouseModal("42")
     second = rv.RenameHouseModal("42")
+    # The estate changes after the modal is created; submit must reload it.
+    estate["furniture"].append("garden_fountain")
     first.new_name._value = "First Name"
     second.new_name._value = "Second Name"
 
@@ -1082,6 +1084,8 @@ def test_concurrent_house_rename_modals_share_owner_lock_and_reload_estate(monke
 
     assert len(saved) == 2
     assert estate["house_name"] in {"First Name", "Second Name"}
+    assert estate["furniture"] == ["weapon_rack", "garden_fountain"]
+    assert all(x["furniture"] == ["weapon_rack", "garden_fountain"] for x in saved)
     assert first_interaction.response.send_message.await_count == 1
     assert second_interaction.response.send_message.await_count == 1
     assert all(
