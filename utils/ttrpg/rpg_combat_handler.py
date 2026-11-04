@@ -55,6 +55,67 @@ _BOSS_TIER_BY_LEVEL = {
     13: "boss", 14: "boss", 15: "boss",
 }
 
+async def _recover_pending_combat_outcomes(uid: str, sheet: dict) -> int:
+    """Finish encounter-side writes left pending by an interrupted combat result."""
+    from utils.ttrpg.combat_outcomes import recover_pending_outcomes
+
+    async def _recover_dungeon(outcome):
+        from utils.ttrpg.dungeon import clear_dungeon, save_dungeon
+        if outcome.get("clear_encounter"):
+            await clear_dungeon(uid)
+        else:
+            await save_dungeon(uid, outcome["state_after"])
+
+    async def _recover_spine(outcome):
+        from utils.ttrpg.spine_dungeon import save_spine_dungeon
+        await save_spine_dungeon(uid, outcome["state_after"])
+
+    async def _recover_overworld(outcome):
+        channel_id = str(outcome["channel_id"])
+        session = await load_session(channel_id)
+        if not session:
+            return
+        owner_id = str(outcome.get("owner_id", uid))
+        monster_id = str(outcome.get("monster_id") or "")
+        if monster_id:
+            session["monsters"] = [
+                monster for monster in session.get("monsters", [])
+                if not (
+                    isinstance(monster, dict)
+                    and str(monster.get("aggro_uid")) == owner_id
+                    and str(monster.get("id", "")) == monster_id
+                )
+            ]
+        else:
+            # Compatibility path for a legacy spawned monster without an ID.
+            removed = False
+            kept = []
+            for monster in session.get("monsters", []):
+                matches = (
+                    isinstance(monster, dict)
+                    and str(monster.get("aggro_uid")) == owner_id
+                    and monster.get("key") == outcome.get("monster_key")
+                    and monster.get("origin_location") == outcome.get("origin_location")
+                )
+                if matches and not removed:
+                    removed = True
+                else:
+                    kept.append(monster)
+            session["monsters"] = kept
+        session["combat_active"] = bool(session.get("monsters"))
+        await save_session(session)
+
+    return await recover_pending_outcomes(
+        sheet,
+        save_sheet=save,
+        recoverers={
+            "dungeon": _recover_dungeon,
+            "spine": _recover_spine,
+            "overworld": _recover_overworld,
+        },
+    )
+
+
 def _consume_blessing_if_combat_ended(sheet: dict, result: dict) -> None:
     """Spend the Shrine blessing at the end of a fight, not after its first round."""
     if result.get("monster_defeated") or not result.get("player_alive", True):
@@ -246,6 +307,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
     sheet = await load(uid)
     if not sheet:
         return
+    await _recover_pending_combat_outcomes(uid, sheet)
 
     loc = sheet.get("location", "whisperwood_edge")
     if loc == "aeridor_ruins":
@@ -543,6 +605,7 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
 
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
+    await _recover_pending_combat_outcomes(uid, sheet)
     loc = sheet.get("location", "whisperwood_edge")
 
     if loc == "aeridor_ruins":
@@ -673,6 +736,7 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
+    await _recover_pending_combat_outcomes(uid, sheet)
 
     # Weather Check (e.g. Blizzard level gate)
     weather = get_weather()
@@ -989,6 +1053,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
+    await _recover_pending_combat_outcomes(uid, sheet)
     loc = sheet.get("location", "oakhaven")
     if sheet["hp"]["current"] <= 0:
         view = _make_status_view(ctx, msg, uid, uname, is_owner)
