@@ -158,7 +158,7 @@ def scale_stair_guardian(monster: dict, floor_num: int) -> dict:
     * HP is at least 1.2x the ordinary Spine floor HP cap.
     * ATK is at least two points above the ordinary L15 floor cap and its
       difficulty-scaled base attack.
-    * DEF is above the ordinary difficulty-scaled base and rises by depth.
+    * DEF rises from 20 to 29, above ordinary difficulty-scaled room monsters.
     * Every 15-floor milestone adds 5% Resonance Ward, to 25% on floors 75-77.
 
     The level-15 ATK ceiling mirrors the max-level ordinary Spine cap. The
@@ -195,12 +195,10 @@ def scale_stair_guardian(monster: dict, floor_num: int) -> dict:
     difficulty_attack = min(int(base_attack * 1.6), floor_attack_cap)
     scaled["attack"] = max(base_attack, difficulty_attack + 2, floor_attack_cap + 2)
 
-    difficulty_defense = int(base_defense * 1.6)
-    scaled["defense"] = max(
-        base_defense,
-        difficulty_defense + 1,
-        14 + floor // 6,
-    )
+    # A floor-only target keeps DEF monotonic even when the bestiary
+    # entries have different base values. It starts above the ordinary
+    # difficulty-scaled range and reaches 29 on the final stair.
+    scaled["defense"] = max(base_defense, 20 + floor // 8)
 
     band = 1 + sum(floor >= milestone for milestone in (15, 30, 45, 60, 75))
     ward_pct = min(25, (band - 1) * 5)
