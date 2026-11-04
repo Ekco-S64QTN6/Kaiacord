@@ -44,6 +44,14 @@ async def _player_lock(uid: str):
     read-modify-write that runs from a view callback."""
     return await get_action_lock(f"user:{uid}")
 
+
+def _fishing_bag_capacity(sheet: dict) -> tuple[int, int, str]:
+    """Return current catch count, capacity, and bag name for a fresh sheet."""
+    bag_count = sum(len(catches) for catches in (sheet.get("fishing_bag", {}) or {}).values())
+    bag_key = sheet.get("fishing_stats", {}).get("bag", "woven_sack")
+    bag_data = BAG_UPGRADES.get(bag_key, BAG_UPGRADES["woven_sack"])
+    return bag_count, int(bag_data["capacity"]), str(bag_data["name"])
+
 CATEGORY_EMOJIS = {
     "common": "⚪",
     "uncommon": "🟢",
@@ -271,6 +279,32 @@ class BiteView(StaleSafeView):
                 if not sheet:
                     return
 
+                # A fish can stay on the line while another pending bite is
+                # reeled in or the bag is otherwise filled. Enforce capacity
+                # against this fresh sheet at the actual claim point.
+                bag_count, bag_cap, bag_name = _fishing_bag_capacity(sheet)
+                if bag_count >= bag_cap:
+                    fishing_stats = sheet.setdefault("fishing_stats", {})
+                    if "bait_count" in fishing_stats:
+                        old_bait = fishing_stats.get("bait", "earthworm")
+                        fishing_stats.setdefault("bait_stock", {})[old_bait] = fishing_stats.pop("bait_count", 0)
+                    bait_stock = fishing_stats.get("bait_stock", {})
+                    if bait_stock.get(self._bait_key, 0) > 0:
+                        bait_stock[self._bait_key] -= 1
+                    fishing_stats["bait_stock"] = bait_stock
+                    await save(sheet)
+                    await interaction.followup.send(
+                        embed=discord.Embed(
+                            description=(
+                                f"🐟 **Your {bag_name} filled up before you reeled it in.** "
+                                "The fish slips away; no catch was added."
+                            ),
+                            color=0x888888,
+                        ),
+                        view=FishingMenuView(self._ctx, self._uid, self._uname, self._is_owner, sheet),
+                    )
+                    return
+
                 fish = FISH.get(self._fish_key, {})
                 cat = fish.get("category", "common")
                 cat_emoji = CATEGORY_EMOJIS.get(cat, "⚪")
@@ -496,16 +530,13 @@ async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_
         )
         return
 
-    # Bag capacity check
-    bag_count = sum(len(v) for v in sheet.get("fishing_bag", {}).values())
-    bag_key = stats.get("bag", "woven_sack")
-    bag_data = BAG_UPGRADES.get(bag_key, BAG_UPGRADES["woven_sack"])
-    bag_cap = bag_data["capacity"]
+    # Bag capacity check (also enforced again when the fish is actually reeled in).
+    bag_count, bag_cap, bag_name = _fishing_bag_capacity(sheet)
     if bag_count >= bag_cap:
         await interaction.followup.send(
             embed=discord.Embed(
                 description=(
-                    f"🐟 **Your {bag_data['name']} is full!** ({bag_count}/{bag_cap})\n"
+                    f"🐟 **Your {bag_name} is full!** ({bag_count}/{bag_cap})\n"
                     f"Sell your fish to Gregor or upgrade your bag in the shop."
                 ),
                 color=0xcc4444,
