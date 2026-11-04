@@ -220,7 +220,7 @@ Consecutive wins → +1 to-hit, Gil multiplier on drops. Reset on flee/blackout.
 
 ## Hunting & Forest Events
 
-Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead of a monster. **Events are free — they do not consume a daily hunt.** The player still gets their full 5 hunts for combat XP. To prevent repeated free rerolls, each player has up to **5 forest-event roll attempts per day**; attempts count whether or not an event triggers and reset at the same daily boundary as hunts. Once those attempts are used, hunts proceed directly to monster encounters. This separate limit does not consume hunt stamina. When a damaging event reduces a character to 0 HP, it uses the normal overworld blackout: the character wakes at the Shrine with 1 HP, loses 10% of current XP and 5% of current Gil, gains a death, loses their hunt streak, and the outing is closed.
+Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead of a monster. **Events are free — they do not consume a daily hunt.** The player still gets their full 5 hunts for combat XP. To prevent repeated free rerolls, each player has up to **5 forest-event roll attempts per day**; attempts count whether or not an event triggers and reset at the same daily boundary as hunts. Once those attempts are used, hunts proceed directly to monster encounters. This separate limit does not consume hunt stamina. When a damaging event reduces a character to 0 HP, it uses the normal overworld blackout: the character wakes at the Shrine with 1 HP, loses 10% of current XP and 5% of current Gil, gains a death, loses their hunt streak, and the outing is closed. The location percentages in the table are base chances; temporary world-state forest-event bonuses and weather modifiers are added to that base when the roll is made.
 
 | Location | Event Chance | Rec. Level |
 |:--|:--|:--|
@@ -327,7 +327,7 @@ scaling for procedural dungeon bosses); this floor curve applies only to named s
 Some shrine rooms contain a **sealed Aeridorian shrine** with a three-flame seal. Players who've studied the flame and altar at the Oakhaven Shrine (`look at the flame` and `look at the altar` both count) can interact.
 
 ### Boss Scaling & Encounters
-Boss stats scale to player level: `0.45x at L1 → 1.0x at L15`. Dungeon Boss ATK caps are tightly calibrated to ensure a ~50-55% hit rate.
+Procedural dungeon boss HP and ATK use a **linear level multiplier** from `0.45x at L1` to `1.0x at L15`: `0.45 + (level - 1) * (0.55 / 14)`, with levels clamped to 1–15. The per-level HP and ATK caps are applied after scaling and remain separate balance limits. Dungeon Boss ATK caps are tightly calibrated to ensure a ~50-55% hit rate.
 **Boss Room Warning:** Entering a boss room triggers a narrative warning, allowing players a chance to retreat before engaging.
 
 ---
