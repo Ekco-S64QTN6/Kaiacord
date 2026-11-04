@@ -170,27 +170,42 @@ async def _handle_enhance(ctx, msg, send, rest, uid, uname, is_owner):
 
 
 async def _handle_donate(ctx, msg, send, rest, uid, uname, is_owner):
-    """!rpg donate [amount] — pool gil into Oakhaven's walls."""
+    """!rpg donate [amount] — atomically pool gil into Oakhaven's walls."""
     from utils.ttrpg import town_projects
-    from utils.ttrpg.world_state import load_world_state, async_save_world_state
     sheet = await load(uid)
-    if not sheet: return await no_character(msg)
-    wstate = load_world_state()
+    if not sheet:
+        return await no_character(msg)
+
     arg = rest.strip().replace(",", "").lower()
     if not arg:
+        from utils.ttrpg.world_state import load_world_state
+        wstate = load_world_state()
         return await msg.channel.send(embed=discord.Embed(
-            title="🧱 Oakhaven's Walls", description=town_projects.status(wstate) +
-            "\n\n`!rpg donate <amount>` at the town square.", color=0xaa8844))
+            title="🧱 Oakhaven's Walls",
+            description=town_projects.status(wstate) + "\n\n`!rpg donate <amount>` at the town square.",
+            color=0xaa8844,
+        ))
     if sheet.get("location") != town_projects.DONATE_AT:
         return await msg.channel.send(embed=discord.Embed(
-            description="Donations are taken at the town square. `!rpg go oakhaven`", color=0xcc4444))
+            description="Donations are taken at the town square. `!rpg go oakhaven`",
+            color=0xcc4444,
+        ))
     if not arg.isdigit():
-        return await msg.channel.send(embed=discord.Embed(description="Donate how much? `!rpg donate 5000`", color=0xcc4444))
-    ok, text = town_projects.donate(sheet, wstate, int(arg))
-    if ok:
-        await save(sheet)
-        await async_save_world_state(wstate)
-    await msg.channel.send(embed=discord.Embed(description=text, color=0x44aa44 if ok else 0xcc4444))
+        return await msg.channel.send(embed=discord.Embed(
+            description="Donate how much? `!rpg donate 5000`",
+            color=0xcc4444,
+        ))
+
+    def _donate(current_sheet, wstate):
+        ok, message = town_projects.donate(current_sheet, wstate, int(arg))
+        return ok, {"ok": ok, "message": message}
+
+    from utils.ttrpg.world_state import mutate_world_state
+    result = await mutate_world_state(_donate, sheet)
+    await msg.channel.send(embed=discord.Embed(
+        description=result["message"],
+        color=0x44aa44 if result["ok"] else 0xcc4444,
+    ))
 
 
 @serialize_user_action
