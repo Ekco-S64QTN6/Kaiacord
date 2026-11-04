@@ -462,7 +462,9 @@ Players can purchase a home in the **Housing District** (`!rpg go housing_distri
 Grow crops in your farming plots. Seeds are bought from Hemlock or found. Crops grow over time/interactions, yielding items and cooking ingredients.
 
 ### Pets
-Adopt pets to live in your home from Pip the Pet Vendor in the Housing District. Pets require daily feeding (paid in gold based on food type) and provide powerful passive bonuses when well-fed:
+Adopt pets to live in your home from Pip the Pet Vendor in the Housing District. Pets require daily feeding (paid in gold based on food type) and provide powerful passive bonuses when well-fed.
+
+Daily farm/pet resets are applied when the character is loaded for the new day, not when housing is read. The reset is committed with the character sheet through the housing recovery journal; House Moogle delivery counters and mailbox rewards are one atomic transaction. A newly created home starts with the current reset date so its first pet feeding is not cleared by a later read that same day.
 - **Oakhaven Cat**: +5% Gil from kills when fed. (Food: Fish, cost 5g)
 - **Chocobo Chick**: +1 hunt per day when fed. (Food: Gysahl Greens, cost 8g)
 - **Tiny Tonberry**: +2 to all combat rolls when fed. (Food: Lantern Oil, cost 15g)

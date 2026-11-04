@@ -240,6 +240,13 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `session_manager.get_action_lock("user:<uid>")`, reloads the current character, applies a
   synchronous mutation, and saves only when changed. The character manager's own file lock
   protects one read or one write at a time; it does not make a read-modify-write atomic.
+- **Housing getters are read-only.** housing.load_housing() never applies daily resets or writes.
+  housing.apply_daily_housing_reset(home, today=...) is an in-memory idempotent transition only.
+  character_manager.load() applies it under the per-character lock and commits changed home state
+  with the character snapshot through housing_transactions.commit_character_housing(). The
+  House Moogle's queued delivery counter and recipient mailbox are committed in that same journal.
+  progression.check_and_reset_hunts() mutates only the character sheet; do not use it as a
+  backdoor housing writer.
 - **Quest completion commits payout and progression together.** Apply XP, Gil, item/mail, recipe,
   completed-quest marker, and `check_level_up()` before the single character save. The completion
   marker and level/stat-choice milestones must be durable in the same save as the rewards; never

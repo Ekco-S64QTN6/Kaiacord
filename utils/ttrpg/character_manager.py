@@ -163,7 +163,12 @@ def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
             return sheet
 
 async def load(user_id: str) -> Optional[Dict[str, Any]]:
-    """Async load with per-user locking. Applies daily reset if needed."""
+    """Load a fresh sheet and coordinate idempotent daily state transitions.
+
+    Character and housing resets are evaluated while the player's character
+    lock is held. Any daily housing change and its House Moogle mailbox debit
+    are committed as a character + housing journal transaction.
+    """
     # A world-state journal can involve another player. Recover it before
     # taking this user's sheet lock so recovery can safely acquire the owner
     # lock recorded in the journal without reversing lock order.
@@ -176,27 +181,36 @@ async def load(user_id: str) -> Optional[Dict[str, Any]]:
         sheet = await asyncio.to_thread(functools.partial(_load_sync, user_id))
         if sheet:
             from datetime import date
-            today = date.today().strftime("%Y-%m-%d")
-            if sheet.get("hunts_reset_date") != today:
+            today = date.today().isoformat()
+            character_reset = sheet.get("hunts_reset_date") != today
+            if character_reset:
                 from utils.ttrpg.progression import check_and_reset_hunts
-                from utils.ttrpg.housing import load_housing
-                housing = await asyncio.to_thread(functools.partial(load_housing, str(sheet.get("user_id", ""))))
-                sheet = check_and_reset_hunts(sheet, housing=housing)
-                delivered = 0
-                if housing:
-                    from utils.ttrpg.pets import deliver_mognet
-                    delivered = deliver_mognet(sheet, housing)
-                if delivered and housing:
-                    # This path already owns the character-manager lock. Use
-                    # the journal's non-reentrant save mode for the paired
-                    # mailbox + housing delivery counter snapshots.
-                    from utils.ttrpg.housing_transactions import commit_character_housing
-                    await commit_character_housing(
-                        sheet, housing, action="daily_mognet_delivery",
-                        character_lock_held=True,
-                    )
-                else:
-                    await asyncio.to_thread(functools.partial(_save_sync, sheet))
+                sheet = check_and_reset_hunts(sheet)
+
+            # Housing reads are side-effect-free. Daily farm/pet updates are
+            # applied explicitly here while the owner's character lock is held.
+            from utils.ttrpg.housing import load_housing, apply_daily_housing_reset
+            housing = await asyncio.to_thread(
+                functools.partial(load_housing, str(sheet.get("user_id", user_id)))
+            )
+            housing_changed = apply_daily_housing_reset(housing, today=today) if housing else False
+
+            delivered = 0
+            if housing:
+                from utils.ttrpg.pets import deliver_mognet
+                delivered = deliver_mognet(sheet, housing)
+
+            if housing and (housing_changed or delivered):
+                # Reset flags, the Moogle delivery counter, and player mailbox
+                # are committed together. This also repairs a housing reset
+                # even when the character's hunt-reset marker is already today.
+                from utils.ttrpg.housing_transactions import commit_character_housing
+                action = "daily_mognet_delivery" if delivered else "daily_housing_reset"
+                await commit_character_housing(
+                    sheet, housing, action=action, character_lock_held=True,
+                )
+            elif character_reset:
+                await asyncio.to_thread(functools.partial(_save_sync, sheet))
         return sheet
 
 async def load_all() -> List[Dict[str, Any]]:
