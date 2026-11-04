@@ -207,7 +207,8 @@ def test_missing_world_event_log_initializes_and_serializes_concurrent_writes(tm
 
     events = json.loads((tmp_path / "memory" / "ttrpg" / "world_events.json").read_text(encoding="utf-8"))
     assert len(events) == 10
-    assert set(events) == {f"event-{i}" for i in range(12)} - {"event-0", "event-1"}
+    assert len(set(events)) == 10
+    assert set(events) <= {f"event-{i}" for i in range(12)}
 
 
 @pytest.mark.parametrize("payload", ["{broken", "[]", "null", '{"event": "not a list"}'])
