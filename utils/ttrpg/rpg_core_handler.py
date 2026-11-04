@@ -1681,27 +1681,45 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
         # Escape the whole personal swarm without touching another player's
         # monsters in this shared channel session.
         escaped_names = [m.get("name", "a monster") for m in own_encounters]
-        session["monsters"] = [
-            monster for monster in session.get("monsters", [])
-            if not (
-                isinstance(monster, dict)
-                and str(monster.get("aggro_uid")) == str(uid)
-                and monster.get("origin_location") == location
-            )
-        ]
-        session["combat_active"] = bool(session["monsters"])
-
-        # Persist the encounter removal before charging the item. If the
-        # character write fails after this point, the escape is still safe
-        # and the player keeps the unspent bomb.
-        from utils.ttrpg.session_manager import save_session
-        await save_session(session)
+        monster_ids = [str(m.get("id") or "") for m in own_encounters]
+        if any(not monster_id for monster_id in monster_ids):
+            return await msg.channel.send(embed=discord.Embed(
+                description=(
+                    "This encounter needs to be refreshed before a Smoke Bomb can "
+                    "safely escape. Nothing was consumed."
+                ),
+                color=0xcc4444,
+            ))
 
         for condition in ("embered", "fortified"):
             if condition in sheet.get("conditions", []):
                 sheet["conditions"].remove(condition)
         sheet["inventory"].remove(item_key)
-        await save(sheet)
+
+        from utils.ttrpg.combat_outcomes import commit_outcome
+        from utils.ttrpg.session_manager import apply_overworld_combat_update
+
+        escape_id = (
+            f"overworld-escape:{uid}:{msg.channel.id}:"
+            f"{getattr(msg, 'id', None) or _uuid.uuid4().hex}"
+        )
+        outcome = {
+            "outcome_id": escape_id,
+            "kind": "overworld_escape",
+            "channel_id": str(msg.channel.id),
+            "owner_id": str(uid),
+            "monster_ids": monster_ids,
+        }
+
+        async def _persist_escape(pending):
+            await apply_overworld_combat_update(pending, remove_monster=True)
+
+        await commit_outcome(
+            sheet,
+            outcome,
+            save_sheet=save,
+            persist_encounter=_persist_escape,
+        )
 
         from utils.ttrpg import outing
         await outing.note(uid, "fled", f"smoke bomb: {', '.join(escaped_names)}")
