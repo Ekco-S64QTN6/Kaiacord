@@ -1908,32 +1908,37 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
         )
 
 
-async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
-                             state, sheet, leveled=False, new_level=0):
-    from utils.ttrpg.dungeon import clear_dungeon
-    from utils.ttrpg.shop import find_item
-
+def _apply_dungeon_completion_rewards(sheet: dict, state: dict) -> dict:
+    """Apply the one-time completion bonus before the combat outcome is journaled."""
     difficulty = state.get("difficulty", 1)
     player_level = sheet.get("level", 1)
-    
-    bonus_xp  = 50 + (difficulty * 25) + (player_level * 5)
+    bonus_xp = 50 + (difficulty * 25) + (player_level * 5)
     bonus_gil = 25 + (difficulty * 15) + (player_level * 3)
-    sheet["xp"]  = sheet.get("xp",  0) + bonus_xp
+    sheet["xp"] = sheet.get("xp", 0) + bonus_xp
     sheet["gil"] = sheet.get("gil", 0) + bonus_gil
 
-    # Quest Task Tracking: Dungeon completion
-    active_ids = sheet.get("active_quests", [])
-    if active_ids:
-        from utils.ttrpg.quest_registry import get_quest
-        for active_id in list(active_ids):
-            q = get_quest(active_id)
-            if q and "complete_dungeon" in q["tasks"]:
-                prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
-                if "complete_dungeon" not in prog:
-                    prog.append("complete_dungeon")
+    from utils.ttrpg.quest_registry import get_quest
+    for active_id in list(sheet.get("active_quests", [])):
+        q = get_quest(active_id)
+        if q and "complete_dungeon" in q["tasks"]:
+            prog = sheet.setdefault("quest_progress", {}).setdefault(active_id, [])
+            if "complete_dungeon" not in prog:
+                prog.append("complete_dungeon")
+    return {"bonus_xp": bonus_xp, "bonus_gil": bonus_gil}
 
-    await save(sheet)
-    await clear_dungeon(uid)
+
+async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
+                             state, sheet, leveled=False, new_level=0,
+                             completion_rewards=None, persist=True):
+    from utils.ttrpg.shop import find_item
+
+    completion_rewards = completion_rewards or _apply_dungeon_completion_rewards(sheet, state)
+    bonus_xp = completion_rewards["bonus_xp"]
+    bonus_gil = completion_rewards["bonus_gil"]
+    if persist:
+        from utils.ttrpg.dungeon import clear_dungeon
+        await save(sheet)
+        await clear_dungeon(uid)
     from utils.ttrpg import outing
     await outing.close(ctx_obj, interaction.channel, uid, uname, sheet,
                        reason=f"cleared {state.get('theme_name', 'the dungeon')}")
