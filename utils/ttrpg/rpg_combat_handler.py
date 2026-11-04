@@ -15,7 +15,10 @@ from utils.infrastructure.logging.kaia_logger import log_error
 from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.world_state import get_current_state
 from utils.ttrpg.character_manager import load, save
-from utils.ttrpg.session_manager import load_session, save_session
+from utils.ttrpg.session_manager import (
+    load_session, save_session,
+    apply_overworld_combat_update as _apply_overworld_combat_update,
+)
 from utils.ttrpg.progression import (
     harvest_bonus, streak_bonus, golden_tongue_bonus, check_and_reset_hunts, hunts_remaining,
     check_level_up, get_max_hunts, xp_to_next_level, reserve_forest_event_attempt,
@@ -56,90 +59,6 @@ _BOSS_TIER_BY_LEVEL = {
     13: "boss", 14: "boss", 15: "boss",
 }
 
-async def _apply_overworld_combat_update(outcome: dict, *, remove_monster: bool = False) -> None:
-    """Replay one player-owned encounter mutation without replacing a shared session.
-
-    Channel sessions contain every player's encounters. Journal replay therefore
-    patches only the monster identified by (owner_id, monster_id), and deduplicates
-    the round log by outcome_id instead of restoring a stale whole-session snapshot.
-    """
-    channel_id = str(outcome.get("channel_id") or "")
-    owner_id = str(outcome.get("owner_id") or "")
-    monster_id = str(outcome.get("monster_id") or "")
-    outcome_id = str(outcome.get("outcome_id") or "")
-    if not channel_id or not owner_id or not outcome_id:
-        raise RuntimeError("Pending overworld combat update is missing its identity.")
-    if not monster_id and not remove_monster:
-        raise RuntimeError("Pending overworld round is missing its monster ID.")
-
-    session = await load_session(channel_id)
-    if not session:
-        raise RuntimeError(
-            f"Cannot recover overworld combat update: session {channel_id} is missing."
-        )
-
-    monsters = session.setdefault("monsters", [])
-    if remove_monster:
-        if monster_id:
-            session["monsters"] = [
-                monster for monster in monsters
-                if not (
-                    isinstance(monster, dict)
-                    and str(monster.get("aggro_uid")) == owner_id
-                    and str(monster.get("id", "")) == monster_id
-                )
-            ]
-        else:
-            # Compatibility with pending terminal journals written before spawn IDs.
-            removed = False
-            kept = []
-            for monster in monsters:
-                matches = (
-                    isinstance(monster, dict)
-                    and str(monster.get("aggro_uid")) == owner_id
-                    and monster.get("key") == outcome.get("monster_key")
-                    and monster.get("origin_location") == outcome.get("origin_location")
-                )
-                if matches and not removed:
-                    removed = True
-                else:
-                    kept.append(monster)
-            session["monsters"] = kept
-        session["combat_active"] = bool(session["monsters"])
-    else:
-        monster_after = outcome.get("monster_after")
-        if not isinstance(monster_after, dict):
-            raise RuntimeError("Pending overworld round has no monster snapshot.")
-        replaced = False
-        for index, current in enumerate(monsters):
-            if (
-                isinstance(current, dict)
-                and str(current.get("aggro_uid")) == owner_id
-                and str(current.get("id", "")) == monster_id
-            ):
-                monsters[index] = copy.deepcopy(monster_after)
-                replaced = True
-                break
-        if not replaced:
-            raise RuntimeError(
-                f"Cannot recover overworld round: monster {monster_id} is missing."
-            )
-
-    log_entry = outcome.get("combat_log_entry")
-    if isinstance(log_entry, dict):
-        log_id = str(log_entry.get("outcome_id") or outcome_id)
-        log = session.setdefault("combat_log", [])
-        if not any(
-            isinstance(entry, dict) and str(entry.get("outcome_id") or "") == log_id
-            for entry in log
-        ):
-            entry = copy.deepcopy(log_entry)
-            entry["outcome_id"] = log_id
-            log.append(entry)
-
-    await save_session(session)
-
-
 async def _recover_pending_combat_outcomes(uid: str, sheet: dict) -> int:
     """Finish encounter-side writes left pending by an interrupted combat result."""
     from utils.ttrpg.combat_outcomes import recover_pending_outcomes
@@ -156,6 +75,19 @@ async def _recover_pending_combat_outcomes(uid: str, sheet: dict) -> int:
         await save_spine_dungeon(uid, outcome["state_after"])
 
     async def _recover_overworld(outcome):
+        if outcome.get("clear_blockade"):
+            from utils.ttrpg.world_state import mutate_world_state_only
+
+            def _clear_blockade(state):
+                state["blockade_active"] = False
+                state["shop_price_mult"] = 1.0
+                state["shop_price_mult_expiry"] = 0
+                return True
+
+            await mutate_world_state_only(_clear_blockade)
+        await _apply_overworld_combat_update(outcome, remove_monster=True)
+
+    async def _recover_overworld_escape(outcome):
         await _apply_overworld_combat_update(outcome, remove_monster=True)
 
     async def _recover_overworld_round(outcome):
@@ -168,6 +100,7 @@ async def _recover_pending_combat_outcomes(uid: str, sheet: dict) -> int:
             "dungeon": _recover_dungeon,
             "spine": _recover_spine,
             "overworld": _recover_overworld,
+            "overworld_escape": _recover_overworld_escape,
             "overworld_round": _recover_overworld_round,
         },
     )
