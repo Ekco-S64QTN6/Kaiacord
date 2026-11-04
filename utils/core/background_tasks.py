@@ -1054,7 +1054,7 @@ class CoreTaskManager:
                 import json
                 import random
                 from utils.ttrpg.calendar import get_today_summary
-                from utils.ttrpg.world_state import load_world_state, async_save_world_state
+                from utils.ttrpg.world_state import load_world_state, update_world_state
 
                 characters_dir = os.path.join("memory", "ttrpg", "characters")
                 if not os.path.exists(characters_dir):
@@ -1066,55 +1066,55 @@ class CoreTaskManager:
                 yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
                 await outing.flush_daily(self.ctx, day=yesterday)
 
-                # Tick World State
-                state = load_world_state()
+                # Tick World State from a fresh snapshot inside the transaction lock.
                 from utils.ttrpg.calendar import get_weather
                 weather = get_weather()
-                
-                state["weather"] = weather["key"]
-                state["weather_desc"] = weather["desc"]
-                state["weather_name"] = weather["name"]
-                state["weather_emoji"] = weather["emoji"]
-                
-                # Disable Caravan at Dawn
-                state["caravan_active"] = False
-
-                # Base modifiers from weather
-                state["atk_mod"] = 0
-                state["def_mod"] = 0
-                state["xp_mult"] = 1.0
-                state["gil_mult"] = 1.0
-                
-                effect = weather.get("effect")
-                if effect:
-                    effect_type  = effect.get("type", "")
-                    effect_value = effect.get("value", 0)
-                    if effect_type == "xp_bonus":
-                        state["xp_mult"] = state.get("xp_mult", 1.0) + (effect_value / 100.0)
-                    elif effect_type == "gil_bonus":
-                        state["gil_mult"] = state.get("gil_mult", 1.0) + (effect_value / 100.0)
-                    # armor_penalty is applied per player in combat_engine,
-                    # to heavy armor only; adding it here as well took it
-                    # off every player's DEF twice.
-
-                # Roll for world event (15% chance)
+                world_event = None
                 if random.random() < 0.15:
                     EVENTS = [
                         ("monster_surge", "Roars echo from the Whisperwood. Activity is high.", 1.2, 1.0),
                         ("economic_boom", "A wealthy merchant caravan has arrived.", 1.0, 1.5),
                         ("ritual_night", "The Silent Ones are restless. XP flows freely.", 1.5, 0.8),
                     ]
-                    e_key, e_desc, e_xp_mult, e_gil_mult = random.choice(EVENTS)
-                    state["event"] = e_key
-                    state["event_desc"] = e_desc
-                    state["xp_mult"] *= e_xp_mult
-                    state["gil_mult"] *= e_gil_mult
-                else:
-                    state["event"] = "none"
-                    state["event_desc"] = "Oakhaven is peaceful today."
+                    world_event = random.choice(EVENTS)
 
-                state["last_tick"] = time.time()
-                await async_save_world_state(state)
+                def _apply_dawn_tick(state):
+                    state["weather"] = weather["key"]
+                    state["weather_desc"] = weather["desc"]
+                    state["weather_name"] = weather["name"]
+                    state["weather_emoji"] = weather["emoji"]
+                    state["caravan_active"] = False
+                    state["atk_mod"] = 0
+                    state["def_mod"] = 0
+                    state["xp_mult"] = 1.0
+                    state["gil_mult"] = 1.0
+
+                    effect = weather.get("effect")
+                    if effect:
+                        effect_type = effect.get("type", "")
+                        effect_value = effect.get("value", 0)
+                        if effect_type == "xp_bonus":
+                            state["xp_mult"] += effect_value / 100.0
+                        elif effect_type == "gil_bonus":
+                            state["gil_mult"] += effect_value / 100.0
+                        # armor_penalty is applied per player in combat_engine.
+
+                    if world_event:
+                        e_key, e_desc, e_xp_mult, e_gil_mult = world_event
+                        state["event"] = e_key
+                        state["event_desc"] = e_desc
+                        state["xp_mult"] *= e_xp_mult
+                        state["gil_mult"] *= e_gil_mult
+                    else:
+                        state["event"] = "none"
+                        state["event_desc"] = "Oakhaven is peaceful today."
+
+                    state["last_tick"] = time.time()
+                    return True
+
+                await update_world_state(_apply_dawn_tick)
+                # Reload the committed values for the dawn announcement below.
+                state = load_world_state()
 
                 # Through character_manager's own load/save: they hold the lock
                 # every other sheet write holds, and share its temp file. A
@@ -2598,7 +2598,7 @@ async def run_village_raid(bot_ctx, channel):
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.dungeon import DUNGEON_THEMES
     from utils.ttrpg.combat_engine import _resolve_combat
     from utils.ttrpg.housing import load_housing
@@ -2835,21 +2835,26 @@ async def run_village_raid(bot_ctx, channel):
             level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
             
     # Apply global World State updates
-    wstate = load_world_state()
     now = time.time()
-    
-    if defenders_won:
-        wstate["atk_mod"] = 1
-        wstate["atk_mod_expiry"] = now + 24 * 3600 # +1 ATK until next noon event
-        wstate["gil_mult"] = 1.2
-        wstate["gil_mult_expiry"] = now + 24 * 3600 # 1.2x gil until next noon event
-        wstate["event"] = "raid_repelled"
-        wstate["event_desc"] = f"Oakhaven repelled a {theme_data['name']}. Morale is high!"
-    else:
-        wstate["event"] = "raid_breached"
-        wstate["event_desc"] = f"Oakhaven perimeter was breached by a {theme_data['name']}. The town is damaged."
-        
-    save_world_state(wstate)
+
+    def _record_raid_result(state):
+        if defenders_won:
+            state.update({
+                "atk_mod": 1,
+                "atk_mod_expiry": now + 24 * 3600,
+                "gil_mult": 1.2,
+                "gil_mult_expiry": now + 24 * 3600,
+                "event": "raid_repelled",
+                "event_desc": f"Oakhaven repelled a {theme_data['name']}. Morale is high!",
+            })
+        else:
+            state.update({
+                "event": "raid_breached",
+                "event_desc": f"Oakhaven perimeter was breached by a {theme_data['name']}. The town is damaged.",
+            })
+        return True
+
+    await update_world_state(_record_raid_result)
     
     # Broadcast global outcome
     outcome_desc = raid_outcome_flavor("oakhaven", theme_key, defenders_won, casualty_count)
@@ -3689,11 +3694,8 @@ async def run_caravan_arrival(bot_ctx, channel):
     view = CaravanArrivalView()
     await channel.send(embed=arrival_embed, view=view)
 
-    # Update and Save World State
-    from utils.ttrpg.world_state import load_world_state, async_save_world_state
-    state = load_world_state()
-    state["caravan_active"] = True
-    await async_save_world_state(state)
+    # Update shared state from a fresh snapshot under the transaction lock.
+    await update_world_state(lambda state: state.update({"caravan_active": True}))
 
     await _log_world_event("🐪 **A traveling caravan** arrived in Oakhaven — tier III goods available until midnight.")
     log_action("Noon Event: Caravan Arrival (full merchant)")
@@ -3895,7 +3897,7 @@ async def run_construct_breach(bot_ctx, channel):
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.dungeon import DUNGEON_THEMES
     from utils.ttrpg.combat_engine import _resolve_combat
     from utils.ttrpg.housing import load_housing
@@ -4090,19 +4092,24 @@ async def run_construct_breach(bot_ctx, channel):
         if result["leveled"]:
             level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
             
-    wstate = load_world_state()
     now = time.time()
-    
-    if defenders_won:
-        wstate["def_mod"] = 1
-        wstate["def_mod_expiry"] = now + 24 * 3600
-        wstate["event"] = "construct_breach_repelled"
-        wstate["event_desc"] = "Oakhaven repelled a Construct Breach. Shield systems are humming."
-    else:
-        wstate["event"] = "construct_breach_failed"
-        wstate["event_desc"] = "Watchtower perimeter breached by constructs. Resonating feedback lingering."
-        
-    save_world_state(wstate)
+
+    def _record_construct_breach_result(state):
+        if defenders_won:
+            state.update({
+                "def_mod": 1,
+                "def_mod_expiry": now + 24 * 3600,
+                "event": "construct_breach_repelled",
+                "event_desc": "Oakhaven repelled a Construct Breach. Shield systems are humming.",
+            })
+        else:
+            state.update({
+                "event": "construct_breach_failed",
+                "event_desc": "Watchtower perimeter breached by constructs. Resonating feedback lingering.",
+            })
+        return True
+
+    await update_world_state(_record_construct_breach_result)
     
     outcome_desc = raid_outcome_flavor("watchtower", "constructs", defenders_won, casualty_count)
     outcome_embed = discord.Embed(
@@ -4140,7 +4147,7 @@ async def run_caravan_ambush(bot_ctx, channel):
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event, raid_outcome_flavor
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.dungeon import DUNGEON_THEMES
     from utils.ttrpg.combat_engine import _resolve_combat
     from utils.ttrpg.housing import load_housing
@@ -4167,8 +4174,13 @@ async def run_caravan_ambush(bot_ctx, channel):
     defenders = await get_active_town_defenders()
     
     if not defenders:
-        wstate["caravan_active"] = False
-        save_world_state(wstate)
+        def _end_unattended_caravan(state):
+            if not state.get("caravan_active", False):
+                return False
+            state["caravan_active"] = False
+            return True
+
+        await update_world_state(_end_unattended_caravan)
         await channel.send(embed=discord.Embed(
             description=(
                 "*No adventurers responded in time. The merchant caravan was ransacked by predators.*\n\n"
@@ -4251,6 +4263,8 @@ async def run_caravan_ambush(bot_ctx, channel):
     defeated_monsters_count = 0
     player_defeated_count = 0
     
+    # Refresh shared modifiers after the player response delay.
+    wstate = load_world_state()
     world_atk_mod = wstate.get("atk_mod", 0)
     from utils.ttrpg.town_projects import raid_def_bonus
     world_def_mod = wstate.get("def_mod", 0) + raid_def_bonus(wstate)
@@ -4344,16 +4358,21 @@ async def run_caravan_ambush(bot_ctx, channel):
         if result["leveled"]:
             level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
             
-    wstate = load_world_state()
-    if defenders_won:
-        wstate["event"] = "caravan_saved"
-        wstate["event_desc"] = "Trade caravan was successfully defended. Stock remains open."
-    else:
-        wstate["caravan_active"] = False
-        wstate["event"] = "caravan_destroyed"
-        wstate["event_desc"] = "Trade caravan was pillaged on the Trade Road. Merchant fled."
-        
-    save_world_state(wstate)
+    def _record_caravan_result(state):
+        if defenders_won:
+            state.update({
+                "event": "caravan_saved",
+                "event_desc": "Trade caravan was successfully defended. Stock remains open.",
+            })
+        else:
+            state.update({
+                "caravan_active": False,
+                "event": "caravan_destroyed",
+                "event_desc": "Trade caravan was pillaged on the Trade Road. Merchant fled.",
+            })
+        return True
+
+    await update_world_state(_record_caravan_result)
     
     outcome_desc = raid_outcome_flavor("trade_road caravan", theme_key, defenders_won, casualty_count)
     outcome_embed = discord.Embed(
@@ -4386,10 +4405,10 @@ async def run_market_glut(bot_ctx, channel):
     import secrets
     import discord
     import time
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     now = time.time()
     
     is_glut = secrets.randbelow(2) == 0
@@ -4419,7 +4438,11 @@ async def run_market_glut(bot_ctx, channel):
         color = 0xd35400
         log_text = "📋 **Supply Shortage** — trade blockages inflated shop prices by 25% until the next noon event."
 
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "blockade_active": wstate["blockade_active"],
+        "shop_price_mult": wstate["shop_price_mult"],
+        "shop_price_mult_expiry": wstate["shop_price_mult_expiry"],
+    }))
     
     embed = discord.Embed(title=title, description=desc, color=color)
     embed.set_footer(text="Prices are adjusted automatically at checkout.")
@@ -4432,15 +4455,18 @@ async def run_whisperwood_bloom(bot_ctx, channel):
     """Whisperwood Bloom event — increases forest events chance for 4 hours."""
     import discord
     import time
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     now = time.time()
     
     wstate["forest_event_bonus"] = 0.15
     wstate["forest_event_bonus_expiry"] = now + 24 * 3600
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "forest_event_bonus": wstate["forest_event_bonus"],
+        "forest_event_bonus_expiry": wstate["forest_event_bonus_expiry"],
+    }))
     
     embed = discord.Embed(
         title="🌸 Whisperwood Bloom",
@@ -4461,14 +4487,16 @@ async def run_shrine_vigil(bot_ctx, channel):
     """Shrine Vigil event — grants enhanced blessings for 4 hours."""
     import discord
     import time
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     now = time.time()
     
     wstate["blessing_window_until"] = now + 24 * 3600
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "blessing_window_until": wstate["blessing_window_until"],
+    }))
     
     embed = discord.Embed(
         title="🕯️ Shrine Vigil Active",
@@ -4490,7 +4518,7 @@ async def run_missing_persons(bot_ctx, channel):
     import secrets
     import discord
     import time
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
     names = [
@@ -4510,12 +4538,16 @@ async def run_missing_persons(bot_ctx, channel):
     chosen_name = secrets.choice(names)
     chosen_key, chosen_desc = secrets.choice(locs)
     
-    wstate = load_world_state()
+    wstate = {}
     now = time.time()
     wstate["missing_person_name"] = chosen_name
     wstate["missing_person_loc"] = chosen_key
     wstate["missing_person_expiry"] = now + 24 * 3600
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "missing_person_name": wstate["missing_person_name"],
+        "missing_person_loc": wstate["missing_person_loc"],
+        "missing_person_expiry": wstate["missing_person_expiry"],
+    }))
     
     embed = discord.Embed(
         title="📋 MISSING PERSON NOTICE",
@@ -4543,7 +4575,7 @@ async def run_construct_incursion(bot_ctx, channel):
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.dungeon import DUNGEON_THEMES
     from utils.ttrpg.combat_engine import _resolve_combat
     from utils.ttrpg.housing import load_housing
@@ -4775,20 +4807,26 @@ async def run_construct_incursion(bot_ctx, channel):
             level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
 
     # Apply global updates
-    wstate = load_world_state()
     now = time.time()
 
-    if defenders_won:
-        wstate["event"] = "constructs_repelled"
-        wstate["event_desc"] = "Oakhaven watchtowers repelled the construct intrusion."
-        wstate["def_mod"] = 1
-        wstate["def_mod_expiry"] = now + 24 * 3600  # 24 hours
-        wstate["xp_mult"] = 1.2
-        wstate["xp_mult_expiry"] = now + 24 * 3600  # 24 hours
-    else:
-        wstate["event"] = "constructs_breached"
-        wstate["event_desc"] = "Watchtower defenses breached by Aeridorian automations."
-    save_world_state(wstate)
+    def _record_construct_incursion_result(state):
+        if defenders_won:
+            state.update({
+                "event": "constructs_repelled",
+                "event_desc": "Oakhaven watchtowers repelled the construct intrusion.",
+                "def_mod": 1,
+                "def_mod_expiry": now + 24 * 3600,
+                "xp_mult": 1.2,
+                "xp_mult_expiry": now + 24 * 3600,
+            })
+        else:
+            state.update({
+                "event": "constructs_breached",
+                "event_desc": "Watchtower defenses breached by Aeridorian automations.",
+            })
+        return True
+
+    await update_world_state(_record_construct_incursion_result)
 
     # Broadcast global outcome
     outcome_embed = discord.Embed(
@@ -4896,7 +4934,7 @@ async def run_pilgrims_arrive(bot_ctx, channel):
     import time
     from utils.ttrpg.character_manager import load_all
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
 
     town_locations = {
         "oakhaven", "stone_hearth", "hemlocks_store",
@@ -4950,9 +4988,11 @@ async def run_pilgrims_arrive(bot_ctx, channel):
 
     # Set temporary world_state pilgrim_blessing_until; the player-sheet
     # mutations above have already been committed under their own locks.
-    wstate = load_world_state()
+    wstate = {}
     wstate["pilgrim_blessing_until"] = time.time() + 24 * 3600
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "pilgrim_blessing_until": wstate["pilgrim_blessing_until"],
+    }))
 
     await channel.send(embed=discord.Embed(
         title="✨ Pilgrims' Blessing Received",
@@ -4967,7 +5007,7 @@ async def run_night_terror_warning(bot_ctx, channel):
     import discord
     import time
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
 
     await channel.send(embed=discord.Embed(
         title="👁️ Night Terror Warning",
@@ -4981,10 +5021,13 @@ async def run_night_terror_warning(bot_ctx, channel):
     ))
 
     # Write a temporary flag into world_state
-    wstate = load_world_state()
+    wstate = {}
     wstate["encounter_mod"] = {"tier_shift": 1}
     wstate["encounter_mod_expiry"] = time.time() + 24 * 3600  # 24 hours
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "encounter_mod": wstate["encounter_mod"],
+        "encounter_mod_expiry": wstate["encounter_mod_expiry"],
+    }))
 
     await _log_world_event("👁️ **Night Terror Warning** — watchtowers report shadow beast movement. Solo hunts will encounter higher tier threats until the next noon event.")
     log_action("Noon Event: Night Terror Warning")
@@ -4994,13 +5037,16 @@ async def run_ironclad_envoys(bot_ctx, channel):
     """Noon event: Ironclad Guild Envoys Arrive. markup prices for 4 hours."""
     import discord
     import time
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["shop_price_mult"] = 1.15
     wstate["shop_price_mult_expiry"] = time.time() + 24 * 3600
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "shop_price_mult": wstate["shop_price_mult"],
+        "shop_price_mult_expiry": wstate["shop_price_mult_expiry"],
+    }))
 
     await channel.send(embed=discord.Embed(
         title="⚙️ Ironclad Guild Envoys Arrive",
@@ -5021,13 +5067,16 @@ async def run_silverstream_blackwater(bot_ctx, channel):
     """Noon event: The Silverstream Runs Black."""
     import discord
     import time
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["fishing_water_tainted"] = True
     wstate["fishing_water_tainted_expiry"] = time.time() + 24 * 3600
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "fishing_water_tainted": wstate["fishing_water_tainted"],
+        "fishing_water_tainted_expiry": wstate["fishing_water_tainted_expiry"],
+    }))
 
     await channel.send(embed=discord.Embed(
         title="🌊 The Silverstream Runs Black",
@@ -5157,13 +5206,16 @@ async def run_watchtower_silence(bot_ctx, channel):
     """Noon event: The Watchtower's Silence."""
     import discord
     import time
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["watchtower_bonus"] = True
     wstate["watchtower_bonus_expiry"] = time.time() + 24 * 3600
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "watchtower_bonus": wstate["watchtower_bonus"],
+        "watchtower_bonus_expiry": wstate["watchtower_bonus_expiry"],
+    }))
 
     await channel.send(embed=discord.Embed(
         title="🔭 The Watchtower's Silence",
@@ -5254,7 +5306,7 @@ async def run_iron_magpies_heist(bot_ctx, channel):
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.combat_engine import _resolve_combat
     from utils.ttrpg.housing import load_housing
     from utils.ttrpg.pets import get_pet_passive
@@ -5519,13 +5571,16 @@ async def run_boundary_shift(bot_ctx, channel):
     """Noon event: Whisperwood Boundary Shift."""
     import discord
     import time
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["encounter_mod"] = {"tier_shift": 1}
     wstate["encounter_mod_expiry"] = time.time() + 24 * 3600
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "encounter_mod": wstate["encounter_mod"],
+        "encounter_mod_expiry": wstate["encounter_mod_expiry"],
+    }))
 
     await channel.send(embed=discord.Embed(
         title="🍃 Whisperwood Boundary Shift",
@@ -5545,13 +5600,16 @@ async def run_sealed_wax_jar(bot_ctx, channel):
     """Noon event: The Sealed Wax Jar."""
     import discord
     import time
-    from utils.ttrpg.world_state import load_world_state, save_world_state
+    from utils.ttrpg.world_state import load_world_state, update_world_state
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
 
-    wstate = load_world_state()
+    wstate = {}
     wstate["special_item_sale"] = {"item": "lucky_charm", "price": 20}
     wstate["special_item_sale_expiry"] = time.time() + 24 * 3600
-    save_world_state(wstate)
+    await update_world_state(lambda state: state.update({
+        "special_item_sale": wstate["special_item_sale"],
+        "special_item_sale_expiry": wstate["special_item_sale_expiry"],
+    }))
 
     # Post-save verification — catch persistence failures immediately
     verify = load_world_state()

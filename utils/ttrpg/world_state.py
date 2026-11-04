@@ -42,103 +42,88 @@ def load_world_state() -> Dict[str, Any]:
     path = _path()
     with _lock:
         if not os.path.exists(path):
-            return DEFAULT_STATE.copy()
+            return copy.deepcopy(DEFAULT_STATE)
         try:
             mtime = os.path.getmtime(path)
             if _cache and mtime <= _cache_date:
-                state = _cache.copy()
+                state = copy.deepcopy(_cache)
             else:
                 with open(path, "r", encoding="utf-8") as f:
                     state = json.load(f)
-                    # Ensure all keys exist
+                    if not isinstance(state, dict):
+                        raise ValueError("world state must be a JSON object")
+                    # Ensure all keys exist.
                     for k, v in DEFAULT_STATE.items():
                         if k not in state:
-                            state[k] = v
-                    _cache = state
+                            state[k] = copy.deepcopy(v)
+                    _cache = copy.deepcopy(state)
                     _cache_date = mtime
-                    state = state.copy()
+                    state = copy.deepcopy(state)
             
             # Evaluate expiries
             import time
             now = time.time()
-            modified = False
             
             # atk_mod
             if state.get("atk_mod_expiry", 0) > 0 and now > state["atk_mod_expiry"]:
                 state["atk_mod"] = 0
                 state["atk_mod_expiry"] = 0
-                modified = True
             # def_mod
             if state.get("def_mod_expiry", 0) > 0 and now > state["def_mod_expiry"]:
                 state["def_mod"] = 0
                 state["def_mod_expiry"] = 0
-                modified = True
             # xp_mult
             if state.get("xp_mult_expiry", 0) > 0 and now > state["xp_mult_expiry"]:
                 state["xp_mult"] = 1.0
                 state["xp_mult_expiry"] = 0
-                modified = True
             # gil_mult
             if state.get("gil_mult_expiry", 0) > 0 and now > state["gil_mult_expiry"]:
                 state["gil_mult"] = 1.0
                 state["gil_mult_expiry"] = 0
-                modified = True
             # shop_price_mult
             if state.get("shop_price_mult_expiry", 0) > 0 and now > state["shop_price_mult_expiry"]:
                 state["shop_price_mult"] = 1.0
                 state["blockade_active"] = False
                 state["shop_price_mult_expiry"] = 0
-                modified = True
             # forest_event_bonus
             if state.get("forest_event_bonus_expiry", 0) > 0 and now > state["forest_event_bonus_expiry"]:
                 state["forest_event_bonus"] = 0.0
                 state["forest_event_bonus_expiry"] = 0
-                modified = True
             # blessing_window_until
             if state.get("blessing_window_until", 0) > 0 and now > state["blessing_window_until"]:
                 state["blessing_window_until"] = 0
-                modified = True
             # pilgrim_blessing_until
             if state.get("pilgrim_blessing_until", 0) > 0 and now > state["pilgrim_blessing_until"]:
                 state["pilgrim_blessing_until"] = 0
-                modified = True
             # encounter_mod
             if state.get("encounter_mod_expiry", 0) > 0 and now > state["encounter_mod_expiry"]:
                 state["encounter_mod"] = {}
                 state["encounter_mod_expiry"] = 0
-                modified = True
             # fishing_water_tainted
             if state.get("fishing_water_tainted_expiry", 0) > 0 and now > state["fishing_water_tainted_expiry"]:
                 state["fishing_water_tainted"] = False
                 state["fishing_water_tainted_expiry"] = 0
-                modified = True
             # watchtower_bonus
             if state.get("watchtower_bonus_expiry", 0) > 0 and now > state["watchtower_bonus_expiry"]:
                 state["watchtower_bonus"] = False
                 state["watchtower_bonus_expiry"] = 0
-                modified = True
             # special_item_sale
             if state.get("special_item_sale_expiry", 0) > 0 and now > state["special_item_sale_expiry"]:
                 state["special_item_sale"] = {}
                 state["special_item_sale_expiry"] = 0
-                modified = True
                 
-            if modified:
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                tmp = path + ".tmp"
-                with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump(state, f, indent=2)
-                os.replace(tmp, path)
-                _cache = state.copy()
-                _cache_date = os.path.getmtime(path)
-                
-            return state.copy()
+            # Expiry normalization is a read-time view, not a write. Persisting
+            # it from this getter bypasses _transaction_lock and can race a
+            # journaled read-modify-write, restoring stale values or losing keys.
+            # The next explicit transaction persists its own fresh snapshot.
+            return copy.deepcopy(state)
         except (OSError, json.JSONDecodeError, ValueError, KeyError) as e:
-            # Logged, not printed: stderr is the terminal the dashboard draws on,
-            # and a world state silently reset to defaults is worth seeing.
+            # Atomic writes should never leave partial JSON. Treat corruption or
+            # unreadable state as a hard error so a later update cannot replace
+            # the campaign's world state with defaults.
             from utils.infrastructure.logging.kaia_logger import log_warning
-            log_warning(f"[world_state] Failed to load {path}, using defaults: {e}")
-            return DEFAULT_STATE.copy()
+            log_warning(f"[world_state] Refusing to use malformed or unreadable state at {path}: {e}")
+            raise RuntimeError(f"Cannot safely load RPG world state from {path}") from e
 
 def _write_world_state(state: Dict[str, Any], text: str):
     global _cache, _cache_date
@@ -146,11 +131,16 @@ def _write_world_state(state: Dict[str, Any], text: str):
     path = _path()
     with _lock:
         write_atomic(path, text)
-        _cache = state
+        _cache = copy.deepcopy(state)
         _cache_date = os.path.getmtime(path)
 
 
 def save_world_state(state: Dict[str, Any]):
+    """Synchronous snapshot writer for isolated tests/bootstrap only.
+
+    Async production read-modify-write paths must use update_world_state() or
+    mutate_world_state(); this function cannot serialize a read-modify-write.
+    """
     _write_world_state(state.copy(), json.dumps(state, indent=2))
 
 def get_current_state() -> Dict[str, Any]:
@@ -162,7 +152,11 @@ async def _async_write_world_state_unlocked(state: Dict[str, Any]) -> None:
 
 
 async def async_save_world_state(state: Dict[str, Any]):
-    """Serialize writes from async callers with multi-file world transactions."""
+    """Write a complete snapshot already prepared while owning _transaction_lock.
+
+    Prefer update_world_state() for ordinary mutations: locking only the final
+    write does not make a snapshot loaded before the lock fresh.
+    """
     async with _transaction_lock:
         await _async_write_world_state_unlocked(state)
 
@@ -278,14 +272,13 @@ async def mutate_world_state(mutator: Callable[[dict, Dict[str, Any]], Tuple[boo
         return result
 
 
-async def mutate_world_state_only(mutator: Callable[[Dict[str, Any]], Any]) -> Any:
-    """Apply an idempotent world-only mutation under the global transaction lock.
+async def update_world_state(mutator: Callable[[Dict[str, Any]], Any]) -> bool:
+    """Apply one world-only mutation to a fresh snapshot under _transaction_lock.
 
-    This is for a side effect whose durable write-ahead record already lives
-    in another subsystem (currently a pending combat outcome on the character
-    sheet). The caller must persist that record before invoking this helper,
-    and recovery must replay the same mutation until the outer journal clears.
-    The mutator is synchronous, receives a fresh state, and must not do I/O.
+    The lock covers recovery, load, validation/mutation, and the atomic write.
+    Mutators must be synchronous, deterministic, and perform no I/O. Return
+    False to reject/no-op without writing; any other return value commits the
+    changed snapshot and this helper returns True.
     """
     async with _transaction_lock:
         await _recover_pending_transaction_locked()
@@ -295,3 +288,12 @@ async def mutate_world_state_only(mutator: Callable[[Dict[str, Any]], Any]) -> A
             return False
         await _async_write_world_state_unlocked(state)
         return True
+
+
+async def mutate_world_state_only(mutator: Callable[[Dict[str, Any]], Any]) -> Any:
+    """Apply an idempotent mutation whose retry is covered by an outer journal.
+
+    The caller must persist its recovery record before invoking this helper.
+    Ordinary world-only event writes should use update_world_state().
+    """
+    return await update_world_state(mutator)

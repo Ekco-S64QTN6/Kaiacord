@@ -2052,39 +2052,36 @@ async def _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname, *, uid=N
     from utils.ttrpg.forest_events import resolve_event
     event_key = random_event(loc)
     result = resolve_event(event_key, sheet)
-    await _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, uid=uid, is_owner=is_owner)
-    return True
+    handled = await _apply_and_narrate_event(
+        ctx, msg, send, sheet, result, uname, uid=uid, is_owner=is_owner
+    )
+    # Legacy/test handlers may return None after applying the event; only an
+    # explicit False denotes a rejected/expired one-time event claim.
+    return handled is not False
 
 
-async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=None, is_owner=False):
-    """Apply a forest event's mechanical effects; its story joins the trip's (outing.py)."""
-    event_location = sheet.get("location", "whisperwood_edge")
-
+def _apply_forest_event_mechanics(sheet, result):
+    """Apply the deterministic character-side effects of one forest event."""
     if sheet.get("advanced_class") == "Shaman" and sheet["hp"]["current"] > 0 and sheet["hp"]["current"] < sheet["hp"]["max"]:
         from utils.ttrpg.class_advancement import ADVANCED_CLASSES
         heal_amt = ADVANCED_CLASSES["Cleric"]["Shaman"]["bonuses"].get("nature_heal_on_event", 4)
         sheet["hp"]["current"] = min(sheet["hp"]["current"] + heal_amt, sheet["hp"]["max"])
 
-    # Apply mechanical changes
-    sheet["xp"]  = sheet.get("xp", 0) + result["xp"]
+    sheet["xp"] = sheet.get("xp", 0) + result["xp"]
     sheet["gil"] = sheet.get("gil", 0) + result["gil"]
-
     if result["hp_change"] != 0:
         sheet["hp"]["current"] = max(0, min(
             sheet["hp"]["current"] + result["hp_change"],
             sheet["hp"]["max"]
         ))
-
     if result["condition_add"]:
         sheet.setdefault("conditions", [])
         if result["condition_add"] not in sheet["conditions"]:
             sheet["conditions"].append(result["condition_add"])
-
     if result["condition_remove"] and result["condition_remove"] in sheet.get("conditions", []):
         sheet["conditions"].remove(result["condition_remove"])
-
     if result["extra_hunt"]:
-        sheet["hunts_today"] = max(0, sheet.get("hunts_today", 1) - 1)  # refund 1 hunt
+        sheet["hunts_today"] = max(0, sheet.get("hunts_today", 1) - 1)
 
     item_delivery = None
     if result.get("item_add"):
@@ -2097,7 +2094,40 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
     blackout = None
     if sheet["hp"]["current"] <= 0:
         blackout = _apply_overworld_blackout(sheet)
-    await save(sheet)
+    return item_delivery, leveled_up, new_level, blackout
+
+
+async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=None, is_owner=False):
+    """Apply a forest event's mechanical effects; its story joins the trip's (outing.py)."""
+    event_location = sheet.get("location", "whisperwood_edge")
+    if result.get("event_key") == "missing_persons_found":
+        from utils.ttrpg.forest_events import claim_missing_person
+        from utils.ttrpg.world_state import mutate_world_state
+
+        def _claim_missing_person(current_sheet, current_world):
+            name = claim_missing_person(current_world, event_location, now=time.time())
+            if name is None:
+                return False, None
+            current_sheet["reputation"] = current_sheet.get("reputation", 0) + 10
+            result["outcome"] = (
+                f"You found {name} safe and escorted them back. +100 XP, +100 Gil, +10 Reputation."
+            )
+            result["narration_hook"] = (
+                f"While scouting, you heard a faint call. Huddled under a roots shelter was {name}, "
+                "terrified but alive. You kept watch, shared your rations, and guided them back safely. "
+                "The family wept, Elder Elara nodded in silent approval, and you were rewarded for your valor."
+            )
+            return True, _apply_forest_event_mechanics(current_sheet, result)
+
+        mechanics = await mutate_world_state(_claim_missing_person, sheet)
+        if mechanics is None:
+            # A second claimant or an expired notice gets no reward and continues
+            # into the normal monster hunt.
+            return False
+        item_delivery, leveled_up, new_level, blackout = mechanics
+    else:
+        item_delivery, leveled_up, new_level, blackout = _apply_forest_event_mechanics(sheet, result)
+        await save(sheet)
 
     # Post mechanical result as embed (matches combat log card style)
     xp_next = xp_to_next_level(sheet["level"])
@@ -2187,6 +2217,8 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
             ),
             view=view,
         )
+
+    return True
 
 
 def _apply_dungeon_completion_rewards(sheet: dict, state: dict) -> dict:
