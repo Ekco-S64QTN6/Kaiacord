@@ -384,6 +384,40 @@ load, so neither a paid donation nor a purification reward is lost or duplicated
 
 ---
 
+
+## Multi-file Persistence and Crash Recovery
+
+Aethelgard's character sheets, housing, shared world state, and encounter data are separate JSON
+records. When one gameplay action changes more than one record, it must use the journal belonging
+to that resource rather than saving each file independently.
+
+- **Character + housing, dungeon, or Spine:** `housing_transactions.commit_character_resource()` writes a per-player
+  write-ahead journal containing both intended snapshots. It then saves the character and secondary
+  resource, clearing the journal only after both writes succeed. The housing, dungeon, and Spine
+  convenience wrappers use the same protocol. Housing actions covered include purchases, upgrades,
+  crop planting and harvesting, blight treatment, pet adoption and feeding, furniture purchases,
+  home training, and daily Mognet deliveries. Dungeon and Spine entry, room rewards, continuing
+  combat rounds, and fleeing use the same journal when both the sheet and encounter snapshot change.
+- **Character + shared world state:** pond purification and town donations use
+  `world_state.mutate_world_state()`. The journal commits the player's reagent or Gil change with
+  the global pond, town fund, donor totals, and reinforcement state.
+- **Combat outcomes:** a character-sheet pending-outcome record is written before a dungeon,
+  Spine, or overworld encounter is changed. The next combat action replays any unfinished operation
+  before resolving another round. Replays are idempotent; unknown journal kinds are retained rather
+  than silently discarded.
+- **Shared overworld sessions:** a channel session contains encounters for multiple players. A
+  player's recovery must therefore patch only the monster identified by that player's ID and the
+  stable monster-instance ID. It must not restore a stale copy of the whole channel session.
+  Combat-log entries carry an outcome ID so recovery can append a round once, even if the session
+  write succeeded and journal cleanup did not.
+
+These journals are write-ahead records, not substitutes for the per-file atomic writers or action
+locks. A successful operation clears its journal only after all required writes complete; if a write
+fails, the next recovery replays the saved snapshots or targeted mutation. The RPG unit tests inject
+failures at both sides of these boundaries and verify repeat recovery does not duplicate rewards,
+costs, or session-log entries.
+
+
 ## Housing System
 
 Players can purchase a home in the **Housing District** (`!rpg go housing_district`) for an initial 50k Gil (Hut). Upgrading unlocks more options. Access your home menu using `!rpg home`.
