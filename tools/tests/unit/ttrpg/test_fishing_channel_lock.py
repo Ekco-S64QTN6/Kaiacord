@@ -171,19 +171,22 @@ def test_monster_hook_retry_after_session_write_does_not_duplicate_spawn_or_bait
                     cast_id="stable-hook-cast",
                 )
 
-    try:
-        asyncio.run(resolve_once())
-        raise AssertionError("the simulated sheet-write interruption should propagate")
-    except OSError as exc:
-        assert "interruption" in str(exc)
+    async def run_retry():
+        try:
+            await resolve_once()
+            raise AssertionError("the simulated sheet-write interruption should propagate")
+        except OSError as exc:
+            assert "interruption" in str(exc)
 
-    # The session write committed, but the sheet still has its original bait.
-    assert len(persisted_session["monsters"]) == 1
-    assert len(persisted_session["fishing_hook_receipts"]) == 1
-    assert persisted_sheet["fishing_stats"]["bait_stock"]["earthworm"] == 2
-    assert "stable-hook-cast" not in persisted_sheet["fishing_stats"].get("consumed_hook_casts", [])
+        # The session write committed, but the sheet still has its original bait.
+        assert len(persisted_session["monsters"]) == 1
+        assert len(persisted_session["fishing_hook_receipts"]) == 1
+        assert persisted_sheet["fishing_stats"]["bait_stock"]["earthworm"] == 2
+        assert "stable-hook-cast" not in persisted_sheet["fishing_stats"].get("consumed_hook_casts", [])
 
-    asyncio.run(resolve_once())
+        await resolve_once()
+
+    asyncio.run(run_retry())
 
     assert len(persisted_session["monsters"]) == 1
     assert len(persisted_session["fishing_hook_receipts"]) == 1
