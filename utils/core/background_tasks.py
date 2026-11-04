@@ -5254,7 +5254,7 @@ async def run_iron_magpies_heist(bot_ctx, channel):
     import discord
     import asyncio
     import time
-    from utils.ttrpg.character_manager import get_active_town_defenders, load_all
+    from utils.ttrpg.character_manager import get_active_town_defenders
     from utils.ttrpg.monster_registry import get as get_monster
     from utils.ttrpg.progression import check_level_up
     from utils.ttrpg.broadcast import log_world_event as _log_world_event, broadcast_world_event
@@ -5309,17 +5309,20 @@ async def run_iron_magpies_heist(bot_ctx, channel):
         import time as _time
         from utils.ttrpg.character_manager import active_since
         _active = await asyncio.to_thread(active_since, _time.time() - 48 * 3600)
-        all_sheets = await load_all()
         stolen_details = []
-        for s in all_sheets:
-            if str(s.get("user_id")) not in _active:
-                continue
-            bal = s.get("bank_balance", 0)
-            if bal > 0:
-                stolen = max(1, int(bal * 0.05))
-                s["bank_balance"] = max(0, bal - stolen)
-                await save(s)
-                stolen_details.append(f"🏦 **{s['character_name']}**: -{stolen} Gil")
+        for uid in sorted(_active):
+            def apply_bank_loss(sheet):
+                balance = sheet.get("bank_balance", 0)
+                if balance <= 0:
+                    return None
+                stolen = max(1, int(balance * 0.05))
+                sheet["bank_balance"] = max(0, balance - stolen)
+                return sheet.get("character_name", f"User {uid}"), stolen
+
+            bank_loss = await _mutate_player_sheet(uid, apply_bank_loss)
+            if bank_loss:
+                character_name, stolen = bank_loss
+                stolen_details.append(f"🏦 **{character_name}**: -{stolen} Gil")
         
         desc = f"*No adventurers responded to the alarm. {thief['name']} of the Iron Magpies cleaned out the vault and vanished into the shadows.*\n\n"
         if stolen_details:
