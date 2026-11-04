@@ -193,6 +193,13 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   The paragraph goes to #aethelgard (`discord.rpg_channel`) so everyone can follow the day, never
   through a button's follow-up; a closed trip waits in `outings/untold/` with its text until the
   post succeeds, and the boot tells whatever is still waiting.
+- **Forest-event rates and procedural boss scaling follow the system manual.** Keep
+  `encounter_tables.EVENT_CHANCE` aligned with the location base percentages in
+  `docs/ttrpg/aethelgard_system.md`; world-state and weather bonuses remain additive at roll time.
+  Procedural dungeon bosses use the linear `0.45x (L1) → 1.0x (L15)` multiplier in
+  `dungeon.boss_level_multiplier()`, followed by the existing per-level caps. Do not casually
+  rewrite the boss ATK cap table: its level-10 entry is intentionally non-monotonic and currently
+  does not bind for registry bosses.
 - **Spine stair guardians are floor-scaled encounter instances.** Build them with
   `spine_dungeon.scale_stair_guardian()`; do not mutate `monster_registry.MONSTERS`. Keep the
   floor HP/ATK/DEF curve and milestone Resonance Ward in sync with
