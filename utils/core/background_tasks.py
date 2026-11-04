@@ -5335,6 +5335,15 @@ async def run_iron_magpies_heist(bot_ctx, channel):
         log_action(f"Noon Event: Iron Magpies Bank Heist ({thief['name']} - Undefended)")
         return
 
+
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
+
     # Combat setup
     avg_level = sum(s.get("level", 1) for s in defenders) / len(defenders)
     max_level = max(s.get("level", 1) for s in defenders)
@@ -5404,50 +5413,94 @@ async def run_iron_magpies_heist(bot_ctx, channel):
     
     if defenders_won:
         for s in defenders:
-            if s["hp"]["current"] <= 0:
-                s["hp"]["current"] = 1
-                s["location"] = "shrine"
-                s["deaths"] = s.get("deaths", 0) + 1
-                s["xp"] = s.get("xp", 0) + xp_each // 2
-                s["gil"] = s.get("gil", 0) + gil_each // 2
-                leveled, new_lvl = check_level_up(s)
-                await save(s)
-                result_lines.append(f"💀 **{s['character_name']}** was knocked out, but the team prevailed! (+{xp_each // 2} XP, +{gil_each // 2}g)")
-                if leveled:
-                    level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            uid = str(s.get("user_id", ""))
+            start = starting_states_by_uid.get(uid, {})
+            simulated_hp = s.get("hp", {}).get("current", 0)
+            consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+            result = await _commit_background_combat_result(
+                uid,
+                starting_hp=start.get("hp", 0),
+                simulated_hp=simulated_hp,
+                consumed_conditions=consumed_conditions,
+                xp_reward=xp_each if simulated_hp > 0 else 0,
+                gil_reward=gil_each if simulated_hp > 0 else 0,
+                knockout_xp_reward=xp_each // 2 if simulated_hp <= 0 else 0,
+                knockout_gil_reward=gil_each // 2 if simulated_hp <= 0 else 0,
+            )
+            if not result:
+                continue
+            character_name = result["character_name"]
+            if result["blackout"]:
+                result_lines.append(
+                    f"💀 **{character_name}** was knocked out, but the team prevailed! "
+                    f"(lost {result['blackout']['xp_loss']} XP, {result['blackout']['gil_loss']}g)"
+                )
+            elif result["knockout_applied"]:
+                result_lines.append(
+                    f"💀 **{character_name}** was knocked out, but the team prevailed! "
+                    f"(+{xp_each // 2} XP, +{gil_each // 2}g)"
+                )
+            elif simulated_hp <= 0:
+                result_lines.append(
+                    f"⚔️ **{character_name}** recovered during the defense and remained standing."
+                )
             else:
-                s["xp"] = s.get("xp", 0) + xp_each
-                s["gil"] = s.get("gil", 0) + gil_each
-                leveled, new_lvl = check_level_up(s)
-                await save(s)
-                result_lines.append(f"⚔️ **{s['character_name']}** helped subdue {thief['name']} and secured the vaults! (+{xp_each} XP, +{gil_each}g)")
-                if leveled:
-                    level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+                result_lines.append(
+                    f"⚔️ **{character_name}** helped subdue {thief['name']} and secured the vaults! "
+                    f"(+{xp_each} XP, +{gil_each}g)"
+                )
+            if result["leveled"]:
+                level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
     else:
-        # Theft loss penalty if defenders lose / time runs out: 5% of bank balances stolen (uncapped sink)
-        all_sheets = await load_all()
+        # The loss applies to active players' current bank balances, not
+        # detached load_all() snapshots.
+        import time as _time
+        from utils.ttrpg.character_manager import active_since
+        active_ids = await asyncio.to_thread(active_since, _time.time() - 48 * 3600)
         stolen_details = []
-        for s_other in all_sheets:
-            bal = s_other.get("bank_balance", 0)
-            if bal > 0:
-                stolen = max(1, int(bal * 0.05))
-                s_other["bank_balance"] = max(0, bal - stolen)
-                await save(s_other)
-                stolen_details.append(f"🏦 **{s_other['character_name']}**: -{stolen} Gil")
+        for uid in sorted(active_ids):
+            def apply_bank_loss(sheet):
+                balance = sheet.get("bank_balance", 0)
+                if balance <= 0:
+                    return None
+                stolen = max(1, int(balance * 0.05))
+                sheet["bank_balance"] = max(0, balance - stolen)
+                return sheet.get("character_name", f"User {uid}"), stolen
+
+            bank_loss = await _mutate_player_sheet(uid, apply_bank_loss)
+            if bank_loss:
+                character_name, stolen = bank_loss
+                stolen_details.append(f"🏦 **{character_name}**: -{stolen} Gil")
+
         for s in defenders:
-            if s["hp"]["current"] <= 0:
-                s["xp"] = max(0, s["xp"] - int(s["xp"] * 0.10))
-                s["gil"] = max(0, s["gil"] - int(s["gil"] * 0.05))
-                s["hp"]["current"] = 1
-                s["location"] = "shrine"
-                s["deaths"] = s.get("deaths", 0) + 1
-                await save(s)
-                result_lines.append(f"💀 **{s['character_name']}** was knocked out defending the bank.")
+            uid = str(s.get("user_id", ""))
+            start = starting_states_by_uid.get(uid, {})
+            simulated_hp = s.get("hp", {}).get("current", 0)
+            consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+            result = await _commit_background_combat_result(
+                uid,
+                starting_hp=start.get("hp", 0),
+                simulated_hp=simulated_hp,
+                consumed_conditions=consumed_conditions,
+            )
+            if not result:
+                continue
+            character_name = result["character_name"]
+            if result["blackout"]:
+                result_lines.append(
+                    f"💀 **{character_name}** was knocked out defending the bank "
+                    f"(lost {result['blackout']['xp_loss']} XP, {result['blackout']['gil_loss']} Gil)."
+                )
+            elif simulated_hp <= 0:
+                result_lines.append(
+                    f"🛡️ **{character_name}** recovered during the defense and remained standing."
+                )
             else:
-                await save(s)
-                result_lines.append(f"🛡️ **{s['character_name']}** survived, but {thief['name']} overpowered the defense and escaped with the loot.")
+                result_lines.append(
+                    f"🛡️ **{character_name}** survived, but {thief['name']} overpowered the defense and escaped with the loot."
+                )
         if stolen_details:
-            result_lines.append("\n**Stolen Bank Balances (5% Vault Heist Loss):**\n" + "\n".join(stolen_details))
+            result_lines.append("\\n**Stolen Bank Balances (5% Vault Heist Loss):**\\n" + "\\n".join(stolen_details))
 
     embed = discord.Embed(
         title="🕳️ Bank Defense Outcome",
