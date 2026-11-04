@@ -643,8 +643,13 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         # Combat continues — update monster HP in state
         combat["monster"] = monster
         state["active_combat"] = combat
-        await save(sheet)
-        await save_func(uid, state)
+        from utils.ttrpg.housing_transactions import commit_character_resource
+        await commit_character_resource(
+            sheet,
+            state,
+            resource_kind="spine_dungeon" if state.get("is_spine") else "dungeon",
+            action="dungeon_combat_round",
+        )
 
         name_used = boss_name if (is_boss and boss_name) else monster.get("name", "Enemy")
         embed = discord.Embed(
@@ -1502,8 +1507,10 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 ctx, sheet, monster.get("name", "Something"), blackout
             )
     else:
-        await save(sheet)
-        await save_session(s)
+        from utils.ttrpg.housing_transactions import commit_character_session
+        await commit_character_session(
+            sheet, s, action="overworld_combat_round"
+        )
 
     embed_color = 0xFF4500 if res["monster_alive"] else 0x2D5A27
     if not res["player_alive"]:
