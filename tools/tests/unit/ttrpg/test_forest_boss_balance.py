@@ -33,6 +33,22 @@ def test_forest_event_roll_uses_the_documented_base_threshold(
     assert encounter_tables.roll_for_event(location) is False
 
 
+def test_forest_event_roll_keeps_world_and_weather_bonuses_additive(monkeypatch):
+    monkeypatch.setattr(
+        world_state, "load_world_state", lambda: {"forest_event_bonus": 0.07}
+    )
+    monkeypatch.setattr(
+        calendar, "weather_mod",
+        lambda key: {"value": 3} if key == "forest_event_pct" else None,
+    )
+
+    # Trade Road's 18% base + 7% world event + 3% weather = 28%.
+    monkeypatch.setattr(encounter_tables.secrets, "randbelow", lambda _n: 27)
+    assert encounter_tables.roll_for_event("trade_road") is True
+    monkeypatch.setattr(encounter_tables.secrets, "randbelow", lambda _n: 28)
+    assert encounter_tables.roll_for_event("trade_road") is False
+
+
 @pytest.mark.parametrize(
     "level,expected",
     [
