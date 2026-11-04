@@ -310,32 +310,20 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
 
                 # Check for completion (even if talk task was already done)
                 if all(t in prog for t in q["tasks"]):
-                    # Complete — apply rewards
-                    xp_reward  = q["rewards"].get("xp", 0)
-                    gil_reward = q["rewards"].get("gil", 0)
-                    sheet["xp"]  = sheet.get("xp",  0) + xp_reward
-                    sheet["gil"] = sheet.get("gil", 0) + gil_reward
-
-                    item_delivery = None
-                    if q["rewards"].get("item"):
-                        from utils.ttrpg.inventory_capacity import grant_item_or_mail
-                        item_delivery = grant_item_or_mail(
-                            sheet, q["rewards"]["item"], f"{q['name']} quest reward"
-                        )
-                    if "recipe" in q["rewards"]:
-                        rk = q["rewards"]["recipe"]
-                        if rk not in sheet.setdefault("recipes", []):
-                            sheet.setdefault("recipes", []).append(rk)
-
-                    if active_id in sheet.get("active_quests", []):
-                        sheet["active_quests"].remove(active_id)
-                    sheet.setdefault("completed_quests", []).append(active_id)
+                    # Settle rewards and all resulting level-ups before the one durable save.
+                    from utils.ttrpg.quest_completion import apply_quest_completion
+                    settlement = apply_quest_completion(sheet, q)
+                    if settlement is None:
+                        continue
                     await save(sheet)
+                    if not settlement["awarded"]:
+                        continue
 
-                    leveled, new_level = check_level_up(sheet)
-                    if leveled:
-                        await save(sheet)
-
+                    xp_reward = settlement["xp_reward"]
+                    gil_reward = settlement["gil_reward"]
+                    item_delivery = settlement["item_delivery"]
+                    leveled = settlement["leveled"]
+                    new_level = settlement["new_level"]
                     from utils.ttrpg.progression import xp_to_next_level
                     xp_next = xp_to_next_level(sheet["level"])
                     completion_lines = [

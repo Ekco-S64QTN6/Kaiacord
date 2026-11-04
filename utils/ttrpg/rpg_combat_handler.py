@@ -906,53 +906,43 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
                         await save(sheet)
                     # Check if this hunt task completed the quest
                     if all(t in prog for t in q["tasks"]):
-                        # Complete — apply rewards inline
-                        xp_reward  = q["rewards"].get("xp", 0)
-                        gil_reward = q["rewards"].get("gil", 0)
-                        sheet["xp"]  = sheet.get("xp",  0) + xp_reward
-                        sheet["gil"] = sheet.get("gil", 0) + gil_reward
-                        item_delivery = None
-                        if q["rewards"].get("item"):
-                            from utils.ttrpg.inventory_capacity import grant_item_or_mail
-                            item_delivery = grant_item_or_mail(
-                                sheet, q["rewards"]["item"], f"{q['name']} quest reward"
-                            )
-                        if "recipe" in q["rewards"]:
-                            rk = q["rewards"]["recipe"]
-                            if rk not in sheet.setdefault("recipes", []):
-                                sheet.setdefault("recipes", []).append(rk)
-                        if active_id in sheet.get("active_quests", []):
-                            sheet["active_quests"].remove(active_id)
-                        sheet.setdefault("completed_quests", []).append(active_id)
-                        await save(sheet)
-                        leveled, new_level = check_level_up(sheet)
-                        if leveled:
+                        # Settle completion, XP, rewards, and every level-up milestone
+                        # in memory first; the following save is the one durable commit.
+                        from utils.ttrpg.quest_completion import apply_quest_completion
+                        settlement = apply_quest_completion(sheet, q)
+                        if settlement is not None:
                             await save(sheet)
-                        from utils.ttrpg.progression import xp_to_next_level
-                        xp_next = xp_to_next_level(sheet["level"])
-                        lines = [
-                            f"**{q['name']}** — complete.",
-                            f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
-                        ]
-                        if q["rewards"].get("item"):
-                            item_name = q["rewards"]["item"].replace("_", " ").title()
-                            if item_delivery == "mailbox":
-                                lines.append(
-                                    f"📬 **{item_name}** was sent to Moogle Mail because your inventory is full."
+                            if settlement["awarded"]:
+                                xp_reward = settlement["xp_reward"]
+                                gil_reward = settlement["gil_reward"]
+                                item_delivery = settlement["item_delivery"]
+                                leveled = settlement["leveled"]
+                                new_level = settlement["new_level"]
+                                from utils.ttrpg.progression import xp_to_next_level
+                                xp_next = xp_to_next_level(sheet["level"])
+                                lines = [
+                                    f"**{q['name']}** — complete.",
+                                    f"+{xp_reward} XP ({sheet['xp']}/{xp_next})  ·  +{gil_reward} Gil",
+                                ]
+                                if q["rewards"].get("item"):
+                                    item_name = q["rewards"]["item"].replace("_", " ").title()
+                                    if item_delivery == "mailbox":
+                                        lines.append(
+                                            f"📬 **{item_name}** was sent to Moogle Mail because your inventory is full."
+                                        )
+                                    elif item_delivery == "inventory":
+                                        lines.append(f"🎁 Received: **{item_name}**")
+                                if leveled:
+                                    lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
+                                await msg.channel.send(embed=discord.Embed(
+                                    title="✅ Quest Complete",
+                                    description="\n".join(lines),
+                                    color=0x2ecc71
+                                ))
+                                await _log_world_event(
+                                    f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
                                 )
-                            elif item_delivery == "inventory":
-                                lines.append(f"🎁 Received: **{item_name}**")
-                        if leveled:
-                            lines.append(f"🎉 **Level Up! Now Lv.{new_level}!**")
-                        await msg.channel.send(embed=discord.Embed(
-                            title="✅ Quest Complete",
-                            description="\n".join(lines),
-                            color=0x2ecc71
-                        ))
-                        await _log_world_event(
-                            f"✅ **{sheet['character_name']}** completed '**{q['name']}**'."
-                        )
-    
+
     # Free forest events do not consume hunt stamina, but every roll (hit or
     # miss) uses one of five daily attempts. Reserve and persist before RNG.
     if await _attempt_free_forest_event(ctx, msg, send, sheet, loc, uname, uid=uid, is_owner=is_owner):
