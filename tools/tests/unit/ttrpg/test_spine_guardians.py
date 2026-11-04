@@ -101,12 +101,12 @@ def test_resonance_ward_reduces_damage_only_on_the_guardian_instance():
     ordinary.pop("guardian_band")
     ordinary.pop("guardian_floor")
 
-    # Hit with 1d4 = 4, then make the monster miss its counter-attack.
-    with patch.object(combat_engine.secrets, "randbelow", side_effect=[13, 3, 0]):
+    # Hit with 1d4 = 4, miss the Warrior proc roll, then make the monster miss.
+    with patch.object(combat_engine.secrets, "randbelow", side_effect=[13, 3, 99, 0]):
         warded = combat_engine._resolve_combat(
             copy.deepcopy(sheet), guardian, def_mod_global=100
         )
-    with patch.object(combat_engine.secrets, "randbelow", side_effect=[13, 3, 0]):
+    with patch.object(combat_engine.secrets, "randbelow", side_effect=[13, 3, 99, 0]):
         unwarded = combat_engine._resolve_combat(
             copy.deepcopy(sheet), ordinary, def_mod_global=100
         )
