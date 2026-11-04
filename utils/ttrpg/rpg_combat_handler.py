@@ -724,12 +724,14 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
             if not has_lightstone and has_torch:
                 sheet["inventory"].remove("torch")
             sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
-            await save(sheet)
             dungeon = await load_spine_dungeon(uid)
             if not dungeon:
                 dungeon = generate_spine_floor(1, sheet["level"])
             dungeon["active"] = True
-            await save_spine_dungeon(uid, dungeon)
+            from utils.ttrpg.housing_transactions import commit_character_spine_dungeon
+            await commit_character_spine_dungeon(
+                sheet, dungeon, action="spine_floor_entry"
+            )
             t_emoji = dungeon.get("theme_emoji", "⛏️")
             t_name = dungeon.get("theme_name", "The Working Tunnels")
             t_flavor = dungeon.get("theme_flavor", "Active mine workings.")
@@ -749,12 +751,12 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
         if not has_lightstone and has_torch:
             sheet["inventory"].remove("torch")
         sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
-        await save(sheet)
         from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
         loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
         difficulty = max(1, min(4, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
         dungeon = generate_dungeon(difficulty, player_level=sheet["level"], location=loc)
-        await save_dungeon(uid, dungeon)
+        from utils.ttrpg.housing_transactions import commit_character_dungeon
+        await commit_character_dungeon(sheet, dungeon, action="dungeon_entry")
 
         theme_key  = dungeon.get("theme_key", "undead")
         theme_data = DUNGEON_THEMES.get(theme_key, {})
