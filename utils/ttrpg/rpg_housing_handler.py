@@ -248,9 +248,9 @@ async def _handle_my_home(ctx, msg, send, rest, uid, uname, is_owner):
                     error = f"Not enough gil. Need {hut['cost']}g, have {s['gil']}g."
                 else:
                     s["gil"] -= hut["cost"]
-                    await save(s)
                     h = default_housing_sheet(uid, s["character_name"])
-                    save_housing(h)
+                    from utils.ttrpg.housing_transactions import commit_character_housing
+                    await commit_character_housing(s, h, action="buy_house")
                     character_name = s["character_name"]
 
             # Keep the lock around the fresh read/check/write, not Discord I/O.
@@ -429,7 +429,7 @@ async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
     @player_locked(uid)
     async def _confirm_cb(interaction):
         if str(interaction.user.id) != uid: return
-        from utils.ttrpg.housing import load_housing_async, save_housing_async
+        from utils.ttrpg.housing import load_housing_async
         s = await load(uid)
         # Reloaded, not the dialog's copy: saving that would put back whatever the
         # estate held when the dialog opened, and a second click would pay again.
@@ -441,7 +441,6 @@ async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
             return await interaction.response.send_message(e, ephemeral=True)
 
         s["gil"] -= tier_data["cost"]
-        s["gil"] -= 0  # affordability was revalidated against the fresh sheet above
         h["tier"] = next_tier
         from utils.ttrpg.housing_transactions import commit_character_housing
         await commit_character_housing(s, h, action="upgrade_house")
