@@ -59,7 +59,9 @@ def _clear_journal(user_id: str) -> None:
     write_atomic(path, "{}")
 
 
-async def _replay_record_locked(user_id: str, record: dict) -> None:
+async def _replay_record_locked(
+    user_id: str, record: dict, *, character_lock_held: bool = False
+) -> None:
     if record.get("version") != 1:
         raise RuntimeError(
             f"Unknown housing transaction version for {user_id}; refusing to discard it."
@@ -79,7 +81,11 @@ async def _replay_record_locked(user_id: str, record: dict) -> None:
     # Snapshot replay is idempotent. Keep the journal until both writes succeed.
     from utils.ttrpg.character_manager import save as save_character
     from utils.ttrpg.housing import save_housing_async
-    await save_character(copy.deepcopy(sheet))
+    if character_lock_held:
+        from utils.ttrpg.character_manager import _save_sync
+        await asyncio.to_thread(_save_sync, copy.deepcopy(sheet))
+    else:
+        await save_character(copy.deepcopy(sheet))
     await save_housing_async(copy.deepcopy(housing))
     _clear_journal(user_id)
 
@@ -145,7 +151,7 @@ async def commit_character_housing(
         # for this player can replace its journal.
         pending = _read_journal(uid)
         if pending:
-            await _replay_record_locked(uid, pending)
+            await _replay_record_locked(uid, pending, character_lock_held=character_lock_held)
 
         import time
         record = {
