@@ -47,8 +47,12 @@ def _read_journal(user_id: str) -> dict | None:
         raise RuntimeError(
             f"Cannot read pending RPG transaction for {user_id}: {exc}"
         ) from exc
-    if not isinstance(record, dict) or not record.get("transaction_id"):
+    if record == {}:
         return None
+    if not isinstance(record, dict) or not record.get("transaction_id"):
+        raise RuntimeError(
+            f"Pending RPG transaction for {user_id} is malformed; refusing to overwrite it."
+        )
     return record
 
 
@@ -131,8 +135,12 @@ async def recover_all_pending_housing_transactions() -> int:
                     record = json.load(handle)
             except (OSError, json.JSONDecodeError) as exc:
                 raise RuntimeError(f"Cannot read pending housing journal {path}: {exc}") from exc
-            if not isinstance(record, dict) or not record.get("transaction_id"):
+            if record == {}:
                 continue
+            if not isinstance(record, dict) or not record.get("transaction_id"):
+                raise RuntimeError(
+                    f"Pending RPG transaction journal {path} is malformed; refusing to skip it."
+                )
             uid = str(record.get("user_id") or "")
             if not uid or os.path.abspath(path) != os.path.abspath(_journal_path(uid)):
                 raise RuntimeError("Housing transaction journal path/owner mismatch.")
