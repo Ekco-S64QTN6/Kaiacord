@@ -2331,12 +2331,13 @@ async def _handle_raid_blockade(ctx, msg, send, rest, uid, uname, is_owner):
     await msg.channel.send(embed=embed, view=cview)
 
 
+@serialize_combat_action
 async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
     """Infiltrate the bandit camp to steal contraband and undermine the blockade."""
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
 
-    from utils.ttrpg.world_state import load_world_state, async_save_world_state
+    from utils.ttrpg.world_state import load_world_state, mutate_world_state
     wstate = load_world_state()
 
     loc = sheet.get("location", "oakhaven")
@@ -2367,29 +2368,40 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
     roll = (secrets.randbelow(20) + 1) + dex_mod + class_bonus
 
     if roll >= 12:
-        # Success! Steal 80-120 Gil + 1 Stolen Trade Crate + ease inflation
+        # Commit the character reward and shared blockade relief under the
+        # world-state transaction lock, using one durable cross-file journal.
         stolen_gil = secrets.randbelow(41) + 80  # 80-120
-        sheet["gil"] = sheet.get("gil", 0) + stolen_gil
         from utils.ttrpg.inventory_capacity import grant_item_or_mail
-        crate_delivery = grant_item_or_mail(sheet, "stolen_trade_crate", "Bandit Cache")
-        sheet["xp"] = sheet.get("xp", 0) + 35
-
-        # Ease shop price inflation
-        current_mult = wstate.get("shop_price_mult", 1.25)
-        wstate["shop_price_mult"] = max(1.0, round(current_mult - 0.10, 2))
-        if wstate["shop_price_mult"] <= 1.0:
-            wstate["blockade_active"] = False
-        await async_save_world_state(wstate)
-
         from utils.ttrpg.progression import check_level_up
-        leveled, new_lvl = check_level_up(sheet)
-        await save(sheet)
+
+        def _commit_cache_raid(character, state):
+            if not state.get("blockade_active", False):
+                return False, (False, None, False, character.get("level", 1), state.get("shop_price_mult", 1.0))
+            character["gil"] = character.get("gil", 0) + stolen_gil
+            delivery = grant_item_or_mail(character, "stolen_trade_crate", "Bandit Cache")
+            character["xp"] = character.get("xp", 0) + 35
+            leveled_now, new_level = check_level_up(character)
+            current_mult = state.get("shop_price_mult", 1.25)
+            state["shop_price_mult"] = max(1.0, round(current_mult - 0.10, 2))
+            if state["shop_price_mult"] <= 1.0:
+                state["blockade_active"] = False
+            return True, (True, delivery, leveled_now, new_level, state["shop_price_mult"])
+
+        success, crate_delivery, leveled, new_lvl, resulting_mult = await mutate_world_state(
+            _commit_cache_raid, sheet
+        )
+        if not success:
+            return await msg.channel.send(embed=discord.Embed(
+                description="The bandit supply camp has already been cleared. Nothing was taken.",
+                color=0x888888,
+            ))
+        wstate["shop_price_mult"] = resulting_mult
 
         desc = (
             f"🗡️ **Stealth Infiltration Successful!** (Roll: {roll} vs DC 12)\n\n"
             f"**{sheet['character_name']}** slipped past the bandit sentries and raided their contraband tent!\n\n"
             f"💰 **Looted:** +{stolen_gil} Gil\n"
-            f"📉 **Trade Route Relieved:** Shop price markup lowered to **{int(round((wstate['shop_price_mult']-1.0)*100))}%**\n"
+            f"📉 **Trade Route Relieved:** Shop price markup lowered to **{int(round((resulting_mult-1.0)*100))}%**\n"
             f"✨ **Reward:** +35 XP"
         )
         if crate_delivery == "mailbox":
