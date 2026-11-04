@@ -398,25 +398,32 @@ to that resource rather than saving each file independently.
   crop planting and harvesting, blight treatment, pet adoption and feeding, furniture purchases,
   home training, and daily Mognet deliveries. Dungeon and Spine entry, room rewards, continuing
   combat rounds, and fleeing use the same journal when both the sheet and encounter snapshot change.
-- **Character + shared world state:** pond purification and town donations use
-  `world_state.mutate_world_state()`. The journal commits the player's reagent or Gil change with
-  the global pond, town fund, donor totals, and reinforcement state.
-- **Combat outcomes:** a character-sheet pending-outcome record is written before a dungeon,
-  Spine, or overworld encounter is changed. The next combat action replays any unfinished operation
-  before resolving another round. Replays are idempotent; unknown journal kinds are retained rather
-  than silently discarded.
+- **Character + shared world state:** pond purification, town donations, and the successful bandit-cache
+  raid use `world_state.mutate_world_state()` so costs/rewards and global pond, town-fund, or shop
+  inflation changes share one durable journal. A Bandit Captain victory stores its blockade-clearing
+  effect in the pending combat outcome and replays that idempotent world mutation before clearing the
+  encounter.
+- **Combat outcomes:** a character-sheet pending-outcome record is written before a dungeon, Spine,
+  or overworld encounter is changed. The next combat action replays any unfinished operation
+  before resolving another round. This covers terminal rewards/penalties, ongoing overworld and
+  dungeon combat rounds, ordinary flee, and Smoke Bomb escape. Replays are idempotent; unknown
+  journal kinds are retained rather than silently discarded.
 - **Shared overworld sessions:** a channel session contains encounters for multiple players. A
-  player's recovery must therefore patch only the monster identified by that player's ID and the
-  stable monster-instance ID. It must not restore a stale copy of the whole channel session.
-  Combat-log entries carry an outcome ID so recovery can append a round once, even if the session
-  write succeeded and journal cleanup did not.
+  player's recovery must therefore patch or remove only that player's monster IDs. It must not
+  restore a stale copy of the whole channel session. Combat-log entries carry an outcome ID so
+  recovery can append a round once, even if the session write succeeded and journal cleanup did not.
+- **Fishing monster hooks:** the stable cast ID is recorded in a shared-session hook receipt and on
+  the spawned monster before the character sheet records the consumed cast ID. A retry reuses the
+  receipt and debits bait only once; the per-character consumed-cast marker prevents a delayed retry
+  from respawning an encounter after session cleanup.
 
-These journals are write-ahead records, not substitutes for the per-file atomic writers or action
-locks. A successful operation clears its journal only after all required writes complete; if a write
-fails, the next recovery replays the saved snapshots or targeted mutation. The RPG unit tests inject
-failures at both sides of these boundaries and verify repeat recovery does not duplicate rewards,
-costs, or session-log entries.
-
+The hunt entry flow deliberately reserves hunt stamina before rolling/spawning monsters. That is a
+one-way reservation: a failure after the debit does not create a free reroll. These journals are
+write-ahead records, not substitutes for per-file atomic writers or action locks. A successful
+operation clears its journal only after all required writes complete; if a write fails, the next
+recovery replays the saved snapshots or targeted mutation. RPG unit tests inject failures at both
+sides of these boundaries and verify repeat recovery does not duplicate rewards, costs, or shared
+session changes.
 
 ## Housing System
 
