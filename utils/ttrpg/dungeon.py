@@ -858,19 +858,31 @@ async def clear_dungeon(user_id: str):
 
 # ── Scale boss to level (called by rpg_handler) ───────────────────────────────
 
+def boss_level_multiplier(player_level: int) -> float:
+    """Linearly interpolate the documented 0.45x (L1) to 1.0x (L15) boss curve."""
+    level = max(1, min(15, int(player_level)))
+    return 0.45 + (level - 1) * (0.55 / 14)
+
+
 def _scale_boss_to_level(monster: dict, player_level: int) -> dict:
-    """Scale dungeon boss stats to player level with hard caps."""
-    scale = max(0.30, min(1.0, 0.30 + (player_level - 1) * 0.08))
+    """Scale a procedural dungeon boss to player level with hard caps.
+
+    The multiplier is linear across the full character range, matching the
+    Aethelgard system manual. HP/ATK caps remain level-specific balance limits;
+    in particular the level-10 ATK cap is intentionally left at 17.
+    """
+    level = max(1, min(15, int(player_level)))
+    scale = boss_level_multiplier(level)
     m = dict(monster)
     m["hp"]     = max(15, int(monster["hp"] * scale))
     m["attack"] = max(3,  int(monster["attack"] * scale))
-    m["defense"]= max(8,  monster["defense"] - max(0, 5 - player_level))
+    m["defense"]= max(8,  monster["defense"] - max(0, 5 - level))
 
     BOSS_HP_CAPS  = {1:35,2:45,3:55,4:65,5:80,6:110,7:140,8:180,9:220,10:270,11:330,12:400,13:480,14:570,15:680}
     BOSS_ATK_CAPS = {1:6, 2:8, 3:10,4:12,5:14,6:16, 7:18, 8:20, 9:22, 10:17, 11:18, 12:20, 13:21, 14:23, 15:24}
 
-    hp_cap  = BOSS_HP_CAPS.get(player_level)
-    atk_cap = BOSS_ATK_CAPS.get(player_level)
+    hp_cap  = BOSS_HP_CAPS.get(level)
+    atk_cap = BOSS_ATK_CAPS.get(level)
     if hp_cap:  m["hp"]     = min(m["hp"],     hp_cap)
     if atk_cap: m["attack"] = min(m["attack"],  atk_cap)
     return m

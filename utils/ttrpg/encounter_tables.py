@@ -6,11 +6,13 @@ import secrets
 from utils.ttrpg.calendar import get_seasonal_encounter_table, get_special_day
 from utils.ttrpg.monster_registry import ENCOUNTER_TABLES, MONSTERS
 
+# Base probabilities published in docs/ttrpg/aethelgard_system.md.
+# Temporary world-state and weather bonuses are added by roll_for_event().
 EVENT_CHANCE = {
     "whisperwood_edge": 20,
-    "whisperwood_deep": 18,
-    "aeridor_ruins":    12,
-    "trade_road":       15,
+    "trade_road":       18,
+    "whisperwood_deep": 15,
+    "aeridor_ruins":    10,
 }
 
 # Quest-boosted encounter tables — keyed by synthetic location strings
