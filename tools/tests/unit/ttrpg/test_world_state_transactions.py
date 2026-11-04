@@ -273,3 +273,51 @@ def test_pending_world_transaction_recovers_after_world_state_save_failure(
     assert json.loads(state_path.read_text(encoding="utf-8"))["fishing_water_tainted"] is False
     assert json.loads(journal_path.read_text(encoding="utf-8")) == {}
     assert recovered_sheets == [record["character_sheet"]]
+
+
+def test_world_only_outcome_mutation_recovers_after_world_file_failure(monkeypatch, tmp_path):
+    state_path, _, _ = _isolated_world_state(monkeypatch, tmp_path)
+    world_state.save_world_state({
+        **world_state.DEFAULT_STATE,
+        "blockade_active": True,
+        "shop_price_mult": 1.35,
+        "shop_price_mult_expiry": 4_000_000_000,
+        "town_fund": 12_345,
+    })
+    original_write = world_state._write_world_state
+    calls = []
+
+    def fail_first_write(state, serialized):
+        calls.append(copy.deepcopy(state))
+        if len(calls) == 1:
+            raise OSError("simulated blockade persistence failure")
+        return original_write(state, serialized)
+
+    monkeypatch.setattr(world_state, "_write_world_state", fail_first_write)
+
+    def clear_blockade(state):
+        changed = (
+            state.get("blockade_active") is not False
+            or state.get("shop_price_mult") != 1.0
+            or state.get("shop_price_mult_expiry") != 0
+        )
+        state["blockade_active"] = False
+        state["shop_price_mult"] = 1.0
+        state["shop_price_mult_expiry"] = 0
+        return changed
+
+    with pytest.raises(OSError, match="blockade persistence"):
+        asyncio.run(world_state.mutate_world_state_only(clear_blockade))
+
+    persisted = json.loads(state_path.read_text(encoding="utf-8"))
+    assert persisted["blockade_active"] is True
+    assert persisted["town_fund"] == 12_345
+
+    assert asyncio.run(world_state.mutate_world_state_only(clear_blockade)) is True
+    assert asyncio.run(world_state.mutate_world_state_only(clear_blockade)) is False
+    persisted = json.loads(state_path.read_text(encoding="utf-8"))
+    assert persisted["blockade_active"] is False
+    assert persisted["shop_price_mult"] == 1.0
+    assert persisted["shop_price_mult_expiry"] == 0
+    assert persisted["town_fund"] == 12_345
+    assert len(calls) == 2
