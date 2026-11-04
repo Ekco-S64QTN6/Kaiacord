@@ -197,7 +197,8 @@ def test_smoke_bomb_escapes_only_the_owners_current_overworld_swarm(monkeypatch)
     assert sheet["xp"] == 1000
     assert sheet["gil"] == 500
     save_session.assert_awaited_once_with(session)
-    save.assert_awaited_once_with(sheet)
+    assert save.await_count == 2  # durable outcome stage, then journal cleanup
+    assert save.await_args_list[-1].args == (sheet,)
     assert note.await_count == 2
     assert note.await_args_list[0].args == ("42", "fled", "smoke bomb: Goblin, Dire Wolf")
     assert note.await_args_list[1].args == ("42", "used", "Smoke Bomb")
