@@ -138,9 +138,28 @@ def _validate_outing_record(data: object, path: str) -> dict:
                 error = f"{field} must be a JSON array"
                 break
         if error is None:
+            for field in ("fights", "events"):
+                if field in data and any(not isinstance(item, dict) for item in data[field]):
+                    error = f"{field} entries must be JSON objects"
+                    break
+        if error is None:
+            for field in ("zones", "loot", "trip_ids"):
+                if field in data and any(not isinstance(item, str) for item in data[field]):
+                    error = f"{field} entries must be strings"
+                    break
+        if error is None and "levels" in data:
+            if any(isinstance(item, bool) or not isinstance(item, (int, float))
+                   for item in data["levels"]):
+                error = "levels entries must be numeric"
+        if error is None:
             for field in dict_fields:
                 if field in data and not isinstance(data[field], dict):
                     error = f"{field} must be a JSON object"
+                    break
+        if error is None and "notes" in data:
+            for kind, items in data["notes"].items():
+                if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
+                    error = f"notes[{kind!r}] must be an array of strings"
                     break
         if error is None:
             for field in numeric_fields:
@@ -260,7 +279,12 @@ def _take_open_outings_sync(through_day: str) -> int:
             }
             data.update(tale)
             if _has_activity(data):
-                _merge_daily_sync(data)
+                try:
+                    _merge_daily_sync(data)
+                except RuntimeError:
+                    # Keep the open outing too: its daily target is damaged, so
+                    # it cannot yet be merged without risking data loss.
+                    continue
                 moved += 1
             try:
                 os.remove(_path(uid))

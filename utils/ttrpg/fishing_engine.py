@@ -286,6 +286,16 @@ def _ensure_records() -> dict:
             if not isinstance(value, dict):
                 error = f"{key} must be a JSON object"
                 break
+            if key == "world_records":
+                if any(not isinstance(entry, dict) for entry in value.values()):
+                    error = "world_records entries must be JSON objects"
+                    break
+            elif any(
+                isinstance(count, bool) or not isinstance(count, (int, float))
+                for count in value.values()
+            ):
+                error = f"{key} values must be numeric"
+                break
 
     if error:
         from utils.infrastructure.logging.kaia_logger import log_warning

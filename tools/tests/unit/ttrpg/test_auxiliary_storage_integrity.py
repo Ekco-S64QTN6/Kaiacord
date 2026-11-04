@@ -139,3 +139,54 @@ def test_malformed_untold_record_is_preserved_and_not_posted(tmp_path, monkeypat
 
     assert asyncio.run(outing.tell(None, str(path))) is False
     assert path.read_bytes() == original
+
+
+
+def test_outing_rejects_structurally_damaged_nested_values(tmp_path, monkeypatch):
+    path = tmp_path / "42.json"
+    original = json.dumps({
+        "uid": "42",
+        "outing_id": "42:test",
+        "day": "2026-11-04",
+        "started": 1,
+        "zones": ["whisperwood_edge"],
+        "fights": ["not a fight object"],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 10,
+        "gil": 2,
+        "loot": [],
+        "levels": [],
+    }).encode("utf-8")
+    path.write_bytes(original)
+    monkeypatch.setattr(outing, "_path", lambda uid: str(path))
+
+    with pytest.raises(RuntimeError, match="fights entries"):
+        outing._update_sync("42", lambda data: data["zones"].append("trade_road"))
+
+    assert path.read_bytes() == original
+
+
+def test_midnight_open_outing_is_retained_when_daily_digest_is_corrupt(tmp_path, monkeypatch):
+    day = "2026-11-04"
+    open_path = tmp_path / "42.json"
+    open_record = {
+        "uid": "42", "outing_id": "42:test", "day": day, "started": 1,
+        "zones": ["whisperwood_edge"], "fights": [], "events": [],
+        "fight_count": 1, "wins": 1, "losses": 0, "xp": 10, "gil": 2,
+        "loot": [], "levels": [],
+    }
+    open_bytes = json.dumps(open_record).encode("utf-8")
+    open_path.write_bytes(open_bytes)
+    daily_path = tmp_path / f"{day}_42.json"
+    daily_bytes = b"broken daily json"
+    daily_path.write_bytes(daily_bytes)
+
+    monkeypatch.setattr(outing, "OUTING_DIR", str(tmp_path))
+    monkeypatch.setattr(outing, "DAILY_DIR", str(tmp_path))
+
+    assert outing._take_open_outings_sync(day) == 0
+    assert open_path.read_bytes() == open_bytes
+    assert daily_path.read_bytes() == daily_bytes
