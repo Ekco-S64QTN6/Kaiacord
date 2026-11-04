@@ -1186,6 +1186,15 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     else:
         atk_mod_global = state.get("atk_mod", 0) + home_bonuses.get("home_atk", 0) + _cal_atk_ow
 
+    monster_instance_id = str(monster.get("id") or "")
+    if not monster_instance_id:
+        # Legacy encounters may predate stable spawn IDs. Persist the ID before
+        # resolving so a restart can identify the same monster for recovery.
+        monster_instance_id = _uuid.uuid4().hex
+        monster["id"] = monster_instance_id
+        s["monsters"][monster_idx]["id"] = monster_instance_id
+        await save_session(s)
+
     res = _resolve_combat(
         sheet, monster, 
         atk_mod_global=atk_mod_global, 
@@ -1195,13 +1204,9 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
     
     sheet = res["sheet"]
     monster = res["monster"]
-    monster_instance_id = str(monster.get("id") or "")
-    if not monster_instance_id:
-        # Legacy saved encounters may predate the spawn ID; pin one so the
-        # pending outcome can safely remove exactly this monster on recovery.
-        monster_instance_id = _uuid.uuid4().hex
+    monster_instance_id = str(monster.get("id") or monster_instance_id)
+    if not monster.get("id"):
         monster["id"] = monster_instance_id
-        s["monsters"][monster_idx]["id"] = monster_instance_id
 
 
     _consume_blessing_if_combat_ended(sheet, res)
@@ -1439,7 +1444,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                                 quest_embed.set_footer(text=f"+{xp_reward} XP · +{gil_reward} Gil")
                                 await _broadcast_world_event(ctx, quest_embed)
                         else:
-                            await save(sheet)
+                            pass
     leveled, n_lvl = check_level_up(sheet)
     # Lightstone is a kill drop, independent of whether this kill levels the player.
     if res["monster_defeated"]:
