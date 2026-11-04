@@ -310,7 +310,9 @@ def test_player_reward_modules_do_not_bypass_the_shared_inventory_grant():
     )
     mail_fallback_modules = (
         "utils/ttrpg/rpg_views.py",
-        "utils/ttrpg/rpg_social_handler.py",
+        # NPC quest rewards now delegate to this shared exactly-once settlement
+        # helper, which owns the inventory grant and Moogle Mail fallback.
+        "utils/ttrpg/quest_completion.py",
         "utils/commands/fishing_handler.py",
         "utils/core/background_tasks.py",
         "utils/ttrpg/rpg_core_handler.py",
