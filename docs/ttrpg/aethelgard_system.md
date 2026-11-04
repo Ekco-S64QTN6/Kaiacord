@@ -330,7 +330,7 @@ scaling for procedural dungeon bosses); this floor curve applies only to named s
 Some shrine rooms contain a **sealed Aeridorian shrine** with a three-flame seal. Players who've studied the flame and altar at the Oakhaven Shrine (`look at the flame` and `look at the altar` both count) can interact.
 
 ### Boss Scaling & Encounters
-Procedural dungeon boss HP and ATK use a **linear level multiplier** from `0.45x at L1` to `1.0x at L15`: `0.45 + (level - 1) * (0.55 / 14)`, with levels clamped to 1–15. The per-level HP and ATK caps are applied after scaling and remain separate balance limits. Dungeon Boss ATK caps are tightly calibrated to ensure a ~50-55% hit rate.
+Procedural dungeon boss HP and ATK use a **linear level multiplier** from `0.45x at L1` to `1.0x at L15`: `0.45 + (level - 1) * (0.55 / 14)`, with levels clamped to 1–15. The per-level HP and ATK caps are applied after scaling and remain separate balance limits. Boss DEF is not multiplied; it keeps its existing level adjustment, `max(8, base_DEF - max(0, 5 - level))`. Dungeon Boss ATK caps are tightly calibrated to ensure a ~50-55% hit rate.
 **Boss Room Warning:** Entering a boss room triggers a narrative warning, allowing players a chance to retreat before engaging.
 
 ---
