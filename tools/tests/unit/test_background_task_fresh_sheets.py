@@ -1,6 +1,7 @@
 """Background events must commit only event deltas to fresh character sheets."""
 import asyncio
 import copy
+import random
 import secrets
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
