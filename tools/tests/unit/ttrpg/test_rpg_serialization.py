@@ -910,3 +910,182 @@ def test_spine_lift_does_not_consume_torch_when_fresh_sheet_has_lightstone(monke
     assert len(dungeon_saves) == 1
     assert len(rooms) == 1
 
+
+
+def test_concurrent_npc_quest_acceptance_only_commits_once(monkeypatch):
+    import copy
+    from unittest.mock import AsyncMock
+    import utils.ttrpg.rpg_social_handler as social
+
+    state = {
+        "user_id": "42",
+        "level": 5,
+        "active_quests": [],
+        "completed_quests": [],
+    }
+    saves = []
+
+    async def load_sheet(uid):
+        return copy.deepcopy(state)
+
+    async def save_sheet(sheet):
+        saves.append(copy.deepcopy(sheet))
+        state.clear()
+        state.update(copy.deepcopy(sheet))
+
+    monkeypatch.setattr(social, "load", load_sheet)
+    monkeypatch.setattr(social, "save", save_sheet)
+    quest = {
+        "id": "lost_reliquary",
+        "name": "The Lost Reliquary",
+        "requirements": {"level": 1},
+    }
+
+    async def go():
+        return await asyncio.gather(
+            social._accept_quest_for_player("42", quest),
+            social._accept_quest_for_player("42", quest),
+        )
+
+    results = asyncio.run(go())
+
+    assert sum(1 for accepted, _ in results if accepted) == 1
+    assert sum(1 for accepted, _ in results if not accepted) == 1
+    assert state["active_quests"] == ["lost_reliquary"]
+    assert len(saves) == 1
+
+
+def test_concurrent_quest_abandonment_reloads_after_taking_player_lock(monkeypatch):
+    import copy
+    from unittest.mock import AsyncMock
+    import utils.ttrpg.rpg_social_handler as social
+
+    state = {
+        "user_id": "42",
+        "active_quests": ["lost_reliquary"],
+        "quest_progress": {"lost_reliquary": ["find_map"]},
+    }
+    saves = []
+
+    async def load_sheet(uid):
+        return copy.deepcopy(state)
+
+    async def save_sheet(sheet):
+        saves.append(copy.deepcopy(sheet))
+        state.clear()
+        state.update(copy.deepcopy(sheet))
+
+    monkeypatch.setattr(social, "load", load_sheet)
+    monkeypatch.setattr(social, "save", save_sheet)
+    send = AsyncMock()
+    msg = types.SimpleNamespace(channel=types.SimpleNamespace(send=send))
+
+    async def go():
+        await asyncio.gather(
+            social._handle_abandon(None, msg, None, "lost_reliquary", "42", "P", False),
+            social._handle_abandon(None, msg, None, "lost_reliquary", "42", "P", False),
+        )
+
+    asyncio.run(go())
+
+    assert social._handle_abandon._serialized is True
+    assert state["active_quests"] == []
+    assert state["quest_progress"] == {}
+    assert len(saves) == 1
+    assert send.await_count == 2
+    assert any(
+        "abandoned" in (call.kwargs.get("embed").description or "").lower()
+        for call in send.await_args_list
+    )
+    assert any(
+        "no active quest" in (call.kwargs.get("embed").description or "").lower()
+        for call in send.await_args_list
+    )
+
+
+def test_house_rename_modal_rejects_a_non_owner_without_loading_or_writing(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.rpg_views as rv
+    import utils.ttrpg.housing as housing
+
+    load_sheet = AsyncMock(return_value={"user_id": "42"})
+    load_home = AsyncMock(return_value={"user_id": "42", "house_name": "Old Home"})
+    save_home = AsyncMock()
+    monkeypatch.setattr(rv, "load", load_sheet)
+    monkeypatch.setattr(housing, "load_housing_async", load_home)
+    monkeypatch.setattr(housing, "save_housing_async", save_home)
+
+    modal = rv.RenameHouseModal("42")
+    interaction = MagicMock()
+    interaction.user.id = 99
+    interaction.response.send_message = AsyncMock()
+
+    asyncio.run(modal.on_submit(interaction))
+
+    interaction.response.send_message.assert_awaited_once()
+    assert "another player" in interaction.response.send_message.await_args.args[0]
+    load_sheet.assert_not_awaited()
+    load_home.assert_not_awaited()
+    save_home.assert_not_awaited()
+
+
+def test_concurrent_house_rename_modals_share_owner_lock_and_reload_estate(monkeypatch):
+    import asyncio
+    import copy
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.rpg_views as rv
+    import utils.ttrpg.housing as housing
+    from utils.ttrpg.session_manager import get_action_lock
+
+    sheet = {"user_id": "42", "character_name": "P"}
+    estate = {"user_id": "42", "house_name": "Starting Home"}
+    saved = []
+
+    monkeypatch.setattr(rv, "load", AsyncMock(return_value=sheet))
+
+    async def load_home(uid):
+        lock = await get_action_lock("user:42")
+        assert lock.locked()
+        return copy.deepcopy(estate)
+
+    async def save_home(current):
+        lock = await get_action_lock("user:42")
+        assert lock.locked()
+        saved.append(copy.deepcopy(current))
+        estate.clear()
+        estate.update(copy.deepcopy(current))
+
+    monkeypatch.setattr(housing, "load_housing_async", load_home)
+    monkeypatch.setattr(housing, "save_housing_async", save_home)
+
+    first = rv.RenameHouseModal("42")
+    second = rv.RenameHouseModal("42")
+    first.new_name._value = "First Name"
+    second.new_name._value = "Second Name"
+
+    def interaction():
+        result = MagicMock()
+        result.user.id = 42
+        result.response.send_message = AsyncMock()
+        return result
+
+    first_interaction = interaction()
+    second_interaction = interaction()
+
+    async def go():
+        await asyncio.gather(
+            first.on_submit(first_interaction),
+            second.on_submit(second_interaction),
+        )
+
+    asyncio.run(go())
+
+    assert len(saved) == 2
+    assert estate["house_name"] in {"First Name", "Second Name"}
+    assert first_interaction.response.send_message.await_count == 1
+    assert second_interaction.response.send_message.await_count == 1
+    assert all(
+        "Your home is now named" in call.args[0]
+        for interaction in (first_interaction, second_interaction)
+        for call in interaction.response.send_message.await_args_list
+    )
