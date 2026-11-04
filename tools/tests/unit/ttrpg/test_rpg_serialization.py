@@ -1093,3 +1093,176 @@ def test_concurrent_house_rename_modals_share_owner_lock_and_reload_estate(monke
         for interaction in (first_interaction, second_interaction)
         for call in interaction.response.send_message.await_args_list
     )
+
+
+@pytest.mark.parametrize("moved_uid", ["1", "2"])
+def test_duel_accept_rejects_challenge_after_either_player_moves(monkeypatch, moved_uid):
+    import copy
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.rpg_combat_handler as combat
+    from utils.ttrpg import combat_engine
+
+    sheets = {
+        "1": {
+            "user_id": "1",
+            "character_name": "Challenger",
+            "location": "stone_hearth",
+            "level": 5,
+            "class": "Warrior",
+            "hp": {"current": 20, "max": 20},
+            "stats": {"str": 10},
+            "equipment": {},
+        },
+        "2": {
+            "user_id": "2",
+            "character_name": "Target",
+            "location": "stone_hearth",
+            "level": 5,
+            "class": "Warrior",
+            "hp": {"current": 20, "max": 20},
+            "stats": {"str": 10},
+            "equipment": {},
+        },
+    }
+    sheets[moved_uid]["location"] = "whisperwood_edge"
+
+    async def load_sheet(uid):
+        return copy.deepcopy(sheets[str(uid)])
+
+    save_sheet = AsyncMock()
+    resolve = MagicMock()
+    send = AsyncMock()
+    monkeypatch.setattr(combat, "load", load_sheet)
+    monkeypatch.setattr(combat, "save", save_sheet)
+    monkeypatch.setattr(combat, "PENDING_DUELS", {
+        ("1", "2"): {
+            "created_at": combat.time.time(),
+            "location": "stone_hearth",
+        }
+    })
+    monkeypatch.setattr(combat, "_log_world_event", AsyncMock())
+    monkeypatch.setattr(combat_engine, "_resolve_combat", resolve)
+
+    msg = types.SimpleNamespace(channel=types.SimpleNamespace(id=7, send=send))
+
+    asyncio.run(combat._handle_accept(None, msg, None, "", "2", "Target", False))
+
+    resolve.assert_not_called()
+    save_sheet.assert_not_awaited()
+    assert combat.PENDING_DUELS == {}
+    assert send.await_count == 1
+    assert "stale" in send.await_args.kwargs["embed"].description.lower()
+
+
+def test_duel_accept_holds_both_sorted_locks_until_both_sheets_are_saved(monkeypatch):
+    import copy
+    from unittest.mock import AsyncMock, MagicMock
+    import utils.ttrpg.rpg_combat_handler as combat
+    from utils.ttrpg import combat_engine, housing
+    from utils.ttrpg.session_manager import _action_locks, serialize_user_action
+
+    sheets = {
+        "1": {
+            "user_id": "1",
+            "character_name": "Challenger",
+            "location": "stone_hearth",
+            "level": 5,
+            "class": "Warrior",
+            "hp": {"current": 3, "max": 20},
+            "stats": {"str": 10},
+            "equipment": {},
+            "conditions": [],
+        },
+        "2": {
+            "user_id": "2",
+            "character_name": "Target",
+            "location": "stone_hearth",
+            "level": 5,
+            "class": "Warrior",
+            "hp": {"current": 4, "max": 20},
+            "stats": {"str": 10},
+            "equipment": {},
+            "conditions": [],
+        },
+    }
+
+    async def load_sheet(uid):
+        return copy.deepcopy(sheets[str(uid)])
+
+    async def save_sheet(sheet):
+        sheets[str(sheet["user_id"])] = copy.deepcopy(sheet)
+
+    housing_started = asyncio.Event()
+    release_duel = asyncio.Event()
+
+    async def load_housing(uid):
+        # The duel is paused here after acquiring both participant locks.
+        assert _action_locks["user:1"].locked()
+        assert _action_locks["user:2"].locked()
+        housing_started.set()
+        await release_duel.wait()
+        return None
+
+    def resolve(c_sheet, target, **kwargs):
+        assert _action_locks["user:1"].locked()
+        assert _action_locks["user:2"].locked()
+        c_sheet["hp"]["current"] = 1
+        target["hp"]["current"] = 1
+        return {
+            "sheet": c_sheet,
+            "monster": target,
+            "exchanges": ["The duel ends with both fighters standing."],
+        }
+
+    send = AsyncMock()
+    msg = types.SimpleNamespace(channel=types.SimpleNamespace(id=7, send=send))
+    monkeypatch.setattr(combat, "load", load_sheet)
+    monkeypatch.setattr(combat, "save", save_sheet)
+    monkeypatch.setattr(combat, "PENDING_DUELS", {
+        ("1", "2"): {
+            "created_at": combat.time.time(),
+            "location": "stone_hearth",
+        }
+    })
+    monkeypatch.setattr(combat, "_log_world_event", AsyncMock())
+    monkeypatch.setattr(combat_engine, "_compute_player_defense", lambda *a, **k: 2)
+    monkeypatch.setattr(combat_engine, "_resolve_combat", resolve)
+    monkeypatch.setattr(housing, "load_housing_async", load_housing)
+
+    @serialize_user_action
+    async def challenger_potion(ctx, action_msg, send_fn, rest, uid, uname, is_owner):
+        current = await load_sheet(uid)
+        current["conditions"].append("potion_used")
+        await save_sheet(current)
+
+    async def go():
+        duel_task = asyncio.create_task(
+            combat._handle_accept(None, msg, None, "", "2", "Target", False)
+        )
+        await housing_started.wait()
+
+        # The challenger's independent action must wait for the duel's user lock.
+        follow_up_task = asyncio.create_task(
+            challenger_potion(None, msg, None, "", "1", "Challenger", False)
+        )
+        await asyncio.sleep(0)
+        assert not follow_up_task.done()
+
+        release_duel.set()
+        await asyncio.gather(duel_task, follow_up_task)
+
+    asyncio.run(go())
+
+    assert list(_action_locks).index("user:1") < list(_action_locks).index("user:2")
+    assert sheets["1"]["hp"]["current"] == 1
+    assert sheets["1"]["conditions"] == ["potion_used"]
+    assert sheets["2"]["hp"]["current"] == 1
+    assert combat.PENDING_DUELS == {}
+    assert send.await_count == 1
+    assert "DUEL RESULTS" in send.await_args.kwargs["embed"].title
+
+
+def test_accept_handler_owns_both_locks_instead_of_dispatcher_locking_target():
+    import utils.ttrpg.rpg_combat_handler as combat
+
+    assert combat._handle_accept._serialized is True
