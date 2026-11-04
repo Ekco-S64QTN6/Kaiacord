@@ -1113,6 +1113,8 @@ class CoreTaskManager:
                     return True
 
                 await update_world_state(_apply_dawn_tick)
+                # Reload the committed values for the dawn announcement below.
+                state = load_world_state()
 
                 # Through character_manager's own load/save: they hold the lock
                 # every other sheet write holds, and share its temp file. A
