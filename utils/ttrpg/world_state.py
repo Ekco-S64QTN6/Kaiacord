@@ -264,7 +264,7 @@ async def mutate_world_state(mutator: Callable[[dict, Dict[str, Any]], Tuple[boo
         _write_pending_transaction(record)
 
         # Keep the durable journal until both snapshots have committed.
-        await async_save_world_state(record["world_state"])
+        await _async_write_world_state_unlocked(record["world_state"])
         from utils.ttrpg.character_manager import save as save_character
         await save_character(record["character_sheet"])
         _clear_pending_transaction()
