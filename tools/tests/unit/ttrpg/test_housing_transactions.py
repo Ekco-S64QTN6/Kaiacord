@@ -160,7 +160,8 @@ def test_character_housing_action_recovers_after_either_save_boundary(
     record = json.loads(open(journal_path, encoding="utf-8").read())
     assert record["action"] == action
     assert record["character_sheet"] == intended_sheet
-    assert record["housing"] == intended_home
+    assert record["resource_kind"] == "housing"
+    assert record["resource_state"] == intended_home
 
     recovered_character = []
     recovered_housing = []
@@ -229,3 +230,92 @@ def test_daily_reset_commit_can_save_while_character_manager_lock_is_held(
     # character manager's non-reentrant per-user asyncio lock.
     assert sync_writes == [sheet]
     assert housing_writes == [home]
+
+
+@pytest.mark.parametrize("resource_kind", ["dungeon", "spine_dungeon"])
+@pytest.mark.parametrize("failure_boundary", ["character_save", "resource_save"])
+def test_dungeon_entry_recovers_character_cost_and_dungeon_snapshot(
+    monkeypatch, tmp_path, resource_kind, failure_boundary
+):
+    _isolate(monkeypatch, tmp_path)
+    sheet = {
+        "user_id": "42",
+        "character_name": "Tester",
+        "gil": 500,
+        "hunts_today": 2,
+        "inventory": ["torch"],
+    }
+    sheet["inventory"].remove("torch")
+    sheet["hunts_today"] += 2
+    state = {
+        "active": True,
+        "floor_num": 1,
+        "player_level": 5,
+        "rooms": {"0,0": {"type": "entrance"}},
+    }
+    character_calls = []
+    resource_calls = []
+
+    async def save_character(current):
+        character_calls.append(copy.deepcopy(current))
+        if failure_boundary == "character_save" and len(character_calls) == 1:
+            raise OSError("injected character save failure")
+
+    async def save_resource(uid, current):
+        resource_calls.append((uid, copy.deepcopy(current)))
+        if failure_boundary == "resource_save" and len(resource_calls) == 1:
+            raise OSError("injected dungeon save failure")
+
+    monkeypatch.setattr(character_manager, "save", save_character)
+    if resource_kind == "dungeon":
+        from utils.ttrpg import dungeon as resource_module
+        monkeypatch.setattr(resource_module, "save_dungeon", save_resource)
+    else:
+        from utils.ttrpg import spine_dungeon as resource_module
+        monkeypatch.setattr(resource_module, "save_spine_dungeon", save_resource)
+
+    commit = (
+        housing_transactions.commit_character_dungeon
+        if resource_kind == "dungeon"
+        else housing_transactions.commit_character_spine_dungeon
+    )
+    with pytest.raises(OSError, match="injected"):
+        asyncio.run(commit(sheet, state, action=f"{resource_kind}_entry"))
+
+    journal_path = housing_transactions._journal_path("42")
+    record = json.loads(open(journal_path, encoding="utf-8").read())
+    assert record["resource_kind"] == resource_kind
+    assert record["character_sheet"] == sheet
+    assert record["resource_state"] == state
+
+    recovered_character = []
+    recovered_resource = []
+
+    async def save_character_recovered(current):
+        recovered_character.append(copy.deepcopy(current))
+
+    async def save_resource_recovered(uid, current):
+        recovered_resource.append((uid, copy.deepcopy(current)))
+
+    monkeypatch.setattr(character_manager, "save", save_character_recovered)
+    if resource_kind == "dungeon":
+        monkeypatch.setattr(resource_module, "save_dungeon", save_resource_recovered)
+    else:
+        monkeypatch.setattr(resource_module, "save_spine_dungeon", save_resource_recovered)
+
+    assert asyncio.run(housing_transactions.recover_pending_housing_transaction("42"))
+    assert not asyncio.run(housing_transactions.recover_pending_housing_transaction("42"))
+    assert recovered_character == [sheet]
+    assert recovered_resource == [("42", state)]
+    assert json.loads(open(journal_path, encoding="utf-8").read()) == {}
+
+
+def test_unsupported_resource_kind_fails_closed(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    sheet = {"user_id": "42", "inventory": []}
+    resource = {"active": True}
+
+    with pytest.raises(ValueError, match="unsupported multi-file resource"):
+        asyncio.run(housing_transactions.commit_character_resource(
+            sheet, resource, resource_kind="shared_session", action="fishing_hook"
+        ))
