@@ -557,12 +557,29 @@ async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_
     wait_time = get_bite_wait_time(pole_key)
     await asyncio.sleep(wait_time)
 
+    # The interaction ID stays stable if this callback is retried.
+    cast_id = str(getattr(interaction, "id", "") or secrets.token_hex(12))
+    if is_tainted_waters:
+        # Monster hooks mutate the shared channel session. Match combat's
+        # channel-then-user lock order, never user-then-channel.
+        async with await get_action_lock(f"chan:{interaction.channel.id}"):
+            async with await _player_lock(uid):
+                return await _resolve_bite(
+                    ctx, interaction, uid, uname, is_owner, pole_key,
+                    bait_key, bait_name, is_tainted_waters, cast_id=cast_id,
+                )
+
     async with await _player_lock(uid):
-        return await _resolve_bite(ctx, interaction, uid, uname, is_owner, pole_key, bait_key, bait_name,
-                                   is_tainted_waters)
+        return await _resolve_bite(
+            ctx, interaction, uid, uname, is_owner, pole_key,
+            bait_key, bait_name, is_tainted_waters, cast_id=cast_id,
+        )
 
 
-async def _resolve_bite(ctx, interaction, uid, uname, is_owner, pole_key, bait_key, bait_name, is_tainted_waters):
+async def _resolve_bite(
+    ctx, interaction, uid, uname, is_owner, pole_key, bait_key, bait_name,
+    is_tainted_waters, *, cast_id=None,
+):
     """What the line brings up. Returns the BiteView once a bite is posted,
     None for every outcome that ends the cast here."""
     # Reload sheet to prevent stale state usage from before the sleep
@@ -593,38 +610,128 @@ async def _resolve_bite(ctx, interaction, uid, uname, is_owner, pole_key, bait_k
             from utils.ttrpg.session_manager import load_session, save_session
             from utils.ttrpg.monster_registry import get as get_monster
             chan_id = str(interaction.channel.id)
+            hook_id = str(cast_id or getattr(interaction, "id", "") or secrets.token_hex(12))
+
             s = await load_session(chan_id)
             if not s:
-                s = {"channel_id": chan_id, "active": True, "monsters": [], "combat_active": False, "created_at": datetime.now().timestamp()}
+                s = {
+                    "channel_id": chan_id,
+                    "active": True,
+                    "monsters": [],
+                    "combat_active": False,
+                    "created_at": datetime.now().timestamp(),
+                }
 
-            m_key = secrets.choice(["blood_slime", "cave_crawler", "shadow_hound"]) if sheet.get("level", 1) <= 5 else secrets.choice(["wraith", "shadow_dancer", "blood_slime"])
-            m_data = get_monster(m_key)
-            if m_data:
-                m_inst = m_data.copy()
-                m_inst["key"] = m_key
-                m_inst["hp"] = {"current": m_inst["hp"], "max": m_inst["hp"]}
-                m_inst["id"] = f"{m_key}_{secrets.token_hex(2)}"
-                m_inst["aggro_uid"] = str(uid)
-                m_inst["origin_location"] = sheet.get("location") or "tricklebrook_pond"
-                s["monsters"].append(m_inst)
-                s["combat_active"] = True
-                await save_session(s)
-
-            # Consume bait
+            # The session receipt makes the spawn idempotent across a retry
+            # after the session write but before the character-sheet write.
             fishing_stats = sheet.setdefault("fishing_stats", {})
-            bait_stock = fishing_stats.get("bait_stock", {})
-            if bait_stock.get(bait_key, 0) > 0:
-                bait_stock[bait_key] -= 1
-            await save(sheet)
+            consumed_casts = fishing_stats.setdefault("consumed_hook_casts", [])
+            already_consumed = hook_id in consumed_casts
+
+            receipts = s.setdefault("fishing_hook_receipts", [])
+            receipt = next(
+                (
+                    entry for entry in receipts
+                    if isinstance(entry, dict) and str(entry.get("cast_id")) == hook_id
+                ),
+                None,
+            )
+            existing_monster = next(
+                (
+                    monster for monster in s.get("monsters", [])
+                    if isinstance(monster, dict)
+                    and str(monster.get("fishing_hook_cast_id")) == hook_id
+                ),
+                None,
+            )
+            already_spawned = receipt is not None or existing_monster is not None or already_consumed
+
+            if receipt is not None or existing_monster is not None:
+                m_key = (
+                    receipt.get("monster_key")
+                    if receipt is not None
+                    else existing_monster.get("key")
+                )
+                m_data = get_monster(m_key) if m_key else None
+                m_inst = existing_monster
+            elif already_consumed:
+                # The matching session receipt may have aged out after the
+                # encounter was resolved. The character marker still prevents
+                # a retried interaction from spawning a second monster.
+                await interaction.followup.send(
+                    embed=discord.Embed(
+                        description="That monster hook was already resolved. The bait charge was not repeated.",
+                        color=0x888888,
+                    )
+                )
+                return
+            else:
+                m_key = (
+                    secrets.choice(["blood_slime", "cave_crawler", "shadow_hound"])
+                    if sheet.get("level", 1) <= 5
+                    else secrets.choice(["wraith", "shadow_dancer", "blood_slime"])
+                )
+                m_data = get_monster(m_key)
+                m_inst = None
+                if m_data:
+                    m_inst = m_data.copy()
+                    m_inst["key"] = m_key
+                    m_inst["hp"] = {"current": m_inst["hp"], "max": m_inst["hp"]}
+                    m_inst["id"] = f"{m_key}_{secrets.token_hex(2)}"
+                    m_inst["aggro_uid"] = str(uid)
+                    m_inst["origin_location"] = sheet.get("location") or "tricklebrook_pond"
+                    m_inst["fishing_hook_cast_id"] = hook_id
+                    s.setdefault("monsters", []).append(m_inst)
+                    s["combat_active"] = True
+                    receipts.append({"cast_id": hook_id, "monster_key": m_key})
+                    s["fishing_hook_receipts"] = receipts[-100:]
+                    await save_session(s)
+
+            if not m_data:
+                if already_spawned and not already_consumed:
+                    # Preserve the debit even if the registry entry was
+                    # removed after the hook had already been committed.
+                    if fishing_stats.setdefault("bait_stock", {}).get(bait_key, 0) > 0:
+                        fishing_stats["bait_stock"][bait_key] -= 1
+                    consumed_casts.append(hook_id)
+                    fishing_stats["consumed_hook_casts"] = consumed_casts[-100:]
+                    await save(sheet)
+                    message = "That monster hook was already resolved. The bait charge was not repeated."
+                else:
+                    message = "The water churns, but no creature answers the hook. Your bait was not consumed."
+                await interaction.followup.send(
+                    embed=discord.Embed(description=message, color=0xcc4444),
+                )
+                return
+
+            # If the session write succeeds but the sheet write is interrupted,
+            # a retry reuses the receipt and applies the bait debit once.
+            if not already_consumed:
+                bait_stock = fishing_stats.setdefault("bait_stock", {})
+                if bait_stock.get(bait_key, 0) > 0:
+                    bait_stock[bait_key] -= 1
+                consumed_casts.append(hook_id)
+                fishing_stats["consumed_hook_casts"] = consumed_casts[-100:]
+                await save(sheet)
+
+            # Do not recreate a monster that was defeated after first delivery.
+            if already_spawned and m_inst is None:
+                await interaction.followup.send(
+                    embed=discord.Embed(
+                        description="That monster hook was already resolved. The bait charge was not repeated.",
+                        color=0x888888,
+                    )
+                )
+                return
 
             monster_embed = discord.Embed(
                 title="⚠️ MONSTER HOOKED FROM THE BLACKWATER!",
                 description=(
-                    f"The line jerks violently! Instead of a fish, a thrashing **{m_data['name']}** breaks the surface and attacks!\n\n"
-                    f"*{m_data['desc']}*\n\n"
+                    f"The line jerks violently! Instead of a fish, a thrashing **{m_data['name']}** breaks the surface and attacks!\\n\\n"
+                    f"*{m_data.get('desc', '')}*\\n\\n"
                     f"⚔️ **Combat initiated!** Use `!rpg attack` to defend yourself!"
                 ),
-                color=0x8b0000
+                color=0x8b0000,
             )
             from utils.ttrpg.rpg_views import RPGCombatView, _InteractionMsg
             fake_msg = _InteractionMsg(interaction)
