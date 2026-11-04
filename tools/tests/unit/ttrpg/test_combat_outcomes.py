@@ -342,7 +342,8 @@ def test_unknown_journal_kind_is_preserved_for_future_recovery():
     ))
 
     assert recovered == 0
-    assert "future-version" in persisted_sheet["pending_combat_outcomes"]
+    assert "future-version" in sheet["pending_combat_outcomes"]
+    assert writes == []
 
 
 def test_a_completed_outcome_id_rejects_duplicate_commit_calls():
