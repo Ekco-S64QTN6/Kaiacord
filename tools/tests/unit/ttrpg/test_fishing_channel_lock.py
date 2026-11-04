@@ -207,12 +207,19 @@ def test_monster_hook_retry_after_session_write_does_not_duplicate_spawn_or_bait
 
         await resolve_once()
 
+        # Even after the shared session is later cleaned up, the character's
+        # durable consumed-cast marker prevents a delayed callback retry from
+        # recreating the monster or spending another bait.
+        persisted_session["monsters"] = []
+        persisted_session["fishing_hook_receipts"] = []
+        await resolve_once()
+
     asyncio.run(run_retry())
 
-    assert len(persisted_session["monsters"]) == 1
-    assert len(persisted_session["fishing_hook_receipts"]) == 1
+    assert persisted_session["monsters"] == []
+    assert persisted_session["fishing_hook_receipts"] == []
     assert len(session_saves) == 1
     assert persisted_sheet["fishing_stats"]["bait_stock"]["earthworm"] == 1
     assert persisted_sheet["fishing_stats"]["consumed_hook_casts"] == ["stable-hook-cast"]
     assert sheet_save_attempts == 2
-    assert interaction.followup.send.await_count == 1
+    assert interaction.followup.send.await_count == 2
