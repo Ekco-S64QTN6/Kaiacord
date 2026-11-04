@@ -212,8 +212,14 @@ def test_transaction_rejects_mismatched_character_and_housing_owners(monkeypatch
 def test_daily_reset_commit_can_save_while_character_manager_lock_is_held(
     monkeypatch, tmp_path
 ):
-    character_writes, housing_writes = _isolate(monkeypatch, tmp_path)
+    _, housing_writes = _isolate(monkeypatch, tmp_path)
     sheet, home = _snapshots("daily_mognet_delivery")
+    sync_writes = []
+    monkeypatch.setattr(
+        character_manager,
+        "_save_sync",
+        lambda current: sync_writes.append(copy.deepcopy(current)),
+    )
 
     asyncio.run(housing_transactions.commit_character_housing(
         sheet, home, action="daily_mognet_delivery", character_lock_held=True
@@ -221,5 +227,5 @@ def test_daily_reset_commit_can_save_while_character_manager_lock_is_held(
 
     # This path intentionally uses _save_sync rather than re-entering the
     # character manager's non-reentrant per-user asyncio lock.
-    assert character_writes == []
+    assert sync_writes == [sheet]
     assert housing_writes == [home]
