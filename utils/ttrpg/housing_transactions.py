@@ -1,9 +1,9 @@
-"""Crash-safe transactions spanning a character sheet and its housing JSON.
+"""Crash-safe transactions spanning a character sheet and one per-player RPG resource.
 
-Housing gameplay actions run under the player's serialized RPG action lock.
-This journal adds crash recovery across the two independently atomic files:
-the intended snapshots are written first, then the character sheet and
-housing snapshots are committed, and only then is the journal cleared.
+Housing, dungeon, and Spine gameplay actions run under the player's serialized
+RPG action lock. This journal adds crash recovery across the two independently
+atomic files: the intended snapshots are written first, then the character
+sheet and resource snapshots are committed, and only then is the journal cleared.
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def _read_journal(user_id: str) -> dict | None:
             record = json.load(handle)
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError(
-            f"Cannot read pending housing transaction for {user_id}: {exc}"
+            f"Cannot read pending RPG transaction for {user_id}: {exc}"
         ) from exc
     if not isinstance(record, dict) or not record.get("transaction_id"):
         return None
@@ -80,7 +80,7 @@ async def _replay_record_locked(
 ) -> None:
     if record.get("version") != 1:
         raise RuntimeError(
-            f"Unknown housing transaction version for {user_id}; refusing to discard it."
+            f"Unknown RPG transaction version for {user_id}; refusing to discard it."
         )
     if str(record.get("user_id")) != str(user_id):
         raise RuntimeError("Housing transaction journal owner mismatch.")
@@ -108,7 +108,7 @@ async def _replay_record_locked(
 
 
 async def recover_pending_housing_transaction(user_id: str) -> bool:
-    """Replay one player's pending character + housing snapshots, if present."""
+    """Replay one player's pending character + resource snapshots, if present."""
     uid = str(user_id)
     async with _transaction_lock:
         record = _read_journal(uid)
@@ -119,7 +119,7 @@ async def recover_pending_housing_transaction(user_id: str) -> bool:
 
 
 async def recover_all_pending_housing_transactions() -> int:
-    """Recover all pending player/housing journals before bulk character reads."""
+    """Recover all pending player/resource journals before bulk character reads."""
     async with _transaction_lock:
         directory = _journal_dir()
         if not os.path.isdir(directory):
