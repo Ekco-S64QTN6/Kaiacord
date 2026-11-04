@@ -327,6 +327,13 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         return
 
     combat = state["active_combat"]
+    combat_id = str(combat.get("combat_id") or _uuid.uuid4().hex)
+    if not combat.get("combat_id"):
+        # Persist the stable encounter identity before resolving a round. A retry
+        # after restart must generate the same victory/defeat outcome ID.
+        combat["combat_id"] = combat_id
+        state["active_combat"] = combat
+        await save_func(uid, state)
     monster = combat["monster"]
     monster_key = combat.get("monster_key", "goblin")
     is_boss = combat.get("is_boss", False)
@@ -454,20 +461,18 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         # is told when the player leaves, finishes or falls in the dungeon.
         fight_rounds = state.get("dungeon_combat_log", [])
         state["dungeon_combat_log"] = []
-        await save(sheet)
-        await save_func(uid, state)
         from utils.ttrpg import outing
         dropped = []
         for key in state.get("loot_gained", [])[loot_before:]:
             item = find_item(key)
             dropped.append(item["name"] if item else key)
-        await outing.record_fight(uid, state.get("theme_name") or loc, fight_rounds,
-                                  xp=xp_gain, gil=gil_gain, loot=dropped,
-                                  level=new_level if leveled else None)
 
+        completion_rewards = None
+        clear_encounter = False
         if is_boss and not state.get("is_spine"):
-            await _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
-                                    state, sheet, leveled, new_level)
+            # The full boss-completion bonus is part of this same journaled kill.
+            completion_rewards = _apply_dungeon_completion_rewards(sheet, state)
+            clear_encounter = True
         else:
             if is_boss and state.get("is_spine"):
                 active_ids = sheet.get("active_quests", [])
@@ -480,7 +485,6 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                             if "complete_dungeon" not in prog:
                                 prog.append("complete_dungeon")
                                 exchange_text += f"\n📜 *Quest Progress: {q['name']}*"
-                                from utils.ttrpg import outing
                                 await outing.note(uid, "quest", q["name"], start=True)
 
             if state.get("is_spine"):
@@ -490,7 +494,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                 if guardian_key and monster_key == guardian_key:
                     if current_floor not in sheet.setdefault("spine_defeated_guards", []):
                         sheet["spine_defeated_guards"].append(current_floor)
-                    
+
                     lore_drops = {
                         10: "shift_log_page",
                         20: "burial_offering",
@@ -513,8 +517,44 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
                             else:
                                 exchange_text += f"\n\n🎒 **[Inventory Full]** Left behind: {i_name} (it will be there next time)"
 
-                await save(sheet)
+        from utils.ttrpg.combat_outcomes import commit_outcome
+        encounter_kind = "spine" if state.get("is_spine") else "dungeon"
+        outcome_id = f"{encounter_kind}:{uid}:{combat_id}:victory"
 
+        async def _persist_dungeon_victory(outcome):
+            if outcome.get("clear_encounter"):
+                from utils.ttrpg.dungeon import clear_dungeon
+                await clear_dungeon(uid)
+            elif encounter_kind == "spine":
+                from utils.ttrpg.spine_dungeon import save_spine_dungeon
+                await save_spine_dungeon(uid, outcome["state_after"])
+            else:
+                from utils.ttrpg.dungeon import save_dungeon
+                await save_dungeon(uid, outcome["state_after"])
+
+        await commit_outcome(
+            sheet,
+            {
+                "outcome_id": outcome_id,
+                "kind": encounter_kind,
+                "result": "victory",
+                "combat_id": combat_id,
+                "clear_encounter": clear_encounter,
+                "state_after": None if clear_encounter else state,
+            },
+            save_sheet=save,
+            persist_encounter=_persist_dungeon_victory,
+        )
+        await outing.record_fight(uid, state.get("theme_name") or loc, fight_rounds,
+                                  xp=xp_gain, gil=gil_gain, loot=dropped,
+                                  level=new_level if leveled else None)
+
+        if clear_encounter:
+            await _dungeon_complete(
+                ctx_obj, interaction, uid, uname, is_owner, state, sheet,
+                leveled, new_level, completion_rewards=completion_rewards, persist=False,
+            )
+        else:
             embed = discord.Embed(title="⚔️ Victory", description=exchange_text, color=0x2D5A27)
             view = DungeonView(ctx_obj, uid, uname, is_owner, state)
             try:
@@ -534,23 +574,43 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         gil_loss = int(sheet["gil"] * 0.05)
         sheet["xp"] = max(0, sheet["xp"] - xp_loss)
         sheet["gil"] = max(0, sheet["gil"] - gil_loss)
-        await save(sheet)
         fight_rounds = state.get("dungeon_combat_log", [])
         state["dungeon_combat_log"] = []
+        clear_encounter = not bool(state.get("is_spine"))
         if state.get("is_spine"):
-            # The Spine keeps its progress: the guardians beaten (and so the
-            # Resonance Lift's stops) live on the sheet and are untouched. The
-            # floor itself restocks and the run ends; the next visit starts
-            # from the lift, not mid-fight. This used to call clear_dungeon(),
-            # which deletes the *regular* dungeon's save, and never saved the
-            # spine floor, so it still held the fight.
+            # Keep defeated-gate progress on the sheet while restocking the floor.
             from utils.ttrpg.spine_dungeon import respawn_monsters
             state = respawn_monsters(state)
             state["active"] = False
-            await save_func(uid, state)
-        else:
-            from utils.ttrpg.dungeon import clear_dungeon
-            await clear_dungeon(uid)
+
+        from utils.ttrpg.combat_outcomes import commit_outcome
+        encounter_kind = "spine" if state.get("is_spine") else "dungeon"
+        outcome_id = f"{encounter_kind}:{uid}:{combat_id}:defeat"
+
+        async def _persist_dungeon_defeat(outcome):
+            if outcome.get("clear_encounter"):
+                from utils.ttrpg.dungeon import clear_dungeon
+                await clear_dungeon(uid)
+            elif encounter_kind == "spine":
+                from utils.ttrpg.spine_dungeon import save_spine_dungeon
+                await save_spine_dungeon(uid, outcome["state_after"])
+            else:
+                from utils.ttrpg.dungeon import save_dungeon
+                await save_dungeon(uid, outcome["state_after"])
+
+        await commit_outcome(
+            sheet,
+            {
+                "outcome_id": outcome_id,
+                "kind": encounter_kind,
+                "result": "defeat",
+                "combat_id": combat_id,
+                "clear_encounter": clear_encounter,
+                "state_after": None if clear_encounter else state,
+            },
+            save_sheet=save,
+            persist_encounter=_persist_dungeon_defeat,
+        )
         embed = discord.Embed(
             title="💀 Defeated",
             description=f"{exchange_text}\n\n*You collapsed in the dark. Someone dragged you back to the Shrine.*\n-{xp_loss} XP · -{gil_loss} Gil",
