@@ -118,21 +118,21 @@ async def _commit_background_combat_result(
         if gil_to_add:
             sheet["gil"] = sheet.get("gil", 0) + int(gil_to_add)
         if reputation_delta:
-            sheet["reputation"] = max(
-                -100, min(100, sheet.get("reputation", 0) + int(reputation_delta))
-            )
-
-        leveled, new_level = check_level_up(sheet)
+            sheet["reputation"] = sheet.get("reputation", 0) + int(reputation_delta)
+            if reputation_delta < 0:
+                sheet["reputation"] = max(-100, sheet["reputation"])
 
         # If the encounter snapshot showed a knockout but a concurrent heal
         # left the fresh character standing, do not force the stale death onto
         # them. A fresh character reduced to 0 HP by the event delta still uses
-        # the standard blackout, after any applicable reward has been applied.
+        # the standard blackout after the event's rewards are applied.
         if not rewarded_knockout and hp["current"] <= 0:
             blackout = _apply_overworld_blackout(sheet)
             for condition in ("embered", "fortified"):
                 if condition in conditions:
                     conditions.remove(condition)
+
+        leveled, new_level = check_level_up(sheet)
 
         return {
             "character_name": character_name,
