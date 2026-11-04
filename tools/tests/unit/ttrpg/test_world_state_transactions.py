@@ -50,7 +50,7 @@ def test_two_players_cannot_claim_the_same_global_pond_purification(monkeypatch,
     world_state.save_world_state({
         **world_state.DEFAULT_STATE,
         "fishing_water_tainted": True,
-        "fishing_water_tainted_expiry": 12345,
+        "fishing_water_tainted_expiry": 4_000_000_000,
     })
     alice = {
         "user_id": "alice", "character_name": "Alice", "inventory": ["tonic"],
