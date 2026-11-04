@@ -375,6 +375,13 @@ Most characters reach level 15 with far more gil than anything costs; two sinks 
   pooled from everyone. At 250,000g the walls are reinforced for 7 days and every noon raid is fought
   with +2 DEF; a second project extends the week.
 
+Shared one-time actions are serialized against the global world state. Pond purification is a single
+server-wide claim: the first eligible player consumes one reagent and receives +50 XP / +15 town
+reputation; later attempts see clear water and receive no reward. Town donations commit the player's
+gil deduction together with the town fund, donor totals, and reinforcement expiry. If the process
+stops between the two JSON writes, a durable journal replays both snapshots before the next character
+load, so neither a paid donation nor a purification reward is lost or duplicated.
+
 ---
 
 ## Housing System
