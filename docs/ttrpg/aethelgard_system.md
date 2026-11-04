@@ -59,6 +59,10 @@ memory/ttrpg/world_events.json     ← Rolling log of world events
 7. **Kaia narrates** via `rpg_prompt_builder.py` → GPU-guarded LLM call → flavor text embed.
 8. **Sheet/UI state** is persisted before the Discord view is returned.
 
+Bulk character and housing discovery uses per-file scan reports. Readable players remain available
+when one record is damaged, but the report identifies the skipped path and owner ID; leaderboards
+and player lists built from partial results must say that the result may be incomplete.
+
 Do not build an async read-modify-write by loading a complete world-state snapshot and later passing it to `async_save_world_state()`: the final write lock cannot make the earlier read fresh. Synchronous `save_world_state()` is reserved for isolated tests/bootstrap.
 
 ---

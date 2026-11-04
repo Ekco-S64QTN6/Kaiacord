@@ -48,12 +48,13 @@ def log_scan_failures(store_name: str, report: ScanReport) -> None:
     if fresh:
         from utils.infrastructure.logging.kaia_logger import log_warning
         details = "; ".join(
-            f"{failure.path} ({failure.reason})" for failure in fresh[:10]
+            f"{failure.path} [owner={failure.owner_id or 'unknown'}] ({failure.reason})"
+            for failure in fresh[:10]
         )
         remaining = len(fresh) - 10
         if remaining > 0:
             details += f"; and {remaining} more"
         log_warning(
             f"[rpg storage] {store_name} scan incomplete: "
-            f"{len(report.failures)} record(s) skipped; {details}"
+            f"{len(fresh)} new failure(s) reported; {details}"
         )
