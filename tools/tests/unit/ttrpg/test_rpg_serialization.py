@@ -1158,7 +1158,7 @@ def test_duel_accept_holds_both_sorted_locks_until_both_sheets_are_saved(monkeyp
     import copy
     from unittest.mock import AsyncMock, MagicMock
     import utils.ttrpg.rpg_combat_handler as combat
-    from utils.ttrpg import combat_engine, housing
+    from utils.ttrpg import combat_engine, housing, session_manager
     from utils.ttrpg.session_manager import _action_locks, serialize_user_action
 
     sheets = {
@@ -1194,6 +1194,14 @@ def test_duel_accept_holds_both_sorted_locks_until_both_sheets_are_saved(monkeyp
 
     housing_started = asyncio.Event()
     release_duel = asyncio.Event()
+    lock_requests = []
+    original_get_action_lock = session_manager.get_action_lock
+
+    async def track_action_lock(key):
+        lock_requests.append(key)
+        return await original_get_action_lock(key)
+
+    monkeypatch.setattr(session_manager, "get_action_lock", track_action_lock)
 
     async def load_housing(uid):
         # The duel is paused here after acquiring both participant locks.
@@ -1230,7 +1238,7 @@ def test_duel_accept_holds_both_sorted_locks_until_both_sheets_are_saved(monkeyp
     monkeypatch.setattr(housing, "load_housing_async", load_housing)
 
     @serialize_user_action
-    async def challenger_potion(ctx, action_msg, send_fn, rest, uid, uname, is_owner):
+    async def participant_follow_up(ctx, action_msg, send_fn, rest, uid, uname, is_owner):
         current = await load_sheet(uid)
         current["conditions"].append("potion_used")
         await save_sheet(current)
@@ -1241,22 +1249,29 @@ def test_duel_accept_holds_both_sorted_locks_until_both_sheets_are_saved(monkeyp
         )
         await housing_started.wait()
 
-        # The challenger's independent action must wait for the duel's user lock.
-        follow_up_task = asyncio.create_task(
-            challenger_potion(None, msg, None, "", "1", "Challenger", False)
+        # Both participants' ordinary serialized actions must wait for the duel.
+        challenger_task = asyncio.create_task(
+            participant_follow_up(None, msg, None, "", "1", "Challenger", False)
+        )
+        target_task = asyncio.create_task(
+            participant_follow_up(None, msg, None, "", "2", "Target", False)
         )
         await asyncio.sleep(0)
-        assert not follow_up_task.done()
+        assert not challenger_task.done()
+        assert not target_task.done()
 
         release_duel.set()
-        await asyncio.gather(duel_task, follow_up_task)
+        await asyncio.gather(duel_task, challenger_task, target_task)
 
     asyncio.run(go())
 
-    assert list(_action_locks).index("user:1") < list(_action_locks).index("user:2")
+    assert lock_requests[:2] == ["user:1", "user:2"]
+    assert _action_locks["user:1"].locked() is False
+    assert _action_locks["user:2"].locked() is False
     assert sheets["1"]["hp"]["current"] == 1
     assert sheets["1"]["conditions"] == ["potion_used"]
     assert sheets["2"]["hp"]["current"] == 1
+    assert sheets["2"]["conditions"] == ["potion_used"]
     assert combat.PENDING_DUELS == {}
     assert send.await_count == 1
     assert "DUEL RESULTS" in send.await_args.kwargs["embed"].title
