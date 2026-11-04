@@ -624,6 +624,10 @@ async def _resolve_bite(
 
             # The session receipt makes the spawn idempotent across a retry
             # after the session write but before the character-sheet write.
+            fishing_stats = sheet.setdefault("fishing_stats", {})
+            consumed_casts = fishing_stats.setdefault("consumed_hook_casts", [])
+            already_consumed = hook_id in consumed_casts
+
             receipts = s.setdefault("fishing_hook_receipts", [])
             receipt = next(
                 (
@@ -632,18 +636,35 @@ async def _resolve_bite(
                 ),
                 None,
             )
-            already_spawned = receipt is not None
-            if already_spawned:
-                m_key = receipt.get("monster_key")
-                m_data = get_monster(m_key) if m_key else None
-                m_inst = next(
-                    (
-                        monster for monster in s.get("monsters", [])
-                        if isinstance(monster, dict)
-                        and str(monster.get("fishing_hook_cast_id")) == hook_id
-                    ),
-                    None,
+            existing_monster = next(
+                (
+                    monster for monster in s.get("monsters", [])
+                    if isinstance(monster, dict)
+                    and str(monster.get("fishing_hook_cast_id")) == hook_id
+                ),
+                None,
+            )
+            already_spawned = receipt is not None or existing_monster is not None or already_consumed
+
+            if receipt is not None or existing_monster is not None:
+                m_key = (
+                    receipt.get("monster_key")
+                    if receipt is not None
+                    else existing_monster.get("key")
                 )
+                m_data = get_monster(m_key) if m_key else None
+                m_inst = existing_monster
+            elif already_consumed:
+                # The matching session receipt may have aged out after the
+                # encounter was resolved. The character marker still prevents
+                # a retried interaction from spawning a second monster.
+                await interaction.followup.send(
+                    embed=discord.Embed(
+                        description="That monster hook was already resolved. The bait charge was not repeated.",
+                        color=0x888888,
+                    )
+                )
+                return
             else:
                 m_key = (
                     secrets.choice(["blood_slime", "cave_crawler", "shadow_hound"])
@@ -667,20 +688,25 @@ async def _resolve_bite(
                     await save_session(s)
 
             if not m_data:
+                if already_spawned and not already_consumed:
+                    # Preserve the debit even if the registry entry was
+                    # removed after the hook had already been committed.
+                    if fishing_stats.setdefault("bait_stock", {}).get(bait_key, 0) > 0:
+                        fishing_stats["bait_stock"][bait_key] -= 1
+                    consumed_casts.append(hook_id)
+                    fishing_stats["consumed_hook_casts"] = consumed_casts[-100:]
+                    await save(sheet)
+                    message = "That monster hook was already resolved. The bait charge was not repeated."
+                else:
+                    message = "The water churns, but no creature answers the hook. Your bait was not consumed."
                 await interaction.followup.send(
-                    embed=discord.Embed(
-                        description="The water churns, but no creature answers the hook. Your bait was not consumed.",
-                        color=0xcc4444,
-                    )
+                    embed=discord.Embed(description=message, color=0xcc4444),
                 )
                 return
 
-            # Bait debits are separately idempotent on the character sheet.
-            # If save_session succeeded but save(sheet) failed, a retry reuses
-            # the receipt and applies this debit once without a second spawn.
-            fishing_stats = sheet.setdefault("fishing_stats", {})
-            consumed_casts = fishing_stats.setdefault("consumed_hook_casts", [])
-            if hook_id not in consumed_casts:
+            # If the session write succeeds but the sheet write is interrupted,
+            # a retry reuses the receipt and applies the bait debit once.
+            if not already_consumed:
                 bait_stock = fishing_stats.setdefault("bait_stock", {})
                 if bait_stock.get(bait_key, 0) > 0:
                     bait_stock[bait_key] -= 1
@@ -688,8 +714,7 @@ async def _resolve_bite(
                 fishing_stats["consumed_hook_casts"] = consumed_casts[-100:]
                 await save(sheet)
 
-            # Do not recreate a monster that was already defeated after the
-            # first delivery, even if Discord retries the original callback.
+            # Do not recreate a monster that was defeated after first delivery.
             if already_spawned and m_inst is None:
                 await interaction.followup.send(
                     embed=discord.Embed(
