@@ -1599,6 +1599,11 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
 @serialize_combat_action
 async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
 
+    sheet = await load(uid)
+    if not sheet:
+        return await no_character(msg)
+    await _recover_pending_combat_outcomes(uid, sheet)
+
     s = await load_session(str(msg.channel.id))
     if not s or not s.get("combat_active"):
         return await send(msg.channel, "There is no fight here to flee from.")
@@ -1613,10 +1618,6 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
     
     # Persist the stamina/buff change and encounter removal as one replayable
     # outcome. A crash cannot charge a hunt while leaving the monster active.
-    sheet = await load(uid)
-    if not sheet:
-        return await no_character(msg)
-
     monster = s["monsters"][to_flee]
     monster_name = monster.get("name", "something")
     monster_id = str(monster.get("id") or "")
@@ -2336,6 +2337,7 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
     """Infiltrate the bandit camp to steal contraband and undermine the blockade."""
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
+    await _recover_pending_combat_outcomes(uid, sheet)
 
     from utils.ttrpg.world_state import load_world_state, mutate_world_state
     wstate = load_world_state()
