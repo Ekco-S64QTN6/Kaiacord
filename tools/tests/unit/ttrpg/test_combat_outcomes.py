@@ -256,13 +256,14 @@ def test_unknown_journal_kind_is_preserved_for_future_recovery():
     assert "future-version" in persisted_sheet["pending_combat_outcomes"]
 
 
-def test_a_pending_outcome_cannot_be_staged_twice():
+def test_a_completed_outcome_id_rejects_duplicate_commit_calls():
     writes = []
+    encounter_writes = []
     async def save_sheet(sheet):
         writes.append(deepcopy(sheet))
 
-    async def persist(_outcome):
-        pass
+    async def persist(outcome):
+        encounter_writes.append(outcome["outcome_id"])
 
     sheet = {"user_id": "42", "xp": 100}
     outcome = {
@@ -279,5 +280,7 @@ def test_a_pending_outcome_cannot_be_staged_twice():
     ))
 
     assert first is True
-    assert second is True
+    assert second is False
+    assert encounter_writes == [outcome["outcome_id"]]
     assert "pending_combat_outcomes" not in sheet
+    assert sheet["completed_combat_outcomes"] == [outcome["outcome_id"]]
