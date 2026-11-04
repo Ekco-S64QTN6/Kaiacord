@@ -1578,7 +1578,10 @@ class DungeonView(StaleSafeView):
                 async def _descend_cb(interaction: discord.Interaction):
                     if str(interaction.user.id) != self._uid: return
                     await interaction.response.defer()
-                    from utils.ttrpg.spine_dungeon import generate_spine_floor, save_spine_dungeon, load_spine_dungeon, MAX_FLOOR, STAIR_GUARDIANS, _xy
+                    from utils.ttrpg.spine_dungeon import (
+                        generate_spine_floor, save_spine_dungeon, load_spine_dungeon,
+                        MAX_FLOOR, STAIR_GUARDIANS, scale_stair_guardian, _xy,
+                    )
                     dungeon = await _still_on_stairs(interaction, self._uid, stairs_floor, stairs_key)
                     if not dungeon:
                         return
@@ -1596,8 +1599,17 @@ class DungeonView(StaleSafeView):
                         # Force into combat with the guardian
                         g_monster = get_monster(guardian_key)
                         if not g_monster:
-                            g_monster = get_monster("behemoth") # fallback
-                        
+                            guardian_key = "behemoth"
+                            g_monster = get_monster(guardian_key) # fallback
+                        if not g_monster:
+                            await interaction.followup.send(
+                                "The stair guardian cannot be summoned right now. Please try again.",
+                                ephemeral=True,
+                            )
+                            return
+
+                        g_monster = scale_stair_guardian(g_monster, current_floor)
+                        g_monster["key"] = guardian_key
                         raw_hp = g_monster["hp"]
                         g_monster["hp"] = {"current": raw_hp, "max": raw_hp}
                         
