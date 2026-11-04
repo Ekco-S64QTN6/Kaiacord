@@ -183,10 +183,17 @@ def test_harvest_at_capacity_keeps_new_item_types_on_their_plots(monkeypatch):
 
     monkeypatch.setattr(housing, "load", AsyncMock(return_value=sheet))
     save_sheet = AsyncMock()
+    from utils.ttrpg import character_manager
     monkeypatch.setattr(housing, "save", save_sheet)
+    monkeypatch.setattr(character_manager, "save", save_sheet)
     monkeypatch.setattr(housing_store, "load_housing", lambda uid: home)
     saved_homes = []
     monkeypatch.setattr(housing_store, "save_housing", lambda value: saved_homes.append(value))
+
+    async def save_housing_async(value):
+        saved_homes.append(value)
+
+    monkeypatch.setattr(housing_store, "save_housing_async", save_housing_async)
     monkeypatch.setattr(farming, "is_harvestable", lambda plot: True)
     monkeypatch.setattr(
         farming,
