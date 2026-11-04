@@ -67,8 +67,10 @@ async def _apply_overworld_combat_update(outcome: dict, *, remove_monster: bool 
     owner_id = str(outcome.get("owner_id") or "")
     monster_id = str(outcome.get("monster_id") or "")
     outcome_id = str(outcome.get("outcome_id") or "")
-    if not channel_id or not owner_id or not monster_id or not outcome_id:
+    if not channel_id or not owner_id or not outcome_id:
         raise RuntimeError("Pending overworld combat update is missing its identity.")
+    if not monster_id and not remove_monster:
+        raise RuntimeError("Pending overworld round is missing its monster ID.")
 
     session = await load_session(channel_id)
     if not session:
@@ -78,14 +80,31 @@ async def _apply_overworld_combat_update(outcome: dict, *, remove_monster: bool 
 
     monsters = session.setdefault("monsters", [])
     if remove_monster:
-        session["monsters"] = [
-            monster for monster in monsters
-            if not (
-                isinstance(monster, dict)
-                and str(monster.get("aggro_uid")) == owner_id
-                and str(monster.get("id", "")) == monster_id
-            )
-        ]
+        if monster_id:
+            session["monsters"] = [
+                monster for monster in monsters
+                if not (
+                    isinstance(monster, dict)
+                    and str(monster.get("aggro_uid")) == owner_id
+                    and str(monster.get("id", "")) == monster_id
+                )
+            ]
+        else:
+            # Compatibility with pending terminal journals written before spawn IDs.
+            removed = False
+            kept = []
+            for monster in monsters:
+                matches = (
+                    isinstance(monster, dict)
+                    and str(monster.get("aggro_uid")) == owner_id
+                    and monster.get("key") == outcome.get("monster_key")
+                    and monster.get("origin_location") == outcome.get("origin_location")
+                )
+                if matches and not removed:
+                    removed = True
+                else:
+                    kept.append(monster)
+            session["monsters"] = kept
         session["combat_active"] = bool(session["monsters"])
     else:
         monster_after = outcome.get("monster_after")
