@@ -86,3 +86,7 @@ def test_level_ten_boss_attack_cap_is_unchanged_and_non_binding():
     assert scaled["attack"] == 9
     assert scaled["attack"] < 17
     assert boss_template["attack"] == 12
+
+    # A synthetic over-cap template proves the existing L10 cap is still 17.
+    over_cap = dict(boss_template, attack=100)
+    assert _scale_boss_to_level(over_cap, 10)["attack"] == 17
