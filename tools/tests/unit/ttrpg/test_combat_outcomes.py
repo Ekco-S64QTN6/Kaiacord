@@ -382,7 +382,7 @@ def test_overworld_round_recovery_merges_target_and_deduplicates_after_cleanup_f
     monkeypatch,
 ):
     from copy import deepcopy
-    from utils.ttrpg import rpg_combat_handler as combat_handler
+    from utils.ttrpg import rpg_combat_handler as combat_handler, session_manager
 
     outcome_id = "overworld-round:42:123:wolf-1:round-abc"
     outcome = {
@@ -441,8 +441,8 @@ def test_overworld_round_recovery_merges_target_and_deduplicates_after_cleanup_f
         persisted_sheet.clear()
         persisted_sheet.update(deepcopy(snapshot))
 
-    monkeypatch.setattr(combat_handler, "load_session", load_session)
-    monkeypatch.setattr(combat_handler, "save_session", save_session)
+    monkeypatch.setattr(session_manager, "load_session", load_session)
+    monkeypatch.setattr(session_manager, "save_session", save_session)
     monkeypatch.setattr(combat_handler, "save", save_sheet)
 
     # The session write lands, then the character journal cleanup fails. On
@@ -471,7 +471,7 @@ def test_overworld_terminal_recovery_merges_log_and_removes_only_owned_monster(
     monkeypatch,
 ):
     from copy import deepcopy
-    from utils.ttrpg import rpg_combat_handler as combat_handler
+    from utils.ttrpg import rpg_combat_handler as combat_handler, session_manager
 
     outcome_id = "overworld:42:456:wolf-2:victory"
     outcome = {
@@ -514,8 +514,8 @@ def test_overworld_terminal_recovery_merges_log_and_removes_only_owned_monster(
         persisted_sheet.clear()
         persisted_sheet.update(deepcopy(snapshot))
 
-    monkeypatch.setattr(combat_handler, "load_session", load_session)
-    monkeypatch.setattr(combat_handler, "save_session", save_session)
+    monkeypatch.setattr(session_manager, "load_session", load_session)
+    monkeypatch.setattr(session_manager, "save_session", save_session)
     monkeypatch.setattr(combat_handler, "save", save_sheet)
 
     assert asyncio.run(combat_handler._recover_pending_combat_outcomes("42", sheet)) == 1
