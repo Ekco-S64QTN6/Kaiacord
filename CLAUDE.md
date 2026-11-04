@@ -240,6 +240,10 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `session_manager.get_action_lock("user:<uid>")`, reloads the current character, applies a
   synchronous mutation, and saves only when changed. The character manager's own file lock
   protects one read or one write at a time; it does not make a read-modify-write atomic.
+- **Quest completion commits payout and progression together.** Apply XP, Gil, item/mail, recipe,
+  completed-quest marker, and `check_level_up()` before the single character save. The completion
+  marker and level/stat-choice milestones must be durable in the same save as the rewards; never
+  save quest rewards and completion first and then save the level-up separately.
 - **RPG multi-file writes use the resource's recovery journal.** Character + housing, dungeon or
   Spine snapshots go through `housing_transactions.commit_character_resource()`; character +
   shared pond/town updates go through `world_state.mutate_world_state()`; combat rewards and
