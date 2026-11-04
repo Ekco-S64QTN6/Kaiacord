@@ -3922,6 +3922,14 @@ async def run_construct_breach(bot_ctx, channel):
         ))
         return
 
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
+
     theme_key = "constructs"
     theme_data = DUNGEON_THEMES[theme_key]
     
@@ -4039,41 +4047,46 @@ async def run_construct_breach(bot_ctx, channel):
     casualty_count = 0
     
     for s, monster, rounds_log, won, escaped in combat_results:
-        if s["hp"]["current"] <= 0:
+        uid = str(s.get("user_id", ""))
+        start = starting_states_by_uid.get(uid, {})
+        simulated_hp = s.get("hp", {}).get("current", 0)
+        consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+        reward_xp = xp_each if simulated_hp > 0 and defenders_won else 0
+        reward_gil = gil_each if simulated_hp > 0 and defenders_won else 0
+        reputation_delta = 10 if simulated_hp > 0 and defenders_won else (-10 if simulated_hp > 0 else 0)
+        result = await _commit_background_combat_result(
+            uid, starting_hp=start.get("hp", 0), simulated_hp=simulated_hp,
+            consumed_conditions=consumed_conditions, xp_reward=reward_xp,
+            gil_reward=reward_gil, reputation_delta=reputation_delta,
+        )
+        if not result:
+            continue
+        character_name = result["character_name"]
+        blackout = result["blackout"]
+        if blackout:
             casualty_count += 1
-            s["hunt_streak"] = 0
-            xp_loss = int(s["xp"] * 0.10)
-            gil_loss = int(s["gil"] * 0.05)
-            s["xp"] = max(0, s["xp"] - xp_loss)
-            s["gil"] = max(0, s["gil"] - gil_loss)
-            s["hp"]["current"] = 1
-            s["location"] = "shrine"
-            s["deaths"] = s.get("deaths", 0) + 1
-            for _cb in ["embered", "fortified"]:
-                if _cb in s.get("conditions", []): s["conditions"].remove(_cb)
-            
-            result_lines.append(f"💀 **{s['character_name']}** blacked out (lost {xp_loss} XP, {gil_loss} gil)")
-            
+            result_lines.append(
+                f"💀 **{character_name}** blacked out (lost {blackout['xp_loss']} XP, {blackout['gil_loss']} gil)"
+            )
             death_embed = discord.Embed(
-                title=f"💀 {s['character_name']} fell during Construct Breach",
-                description=f"*{monster['name']} left them at the Shrine threshold.*",
-                color=0x8B0000
+                title=f"💀 {character_name} fell during Construct Breach",
+                description=(
+                    f"*{monster['name']} left them at the Shrine threshold. "
+                    f"Lost {blackout['xp_loss']} XP and {blackout['gil_loss']} Gil.*"
+                ),
+                color=0x8B0000,
             )
             await broadcast_world_event(bot_ctx, death_embed)
+        elif simulated_hp <= 0:
+            result_lines.append(f"⚔️ **{character_name}** recovered before reaching the Shrine.")
+        elif defenders_won:
+            result_lines.append(
+                f"⚔️ **{character_name}** survived (received +{reward_xp} XP, +{reward_gil} gil, +10 Rep)"
+            )
         else:
-            if defenders_won:
-                s["xp"] += xp_each
-                s["gil"] += gil_each
-                s["reputation"] = s.get("reputation", 0) + 10
-                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
-            else:
-                s["reputation"] = max(-100, s["reputation"] - 10)
-                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
-                
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            result_lines.append(f"⚔️ **{character_name}** survived but withdrew (lost 10 Rep)")
+        if result["leveled"]:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
             
     wstate = load_world_state()
     now = time.time()
@@ -4163,6 +4176,14 @@ async def run_caravan_ambush(bot_ctx, channel):
         ))
         await _log_world_event("❌ **Caravan Destroyed** — bandits and beasts ransacked the Trade Road caravan.")
         return
+
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
 
     theme_key = secrets.choice(["beasts", "demons"])
     theme_data = DUNGEON_THEMES[theme_key]
@@ -4280,41 +4301,46 @@ async def run_caravan_ambush(bot_ctx, channel):
     casualty_count = 0
     
     for s, monster, rounds_log, won, escaped in combat_results:
-        if s["hp"]["current"] <= 0:
+        uid = str(s.get("user_id", ""))
+        start = starting_states_by_uid.get(uid, {})
+        simulated_hp = s.get("hp", {}).get("current", 0)
+        consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+        reward_xp = xp_each if simulated_hp > 0 and defenders_won else 0
+        reward_gil = gil_each if simulated_hp > 0 and defenders_won else 0
+        reputation_delta = 15 if simulated_hp > 0 and defenders_won else (-10 if simulated_hp > 0 else 0)
+        result = await _commit_background_combat_result(
+            uid, starting_hp=start.get("hp", 0), simulated_hp=simulated_hp,
+            consumed_conditions=consumed_conditions, xp_reward=reward_xp,
+            gil_reward=reward_gil, reputation_delta=reputation_delta,
+        )
+        if not result:
+            continue
+        character_name = result["character_name"]
+        blackout = result["blackout"]
+        if blackout:
             casualty_count += 1
-            s["hunt_streak"] = 0
-            xp_loss = int(s["xp"] * 0.10)
-            gil_loss = int(s["gil"] * 0.05)
-            s["xp"] = max(0, s["xp"] - xp_loss)
-            s["gil"] = max(0, s["gil"] - gil_loss)
-            s["hp"]["current"] = 1
-            s["location"] = "shrine"
-            s["deaths"] = s.get("deaths", 0) + 1
-            for _cb in ["embered", "fortified"]:
-                if _cb in s.get("conditions", []): s["conditions"].remove(_cb)
-            
-            result_lines.append(f"💀 **{s['character_name']}** blacked out (lost {xp_loss} XP, {gil_loss} gil)")
-            
+            result_lines.append(
+                f"💀 **{character_name}** blacked out (lost {blackout['xp_loss']} XP, {blackout['gil_loss']} gil)"
+            )
             death_embed = discord.Embed(
-                title=f"💀 {s['character_name']} fell protecting the Caravan",
-                description=f"*{monster['name']} left them at the Shrine threshold.*",
-                color=0x8B0000
+                title=f"💀 {character_name} fell protecting the Caravan",
+                description=(
+                    f"*{monster['name']} left them at the Shrine threshold. "
+                    f"Lost {blackout['xp_loss']} XP and {blackout['gil_loss']} Gil.*"
+                ),
+                color=0x8B0000,
             )
             await broadcast_world_event(bot_ctx, death_embed)
+        elif simulated_hp <= 0:
+            result_lines.append(f"⚔️ **{character_name}** recovered before reaching the Shrine.")
+        elif defenders_won:
+            result_lines.append(
+                f"⚔️ **{character_name}** survived (received +{reward_xp} XP, +{reward_gil} gil, +15 Rep)"
+            )
         else:
-            if defenders_won:
-                s["xp"] += xp_each
-                s["gil"] += gil_each
-                s["reputation"] = s.get("reputation", 0) + 15
-                result_lines.append(f"⚔️ **{s['character_name']}** survived (received +{xp_each} XP, +{gil_each} gil, +15 Rep)")
-            else:
-                s["reputation"] = max(-100, s["reputation"] - 10)
-                result_lines.append(f"⚔️ **{s['character_name']}** survived but withdrew (lost 10 Rep)")
-                
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+            result_lines.append(f"⚔️ **{character_name}** survived but withdrew (lost 10 Rep)")
+        if result["leveled"]:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
             
     wstate = load_world_state()
     if defenders_won:
@@ -4553,6 +4579,14 @@ async def run_construct_incursion(bot_ctx, channel):
         ))
         return
 
+    starting_states_by_uid = {
+        str(s["user_id"]): {
+            "hp": s.get("hp", {}).get("current", 0),
+            "conditions": list(s.get("conditions", [])),
+        }
+        for s in defenders if s.get("user_id")
+    }
+
     # 3. Select constructs theme
     theme_data = DUNGEON_THEMES["constructs"]
 
@@ -4689,44 +4723,54 @@ async def run_construct_incursion(bot_ctx, channel):
     casualty_count = 0
 
     for s, monster, rounds_log, won, escaped in combat_results:
-        if s["hp"]["current"] <= 0:
-            casualty_count += 1
-            s["hunt_streak"] = 0
-            xp_loss = int(s["xp"] * 0.10)
-            gil_loss = int(s["gil"] * 0.05)
-            s["xp"] = max(0, s["xp"] - xp_loss)
-            s["gil"] = max(0, s["gil"] - gil_loss)
-            s["hp"]["current"] = 1
-            s["location"] = "shrine"
-            s["deaths"] = s.get("deaths", 0) + 1
-            for _cb in ["embered", "fortified"]:
-                if _cb in s.get("conditions", []):
-                    s["conditions"].remove(_cb)
-
-            result_lines.append(f"💀 **{s['character_name']}** fell (lost {xp_loss} XP, {gil_loss} gil)")
-
-            death_embed = discord.Embed(
-                title=f"💀 {s['character_name']} fell to constructs",
-                description=f"*{monster['name']} left them at the Shrine threshold. Lost {xp_loss} XP and {gil_loss} Gil.*",
-                color=0x8B0000
-            )
-            death_embed.set_footer(text=f"Death #{s['deaths']}")
-            await broadcast_world_event(bot_ctx, death_embed)
-        else:
+        uid = str(s.get("user_id", ""))
+        start = starting_states_by_uid.get(uid, {})
+        simulated_hp = s.get("hp", {}).get("current", 0)
+        consumed_conditions = set(start.get("conditions", [])) - set(s.get("conditions", []))
+        reward_xp = 0
+        reward_gil = 0
+        reputation_delta = 0
+        if simulated_hp > 0:
             if defenders_won:
-                s["xp"] += xp_each
-                s["gil"] += gil_each
-                s["reputation"] = s.get("reputation", 0) + 10
-                result_lines.append(f"⚔️ **{s['character_name']}** held the watchtower (received +{xp_each} XP, +{gil_each} gil, +10 Rep)")
+                reward_xp, reward_gil, reputation_delta = xp_each, gil_each, 10
             else:
-                consolation_xp = max(1, xp_each // 2)
-                s["xp"] += consolation_xp
-                result_lines.append(f"⚔️ **{s['character_name']}** fought valiantly to hold the gate (+{consolation_xp} XP)")
-
-        leveled, new_lvl = check_level_up(s)
-        await save(s)
-        if leveled:
-            level_ups.append(f"🎉 **{s['character_name']}** reached **Level {new_lvl}!**")
+                reward_xp = max(1, xp_each // 2)
+        result = await _commit_background_combat_result(
+            uid, starting_hp=start.get("hp", 0), simulated_hp=simulated_hp,
+            consumed_conditions=consumed_conditions, xp_reward=reward_xp,
+            gil_reward=reward_gil, reputation_delta=reputation_delta,
+        )
+        if not result:
+            continue
+        character_name = result["character_name"]
+        blackout = result["blackout"]
+        if blackout:
+            casualty_count += 1
+            result_lines.append(
+                f"💀 **{character_name}** fell (lost {blackout['xp_loss']} XP, {blackout['gil_loss']} gil)"
+            )
+            death_embed = discord.Embed(
+                title=f"💀 {character_name} fell to constructs",
+                description=(
+                    f"*{monster['name']} left them at the Shrine threshold. "
+                    f"Lost {blackout['xp_loss']} XP and {blackout['gil_loss']} Gil.*"
+                ),
+                color=0x8B0000,
+            )
+            death_embed.set_footer(text=f"Death #{result['deaths']}")
+            await broadcast_world_event(bot_ctx, death_embed)
+        elif simulated_hp <= 0:
+            result_lines.append(f"⚔️ **{character_name}** recovered before reaching the Shrine.")
+        elif defenders_won:
+            result_lines.append(
+                f"⚔️ **{character_name}** held the watchtower (received +{reward_xp} XP, +{reward_gil} gil, +10 Rep)"
+            )
+        else:
+            result_lines.append(
+                f"⚔️ **{character_name}** fought valiantly to hold the gate (+{reward_xp} XP)"
+            )
+        if result["leveled"]:
+            level_ups.append(f"🎉 **{character_name}** reached **Level {result['new_level']}!**")
 
     # Apply global updates
     wstate = load_world_state()
