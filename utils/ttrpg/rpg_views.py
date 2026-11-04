@@ -1181,12 +1181,19 @@ def _make_status_view(ctx, msg, uid, uname, is_owner):
 
 
 async def _get_active_view(ctx, msg, uid, uname, is_owner):
-    """Returns the correct view context: overworld combat, dungeon combat, dungeon map, or None."""
+    """Returns the correct view context: current-location combat, dungeon combat, dungeon map, or None."""
     s = await load_session(str(msg.channel.id))
     if s and s.get("combat_active"):
-        for m in s.get("monsters", []):
-            if isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid):
-                return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
+        sheet = await load(uid)
+        if sheet:
+            current_location = sheet.get("location", "oakhaven")
+            for m in s.get("monsters", []):
+                if (
+                    isinstance(m, dict)
+                    and str(m.get("aggro_uid")) == str(uid)
+                    and m.get("origin_location") == current_location
+                ):
+                    return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
 
     from utils.ttrpg.dungeon import load_dungeon
     d_state = await load_dungeon(uid)
