@@ -59,6 +59,97 @@ async def _mutate_player_housing(user_id, mutation):
         return result
 
 
+async def _commit_background_combat_result(
+    user_id,
+    *,
+    starting_hp,
+    simulated_hp,
+    consumed_conditions=(),
+    xp_reward=0,
+    gil_reward=0,
+    reputation_delta=0,
+    knockout_xp_reward=0,
+    knockout_gil_reward=0,
+):
+    """Apply a raid's combat delta and reward to the latest character sheet.
+
+    Combat is simulated on an event-start snapshot without holding a user's
+    lock through Discord narration or the encounter. At commit time, apply
+    only the simulated HP delta and consumed conditions to a freshly loaded
+    sheet. Rewards are additive; level-up and knockout consequences are
+    recomputed from the fresh character state.
+    """
+    from utils.ttrpg.progression import check_level_up
+    from utils.ttrpg.rpg_combat_handler import _apply_overworld_blackout
+
+    simulated_knockout = simulated_hp <= 0
+    consumed = set(consumed_conditions or ())
+
+    def apply(sheet):
+        character_name = sheet.get("character_name", "An adventurer")
+        hp = sheet.setdefault("hp", {})
+        current_hp = int(hp.get("current", 0) or 0)
+        max_hp = int(hp.get("max", max(current_hp, 1)) or 1)
+        hp_delta = int(simulated_hp) - int(starting_hp)
+        hp["current"] = max(0, min(max_hp, current_hp + hp_delta))
+
+        conditions = sheet.setdefault("conditions", [])
+        for condition in consumed:
+            if condition in conditions:
+                conditions.remove(condition)
+
+        # The bank heist pays a half reward to a defender who was knocked out
+        # while the team won. Other background fights use the normal blackout
+        # penalties when the fresh sheet is still at 0 HP.
+        if simulated_knockout and (knockout_xp_reward or knockout_gil_reward):
+            hp["current"] = 1
+            sheet["location"] = "shrine"
+            sheet["deaths"] = sheet.get("deaths", 0) + 1
+        elif hp["current"] <= 0:
+            blackout = _apply_overworld_blackout(sheet)
+            for condition in ("embered", "fortified"):
+                if condition in conditions:
+                    conditions.remove(condition)
+        else:
+            blackout = None
+
+        xp_to_add = knockout_xp_reward if simulated_knockout else xp_reward
+        gil_to_add = knockout_gil_reward if simulated_knockout else gil_reward
+        if xp_to_add:
+            sheet["xp"] = sheet.get("xp", 0) + int(xp_to_add)
+        if gil_to_add:
+            sheet["gil"] = sheet.get("gil", 0) + int(gil_to_add)
+        if reputation_delta:
+            sheet["reputation"] = max(
+                -100, min(100, sheet.get("reputation", 0) + int(reputation_delta))
+            )
+
+        leveled, new_level = check_level_up(sheet)
+
+        # If the encounter snapshot showed a knockout but a concurrent heal
+        # left the fresh character standing, do not force the stale death onto
+        # them. Otherwise apply standard blackout after rewards/level-up.
+        if simulated_knockout and not (knockout_xp_reward or knockout_gil_reward):
+            if hp["current"] <= 0:
+                blackout = _apply_overworld_blackout(sheet)
+                for condition in ("embered", "fortified"):
+                    if condition in conditions:
+                        conditions.remove(condition)
+            else:
+                blackout = None
+
+        return {
+            "character_name": character_name,
+            "leveled": leveled,
+            "new_level": new_level,
+            "blackout": blackout,
+            "simulated_knockout": simulated_knockout,
+            "hp": hp.get("current", 0),
+        }
+
+    return await _mutate_player_sheet(user_id, apply)
+
+
 
 class CoreTaskManager:
     """Manager for core background loops with dependency injection and error handling."""
