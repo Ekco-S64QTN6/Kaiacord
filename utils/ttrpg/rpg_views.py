@@ -1431,8 +1431,10 @@ class SpineLiftView(StaleSafeView):
             fresh_sheet["hunts_today"] = fresh_sheet.get("hunts_today", 0) + entry_hunts
             dungeon["active"] = True
 
-            await save(fresh_sheet)
-            await save_spine_dungeon(self._uid, dungeon)
+            from utils.ttrpg.housing_transactions import commit_character_spine_dungeon
+            await commit_character_spine_dungeon(
+                fresh_sheet, dungeon, action="spine_lift_entry"
+            )
             self.stop()
 
             from utils.ttrpg.rpg_combat_handler import _send_dungeon_room
