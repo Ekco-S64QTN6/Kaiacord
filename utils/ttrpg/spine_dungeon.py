@@ -148,6 +148,69 @@ STAIR_GUARDIANS = {
     77: "the_mountain_heart"
 }
 
+def scale_stair_guardian(monster: dict, floor_num: int) -> dict:
+    """Return a floor-scaled guardian instance without changing the bestiary.
+
+    Spine room mobs use difficulty-5 scaling (1.6x base stats), then the
+    documented floor HP/ATK caps. A stair guardian is a progression gate, so
+    it sits above that ordinary encounter curve:
+
+    * HP is at least 1.2x the ordinary Spine floor HP cap.
+    * ATK is at least two points above the ordinary L15 floor cap and its
+      difficulty-scaled base attack.
+    * DEF is above the ordinary difficulty-scaled base and rises by depth.
+    * Every 15-floor milestone adds 5% Resonance Ward, to 25% on floors 75-77.
+
+    The level-15 ATK ceiling mirrors the max-level ordinary Spine cap. The
+    registry object is copied because multiple encounters share those records.
+    """
+    import copy
+    from utils.ttrpg.progression import XP_THRESHOLDS
+
+    if not isinstance(monster, dict):
+        raise TypeError("stair guardian must be a monster dictionary")
+    if isinstance(floor_num, bool):
+        raise ValueError("stair guardian floor must be an integer from 1 to 77")
+    try:
+        floor = int(floor_num)
+    except (TypeError, ValueError):
+        raise ValueError("stair guardian floor must be an integer from 1 to 77") from None
+    if floor < 1 or floor > MAX_FLOOR:
+        raise ValueError(f"stair guardian floor must be between 1 and {MAX_FLOOR}")
+
+    scaled = copy.deepcopy(monster)
+    raw_hp = scaled.get("hp", 1)
+    base_hp = int(raw_hp.get("max", raw_hp.get("current", 1))) if isinstance(raw_hp, dict) else int(raw_hp)
+    base_attack = int(scaled.get("attack", 0))
+    base_defense = int(scaled.get("defense", 0))
+
+    floor_hp_cap = 80 + floor * 3
+    difficulty_hp = min(int(base_hp * 1.6), floor_hp_cap)
+    guardian_hp_floor = (floor_hp_cap * 6 + 4) // 5  # ceil(1.2x)
+    scaled["hp"] = max(base_hp, difficulty_hp + 1, guardian_hp_floor)
+
+    max_level = max(XP_THRESHOLDS)
+    level_attack_cap = int(max_level * 1.5 + 2)
+    floor_attack_cap = min(12 + floor // 5, level_attack_cap)
+    difficulty_attack = min(int(base_attack * 1.6), floor_attack_cap)
+    scaled["attack"] = max(base_attack, difficulty_attack + 2, floor_attack_cap + 2)
+
+    difficulty_defense = int(base_defense * 1.6)
+    scaled["defense"] = max(
+        base_defense,
+        difficulty_defense + 1,
+        14 + floor // 6,
+    )
+
+    band = 1 + sum(floor >= milestone for milestone in (15, 30, 45, 60, 75))
+    ward_pct = min(25, (band - 1) * 5)
+    scaled["guardian_floor"] = floor
+    scaled["guardian_band"] = band
+    scaled["guardian_mechanic"] = "resonance_ward" if ward_pct else "none"
+    scaled["guardian_ward_pct"] = ward_pct
+    return scaled
+
+
 # Loot tier scales with depth
 def _loot_tier(floor_num):
     if floor_num <= 25: return 3
