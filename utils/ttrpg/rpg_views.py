@@ -2294,15 +2294,44 @@ class RenameHouseModal(discord.ui.Modal, title="Rename Your Home"):
     )
     def __init__(self, uid):
         super().__init__()
-        self.uid = uid
+        self.uid = str(uid)
+
     async def on_submit(self, interaction):
+        if str(interaction.user.id) != self.uid:
+            return await interaction.response.send_message(
+                "This house-renaming form belongs to another player.",
+                ephemeral=True,
+            )
+
+        new_name = self.new_name.value.strip()[:50]
+        if not new_name:
+            return await interaction.response.send_message(
+                "Enter a name for your home.",
+                ephemeral=True,
+            )
+
         from utils.ttrpg.housing import load_housing_async, save_housing_async
-        h = await load_housing_async(self.uid)
-        if not h: return
-        h["house_name"] = self.new_name.value.strip()[:50]
-        await save_housing_async(h)
+        from utils.ttrpg.session_manager import player_locked
+
+        @player_locked(self.uid)
+        async def _rename_for_owner():
+            # Re-read both records after acquiring the same lock used by typed
+            # player actions. Never save the modal's stale housing snapshot.
+            sheet = await load(self.uid)
+            if not sheet:
+                return None, "No character found."
+            housing = await load_housing_async(self.uid)
+            if not housing:
+                return None, "You no longer own a home to rename."
+            housing["house_name"] = new_name
+            await save_housing_async(housing)
+            return housing["house_name"], None
+
+        house_name, error = await _rename_for_owner()
+        if error:
+            return await interaction.response.send_message(error, ephemeral=True)
         await interaction.response.send_message(
-            f"🏡 Your home is now named **{h['house_name']}**.", ephemeral=True
+            f"🏡 Your home is now named **{house_name}**.", ephemeral=True
         )
 
 
