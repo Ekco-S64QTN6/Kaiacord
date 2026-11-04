@@ -1583,7 +1583,9 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.shop import find_item
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
-    
+    from utils.ttrpg.rpg_combat_handler import _recover_pending_combat_outcomes
+    await _recover_pending_combat_outcomes(uid, sheet)
+
     item_key = rest.strip().lower().replace(" ", "_")
     from utils.ttrpg.equipment_registry import ALIASES
     item_key = ALIASES.get(item_key, item_key)
