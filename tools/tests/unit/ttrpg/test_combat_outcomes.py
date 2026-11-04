@@ -324,7 +324,9 @@ def test_overworld_defeat_recovers_after_character_penalty_write():
 
 def test_unknown_journal_kind_is_preserved_for_future_recovery():
     persisted_sheet = {}
+    writes = []
     async def save_sheet(sheet):
+        writes.append(deepcopy(sheet))
         persisted_sheet.clear()
         persisted_sheet.update(deepcopy(sheet))
 
