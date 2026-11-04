@@ -376,3 +376,155 @@ def test_a_completed_outcome_id_rejects_duplicate_commit_calls():
     assert encounter_writes == [outcome["outcome_id"]]
     assert "pending_combat_outcomes" not in sheet
     assert sheet["completed_combat_outcomes"] == [outcome["outcome_id"]]
+
+
+def test_overworld_round_recovery_merges_target_and_deduplicates_after_cleanup_failure(
+    monkeypatch,
+):
+    from copy import deepcopy
+    from utils.ttrpg import rpg_combat_handler as combat_handler
+
+    outcome_id = "overworld-round:42:123:wolf-1:round-abc"
+    outcome = {
+        "outcome_id": outcome_id,
+        "kind": "overworld_round",
+        "channel_id": "123",
+        "owner_id": "42",
+        "monster_id": "wolf-1",
+        "monster_after": {
+            "id": "wolf-1",
+            "aggro_uid": "42",
+            "key": "wolf",
+            "hp": {"current": 17, "max": 30},
+        },
+        "combat_log_entry": {
+            "outcome_id": outcome_id,
+            "uid": "42",
+            "monster_name": "Wolf",
+            "monster_damage": 6,
+            "player_hp_after": 24,
+        },
+    }
+    persisted_sheet = {
+        "user_id": "42",
+        "pending_combat_outcomes": {outcome_id: deepcopy(outcome)},
+    }
+    persisted_session = {
+        "channel_id": "123",
+        "combat_active": True,
+        "monsters": [
+            {
+                "id": "wolf-1", "aggro_uid": "42", "key": "wolf",
+                "hp": {"current": 23, "max": 30},
+            },
+            {"id": "other-player-wolf", "aggro_uid": "99", "key": "wolf"},
+            {"id": "same-owner-other-encounter", "aggro_uid": "42", "key": "slime"},
+        ],
+        "combat_log": [{"uid": "99", "monster_name": "Goblin"}],
+    }
+    session_writes = []
+    sheet_writes = []
+
+    async def load_session(channel_id):
+        assert channel_id == "123"
+        return deepcopy(persisted_session)
+
+    async def save_session(snapshot):
+        session_writes.append(deepcopy(snapshot))
+        persisted_session.clear()
+        persisted_session.update(deepcopy(snapshot))
+
+    async def save_sheet(snapshot):
+        sheet_writes.append(deepcopy(snapshot))
+        if len(sheet_writes) == 1:
+            raise OSError("simulated crash after session save, before journal cleanup")
+        persisted_sheet.clear()
+        persisted_sheet.update(deepcopy(snapshot))
+
+    monkeypatch.setattr(combat_handler, "load_session", load_session)
+    monkeypatch.setattr(combat_handler, "save_session", save_session)
+    monkeypatch.setattr(combat_handler, "save", save_sheet)
+
+    # The session write lands, then the character journal cleanup fails. On
+    # restart the durable character still has the pending outcome, so replay
+    # must merge the same monster/log event without duplicating or clobbering
+    # another player's encounters.
+    first_boot_sheet = deepcopy(persisted_sheet)
+    with pytest.raises(OSError, match="journal cleanup"):
+        asyncio.run(combat_handler._recover_pending_combat_outcomes("42", first_boot_sheet))
+
+    retry_sheet = deepcopy(persisted_sheet)
+    assert asyncio.run(combat_handler._recover_pending_combat_outcomes("42", retry_sheet)) == 1
+    assert "pending_combat_outcomes" not in persisted_sheet
+    assert persisted_session["monsters"][0]["hp"]["current"] == 17
+    assert [m["id"] for m in persisted_session["monsters"]] == [
+        "wolf-1", "other-player-wolf", "same-owner-other-encounter"
+    ]
+    assert len([
+        entry for entry in persisted_session["combat_log"]
+        if entry.get("outcome_id") == outcome_id
+    ]) == 1
+    assert len(session_writes) == 2
+
+
+def test_overworld_terminal_recovery_merges_log_and_removes_only_owned_monster(
+    monkeypatch,
+):
+    from copy import deepcopy
+    from utils.ttrpg import rpg_combat_handler as combat_handler
+
+    outcome_id = "overworld:42:456:wolf-2:victory"
+    outcome = {
+        "outcome_id": outcome_id,
+        "kind": "overworld",
+        "channel_id": "456",
+        "owner_id": "42",
+        "monster_id": "wolf-2",
+        "combat_log_entry": {
+            "outcome_id": "overworld-round:42:456:wolf-2:round-1",
+            "uid": "42",
+            "monster_name": "Wolf",
+            "monster_defeated": True,
+        },
+    }
+    sheet = {
+        "user_id": "42",
+        "pending_combat_outcomes": {outcome_id: deepcopy(outcome)},
+    }
+    session = {
+        "channel_id": "456",
+        "combat_active": True,
+        "monsters": [
+            {"id": "wolf-2", "aggro_uid": "42", "key": "wolf"},
+            {"id": "other-player-wolf", "aggro_uid": "99", "key": "wolf"},
+        ],
+        "combat_log": [],
+    }
+    persisted_sheet = {}
+
+    async def load_session(channel_id):
+        assert channel_id == "456"
+        return deepcopy(session)
+
+    async def save_session(snapshot):
+        session.clear()
+        session.update(deepcopy(snapshot))
+
+    async def save_sheet(snapshot):
+        persisted_sheet.clear()
+        persisted_sheet.update(deepcopy(snapshot))
+
+    monkeypatch.setattr(combat_handler, "load_session", load_session)
+    monkeypatch.setattr(combat_handler, "save_session", save_session)
+    monkeypatch.setattr(combat_handler, "save", save_sheet)
+
+    assert asyncio.run(combat_handler._recover_pending_combat_outcomes("42", sheet)) == 1
+    assert [monster["id"] for monster in session["monsters"]] == ["other-player-wolf"]
+    assert session["combat_active"] is True
+    assert len(session["combat_log"]) == 1
+
+    # Replaying an already-applied terminal outcome is harmless.
+    sheet["pending_combat_outcomes"] = {outcome_id: deepcopy(outcome)}
+    assert asyncio.run(combat_handler._recover_pending_combat_outcomes("42", sheet)) == 1
+    assert [monster["id"] for monster in session["monsters"]] == ["other-player-wolf"]
+    assert len(session["combat_log"]) == 1
