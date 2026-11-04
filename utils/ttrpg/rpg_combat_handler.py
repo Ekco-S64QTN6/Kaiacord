@@ -1611,24 +1611,48 @@ async def _handle_flee(ctx, msg, send, rest, uid, uname, is_owner):
             
     if to_flee == -1: return await msg.channel.send(embed=discord.Embed(description="You have nothing chasing you.", color=0xcc4444))
     
-    # Load sheet to deduct hunt and clear combat-only item buffs before
-    # persisting. Saving before this cleanup left Firebrew/Ironbark active
-    # after a flee, unlike victory, defeat, and dungeon-flee paths.
+    # Persist the stamina/buff change and encounter removal as one replayable
+    # outcome. A crash cannot charge a hunt while leaving the monster active.
     sheet = await load(uid)
     if not sheet:
         return await no_character(msg)
 
+    monster = s["monsters"][to_flee]
+    monster_name = monster.get("name", "something")
+    monster_id = str(monster.get("id") or "")
     sheet["hunts_today"] = sheet.get("hunts_today", 0) + 1
     for _cb in ("embered", "fortified"):
         if _cb in sheet.get("conditions", []):
             sheet["conditions"].remove(_cb)
-    await save(sheet)
+
+    outcome_id = (
+        f"overworld-flee:{uid}:{msg.channel.id}:{monster_id or 'legacy'}:{_uuid.uuid4().hex}"
+    )
+    outcome = {
+        "outcome_id": outcome_id,
+        "kind": "overworld_escape",
+        "channel_id": str(msg.channel.id),
+        "owner_id": str(uid),
+        "monster_key": monster.get("key"),
+        "origin_location": monster.get("origin_location"),
+    }
+    if monster_id:
+        outcome["monster_id"] = monster_id
+
+    from utils.ttrpg.combat_outcomes import commit_outcome
+    async def _persist_flee(pending):
+        await _apply_overworld_combat_update(pending, remove_monster=True)
+
+    await commit_outcome(
+        sheet,
+        outcome,
+        save_sheet=save,
+        persist_encounter=_persist_flee,
+    )
+
     hunt_note = "\n*(This escape cost 1 hunt stamina)*"
     from utils.ttrpg import outing
-    await outing.note(uid, "fled", s["monsters"][to_flee].get("name", "something"))
-    s["monsters"].pop(to_flee)
-    if not s["monsters"]: s["combat_active"] = False
-    await save_session(s)
+    await outing.note(uid, "fled", monster_name)
     
     view = _make_hunt_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=discord.Embed(
