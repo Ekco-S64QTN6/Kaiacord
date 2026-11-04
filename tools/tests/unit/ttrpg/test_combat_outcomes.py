@@ -528,3 +528,148 @@ def test_overworld_terminal_recovery_merges_log_and_removes_only_owned_monster(
     assert asyncio.run(combat_handler._recover_pending_combat_outcomes("42", sheet)) == 1
     assert [monster["id"] for monster in session["monsters"]] == ["other-player-wolf"]
     assert len(session["combat_log"]) == 1
+
+
+def test_smoke_bomb_escape_outcome_recovers_all_and_only_owned_monsters(monkeypatch):
+    from utils.ttrpg import rpg_combat_handler as combat_handler, session_manager
+
+    outcome_id = "overworld-escape:42:88:message-1"
+    outcome = {
+        "outcome_id": outcome_id,
+        "kind": "overworld_escape",
+        "channel_id": "88",
+        "owner_id": "42",
+        "monster_ids": ["wolf-1", "slime-2"],
+    }
+    persisted_sheet = {}
+    persisted_session = {
+        "channel_id": "88",
+        "combat_active": True,
+        "monsters": [
+            {"id": "wolf-1", "aggro_uid": "42", "origin_location": "tricklebrook_pond"},
+            {"id": "slime-2", "aggro_uid": "42", "origin_location": "tricklebrook_pond"},
+            {"id": "other-player", "aggro_uid": "99", "origin_location": "tricklebrook_pond"},
+            {"id": "same-player-other-place", "aggro_uid": "42", "origin_location": "oakhaven"},
+        ],
+    }
+
+    async def load_session(channel_id):
+        assert channel_id == "88"
+        return deepcopy(persisted_session)
+
+    async def save_session(snapshot):
+        persisted_session.clear()
+        persisted_session.update(deepcopy(snapshot))
+
+    save_calls = 0
+    async def save_sheet(snapshot):
+        nonlocal save_calls
+        save_calls += 1
+        if save_calls == 2:
+            raise OSError("simulated crash after escape, before journal cleanup")
+        persisted_sheet.clear()
+        persisted_sheet.update(deepcopy(snapshot))
+
+    monkeypatch.setattr(session_manager, "load_session", load_session)
+    monkeypatch.setattr(session_manager, "save_session", save_session)
+    monkeypatch.setattr(combat_handler, "save", save_sheet)
+
+    sheet = {"user_id": "42", "inventory": []}
+    with pytest.raises(OSError, match="journal cleanup"):
+        asyncio.run(commit_outcome(
+            sheet,
+            outcome,
+            save_sheet=save_sheet,
+            persist_encounter=lambda pending: session_manager.apply_overworld_combat_update(
+                pending, remove_monster=True
+            ),
+        ))
+
+    assert [m["id"] for m in persisted_session["monsters"]] == [
+        "other-player", "same-player-other-place"
+    ]
+    assert outcome_id in persisted_sheet["pending_combat_outcomes"]
+
+    recovered_sheet = deepcopy(persisted_sheet)
+    assert asyncio.run(recover_pending_outcomes(
+        recovered_sheet,
+        save_sheet=save_sheet,
+        recoverers={
+            "overworld_escape": lambda pending: session_manager.apply_overworld_combat_update(
+                pending, remove_monster=True
+            )
+        },
+    )) == 1
+    assert [m["id"] for m in persisted_session["monsters"]] == [
+        "other-player", "same-player-other-place"
+    ]
+    assert "pending_combat_outcomes" not in persisted_sheet
+
+
+def test_overworld_outcome_recovery_clears_blockade_with_monster(monkeypatch, tmp_path):
+    from utils.ttrpg import rpg_combat_handler as combat_handler, session_manager, world_state
+
+    state_path = tmp_path / "world_state.json"
+    journal_path = tmp_path / "world_state_pending.json"
+    monkeypatch.setattr(world_state, "_path", lambda: str(state_path))
+    monkeypatch.setattr(world_state, "_transaction_path", lambda: str(journal_path))
+    monkeypatch.setattr(world_state, "_cache", None)
+    monkeypatch.setattr(world_state, "_cache_date", 0.0)
+    monkeypatch.setattr(world_state, "_transaction_lock", asyncio.Lock())
+    world_state.save_world_state({
+        **world_state.DEFAULT_STATE,
+        "blockade_active": True,
+        "shop_price_mult": 1.35,
+        "shop_price_mult_expiry": 4_000_000_000,
+    })
+
+    persisted_session = {
+        "channel_id": "89",
+        "combat_active": True,
+        "monsters": [
+            {"id": "captain-1", "aggro_uid": "42", "key": "bandit_captain"},
+            {"id": "other-player", "aggro_uid": "99", "key": "wolf"},
+        ],
+    }
+    async def load_session(channel_id):
+        assert channel_id == "89"
+        return deepcopy(persisted_session)
+
+    async def save_session(snapshot):
+        persisted_session.clear()
+        persisted_session.update(deepcopy(snapshot))
+
+    persisted_sheet = {}
+    async def save_sheet(sheet):
+        persisted_sheet.clear()
+        persisted_sheet.update(deepcopy(sheet))
+
+    monkeypatch.setattr(session_manager, "load_session", load_session)
+    monkeypatch.setattr(session_manager, "save_session", save_session)
+    monkeypatch.setattr(combat_handler, "save", save_sheet)
+
+    outcome_id = "overworld:42:89:captain-1:victory"
+    outcome = {
+        "outcome_id": outcome_id,
+        "kind": "overworld",
+        "channel_id": "89",
+        "owner_id": "42",
+        "monster_id": "captain-1",
+        "clear_blockade": True,
+    }
+    sheet = {
+        "user_id": "42",
+        "pending_combat_outcomes": {outcome_id: deepcopy(outcome)},
+    }
+
+    assert asyncio.run(combat_handler._recover_pending_combat_outcomes("42", sheet)) == 1
+    final_world = world_state.load_world_state()
+    assert final_world["blockade_active"] is False
+    assert final_world["shop_price_mult"] == 1.0
+    assert final_world["shop_price_mult_expiry"] == 0
+    assert [m["id"] for m in persisted_session["monsters"]] == ["other-player"]
+
+    sheet["pending_combat_outcomes"] = {outcome_id: deepcopy(outcome)}
+    assert asyncio.run(combat_handler._recover_pending_combat_outcomes("42", sheet)) == 1
+    assert [m["id"] for m in persisted_session["monsters"]] == ["other-player"]
+    assert world_state.load_world_state()["blockade_active"] is False
