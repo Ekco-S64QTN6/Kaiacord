@@ -71,9 +71,6 @@ async def _save_resource_snapshot(user_id: str, resource_kind: str, resource_sta
     elif resource_kind == "spine_dungeon":
         from utils.ttrpg.spine_dungeon import save_spine_dungeon
         await save_spine_dungeon(str(user_id), snapshot)
-    elif resource_kind == "session":
-        from utils.ttrpg.session_manager import save_session
-        await save_session(snapshot)
     else:
         raise RuntimeError(f"Unknown multi-file transaction resource: {resource_kind!r}")
 
@@ -92,14 +89,12 @@ async def _replay_record_locked(
     resource_state = record.get("resource_state", record.get("housing"))
     if not isinstance(sheet, dict) or str(sheet.get("user_id")) != str(user_id):
         raise RuntimeError("Multi-file transaction journal has an invalid character snapshot.")
-    if resource_kind not in {"housing", "dungeon", "spine_dungeon", "session"}:
+    if resource_kind not in {"housing", "dungeon", "spine_dungeon"}:
         raise RuntimeError(f"Unknown multi-file transaction resource: {resource_kind!r}")
     if not isinstance(resource_state, dict):
         raise RuntimeError("Multi-file transaction journal has an invalid resource snapshot.")
     if resource_kind == "housing" and str(resource_state.get("user_id")) != str(user_id):
         raise RuntimeError("Housing transaction journal owner mismatch.")
-    if resource_kind == "session" and not str(resource_state.get("channel_id") or ""):
-        raise RuntimeError("Session transaction journal has no channel_id.")
 
     # Snapshot replay is idempotent. Keep the journal until both writes succeed.
     from utils.ttrpg.character_manager import save as save_character
@@ -157,19 +152,17 @@ async def commit_character_resource(
     """Durably commit a character sheet and one secondary RPG resource snapshot.
 
     The write-ahead journal is durable before either JSON file is changed.
-    Supported resource kinds are housing, dungeon, spine_dungeon and session.
+    Supported resource kinds are housing, dungeon and spine_dungeon.
     """
     if not isinstance(sheet, dict) or not isinstance(resource_state, dict):
         raise ValueError("multi-file transactions require dictionary snapshots")
     uid = str(sheet.get("user_id") or "")
     if not uid:
         raise ValueError("multi-file transaction requires a character user_id")
-    if resource_kind not in {"housing", "dungeon", "spine_dungeon", "session"}:
+    if resource_kind not in {"housing", "dungeon", "spine_dungeon"}:
         raise ValueError(f"unsupported multi-file resource kind: {resource_kind!r}")
     if resource_kind == "housing" and str(resource_state.get("user_id") or "") != uid:
         raise ValueError("character and housing snapshots must have the same user_id")
-    if resource_kind == "session" and not str(resource_state.get("channel_id") or ""):
-        raise ValueError("session snapshot requires a channel_id")
     if not action:
         raise ValueError("multi-file transaction requires an action name")
 
@@ -239,11 +232,3 @@ async def commit_character_spine_dungeon(
         sheet, dungeon_state, resource_kind="spine_dungeon", action=action
     )
 
-
-async def commit_character_session(
-    sheet: dict, session_state: dict, *, action: str
-) -> None:
-    """Commit a character cost/result with its shared channel-session snapshot."""
-    await commit_character_resource(
-        sheet, session_state, resource_kind="session", action=action
-    )
