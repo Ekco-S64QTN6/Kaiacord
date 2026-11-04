@@ -222,6 +222,14 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   before handing anything to a writer thread: `BotState.save()` serialises on the caller's
   thread, because `json.dump` over live dicts on the writer raised mid-iteration and dropped
   the save. `write_atomic` names its temporary per process *and* thread for the same reason.
+- **RPG multi-file writes use the resource's recovery journal.** Character + housing, dungeon or
+  Spine snapshots go through `housing_transactions.commit_character_resource()`; character +
+  shared pond/town updates go through `world_state.mutate_world_state()`; combat rewards and
+  encounter mutations go through `combat_outcomes.commit_outcome()`. Do not split one logical
+  action into independent character/resource saves. Channel sessions are shared by every player
+  in that channel: never persist or replay a stale whole-session snapshot as one player's recovery
+  payload. Patch only the owned encounter by owner ID + stable monster ID, and deduplicate
+  combat-log entries by outcome ID. Fault-inject each write boundary and test repeated recovery.
 - **Appends to a user log are serialised by a sidecar `flock`.** `append_atomic` and the RAG
   interaction logger (`_write_interaction_to_disk`) both lock `.<log name>.append.lock` beside the
   log and decide "first write, add the header" inside the lock — two worker threads each carried
