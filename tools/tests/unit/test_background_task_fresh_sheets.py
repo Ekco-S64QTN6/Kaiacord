@@ -118,3 +118,78 @@ def test_combat_event_applies_only_hp_and_reward_deltas_to_fresh_sheet(monkeypat
     assert live_sheet["reputation"] == 8
     assert live_sheet["inventory"] == ["potion_standard"]
     assert live_sheet["conditions"] == ["blessed"]
+
+
+def test_blight_event_preserves_crop_planted_after_candidate_snapshot(monkeypatch):
+    from utils.core import background_tasks
+    from utils.ttrpg import broadcast, character_manager, farming, housing, session_manager
+
+    user_id = "42003"
+    old_plot = {"crop_key": "blood_thistle_seed", "stage": 2, "blighted": False}
+    live_housing = {
+        "user_id": user_id,
+        "character_name": "Gardener",
+        "farming": {"plots": [copy.deepcopy(old_plot)]},
+    }
+
+    async def load_all_sheets():
+        return [{"user_id": user_id, "character_name": "Current Gardener"}]
+
+    def load_all_homes():
+        # Detached pre-event snapshot: only the original crop exists.
+        return [copy.deepcopy(live_housing)]
+
+    async def load_home(uid):
+        assert str(uid) == user_id
+        return copy.deepcopy(live_housing)
+
+    async def save_home(value):
+        live_housing.clear()
+        live_housing.update(copy.deepcopy(value))
+
+    monkeypatch.setattr(character_manager, "load_all", load_all_sheets)
+    monkeypatch.setattr(housing, "load_all_housing", load_all_homes)
+    monkeypatch.setattr(housing, "load_housing_async", load_home)
+    monkeypatch.setattr(housing, "save_housing_async", save_home)
+    monkeypatch.setattr(background_tasks.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(background_tasks, "log_action", lambda *args, **kwargs: None)
+    monkeypatch.setattr(broadcast, "log_world_event", AsyncMock())
+
+    # The event chooses the first plot after candidate discovery.
+    monkeypatch.setattr(secrets, "randbelow", lambda upper: 0)
+    monkeypatch.setattr(random, "sample", lambda population, count: list(population)[:count])
+
+    real_mutate = background_tasks._mutate_player_housing
+    interleaved = False
+
+    async def player_plants_then_event_mutates(uid, mutation):
+        nonlocal interleaved
+        if not interleaved:
+            async with await session_manager.get_action_lock(f"user:{uid}"):
+                live_housing["farming"]["plots"].append({
+                    "crop_key": "honey_sap_seed",
+                    "stage": 1,
+                    "blighted": False,
+                })
+            interleaved = True
+        return await real_mutate(uid, mutation)
+
+    monkeypatch.setattr(
+        background_tasks, "_mutate_player_housing", player_plants_then_event_mutates
+    )
+    channel = SimpleNamespace(send=AsyncMock())
+
+    asyncio.run(background_tasks.run_blight_on_the_crops(None, channel))
+
+    assert interleaved is True
+    plots = live_housing["farming"]["plots"]
+    assert len(plots) == 2
+    assert plots[0]["blighted"] is True
+    assert plots[1] == {
+        "crop_key": "honey_sap_seed",
+        "stage": 1,
+        "blighted": False,
+    }
+    final_embed = channel.send.await_args.kwargs["embed"]
+    assert "Current Gardener" in final_embed.description
+    assert "Blood Thistle Seed" in final_embed.description
