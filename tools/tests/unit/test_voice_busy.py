@@ -227,3 +227,20 @@ def test_failed_persistence_restores_the_reindex_request(monkeypatch, tmp_path):
 
     assert trigger.exists()
     assert not (tmp_path / ".trigger_reindex.processing").exists()
+
+
+
+def test_persist_exception_restores_the_reindex_request(monkeypatch, tmp_path):
+    trigger = tmp_path / ".trigger_reindex"
+    trigger.write_text("")
+
+    async def persist_exception():
+        raise OSError("simulated disk failure")
+
+    _run_reindex_sweep(
+        monkeypatch, trigger, lambda: True,
+        persist_needed=True, persist_async=persist_exception,
+    )
+
+    assert trigger.exists()
+    assert not (tmp_path / ".trigger_reindex.processing").exists()

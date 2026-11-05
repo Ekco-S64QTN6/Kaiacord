@@ -82,8 +82,8 @@ async def rag_maintenance_task():
 
         try:
             # 1. Scan for new/changed/deleted files (Self-Heal)
-            refresh_completed = await run_rag(ctx.rag.refresh_knowledge_base) is True
-            if not refresh_completed:
+            refresh_succeeded = await run_rag(ctx.rag.refresh_knowledge_base) is True
+            if not refresh_succeeded:
                 log_warning("RAG refresh did not complete; preserving its reindex request.")
                 return
 
@@ -91,10 +91,12 @@ async def rag_maintenance_task():
             if getattr(ctx.rag, 'persist_needed', False):
                 persist_result = await ctx.rag.persist_async()
                 if persist_result is False:
-                    refresh_completed = False
                     log_warning("RAG persistence did not complete; preserving its reindex request.")
                     return
 
+            # Mark the claim consumed only after the full operation (including
+            # any final persist) has completed without an error.
+            refresh_completed = True
             log_success("RAG maintenance complete.")
         finally:
             if claimed and os.path.exists(claimed_path):
