@@ -50,6 +50,7 @@ def test_grounding_retries_503_with_capped_exponential_backoff(monkeypatch):
     sleeps = []
 
     monkeypatch.setattr(ukn, "ServerError", TemporaryUnavailable)
+    monkeypatch.setattr(ukn.random, "uniform", lambda _low, high: high)
     monkeypatch.setattr(ukn.time, "sleep", sleeps.append)
 
     brief = updater.generate_daily_brief()
@@ -60,6 +61,67 @@ def test_grounding_retries_503_with_capped_exponential_backoff(monkeypatch):
     assert [ukn.grounding_retry_delay(n) for n in range(1, 7)] == [
         10, 20, 40, 60, 60, 60
     ]
+
+
+def test_grounding_retry_delay_uses_full_jitter(monkeypatch):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_ukn_jitter", "tools/maintenance/update_kaia_news.py"
+    )
+    ukn = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ukn)
+
+    bounds = []
+    def midpoint(low, high):
+        bounds.append((low, high))
+        return (low + high) / 2
+
+    monkeypatch.setattr(ukn.random, "uniform", midpoint)
+    assert [ukn.grounding_retry_delay(n) for n in range(1, 7)] == [
+        5, 10, 20, 30, 30, 30
+    ]
+    assert bounds == [
+        (0.0, 10.0), (0.0, 20.0), (0.0, 40.0),
+        (0.0, 60.0), (0.0, 60.0), (0.0, 60.0),
+    ]
+
+
+def test_permanent_api_error_is_not_retried(monkeypatch):
+    import importlib.util
+    from types import SimpleNamespace
+
+    spec = importlib.util.spec_from_file_location(
+        "_ukn_permanent", "tools/maintenance/update_kaia_news.py"
+    )
+    ukn = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ukn)
+
+    class PermanentAPIError(Exception):
+        code = 400
+
+    class FailingModels:
+        attempts = 0
+        def generate_content(self, **_kwargs):
+            self.attempts += 1
+            raise PermanentAPIError("invalid request")
+
+    models = FailingModels()
+    updater = ukn.KaiaNewsUpdater.__new__(ukn.KaiaNewsUpdater)
+    updater.client = SimpleNamespace(models=models)
+    updater.model_name = "gemini-2.5-flash"
+    updater.today = "2026-11-05"
+    sleeps = []
+
+    monkeypatch.setattr(ukn, "APIError", PermanentAPIError)
+    monkeypatch.setattr(ukn.time, "sleep", sleeps.append)
+
+    import pytest
+    with pytest.raises(Exception, match="Grounding failed after 1 attempt"):
+        updater.generate_daily_brief()
+
+    assert models.attempts == 1
+    assert sleeps == []
 
 
 
