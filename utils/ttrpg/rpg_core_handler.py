@@ -908,6 +908,7 @@ async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner):
     )
 
 
+# The extracted handler preserves the Trickster has_gamble_edge advantage.
 async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.rpg_gamble_handler import _handle_gamble as handle
     return await handle(
