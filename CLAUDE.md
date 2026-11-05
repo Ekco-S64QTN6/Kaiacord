@@ -211,7 +211,9 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
 - **Defence soft-cap** `min(10, raw) + max(0, raw - 10) // 2` and **global DEF cap**
   `level * 1.5 + 12` are intentional. Do not remove or bypass.
 - **Character sheets** go through `character_manager.load()` / `.save()` only, never direct file
-  access. It uses per-user async locks.
+  access. Single-sheet loads verify the embedded `user_id` matches the requested filename owner;
+  legacy sheets without an ID adopt the filename as the source of truth. A mismatch or non-object
+  record fails closed before it can be mutated or saved. It uses per-user async locks.
 - **Atomic writes everywhere**: `utils/core/atomic_write.write_atomic()`. Do not call
   `Path.write_text` on anything under `knowledge_base/` or `memory/`. The rule dates from a
   half-written registry that caused an outage, and it was being followed where people remembered
