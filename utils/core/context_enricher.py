@@ -64,32 +64,37 @@ def _extract_pdf_text(raw_bytes: bytes) -> str:
     """Extract bounded text from a small PDF without sending binary data to the model."""
     if not raw_bytes.startswith(b"%PDF-"):
         return ""
-    from io import BytesIO
-    from pypdf import PdfReader
+    try:
+        from io import BytesIO
+        from pypdf import PdfReader
 
-    reader = PdfReader(BytesIO(raw_bytes), strict=False)
-    if reader.is_encrypted:
+        reader = PdfReader(BytesIO(raw_bytes), strict=False)
+        if reader.is_encrypted:
+            return ""
+
+        chunks = []
+        remaining = MAX_PDF_TEXT_CHARS
+        for page in reader.pages[:MAX_PDF_PAGES]:
+            page_text = (page.extract_text() or "").strip()
+            if not page_text:
+                continue
+            page_text = page_text[:remaining]
+            if page_text:
+                chunks.append(page_text)
+                remaining -= len(page_text)
+            if remaining <= 0:
+                break
+
+        extracted = re.sub(r"\n{3,}", "\n\n", "\n\n".join(chunks)).strip()
+        if len(reader.pages) > MAX_PDF_PAGES and extracted:
+            extracted += "\n\n[PDF truncated after 20 pages]"
+        elif remaining <= 0 and extracted:
+            extracted += "\n\n[PDF text truncated]"
+        return extracted[:MAX_PDF_TEXT_CHARS + 64]
+    except Exception:
+        # Bad xrefs, malformed objects, unsupported encryption and parser
+        # failures all fail closed; callers never receive raw PDF data.
         return ""
-
-    chunks = []
-    remaining = MAX_PDF_TEXT_CHARS
-    for page in reader.pages[:MAX_PDF_PAGES]:
-        page_text = (page.extract_text() or "").strip()
-        if not page_text:
-            continue
-        page_text = page_text[:remaining]
-        if page_text:
-            chunks.append(page_text)
-            remaining -= len(page_text)
-        if remaining <= 0:
-            break
-
-    extracted = re.sub(r"\n{3,}", "\n\n", "\n\n".join(chunks)).strip()
-    if len(reader.pages) > MAX_PDF_PAGES and extracted:
-        extracted += "\n\n[PDF truncated after 20 pages]"
-    elif remaining <= 0 and extracted:
-        extracted += "\n\n[PDF text truncated]"
-    return extracted[:MAX_PDF_TEXT_CHARS + 64]
 
 
 def _human_size(size: int) -> str:
