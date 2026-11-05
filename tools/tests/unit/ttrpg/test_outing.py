@@ -95,7 +95,39 @@ def test_legacy_open_outing_without_uid_adopts_its_filename_owner(in_tmp):
     data = asyncio.run(outing.peek("alice"))
 
     assert data["uid"] == "alice"
-    assert "uid" not in json.loads(open(path, encoding="utf-8").read())
+    with open(path, encoding="utf-8") as handle:
+        assert "uid" not in json.load(handle)
+
+
+def test_legacy_daily_and_untold_records_adopt_filename_owner(in_tmp):
+    day = outing._local_day()
+    os.makedirs(outing.DAILY_DIR, exist_ok=True)
+    os.makedirs(outing.UNTOLD_DIR, exist_ok=True)
+    daily_path = outing._daily_path("alice", day)
+    untold_path = os.path.join(outing.UNTOLD_DIR, f"daily_{day}_alice.json")
+    legacy = {
+        "day": day,
+        "zones": [],
+        "fights": [],
+        "events": [],
+        "fight_count": 0,
+        "wins": 0,
+        "losses": 0,
+        "xp": 0,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": [],
+        "trips": 0,
+    }
+    for path in (daily_path, untold_path):
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(legacy, handle)
+        data = outing._load_path_sync(path)
+        assert data["uid"] == "alice"
+        with open(path, encoding="utf-8") as handle:
+            assert "uid" not in json.load(handle)
 
 
 def test_daily_outing_owner_mismatch_is_preserved_during_finalization(in_tmp):
@@ -123,8 +155,9 @@ def test_daily_outing_owner_mismatch_is_preserved_during_finalization(in_tmp):
         json.dump(record, handle)
 
     assert outing._finalize_daily_sync(day) == []
-    assert json.loads(open(path, encoding="utf-8").read()) == record
-    assert os.listdir(outing.UNTOLD_DIR) == [] if os.path.isdir(outing.UNTOLD_DIR) else True
+    with open(path, encoding="utf-8") as handle:
+        assert json.load(handle) == record
+    assert os.listdir(outing.UNTOLD_DIR) == []
 
 
 def test_untold_outing_owner_mismatch_is_not_narrated_or_posted(in_tmp, monkeypatch):
