@@ -333,6 +333,7 @@ async def _load_dungeon_combat_context(uid: str):
 async def _resolve_dungeon_combat_exchange(encounter: dict) -> dict:
     """Resolve one exchange and append its immutable round summary to the run."""
     from utils.ttrpg.combat_engine import _resolve_combat
+    from utils.ttrpg.world_state import get_current_state
     from utils.ttrpg.housing import load_housing_async
     from utils.ttrpg.pets import get_pet_passive
     from utils.ttrpg.furniture import get_home_bonuses
@@ -397,6 +398,8 @@ async def _resolve_dungeon_combat_exchange(encounter: dict) -> dict:
 async def _finish_dungeon_victory(ctx_obj, interaction, uid, uname, is_owner,
                                   encounter: dict, round_data: dict) -> None:
     """Apply a dungeon victory, journal it, then render or complete the encounter."""
+    from utils.ttrpg.shop import find_item
+    from utils.ttrpg.progression import check_level_up, xp_to_next_level
     sheet = encounter["sheet"]
     state = encounter["state"]
     loc = encounter["location"]
@@ -591,7 +594,6 @@ async def _finish_dungeon_defeat(ctx_obj, interaction, uid, uname, is_owner,
     combat_id = encounter["combat_id"]
     monster = encounter["monster"]
     monster_key = encounter["monster_key"]
-    res = round_data["res"]
     exchange_text = round_data["exchange_text"]
 
     for _cb in ["embered", "fortified"]:
@@ -679,7 +681,6 @@ async def _continue_dungeon_combat_round(ctx_obj, interaction, uid, uname, is_ow
     monster = encounter["monster"]
     is_boss = encounter["is_boss"]
     boss_name = encounter["boss_name"]
-    res = round_data["res"]
     exchange_text = round_data["exchange_text"]
 
     # Combat continues — update monster HP in state
