@@ -84,11 +84,11 @@ def _extract_pdf_text(raw_bytes: bytes) -> str:
         if remaining <= 0:
             break
 
-    extracted = re.sub(r"\\n{3,}", "\\n\\n", "\\n\\n".join(chunks)).strip()
+    extracted = re.sub(r"\n{3,}", "\n\n", "\n\n".join(chunks)).strip()
     if len(reader.pages) > MAX_PDF_PAGES and extracted:
-        extracted += "\\n\\n[PDF truncated after 20 pages]"
+        extracted += "\n\n[PDF truncated after 20 pages]"
     elif remaining <= 0 and extracted:
-        extracted += "\\n\\n[PDF text truncated]"
+        extracted += "\n\n[PDF text truncated]"
     return extracted[:MAX_PDF_TEXT_CHARS + 64]
 
 
