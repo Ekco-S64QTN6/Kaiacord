@@ -412,7 +412,7 @@ def test_pdf_worker_wall_timeout_kills_and_reaps_the_child(monkeypatch, tmp_path
 
     pid_file = tmp_path / "pdf-worker.pid"
     script = ce._PDF_WORKER_SCRIPT + (
-        f"\nfrom pathlib import Path\n"
+        f"\nimport os\nfrom pathlib import Path\n"
         f"Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
         "import time\ntime.sleep(10)\n"
     )
