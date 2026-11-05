@@ -342,3 +342,65 @@ def test_complete_index_persist_advances_the_manifest(tmp_path, indexer, monkeyp
     assert persisted == {"knowledge", "logs"}
     with open(ix.state_file, encoding="utf-8") as f:
         assert json.load(f) == ix.indexed_files
+
+
+
+def test_pruning_defers_manifest_until_changed_indices_persist(tmp_path, indexer, monkeypatch):
+    """Deleting file nodes must not commit a manifest that outruns disk snapshots."""
+    import json
+
+    ix, kb = indexer
+    ix.persist_dir = str(tmp_path / "rag_storage")
+    ix.state_file = os.path.join(ix.persist_dir, "file_manifest.json")
+    os.makedirs(ix.persist_dir)
+    deleted = str((kb / "documents" / "deleted.md").resolve())
+    old_manifest = {
+        deleted: {"mtime": 10, "size": 5, "nodes": ["old-node"], "itype": "knowledge"}
+    }
+    with open(ix.state_file, "w", encoding="utf-8") as f:
+        json.dump(old_manifest, f)
+
+    ix.indexed_files = dict(old_manifest)
+    ix._file_to_nodes = {deleted: ["old-node"]}
+    ix.indices = {"knowledge": object()}
+    monkeypatch.setattr(ix, "_delete_nodes", lambda _itype, _ids: 1, raising=False)
+    def fail_persist(_itype):
+        raise OSError("disk full")
+    monkeypatch.setattr(ix, "_persist_index_atomic", fail_persist, raising=False)
+
+    changed = ix._prune_deleted_files()
+    assert changed == {"knowledge"}
+    assert ix.indexed_files == {}
+    with open(ix.state_file, encoding="utf-8") as f:
+        assert json.load(f) == old_manifest
+
+    persisted = ix._persist_updated_indices(changed)
+    assert persisted == set()
+    with open(ix.state_file, encoding="utf-8") as f:
+        assert json.load(f) == old_manifest
+
+
+def test_pruning_manifest_only_entries_still_saves_without_index_writes(tmp_path, indexer, monkeypatch):
+    """Manifest cleanup with no index nodes to delete is safe to commit immediately."""
+    import json
+
+    ix, kb = indexer
+    ix.persist_dir = str(tmp_path / "rag_storage")
+    ix.state_file = os.path.join(ix.persist_dir, "file_manifest.json")
+    os.makedirs(ix.persist_dir)
+    deleted = str((kb / "documents" / "deleted.md").resolve())
+    old_manifest = {
+        deleted: {"mtime": 10, "size": 5, "nodes": [], "itype": "knowledge"}
+    }
+    with open(ix.state_file, "w", encoding="utf-8") as f:
+        json.dump(old_manifest, f)
+
+    ix.indexed_files = dict(old_manifest)
+    ix.indices = {"knowledge": object()}
+    monkeypatch.setattr(ix, "_delete_nodes", lambda _itype, _ids: 0, raising=False)
+
+    changed = ix._prune_deleted_files()
+
+    assert changed == set()
+    with open(ix.state_file, encoding="utf-8") as f:
+        assert json.load(f) == {}

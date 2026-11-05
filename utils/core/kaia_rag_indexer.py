@@ -701,7 +701,12 @@ class RAGIndexerMixin:
                 if self._delete_nodes(itype, node_ids):
                     updated_itypes.add(itype)
 
-        self._save_indexed_files()
+        # A changed index snapshot and the global manifest must move forward
+        # together. The caller persists these types and saves the manifest only
+        # after every snapshot succeeds. If no index needed changing, the prune
+        # was manifest-only and can be saved here.
+        if not updated_itypes:
+            self._save_indexed_files()
         return updated_itypes
 
     def _save_indexed_files(self):
