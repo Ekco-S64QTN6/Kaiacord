@@ -3,7 +3,9 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 import utils.core.background_tasks as bg
 from utils.core.background_tasks import CoreTaskManager
@@ -98,3 +100,41 @@ def test_daily_cap_survives_a_manager_restart(tmp_path, monkeypatch):
         restarted.run_news_update.assert_not_awaited()
 
     asyncio.run(run())
+
+@pytest.mark.parametrize(
+    ("global_stdout", "expected_schedules"),
+    [
+        (b"[NEWS_RETRYABLE_EXHAUSTED] grounded generation may recover later.", 1),
+        (b"invalid API key; permanent request error.", 0),
+    ],
+)
+def test_manager_schedules_followup_only_for_retryable_marker(
+    tmp_path, monkeypatch, global_stdout, expected_schedules
+):
+    manager = _manager(tmp_path, monkeypatch)
+    manager.ctx.rag = None
+    manager._schedule_news_followup_retry = Mock()
+
+    processes = [
+        SimpleNamespace(returncode=1),  # grounded updater
+        SimpleNamespace(returncode=0),  # independent technology scraper
+    ]
+    outputs = [(global_stdout, b""), (b"", b"")]
+    commands = []
+
+    async def spawn(*args, **_kwargs):
+        commands.append(args)
+        return processes.pop(0)
+
+    async def communicate(_process, _label):
+        return outputs.pop(0)
+
+    manager._communicate_or_kill = communicate
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(bg.asyncio, "create_subprocess_exec", spawn)
+
+    asyncio.run(manager._run_news_update_body())
+
+    assert len(commands) == 2
+    assert manager._schedule_news_followup_retry.call_count == expected_schedules
+
