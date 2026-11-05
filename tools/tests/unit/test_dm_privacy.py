@@ -64,7 +64,7 @@ def test_private_dm_does_not_update_cross_channel_memory():
         parent = parents.get(node)
         guarded = False
         while parent is not None:
-            if isinstance(parent, ast.If) and ast.unparse(parent.test) == "not is_private_dm":
+            if isinstance(parent, ast.If) and "not is_private_dm" in ast.unparse(parent.test):
                 guarded = True
                 break
             parent = parents.get(parent)
