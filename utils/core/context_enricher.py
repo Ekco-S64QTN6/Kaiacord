@@ -1,5 +1,7 @@
 import re
 import asyncio
+import subprocess
+import sys
 import discord
 import aiohttp
 from urllib.parse import urlparse
@@ -14,6 +16,9 @@ from utils.core.sanitizer import is_safe_url, public_only_connector, read_capped
 MAX_PAGE_BYTES = 2_000_000
 MAX_PDF_PAGES = 20
 MAX_PDF_TEXT_CHARS = 16_000
+MAX_PDF_PARSE_MEMORY_BYTES = 256 * 1024 * 1024
+MAX_PDF_PARSE_CPU_SECONDS = 3
+MAX_PDF_PARSE_TIMEOUT_SECONDS = 5
 # Entries older than the TTL are dropped once a cache grows past this.
 CACHE_MAX_ENTRIES = 256
 # A quoted or linked message's embeds are kept up to this many characters:
@@ -60,41 +65,86 @@ _MARKER_IN_FILE = re.compile(
 )
 
 
+_PDF_WORKER_SCRIPT = r"""
+import sys
+
+# Set process limits before importing the PDF parser or touching untrusted data.
+try:
+    import resource
+    memory_limit = 256 * 1024 * 1024
+    cpu_limit = 3
+    resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
+    resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit + 1))
+except Exception:
+    # Environments without enforceable OS resource limits fail closed.
+    sys.exit(3)
+
+try:
+    from io import BytesIO
+    from pypdf import PdfReader
+
+    raw = sys.stdin.buffer.read(2_000_001)
+    if len(raw) > 2_000_000 or not raw.startswith(b"%PDF-"):
+        sys.exit(2)
+
+    reader = PdfReader(BytesIO(raw), strict=False)
+    if reader.is_encrypted:
+        sys.exit(2)
+
+    pages = reader.pages
+    page_count = len(pages)
+    remaining = 16_000
+    chunks = []
+    truncated_text = False
+    for page_index in range(min(page_count, 20)):
+        page_text = (pages[page_index].extract_text() or "").strip()
+        if not page_text:
+            continue
+        if len(page_text) > remaining:
+            page_text = page_text[:remaining]
+            truncated_text = True
+        if page_text:
+            chunks.append(page_text)
+            remaining -= len(page_text)
+        if remaining <= 0:
+            truncated_text = True
+            break
+
+    extracted = "\n\n".join(chunks)
+    if page_count > 20:
+        extracted += "\n\n[PDF truncated after 20 pages]"
+    elif truncated_text:
+        extracted += "\n\n[PDF text truncated]"
+    sys.stdout.buffer.write(extracted[:16_064].encode("utf-8", errors="replace"))
+except Exception:
+    # Parser errors, decompression failures, and resource-limit exceptions fail closed.
+    sys.exit(4)
+"""
+
+
 def _extract_pdf_text(raw_bytes: bytes) -> str:
-    """Extract bounded text from a small PDF without sending binary data to the model."""
-    if not raw_bytes.startswith(b"%PDF-"):
+    """Extract PDF text in a disposable worker with hard resource ceilings.
+
+    The raw response cap limits input bytes; the child-process address-space,
+    CPU and wall-clock limits bound decompression and parser work. A timed-out
+    or resource-killed worker is discarded rather than left running in a thread.
+    """
+    if not raw_bytes.startswith(b"%PDF-") or len(raw_bytes) > MAX_PAGE_BYTES:
         return ""
     try:
-        from io import BytesIO
-        from pypdf import PdfReader
-
-        reader = PdfReader(BytesIO(raw_bytes), strict=False)
-        if reader.is_encrypted:
-            return ""
-
-        chunks = []
-        remaining = MAX_PDF_TEXT_CHARS
-        for page in reader.pages[:MAX_PDF_PAGES]:
-            page_text = (page.extract_text() or "").strip()
-            if not page_text:
-                continue
-            page_text = page_text[:remaining]
-            if page_text:
-                chunks.append(page_text)
-                remaining -= len(page_text)
-            if remaining <= 0:
-                break
-
-        extracted = re.sub(r"\n{3,}", "\n\n", "\n\n".join(chunks)).strip()
-        if len(reader.pages) > MAX_PDF_PAGES and extracted:
-            extracted += "\n\n[PDF truncated after 20 pages]"
-        elif remaining <= 0 and extracted:
-            extracted += "\n\n[PDF text truncated]"
-        return extracted[:MAX_PDF_TEXT_CHARS + 64]
-    except Exception:
-        # Bad xrefs, malformed objects, unsupported encryption and parser
-        # failures all fail closed; callers never receive raw PDF data.
+        completed = subprocess.run(
+            [sys.executable, "-I", "-c", _PDF_WORKER_SCRIPT],
+            input=raw_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=MAX_PDF_PARSE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
         return ""
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.decode("utf-8", errors="replace").strip()[:MAX_PDF_TEXT_CHARS + 64]
 
 
 def _human_size(size: int) -> str:
@@ -640,7 +690,13 @@ class ContextEnricher:
                         pdf_url and "application/octet-stream" in content_type
                     )
                     if is_pdf:
-                        raw_pdf = await read_capped(response, MAX_PAGE_BYTES)
+                        # Read one byte beyond the limit so truncated/chunked
+                        # responses are detected and rejected, never parsed as
+                        # if they were complete PDFs.
+                        raw_pdf = await read_capped(response, MAX_PAGE_BYTES + 1)
+                        if len(raw_pdf) > MAX_PAGE_BYTES:
+                            log_warning(f"URL PDF {url} exceeded the {MAX_PAGE_BYTES}-byte input limit")
+                            return ""
                         try:
                             parsed_text = await asyncio.to_thread(_extract_pdf_text, raw_pdf)
                         except Exception as e:

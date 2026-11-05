@@ -300,3 +300,49 @@ def test_pdf_extraction_caps_pages_and_text(monkeypatch):
 
     monkeypatch.setattr(module, "MAX_PDF_TEXT_CHARS", 12)
     assert len(module._extract_pdf_text(_small_pdf("this text is deliberately longer than twelve"))) <= 76
+
+
+def test_pdf_parser_timeout_fails_closed(monkeypatch):
+    import subprocess
+
+    captured = {}
+
+    def timeout(*args, **kwargs):
+        captured.update(kwargs)
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+    monkeypatch.setattr(ce.subprocess, "run", timeout)
+    assert ce._extract_pdf_text(_small_pdf()) == ""
+    assert captured["timeout"] == ce.MAX_PDF_PARSE_TIMEOUT_SECONDS
+
+
+def test_pdf_parser_uses_a_resource_limited_disposable_process(monkeypatch):
+    from types import SimpleNamespace
+    import sys
+
+    captured = {}
+
+    def run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout=b"bounded worker output")
+
+    monkeypatch.setattr(ce.subprocess, "run", run)
+    assert ce._extract_pdf_text(_small_pdf()) == "bounded worker output"
+    assert captured["command"][:2] == [sys.executable, "-I"]
+    assert captured["timeout"] == ce.MAX_PDF_PARSE_TIMEOUT_SECONDS
+    assert captured["stdout"] == ce.subprocess.PIPE
+    assert captured["stderr"] == ce.subprocess.DEVNULL
+    assert "resource.setrlimit(resource.RLIMIT_AS" in ce._PDF_WORKER_SCRIPT
+    assert "resource.setrlimit(resource.RLIMIT_CPU" in ce._PDF_WORKER_SCRIPT
+
+
+def test_oversized_pdf_response_is_rejected_before_parser(monkeypatch):
+    from types import SimpleNamespace
+
+    # The worker itself also rejects oversized input; this guards the helper
+    # independently from any caller's read cap.
+    called = []
+    monkeypatch.setattr(ce.subprocess, "run", lambda *a, **k: called.append(True))
+    assert ce._extract_pdf_text(b"%PDF-" + b"x" * ce.MAX_PAGE_BYTES) == ""
+    assert not called
