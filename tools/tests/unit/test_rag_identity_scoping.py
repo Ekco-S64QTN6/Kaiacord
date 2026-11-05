@@ -44,7 +44,7 @@ def test_summary_path_scope_matches_normal_identity_policy():
     )
     assert RAGQueryMixin._summary_path_allowed(
         "/kb/user_logs/social_x_handle/interactions_20261104.md",
-        True, {"social_x_handle"},
+        True, {"handle"},
     )
     assert RAGQueryMixin._summary_path_allowed(
         "/kb/documents/public.md", True, allowed
@@ -147,3 +147,49 @@ async def test_retrieve_resolves_requester_and_named_people_before_summary_short
     )
 
     assert result and rag.captured == (True, {"111", "222"})
+
+
+
+def test_manifest_title_match_ignores_disallowed_same_named_logs(tmp_path):
+    alice_path = str(tmp_path / "user_logs" / "Alice_111" / "interactions_20261104.md")
+    bob_path = str(tmp_path / "user_logs" / "Bob_222" / "interactions_20261104.md")
+    rag = _SummaryRAG({alice_path: {}, bob_path: {}}, {})
+
+    path, _ = rag._title_match(
+        {"interactions", "november"}, set(),
+        strict_identity=True, allowed_user_ids={"111"},
+    )
+
+    assert path is None or path == alice_path
+
+
+def test_unindexed_disk_fallback_obeys_identity_scope(tmp_path):
+    """The on-disk fallback is safe even when its configured root is narrowed to logs."""
+    from pathlib import Path
+
+    logs = tmp_path / "user_logs"
+    alice = logs / "Alice_111" / "interactions_20261104.md"
+    bob = logs / "Bob_222" / "interactions_20261104.md"
+    alice.parent.mkdir(parents=True)
+    bob.parent.mkdir(parents=True)
+    alice.write_text("Alice private content", encoding="utf-8")
+    bob.write_text("Bob private content", encoding="utf-8")
+
+    rag = _SummaryRAG({}, {})
+    rag.knowledge_base_dir = str(logs)
+
+    denied = rag._named_file_on_disk(
+        "interactions_20261104.md", "interactions_20261104.md",
+        strict_identity=True, allowed_user_ids={"111"},
+    )
+    allowed = rag._named_file_on_disk(
+        "interactions_20261104.md", "interactions_20261104.md",
+        strict_identity=True, allowed_user_ids={"222"},
+    )
+    general = rag._named_file_on_disk(
+        "interactions_20261104.md", "interactions_20261104.md",
+    )
+
+    assert denied == str(alice.resolve())  # Alice is permitted; Bob is not.
+    assert allowed == str(bob.resolve())
+    assert general in {str(alice.resolve()), str(bob.resolve())}

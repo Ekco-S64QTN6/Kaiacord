@@ -213,12 +213,18 @@ class RAGQueryMixin:
         r"|\b\d{4}-\d{2}-\d{2}[-_][\w\-]{4,}\b",
         re.IGNORECASE)
 
-    def _title_match(self, query_words: set, fname_stops: set):
-        """(path, overlapping words) of the indexed file whose title the query
-        names best, or (None, set()). At least two shared words, one of them
-        distinctive (six letters or more), covering 30% of the title."""
+    def _title_match(self, query_words: set, fname_stops: set,
+                     strict_identity: bool = False,
+                     allowed_user_ids: Optional[Set[str]] = None):
+        """(path, overlap) of the best permitted indexed filename/title match.
+
+        Identity-scoped callers must not select another user's log path before
+        the whole-document resolver gets a chance to enforce its own checks.
+        """
         best_path, best_score, best_overlap = None, 0.0, set()
         for mpath in list(self.indexed_files):   # concurrent-mutation safe copy
+            if not self._summary_path_allowed(mpath, strict_identity, allowed_user_ids):
+                continue
             fname = os.path.splitext(os.path.basename(mpath))[0].lower()
             # Date prefixes dilute the score; strip them before tokenising.
             fname_clean = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', fname)
@@ -337,7 +343,7 @@ class RAGQueryMixin:
             return False
         owner_id = owner_folder.rpartition("_")[2]
         allowed = {str(uid) for uid in (allowed_user_ids or ()) if uid is not None}
-        return owner_folder in allowed or (bool(owner_id) and owner_id in allowed)
+        return bool(owner_id) and owner_id in allowed
 
     def _get_summarization_nodes(
         self, query_lower: str, target_path: Optional[str] = None,
@@ -457,7 +463,11 @@ class RAGQueryMixin:
             # fallback picked whichever indexed file shared two words with it,
             # and she summarised the wrong document under the right name.
             if best_match_score < 20.0:
-                on_disk = self._named_file_on_disk(query_lower, query_cleaned)
+                on_disk = self._named_file_on_disk(
+                    query_lower, query_cleaned,
+                    strict_identity=strict_identity,
+                    allowed_user_ids=allowed_user_ids,
+                )
                 if on_disk:
                     log_action(f"Summarization target identified (not indexed yet, read from disk): {on_disk}")
                     return self._disk_document_nodes(on_disk, query_words)
@@ -514,9 +524,11 @@ class RAGQueryMixin:
             chunks.append((get_node_text(node), meta))
         return _whole_document(chunks, query_words, target_file_path)
 
-    def _named_file_on_disk(self, query_lower: str, query_cleaned: str) -> Optional[str]:
-        """The knowledge-base file whose name the query contains, if there is one
-        and it may be indexed — the longest such name."""
+    def _named_file_on_disk(
+        self, query_lower: str, query_cleaned: str,
+        strict_identity: bool = False, allowed_user_ids: Optional[Set[str]] = None,
+    ) -> Optional[str]:
+        """Find a named on-disk document, respecting identity scope for user logs."""
         from utils.core.kaia_rag_indexer import RAGIndexerMixin
         root = getattr(self, "knowledge_base_dir", None) or "knowledge_base"
         best, best_len = None, 0
@@ -530,7 +542,10 @@ class RAGQueryMixin:
                     continue
                 if (f.lower() in query_lower or stem in query_lower or stem in query_cleaned) and len(stem) > best_len:
                     full = os.path.abspath(os.path.join(dirpath, f))
-                    if not RAGIndexerMixin._is_excluded_path(full):
+                    if (not RAGIndexerMixin._is_excluded_path(full)
+                            and self._summary_path_allowed(
+                                full, strict_identity, allowed_user_ids
+                            )):
                         best, best_len = full, len(stem)
         return best
 
@@ -1168,7 +1183,11 @@ class RAGQueryMixin:
             # One-letter tokens are the tail of a possessive ("kaia's" -> "s").
             _query_words = {w for w in re.findall(r'\w+', own_lower) if len(w) > 1} - _FAST_PATH_QUERY_STOPS
             if len(_query_words) >= 2 and not _skip_fast_path:
-                _best_path, _best_overlap = self._title_match(_query_words, _FAST_PATH_FNAME_STOPS)
+                _best_path, _best_overlap = self._title_match(
+                    _query_words, _FAST_PATH_FNAME_STOPS,
+                    strict_identity=strict_identity,
+                    allowed_user_ids=allowed_summary_ids,
+                )
                 if _best_path:
                     log_info(f"[manifest fast path] matched '{_best_path}' with words {_best_overlap}")
                     log_debug(f"Manifest title fast path: '{_best_path}'")
