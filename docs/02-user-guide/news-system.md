@@ -6,7 +6,7 @@ The system uses the Gemini API with **Google Search grounding** to generate accu
 
 - **Generation**: `tools/maintenance/update_kaia_news.py` calls the Gemini API (`gemini-2.5-flash`) with Google Search grounding enabled.
 - **Grounding**: passes the `google_search` tool, so the brief is written from real search results rather than the model's memory.
-- **Transient failures**: generation is retried up to five times with capped exponential waits (10, 20, 40, then 60 seconds). If grounding remains unavailable, the update fails rather than filing ungrounded news or relabelling an older brief as current; a later scheduled refresh can try again.
+- **Transient failures**: generation is retried up to five times with capped exponential full jitter (a random wait from zero to 10, 20, 40, then 60 seconds). Empty grounded responses and transient provider/network failures are retried; permanent API/request errors fail fast. If grounding remains unavailable, the update fails rather than filing ungrounded news or relabelling an older brief as current; the next scheduled refresh can try again.
 - **Ingestion**: The brief is saved to `knowledge_base/news/daily/news_brief_YYYYMMDD.md`.
 - **Summarization**: A condensed version is created as `knowledge_base/news/daily/news_summary_YYYYMMDD.md` using the local `gemma3:12b` model. It is the quick reference for `!news` and is deliberately **not** indexed — it would retrieve each day's news twice, once undated.
 - **Reindexing**: The script requests a RAG refresh (`rag_utils.request_reindex`), so the brief is searchable within minutes.
