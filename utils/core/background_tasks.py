@@ -923,7 +923,7 @@ class CoreTaskManager:
         if self.proactive_engine.has_recent_duplicate_opener(message, trigger.channel_id):
             log_info(
                 f"Proactive opener suppressed as a recent repeat "
-                f"({trigger.source_category or trigger.trigger_type}, channel={trigger.channel_id})."
+                f"({getattr(trigger, 'source_category', None) or trigger.trigger_type}, channel={trigger.channel_id})."
             )
             return False
 
