@@ -33,7 +33,7 @@ pull requests.
 
 | Item | What | Call |
 |:--|:--|:--|
-| **Split `rpg_core_handler.py`** | First slice moved `rumor`, `calendar`, and `weather` to `rpg_world_handler.py`; navigation, inventory, and state-changing handlers remain. Continue by cohesive area when next touched. | Yes, when next touched |
+| **Split `rpg_core_handler.py`** | Moved `rumor`, `calendar`, and `weather` to `rpg_world_handler.py`, then `go`, `look`, and `map` to `rpg_navigation_handler.py`. The core file is down to 2,533 lines; inventory and state-changing handlers remain for further cohesive splits. | Yes, when next touched |
 | **More Spine creatures** | The 77 stair guardians now have explicit floor-scaled HP/ATK/DEF and milestone Resonance Ward progression; additional rare spawns per zone would add variety. | Content, optional |
 | **Shadowblade endgame damage** | The highest sustained damage per round (crit on 17 with the Voidstep Blade), offset by the Rogue's low HP. | Watch |
 | **Board games as real game state** | Tic-tac-toe with Python holding the board, about 2 h. | No — one game asked for in five months |
