@@ -1242,49 +1242,65 @@ class RAGIndexerMixin:
         return False
 
 
-    def _persist_updated_indices(self, updated_itypes: Set[str]) -> Set[str]:
-        """Save indices to disk and invalidate/save BM25 cache.
+    def _get_pending_index_persist_types(self) -> Set[str]:
+        """Index types whose snapshots and matching global manifest are not yet durable.
 
-        Returns the set that actually reached disk. Per-index failures are
-        caught and execution continues, so without this the caller announced
-        "Batch persistence complete for: logs, dreams, knowledge, persona"
-        naming every type it *attempted* — including any that had just logged
-        "Failed to persist". The summary line contradicted the error above it,
-        and the summary is the one that surfaces in the dashboard.
+        This is process-local retry state. Keep every affected type queued until
+        all snapshots and the global manifest commit together; a successful
+        snapshot write in an otherwise partial batch is not enough to clear it.
         """
+        pending = getattr(self, "_pending_index_persist_types", None)
+        if not isinstance(pending, set):
+            pending = set()
+            self._pending_index_persist_types = pending
+        return pending
+
+    def _persist_updated_indices(self, updated_itypes: Set[str]) -> Set[str]:
+        """Persist pending index snapshots, then commit their shared manifest.
+
+        A partial batch remains queued in memory. On the next refresh we retry
+        every index type in that batch, even when the source-file mtimes now
+        look current, and clear the queue only after all snapshots and the
+        matching global manifest have reached disk.
+        """
+        pending = self._get_pending_index_persist_types()
+        pending.update(updated_itypes)
+        types_to_persist = set(pending)
+        if not types_to_persist:
+            return set()
+
         self.persist_needed = True
-        
+
         # 1. Drop the changed indices' BM25; it rebuilds on next use.
         with self._data_lock:
-            for itype in updated_itypes:
+            for itype in types_to_persist:
                 self.bm25_cache.pop(itype, None)
 
-        # 2. Heavy Disk I/O (NO LOCK HELD)
-        # We don't hold the global data lock during storage_context.persist()
-        # because it performs slow filesystem writes. The index objects 
-        # themselves are thread-safe for persistence.
+        # 2. Heavy Disk I/O (NO LOCK HELD). Persist all dirty types, not just
+        # the types that happened to be discovered as changed in this pass.
         persisted: Set[str] = set()
-        for itype in updated_itypes:
+        for itype in types_to_persist:
             try:
                 self._persist_index_atomic(itype)
                 log_success(f"Index '{itype}' persisted.")
                 persisted.add(itype)
-            except Exception as e: 
+            except Exception as e:
                 log_error(f"Failed to persist {itype}: {e}")
-                
-        # The manifest is global across index types. Advancing file mtimes/nodes
-        # while even one affected snapshot stayed on disk in its old state makes
-        # that file look current after restart, so its missing content is never
-        # indexed again. Save the manifest only when every affected snapshot did.
-        if persisted == updated_itypes:
+
+        # The manifest is global across index types. A partial snapshot batch
+        # cannot advance it, and none of the pending types can be forgotten:
+        # even successfully-written snapshots must be included on the retry so
+        # the manifest is committed only after one complete successful batch.
+        if persisted == types_to_persist:
             if not self._save_indexed_files():
-                log_warning("RAG index snapshots persisted, but the file manifest did not.")
+                log_warning("RAG index snapshots persisted, but the file manifest did not; keeping persistence work queued.")
                 return set()
+            pending.clear()
         else:
-            failed = updated_itypes - persisted
+            failed = types_to_persist - persisted
             log_warning(
-                "Leaving the RAG file manifest unchanged because index snapshots "
-                f"failed to persist: {', '.join(sorted(failed))}"
+                "Leaving the RAG file manifest unchanged and retaining pending "
+                f"index persistence for: {', '.join(sorted(failed))}"
             )
         return persisted
 
@@ -1339,6 +1355,10 @@ class RAGIndexerMixin:
             updated_itypes |= await asyncio.to_thread(self._reconcile_indices)
             stale_updated, stale_manifest_changed = await asyncio.to_thread(self._cleanup_stale_file_nodes)
             updated_itypes |= stale_updated
+            # A previous partial snapshot write may have advanced the in-memory
+            # file manifest. Retry every dirty index type before a no-change
+            # scan can be considered successful.
+            updated_itypes |= set(self._get_pending_index_persist_types())
             if any(entry.get("stale_nodes") for entry in self.indexed_files.values()):
                 refresh_ok = False
             new_file_paths = await asyncio.to_thread(self._find_changed_files)

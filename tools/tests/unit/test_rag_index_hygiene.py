@@ -5,6 +5,7 @@ was deleted content still searchable by BM25, 3,345 dream vectors from files
 that no longer existed, 3,852 copies of old persona text, forum profiles never
 refreshed, and log turns indexed twice on any file with a curly quote.
 """
+import asyncio
 import hashlib
 import os
 import threading
@@ -819,3 +820,76 @@ def test_marking_stale_nodes_invalidates_cached_bm25_and_rejects_detached_candid
     assert stale_id in ix._vector_ids(index)
     query.indexed_files = {}
     assert query._is_stale_replacement_node(detached)
+
+def test_partial_snapshot_persist_failure_is_retried_on_same_process_refresh(
+    indexer, monkeypatch
+):
+    """A failed index snapshot remains dirty even when the next scan finds no changed files."""
+    import json
+
+    ix, kb = indexer
+    doc = kb / "documents" / "durability.md"
+    doc.parent.mkdir()
+    doc.write_text("new document version")
+    path = str(doc.resolve())
+    ix.indexed_files[path] = {
+        "mtime": os.path.getmtime(path),
+        "size": os.path.getsize(path),
+        "nodes": ["new-node"],
+        "itype": "knowledge",
+    }
+    old_manifest = {path: {
+        "mtime": 1, "size": 1, "nodes": ["old-node"], "itype": "knowledge"
+    }}
+    with open(ix.state_file, "w", encoding="utf-8") as handle:
+        json.dump(old_manifest, handle)
+
+    writes = []
+    def fail_logs_once(itype):
+        writes.append(itype)
+        if itype == "logs" and writes.count("logs") == 1:
+            raise OSError("simulated full disk")
+
+    monkeypatch.setattr(ix, "_persist_index_atomic", fail_logs_once, raising=False)
+    persisted = ix._persist_updated_indices({"knowledge", "logs"})
+
+    assert persisted == {"knowledge"}
+    assert ix._get_pending_index_persist_types() == {"knowledge", "logs"}
+    with open(ix.state_file, encoding="utf-8") as handle:
+        assert json.load(handle) == old_manifest
+
+    # The follow-up refresh intentionally sees no changed files. It still has
+    # to retry the pending snapshots before it may report a successful sweep.
+    ix._index_lock = threading.Lock()
+    ix._refresh_pending = False
+    ix._indexing_in_progress = False
+    monkeypatch.setattr(ix, "_prune_deleted_files", lambda: set())
+    monkeypatch.setattr(ix, "_reconcile_indices", lambda: set())
+    monkeypatch.setattr(ix, "_cleanup_stale_file_nodes", lambda: (set(), False))
+    monkeypatch.setattr(ix, "_find_changed_files", lambda: [])
+    monkeypatch.setattr(ix, "_persist_index_atomic", lambda itype: writes.append(f"retry:{itype}"))
+
+    assert asyncio.run(ix.refresh_knowledge_base()) is True
+    assert "retry:knowledge" in writes and "retry:logs" in writes
+    assert ix._get_pending_index_persist_types() == set()
+    with open(ix.state_file, encoding="utf-8") as handle:
+        assert json.load(handle) == ix.indexed_files
+
+
+def test_failed_persist_does_not_advance_in_memory_pending_state_until_complete(
+    indexer, monkeypatch
+):
+    ix, _ = indexer
+    calls = []
+    def partial(itype):
+        calls.append(itype)
+        if itype == "dreams":
+            raise OSError("snapshot unavailable")
+    monkeypatch.setattr(ix, "_persist_index_atomic", partial, raising=False)
+    monkeypatch.setattr(ix, "_save_indexed_files", lambda: pytest.fail(
+        "manifest must not be committed after a partial snapshot batch"
+    ))
+
+    assert ix._persist_updated_indices({"knowledge", "dreams"}) == {"knowledge"}
+    assert ix._get_pending_index_persist_types() == {"knowledge", "dreams"}
+
