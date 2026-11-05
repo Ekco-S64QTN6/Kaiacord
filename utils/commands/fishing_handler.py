@@ -1170,6 +1170,11 @@ async def _handle_fishing_leaderboard(ctx, interaction: discord.Interaction, uid
 
     if not (angler_lines or heaviest_lines or rarest_lines):
         embed.description = "*No records yet. Be the first to cast a line.*"
+        if scan.failures:
+            embed.description += (
+                f"\n\n⚠️ Character-name lookup is incomplete: {len(scan.failures)} "
+                "character record(s) could not be read. Catch totals and records are retained."
+            )
 
     sheet = await load(uid)
     view = FishingMenuView(ctx, uid, uname, is_owner, sheet) if sheet else StaleSafeView()

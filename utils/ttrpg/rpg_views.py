@@ -568,8 +568,9 @@ class RPGFullLocationView(StaleSafeView):
 
         if location == "housing_district":
             # Housing district special dropdown — only Oakhaven + player plots
-            from utils.ttrpg.housing import load_all_housing, HOUSING_TIERS
-            all_housing = load_all_housing()
+            from utils.ttrpg.housing import load_all_housing_report, HOUSING_TIERS
+            housing_scan = load_all_housing_report()
+            all_housing = housing_scan.records
             
             options = [discord.SelectOption(
                 label="Oakhaven Town Square",
@@ -585,7 +586,10 @@ class RPGFullLocationView(StaleSafeView):
                     description=f"{tier_data.get('name', 'Home')} · {h['character_name']}"
                 ))
             
-            sel = discord.ui.Select(placeholder="Visit a plot...", options=options[:25], row=4)
+            placeholder = "Visit a plot..."
+            if housing_scan.failures:
+                placeholder = "Visit a plot... (some homes unavailable)"
+            sel = discord.ui.Select(placeholder=placeholder, options=options[:25], row=4)
         else:
             all_locs = []
             for k in LOCATION_DATA.keys():

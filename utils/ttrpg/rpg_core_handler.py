@@ -2779,9 +2779,13 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
     scan = await load_all_report()
     sheets = scan.records
     if not sheets:
-        description = "No readable adventurers were found."
         if scan.failures:
-            description += f" {len(scan.failures)} character record(s) could not be read; administrators have been alerted."
+            description = (
+                f"No readable adventurers were found. {len(scan.failures)} character "
+                "record(s) could not be read; administrators have been alerted."
+            )
+        else:
+            description = "No adventurers have been created yet."
         return await msg.channel.send(embed=discord.Embed(description=description, color=0x888888))
 
     # Sort by XP descending, then by level descending, then by least deaths
