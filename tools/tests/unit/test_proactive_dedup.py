@@ -100,3 +100,76 @@ def test_record_sent_persists_channel_and_message_for_future_dedup(tmp_path, mon
     saved = json.loads(path.read_text(encoding="utf-8"))["history"]
     assert saved[-1]["channel_id"] == 789
     assert saved[-1]["summary"] == "a distinct thought about the rain."
+
+
+
+def test_opener_signature_does_not_truncate_at_common_abbreviations():
+    from utils.core.kaia_proactive import _opener_signature
+
+    signature = _opener_signature(
+        "Dr. Smith asked e.g. whether A. B. agreed before the review."
+    )
+    assert signature.startswith("dr smith asked e g whether a b agreed")
+
+
+def test_digest_with_same_preface_but_distinct_observation_is_not_suppressed():
+    from utils.core.kaia_proactive import (
+        _opener_signature,
+        _opener_signatures_match,
+    )
+
+    previous = (
+        "I have been thinking about this more than usual. "
+        "The weather changed before the power failed."
+    )
+    candidate = (
+        "I have been thinking about this more than usual. "
+        "The network recovered after the maintenance window."
+    )
+    assert not _opener_signatures_match(
+        _opener_signature(previous), _opener_signature(candidate)
+    )
+
+
+def test_legacy_trigger_without_source_category_is_supported_or_rejected_cleanly(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    engine, path = _engine(tmp_path, monkeypatch)
+    trigger = SimpleNamespace(
+        trigger_type="mood_reflection",
+        channel_id=789,
+        context="idle thought",
+        target_user=None,
+        content_id="",
+    )
+
+    engine.record_sent(_BotState(), trigger, "a legacy thought about the rain.")
+    saved = json.loads(path.read_text(encoding="utf-8"))["history"]
+    assert saved[-1]["source"] == "mood_reflection"
+    assert saved[-1]["channel_id"] == 789
+
+
+def test_sent_broadcast_is_recorded_even_if_bot_state_save_fails(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    engine, path = _engine(tmp_path, monkeypatch)
+
+    class BrokenState:
+        relationships = {}
+
+        def save(self):
+            raise OSError("simulated state disk failure")
+
+    trigger = SimpleNamespace(
+        trigger_type="mood_reflection",
+        channel_id=789,
+        content_id="",
+        target_user=None,
+    )
+    engine.record_sent(BrokenState(), trigger, "this was delivered.")
+
+    saved = json.loads(path.read_text(encoding="utf-8"))["history"]
+    assert saved[-1]["summary"] == "this was delivered."
+    assert saved[-1]["source"] == "mood_reflection"

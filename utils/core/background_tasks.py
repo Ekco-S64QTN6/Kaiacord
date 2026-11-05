@@ -1,4 +1,5 @@
 from utils.ttrpg.narration import finish_cleanly
+from contextlib import asynccontextmanager
 import asyncio
 import json
 import re
@@ -269,6 +270,7 @@ class CoreTaskManager:
     def __init__(self, ctx):
         self.ctx = ctx
         self._news_update_lock = asyncio.Lock()
+        self._opener_broadcast_lock = asyncio.Lock()
         self._news_followup_retry_task = None
         self._news_followup_retry_date = None
         self.news_refresh_task = self._make_news_refresh_task()
@@ -886,6 +888,42 @@ class CoreTaskManager:
 
         return monologue_task
 
+    @asynccontextmanager
+    async def _guard_opener_broadcast(
+        self, message: str, channel_id: int, source: str, *,
+        on_success=None, record: bool = True,
+    ):
+        """Serialize duplicate check, Discord delivery and successful recording.
+
+        The unprompted send queue retains this guard, so it checks at delivery
+        time rather than when a message first enters the queue.
+        """
+        engine = getattr(self, "proactive_engine", None)
+        if engine is None:
+            yield True
+            return
+
+        lock = getattr(self, "_opener_broadcast_lock", None)
+        if lock is None:
+            lock = self._opener_broadcast_lock = asyncio.Lock()
+
+        async with lock:
+            if engine.has_recent_duplicate_opener(message, channel_id):
+                log_info(
+                    f"Automated broadcast suppressed as a recent repeat "
+                    f"({source}, channel={channel_id})."
+                )
+                yield False
+                return
+
+            # If channel.send raises, execution never reaches this recording
+            # section, so failed sends cannot poison the duplicate history.
+            yield True
+            if record:
+                engine.record_broadcast_sent(message, channel_id, source)
+            if on_success is not None:
+                on_success()
+
     async def _dispatch_proactive(self, trigger) -> bool:
         """Render a proactive trigger into a message and send it to chat.
 
@@ -927,13 +965,6 @@ class CoreTaskManager:
         if not message:
             return False
 
-        if self.proactive_engine.has_recent_duplicate_opener(message, trigger.channel_id):
-            log_info(
-                f"Proactive opener suppressed as a recent repeat "
-                f"({getattr(trigger, 'source_category', None) or trigger.trigger_type}, channel={trigger.channel_id})."
-            )
-            return False
-
         import secrets as _secrets
         async with channel.typing():
             # Natural reading pause before sending
@@ -944,23 +975,33 @@ class CoreTaskManager:
         # named person, so it goes out unlabelled and stays off Bluesky.
         from utils.core import unprompted
         is_checkin = getattr(trigger, "trigger_type", "") == "absence"
+        source = (
+            getattr(trigger, "source_category", None)
+            or getattr(trigger, "trigger_type", "proactive")
+        )
+
+        def _record_proactive_success():
+            self.proactive_engine.record_sent(self.ctx.bot_state, trigger, message)
+            try:
+                from utils.core.kaia_proactive import mark_digest_broadcast
+                mark_digest_broadcast(getattr(trigger, "content_id", ""))
+            except Exception:
+                pass
+
         spoken = await unprompted.speak(
             self.ctx, channel, "proactive", message,
             trigger=getattr(trigger, "trigger_type", ""),
             brief=getattr(trigger, "context", ""),
-            cross_post=not is_checkin)
+            cross_post=not is_checkin,
+            send_guard=lambda body: self._guard_opener_broadcast(
+                body, trigger.channel_id, source,
+                on_success=_record_proactive_success,
+                record=False,
+            ),
+        )
         if not (spoken.posted or spoken.queued):
             log_info(f"Proactive opener not posted: {spoken.reason}.")
             return False
-
-        self.proactive_engine.record_sent(self.ctx.bot_state, trigger, message)
-
-        # Flag the source digest as aired so it is never re-offered.
-        try:
-            from utils.core.kaia_proactive import mark_digest_broadcast
-            mark_digest_broadcast(trigger.content_id)
-        except Exception:
-            pass
 
         return True
 
@@ -2666,8 +2707,12 @@ class CoreTaskManager:
                 log_debug("Monologue not posted: #kaia-opolis not found.")
                 return False
             from utils.core.sanitizer import to_plain_english
-            spoken = await unprompted.speak(self.ctx, channel, "monologue",
-                                            to_plain_english(thought))
+            spoken = await unprompted.speak(
+                self.ctx, channel, "monologue", to_plain_english(thought),
+                send_guard=lambda body: self._guard_opener_broadcast(
+                    body, channel.id, "monologue"
+                ),
+            )
             return spoken.posted or spoken.queued
         except Exception as e:
             log_warning(f"Monologue broadcast failed (non-fatal): {e}")
@@ -2707,8 +2752,7 @@ class CoreTaskManager:
                 return False
             async with channel.typing():
                 await asyncio.sleep(2.0)
-            spoken = await unprompted.speak(self.ctx, channel, "observation", text)
-            if spoken.posted or spoken.queued:        # queued: it goes out in turn
+            def _mark_digest_as_aired():
                 from utils.core.kaia_proactive import (
                     build_digest_content_id, mark_digest_broadcast,
                 )
@@ -2716,6 +2760,14 @@ class CoreTaskManager:
                     mark_digest_broadcast(build_digest_content_id(entry_ts))
                 except Exception as mark_err:
                     log_debug(f"Could not flag digest as aired: {mark_err}")
+
+            spoken = await unprompted.speak(
+                self.ctx, channel, "observation", text,
+                send_guard=lambda body: self._guard_opener_broadcast(
+                    body, channel.id, "observation",
+                    on_success=_mark_digest_as_aired,
+                ),
+            )
             return spoken.posted or spoken.queued
         except Exception as e:
             log_warning(f"Observation digest broadcast failed (non-fatal): {e}")

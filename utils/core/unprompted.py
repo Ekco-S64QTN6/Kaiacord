@@ -504,7 +504,7 @@ class Spoken:
 async def speak(ctx, channel, source: str, text: str = "", *,
                 posts: Optional[List[str]] = None, kind: Optional[str] = None,
                 trigger: str = "", brief: str = "", manual: bool = False,
-                cross_post: bool = True, embed=None) -> Spoken:
+                cross_post: bool = True, embed=None, send_guard=None) -> Spoken:
     """Gate, label, send, remember and cross-post one unprompted post.
 
     With `embed`, the box is what goes to Discord (it carries its own title,
@@ -522,7 +522,7 @@ async def speak(ctx, channel, source: str, text: str = "", *,
         if not ok and _waitable(why):
             place = _enqueue({"source": source, "ctx": ctx, "channel": channel, "kwargs": dict(
                 text=text, posts=posts, kind=kind, trigger=trigger, brief=brief,
-                cross_post=cross_post, embed=embed)})
+                cross_post=cross_post, embed=embed, send_guard=send_guard)})
             _start_drainer()
             log_debug(f"[unprompted] {source} queued ({why}); place {place}")
             return Spoken(False, reason=f"queued, place {place}", queued=True)
@@ -533,11 +533,24 @@ async def speak(ctx, channel, source: str, text: str = "", *,
     label = pick_label(kind or source, body, source=trigger, brief=brief,
                        posts=len(posts) if posts else 1,
                        scope=str(getattr(channel, "id", "") or source))
-    if embed is not None:
-        await channel.send(embed=embed)
+    async def _send_to_channel():
+        if embed is not None:
+            await channel.send(embed=embed)
+        else:
+            for message in compose(label, text, posts):
+                await channel.send(message)
+
+    # A send guard is retained in the queue and runs only when Discord delivery
+    # is attempted. Its context manager records the broadcast only after sends
+    # complete successfully.
+    if send_guard is None:
+        await _send_to_channel()
     else:
-        for message in compose(label, text, posts):
-            await channel.send(message)
+        async with send_guard(body) as allowed:
+            if not allowed:
+                log_debug(f"[unprompted] {source} suppressed as a recent duplicate")
+                return Spoken(False, reason="recent duplicate opener")
+            await _send_to_channel()
 
     # Memory keeps what she said, not the label: the label is framing for the
     # reader. Not the overnight log: a bulletin of readings held as one of her

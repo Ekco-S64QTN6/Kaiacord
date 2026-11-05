@@ -51,12 +51,16 @@ OPENER_DEDUPE_SIMILARITY = 0.88
 
 
 def _opener_signature(message: str) -> str:
-    """Normalised first-sentence signature for cross-trigger opener comparison."""
+    """Normalised opening-text signature for cross-source broadcast comparison.
+
+    Take the first lexical words across sentence boundaries. This avoids
+    splitting on abbreviation periods (Dr., e.g., initials) and makes a short
+    generic preface insufficient to hide the distinct observation that follows.
+    """
     text = (message or "").strip()
     if not text:
         return ""
-    first_sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0]
-    words = re.findall(r"[a-z0-9]+", first_sentence.casefold())
+    words = re.findall(r"[a-z0-9]+", text.casefold())
     return " ".join(words[:16])
 
 
@@ -1473,39 +1477,61 @@ class ProactiveEngine:
 
     # ── Post-Send Recording ─────────────────────────────────────────
 
-    def record_sent(
-        self, bot_state, trigger: ProactiveTrigger, message: str = ""
+    def record_broadcast_sent(
+        self, message: str, channel_id: int, source: str,
+        now: Optional[float] = None, content_id: str = "",
     ) -> None:
-        """Record that a proactive message was sent, updating cooldowns
-        and diversity log."""
-        now = time.time()
-
-        # For absence triggers, record per-user to avoid spamming
-        if trigger.trigger_type == "absence":
-            rel = None
-            if trigger.content_id.startswith("absence:"):
-                rel = bot_state.relationships.get(trigger.content_id[len("absence:"):])
-            if rel is None and trigger.target_user:
-                rel = next((r for r in bot_state.relationships.values()
-                            if r.get('display_name', '') == trigger.target_user), None)
-            if rel is not None:
-                rel['last_proactive_checkin'] = now
-
-        bot_state.save()
-
-        # Update diversity log
+        """Record a successfully delivered automated broadcast for cross-source dedupe."""
         try:
-            history = self._load_diversity_log()
             entry = {
-                "timestamp": now,
-                "source": trigger.source_category or trigger.trigger_type,
-                "channel_id": trigger.channel_id,
-                "summary": message if message else "",
+                "timestamp": time.time() if now is None else float(now),
+                "source": source or "automated_broadcast",
+                "channel_id": channel_id,
+                "summary": message or "",
             }
-            # Track specific content ID for dedup (e.g. ingestion filename)
-            if trigger.content_id:
-                entry["content_id"] = trigger.content_id
+            if content_id:
+                entry["content_id"] = content_id
+            history = self._load_diversity_log()
             history.append(entry)
             self._save_diversity_log(history)
         except Exception as e:
             log_debug(f"Diversity log update failed (non-fatal): {e}")
+
+    def record_sent(
+        self, bot_state, trigger: ProactiveTrigger, message: str = ""
+    ) -> None:
+        """Record a delivered proactive message, its cooldowns and its dedupe signature."""
+        now = time.time()
+        trigger_type = getattr(trigger, "trigger_type", "")
+        content_id = getattr(trigger, "content_id", "") or ""
+        target_user = getattr(trigger, "target_user", None)
+
+        # For absence triggers, record per-user to avoid spamming. Older trigger
+        # objects may omit optional fields; missing values are treated as empty.
+        if trigger_type == "absence" and bot_state is not None:
+            relationships = getattr(bot_state, "relationships", {}) or {}
+            rel = None
+            if content_id.startswith("absence:") and hasattr(relationships, "get"):
+                rel = relationships.get(content_id[len("absence:"):])
+            if rel is None and target_user and hasattr(relationships, "values"):
+                rel = next((r for r in relationships.values()
+                            if r.get("display_name", "") == target_user), None)
+            if isinstance(rel, dict):
+                rel["last_proactive_checkin"] = now
+
+        if bot_state is not None and callable(getattr(bot_state, "save", None)):
+            try:
+                bot_state.save()
+            except Exception as e:
+                # The Discord post has already succeeded; a bookkeeping
+                # persistence error must not interrupt the remaining send path.
+                log_debug(f"Proactive bot-state save failed (non-fatal): {e}")
+
+        source = getattr(trigger, "source_category", None) or trigger_type or "proactive"
+        self.record_broadcast_sent(
+            message,
+            getattr(trigger, "channel_id", None),
+            source,
+            now=now,
+            content_id=content_id,
+        )

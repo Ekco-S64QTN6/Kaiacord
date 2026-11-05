@@ -355,3 +355,79 @@ def test_a_post_held_only_by_the_spacing_waits_its_turn(monkeypatch, cfg):
     asyncio.run(run())
     assert [m.rsplit("** ", 1)[-1] for m in channel.sent] == ["first.", "a thought.", "an opener."]
     assert len(slept) == 2 and not up._queue
+
+
+
+def test_send_guard_runs_when_a_queued_post_is_actually_delivered(monkeypatch, cfg):
+    from contextlib import asynccontextmanager
+
+    up._queue.clear()
+    up._serving_now.clear()
+    cfg.update({
+        "unprompted.max_per_day": 0,
+        "unprompted.min_interval_minutes": 0,
+        "unprompted.shared_gap_minutes": 60,
+    })
+    state = _state(unprompted_last_sent=time.time())
+    ctx = types.SimpleNamespace(bot_state=state)
+    channel = _Channel()
+    checks = []
+    committed = []
+
+    @asynccontextmanager
+    async def guard(body):
+        checks.append(body)
+        yield True
+        committed.append(body)
+
+    queued = asyncio.run(
+        up.speak(ctx, channel, "monologue", "queued thought.", send_guard=guard)
+    )
+    assert queued.queued is True
+    assert checks == []
+
+    monkeypatch.setattr(up, "shared_wait", lambda _state, _now=None: 0.0)
+    state.unprompted_last_sent = 0.0
+    asyncio.run(up._drain())
+    assert checks == ["queued thought."]
+    assert committed == ["queued thought."]
+    assert channel.sent
+    up._queue.clear()
+    up._serving_now.clear()
+
+
+def test_failed_discord_send_does_not_commit_the_send_guard(monkeypatch, cfg):
+    from contextlib import asynccontextmanager
+
+    cfg.update({
+        "unprompted.max_per_day": 0,
+        "unprompted.min_interval_minutes": 0,
+    })
+    state = _state()
+    ctx = types.SimpleNamespace(bot_state=state)
+    attempts = []
+    committed = []
+
+    class BrokenChannel(_Channel):
+        async def send(self, text):
+            attempts.append(text)
+            raise RuntimeError("simulated Discord send failure")
+
+    @asynccontextmanager
+    async def guard(body):
+        yield True
+        committed.append(body)
+
+    with pytest.raises(RuntimeError, match="simulated Discord send failure"):
+        asyncio.run(
+            up.speak(
+                ctx,
+                BrokenChannel(),
+                "monologue",
+                "never delivered.",
+                send_guard=guard,
+            )
+        )
+
+    assert attempts
+    assert committed == []
