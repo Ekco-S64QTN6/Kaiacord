@@ -640,38 +640,45 @@ class RAGIndexerMixin:
         return len(held)
 
     def _mark_nodes_stale(self, itype: str, node_ids, *, reindex_required: bool = False) -> None:
-        """Persist recovery intent in node metadata as well as the file manifest."""
+        """Persist recovery intent in the docstore and exclude it from model metadata.
+
+        SimpleDocumentStore.docs returns a deserialized mapping snapshot. Mutating
+        an object obtained from that property does not write it back to the KV
+        store, so markers must be explicitly committed with add_documents().
+        """
         index = self.indices.get(itype)
         if index is None:
             return
+        docstore = index.docstore
+        changed_nodes = []
         for node_id in dict.fromkeys(node_ids):
-            # Mutate the stored object itself. get_node() may return a detached
-            # copy, which would make the recovery marker disappear before persist.
-            node = index.docstore.docs.get(node_id)
-            if node is not None:
-                marker_keys = ["_rag_replacement_stale"]
-                node.metadata["_rag_replacement_stale"] = True
-                if reindex_required:
-                    marker_keys.append("_rag_reindex_required")
-                    node.metadata["_rag_reindex_required"] = True
-                # These internal recovery flags must not leak into retrieval
-                # text or be fed to an embedding in any later reindex pass.
-                for attr_name in ("excluded_llm_metadata_keys", "excluded_embed_metadata_keys"):
-                    excluded = list(getattr(node, attr_name, []) or [])
-                    for key in marker_keys:
-                        if key not in excluded:
-                            excluded.append(key)
-                    setattr(node, attr_name, excluded)
+            node = docstore.get_node(node_id, raise_error=False)
+            if node is None:
+                continue
+            marker_keys = ["_rag_replacement_stale"]
+            node.metadata["_rag_replacement_stale"] = True
+            if reindex_required:
+                marker_keys.append("_rag_reindex_required")
+                node.metadata["_rag_reindex_required"] = True
+            for attr_name in ("excluded_llm_metadata_keys", "excluded_embed_metadata_keys"):
+                excluded = list(getattr(node, attr_name, []) or [])
+                for key in marker_keys:
+                    if key not in excluded:
+                        excluded.append(key)
+                setattr(node, attr_name, excluded)
+            changed_nodes.append(node)
+        if changed_nodes:
+            docstore.add_documents(changed_nodes, allow_update=True)
 
     def _mark_nodes_reindex_required(self, itype: str, node_ids) -> None:
         """Persist a full-reindex request on the last-good nodes for crash recovery."""
         index = self.indices.get(itype)
         if index is None:
             return
+        docstore = index.docstore
+        changed_nodes = []
         for node_id in dict.fromkeys(node_ids):
-            # Use the object held by the docstore, not a potentially detached
-            # get_node() view.
-            node = index.docstore.docs.get(node_id)
+            node = docstore.get_node(node_id, raise_error=False)
             if node is None:
                 continue
             node.metadata["_rag_reindex_required"] = True
@@ -680,6 +687,9 @@ class RAGIndexerMixin:
                 if "_rag_reindex_required" not in excluded:
                     excluded.append("_rag_reindex_required")
                 setattr(node, attr_name, excluded)
+            changed_nodes.append(node)
+        if changed_nodes:
+            docstore.add_documents(changed_nodes, allow_update=True)
 
     def _record_partial_insert_cleanup(self, abs_path: str, itype: str, node_ids) -> bool:
         """Retain and mark partial insertions when rollback itself cannot fully delete them."""

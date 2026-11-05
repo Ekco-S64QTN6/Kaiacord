@@ -631,7 +631,10 @@ class RAGQueryMixin:
         for itype, index in list(self.indices.items()):
             if self.bm25_cache.get(itype):
                 continue
-            nodes = list(index.storage_context.docstore.docs.values())
+            nodes = [
+                node for node in index.storage_context.docstore.docs.values()
+                if not (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale")
+            ]
             if nodes:
                 retriever = SimpleBM25Retriever(nodes)
                 await retriever.initialize_async()
@@ -649,7 +652,10 @@ class RAGQueryMixin:
             # built) and a rebuild costs about what loading one would.
             bm25_retriever = self.bm25_cache.get(itype)
             if not bm25_retriever:
-                index_nodes = list(index.storage_context.docstore.docs.values())
+                index_nodes = [
+                    node for node in index.storage_context.docstore.docs.values()
+                    if not (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale")
+                ]
                 if index_nodes:
                     bm25_retriever = SimpleBM25Retriever(index_nodes)
                     await bm25_retriever.initialize_async()
@@ -1075,7 +1081,11 @@ class RAGQueryMixin:
                 if node_id in held:
                     continue
                 node = index.docstore.get_node(node_id, raise_error=False)
-                if node is not None and (topic_re is None or topic_re.search(node.text or "")):
+                if (
+                    node is not None
+                    and not (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale")
+                    and (topic_re is None or topic_re.search(node.text or ""))
+                ):
                     node.metadata['_retrieval_method'] = 'recent'
                     out.append(NodeWithScore(node=node, score=base))
         return out
