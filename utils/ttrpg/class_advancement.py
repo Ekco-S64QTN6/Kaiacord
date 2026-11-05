@@ -375,7 +375,6 @@ def _is_wealthiest(sheet: dict) -> bool:
                 for other in report.records:
                     owner_id = str(other.get("user_id", ""))
                     try:
-                        balances = {}
                         for key in ("gil", "bank_balance"):
                             amount = other.get(key, 0)
                             if (
@@ -384,7 +383,6 @@ def _is_wealthiest(sheet: dict) -> bool:
                                 or not math.isfinite(amount)
                             ):
                                 raise ValueError(f"{key} must be a finite number")
-                            balances[key] = amount
                         total = _total_gil(other)
                         if not math.isfinite(total):
                             raise ValueError("combined Gil total must be finite")
