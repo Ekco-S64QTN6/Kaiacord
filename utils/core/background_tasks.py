@@ -2060,17 +2060,77 @@ class CoreTaskManager:
                 turns.append((m.group('ts'), f"{speaker}: {m.group('msg')}"))
         return turns
 
-    _QUOTED = re.compile(r'["“]([^"“”]{4,})["”]')
+    @staticmethod
+    def _quoted_spans(text: str) -> list:
+        """Return paired quoted spans, including short and single-quoted text.
+
+        Apostrophes between word characters are treated as punctuation inside a
+        quote, not as quote delimiters (for example, 'I don't know').
+        """
+        pairs = {'"': '"', "“": "”", "‘": "’", "'": "'"}
+        is_word = lambda char: char.isalnum() or char == "_"
+        spans = []
+        index = 0
+        while index < len(text):
+            opening = text[index]
+            closing = pairs.get(opening)
+            if closing is None:
+                index += 1
+                continue
+
+            # Do not mistake an apostrophe in an unquoted contraction or
+            # possessive for the beginning of a single-quoted span.
+            if opening in ("'", "‘") and index > 0 and index + 1 < len(text):
+                if is_word(text[index - 1]) and is_word(text[index + 1]):
+                    index += 1
+                    continue
+
+            end = index + 1
+            while end < len(text):
+                if text[end] == closing:
+                    # Apostrophes inside a quoted contraction are not its end.
+                    if closing in ("'", "’") and end > 0 and end + 1 < len(text):
+                        if is_word(text[end - 1]) and is_word(text[end + 1]):
+                            end += 1
+                            continue
+                    span = text[index + 1:end]
+                    if span.strip():
+                        spans.append(span)
+                    index = end + 1
+                    break
+                end += 1
+            else:
+                # An unmatched opening quote is not enough to infer a span.
+                index += 1
+        return spans
 
     @classmethod
     def _unverified_quotes(cls, digest: str, conversation: str) -> list:
-        """Quoted spans in the digest that nobody in the conversation said.
+        """Quoted spans not found verbatim within a single speaker turn.
 
-        Case, spacing and typographic quotes are ignored; the words are not.
+        Matching remains case- and whitespace-insensitive, but quote delimiters
+        include straight/curly single and double quotes, including short spans.
+        A quote may be a substring of an utterance; it may not be assembled by
+        concatenating the end of one speaker's turn with the start of another.
         """
-        norm = lambda t: " ".join(t.replace("’", "'").casefold().split())
-        said = norm(conversation)
-        return [q for q in cls._QUOTED.findall(digest) if norm(q).strip(" .,!?") not in said]
+        norm = lambda text: " ".join(text.replace("’", "'").casefold().split())
+        said_turns = []
+        for line in str(conversation).splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            speaker = re.match(r"^(?:\[[^\]]+\]\s*)?[^:\n]{1,80}:\s?(.*)$", line)
+            utterance = speaker.group(1) if speaker else line
+            normalized = norm(utterance)
+            if normalized:
+                said_turns.append(normalized)
+
+        unverified = []
+        for quote in cls._quoted_spans(str(digest)):
+            normalized = norm(quote).strip(" .,!?:;")
+            if normalized and not any(normalized in turn for turn in said_turns):
+                unverified.append(quote)
+        return unverified
 
     @classmethod
     async def _recover_unverified_digest(

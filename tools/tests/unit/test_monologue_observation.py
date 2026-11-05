@@ -476,6 +476,40 @@ def test_the_digest_may_only_quote_what_was_said():
     assert M._unverified_quotes("They were on about rovers and cats.", conv) == []
 
 
+def test_short_and_single_quoted_spans_are_validated():
+    from utils.core.background_tasks import CoreTaskManager as M
+
+    conversation = "Ekco: yes, that is correct."
+    for digest, expected in (
+        ('He answered "no".', ["no"]),
+        ("He answered 'no'.", ["no"]),
+        ("He answered ‘no’.", ["no"]),
+        ('He answered "ok".', ["ok"]),
+    ):
+        assert M._unverified_quotes(digest, conversation) == expected
+
+
+def test_single_quoted_contractions_do_not_split_the_quote():
+    from utils.core.background_tasks import CoreTaskManager as M
+
+    conversation = "Ekco: I don't know whether it worked."
+    assert M._unverified_quotes("He said 'I don't know'.", conversation) == []
+
+
+def test_valid_substring_quote_must_come_from_one_speaker_turn():
+    from utils.core.background_tasks import CoreTaskManager as M
+
+    conversation = (
+        "Ekco: we should deploy after the review\\n"
+        "Starkind: tomorrow is probably safer"
+    )
+    assert M._unverified_quotes('She quoted "deploy after the review".', conversation) == []
+    assert M._unverified_quotes(
+        'She fabricated "review Starkind: tomorrow is probably safer".',
+        conversation,
+    ) == ["review Starkind: tomorrow is probably safer"]
+
+
 def test_the_monologue_attributes_only_what_the_speaker_typed(monkeypatch):
     import asyncio, time
     from types import SimpleNamespace
