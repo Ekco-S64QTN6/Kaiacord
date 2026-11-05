@@ -129,24 +129,30 @@ def test_bank_transaction_callbacks_hold_the_player_lock(monkeypatch):
     monkeypatch.setattr(core, "save", save)
     monkeypatch.setattr(core, "_make_status_btn", lambda *args: __import__("discord").ui.Button(label="status"))
 
+    lock_observations = []
+
+    def observing_player_locked(uid):
+        from utils.ttrpg.session_manager import get_action_lock
+
+        def decorate(fn):
+            async def wrapped(*args, **kwargs):
+                lock = await get_action_lock(f"user:{uid}")
+                async with lock:
+                    lock_observations.append(lock.locked())
+                    return await fn(*args, **kwargs)
+            return wrapped
+        return decorate
+
+    monkeypatch.setattr(core, "player_locked", observing_player_locked)
     msg, sent = _message()
 
     async def run():
         await core._handle_bank_deposit(None, msg, None, "", "42", "Ash", False)
         view = sent[0][1]
         button = next(child for child in view.children if child.label == "Deposit 10g")
-        lock = await get_action_lock("user:42")
-        seen = []
-        original = bank._handle_bank_deposit
-
-        async def observe(*args, **kwargs):
-            seen.append(lock.locked())
-            return await original(*args, **kwargs)
-
-        monkeypatch.setattr(bank, "_handle_bank_deposit", observe)
         await button.callback(_interaction())
-        return seen
 
-    assert asyncio.run(run()) == [True]
+    asyncio.run(run())
+    assert lock_observations == [True]
     assert store["42"]["gil"] == 90
     assert store["42"]["bank_balance"] == 60
