@@ -265,7 +265,9 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   Spine snapshots go through `housing_transactions.commit_character_resource()`; character +
   shared pond/town updates go through `world_state.mutate_world_state()`; combat rewards and
   encounter mutations go through `combat_outcomes.commit_outcome()`. Do not split one logical
-  action into independent character/resource saves. Channel sessions are shared by every player
+  action into independent character/resource saves. The shared world-state journal is single-owner:
+  recovery must verify its non-empty `user_id` matches `character_sheet.user_id` before writing
+  either snapshot; a mismatch must fail closed and preserve the journal. Channel sessions are shared by every player
   in that channel: never persist or replay a stale whole-session snapshot as one player's recovery
   payload. Patch only the owned encounter by owner ID + stable monster ID, and deduplicate
   combat-log entries by outcome ID. Ordinary flee and Smoke Bomb use pending combat outcomes;
