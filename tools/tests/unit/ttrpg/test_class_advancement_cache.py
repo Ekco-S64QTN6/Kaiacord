@@ -1,6 +1,8 @@
 """The wealthiest-title background refresh is single-flight and publishes atomically."""
 import json
 
+import pytest
+
 from utils.ttrpg import class_advancement as ca
 
 
@@ -67,3 +69,132 @@ def test_wealthiest_refresh_publishes_uid_timestamp_and_flag_consistently(
     assert ca._WEALTHIEST_CACHE["timestamp"] > 0
     assert ca._WEALTHIEST_CACHE["updating"] is False
     assert ca._is_wealthiest({"user_id": "42"}) is True
+
+
+
+def test_incomplete_character_scan_withholds_wealthiest_title(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "memory" / "ttrpg" / "characters"
+    directory.mkdir(parents=True)
+    (directory / "42.json").write_text(json.dumps({
+        "user_id": "42", "gil": 1200, "bank_balance": 500,
+    }), encoding="utf-8")
+    damaged = directory / "99.json"
+    damaged.write_text("{broken character data", encoding="utf-8")
+
+    monkeypatch.setattr(ca, "_WEALTHIEST_CACHE", {
+        "timestamp": 0, "uid": "42", "updating": False,
+    })
+
+    class InlineThread:
+        def __init__(self, target, daemon=False):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(ca.threading, "Thread", InlineThread)
+
+    # An expired winner is withheld while the refresh runs, and the
+    # incomplete scan must not replace it with a partial-population winner.
+    assert ca._is_wealthiest({"user_id": "42"}) is False
+    assert ca._WEALTHIEST_CACHE["uid"] is None
+    assert ca._WEALTHIEST_CACHE["timestamp"] > 0
+    assert ca._WEALTHIEST_CACHE["updating"] is False
+    assert ca._is_wealthiest({"user_id": "42"}) is False
+
+
+def test_non_numeric_character_balance_withholds_wealthiest_title(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "memory" / "ttrpg" / "characters"
+    directory.mkdir(parents=True)
+    (directory / "42.json").write_text(json.dumps({
+        "user_id": "42", "gil": "not-numeric", "bank_balance": 2500,
+    }), encoding="utf-8")
+
+    monkeypatch.setattr(ca, "_WEALTHIEST_CACHE", {
+        "timestamp": 0, "uid": None, "updating": False,
+    })
+
+    class InlineThread:
+        def __init__(self, target, daemon=False):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(ca.threading, "Thread", InlineThread)
+
+    assert ca._is_wealthiest({"user_id": "42"}) is False
+    assert ca._WEALTHIEST_CACHE["uid"] is None
+    assert ca._WEALTHIEST_CACHE["timestamp"] > 0
+    assert ca._WEALTHIEST_CACHE["updating"] is False
+
+
+
+def test_boolean_character_balance_withholds_wealthiest_title(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "memory" / "ttrpg" / "characters"
+    directory.mkdir(parents=True)
+    (directory / "42.json").write_text(json.dumps({
+        "user_id": "42", "gil": True, "bank_balance": 2500,
+    }), encoding="utf-8")
+
+    monkeypatch.setattr(ca, "_WEALTHIEST_CACHE", {
+        "timestamp": 0, "uid": None, "updating": False,
+    })
+
+    class InlineThread:
+        def __init__(self, target, daemon=False):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(ca.threading, "Thread", InlineThread)
+
+    assert ca._is_wealthiest({"user_id": "42"}) is False
+    assert ca._WEALTHIEST_CACHE["uid"] is None
+    assert ca._WEALTHIEST_CACHE["timestamp"] > 0
+    assert ca._WEALTHIEST_CACHE["updating"] is False
+
+
+@pytest.mark.parametrize(
+    "field,raw_value",
+    [
+        ("gil", "NaN"),
+        ("gil", "Infinity"),
+        ("bank_balance", "-Infinity"),
+    ],
+)
+def test_non_finite_character_balances_withhold_wealthiest_title(
+    tmp_path, monkeypatch, field, raw_value
+):
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "memory" / "ttrpg" / "characters"
+    directory.mkdir(parents=True)
+    balances = {"gil": "1200", "bank_balance": "0"}
+    balances[field] = raw_value
+    (directory / "42.json").write_text(
+        '{"user_id":"42","gil":' + balances["gil"] +
+        ',"bank_balance":' + balances["bank_balance"] + '}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(ca, "_WEALTHIEST_CACHE", {
+        "timestamp": 0, "uid": None, "updating": False,
+    })
+
+    class InlineThread:
+        def __init__(self, target, daemon=False):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(ca.threading, "Thread", InlineThread)
+
+    assert ca._is_wealthiest({"user_id": "42"}) is False
+    assert ca._WEALTHIEST_CACHE["uid"] is None
+    assert ca._WEALTHIEST_CACHE["timestamp"] > 0
+    assert ca._WEALTHIEST_CACHE["updating"] is False

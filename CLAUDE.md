@@ -240,6 +240,9 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `session_manager.get_action_lock("user:<uid>")`, reloads the current character, applies a
   synchronous mutation, and saves only when changed. The character manager's own file lock
   protects one read or one write at a time; it does not make a read-modify-write atomic.
+- **Global character rankings require a complete scan.** The Wealthy title is never awarded
+  from a partial character population or malformed Gil/bank balance. Reuse the shared
+  character_manager scan report and withhold the cached winner if any record is unreadable.
 - **Bulk RPG scans report partial data.** Use character_manager.load_all_report() or
   housing.load_all_housing_report() when completeness matters; each returns readable records
   plus per-file failures (owner ID, exact path, and reason). Compatibility list helpers still
