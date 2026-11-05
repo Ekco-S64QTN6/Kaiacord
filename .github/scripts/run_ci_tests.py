@@ -34,7 +34,10 @@ RELATED_TESTS = {
     "utils/commands/reindex_handler.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
     "tools/maintenance/reindex_rag.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
     "Kaiacord.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
-    "utils/core/kaia_rag_query.py": ("tools/tests/unit/test_rag_identity_scoping.py",),
+    "utils/core/kaia_rag_query.py": (
+        "tools/tests/unit/test_rag_index_hygiene.py",
+        "tools/tests/unit/test_rag_identity_scoping.py",
+    ),
     "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py",),
     "utils/infrastructure/system/shutdown_fixed.py": (
         "tools/tests/unit/test_telemetry_honesty.py",

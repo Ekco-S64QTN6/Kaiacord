@@ -32,6 +32,15 @@ flowchart TD
   13/16 at 512, 11/16 at 256 — not enough to justify a rebuild.
 - **Logs are indexed by their tail**: only what was appended since the last pass, tracked as a byte
   offset with a hash of the indexed prefix; a log rewritten in place is re-indexed whole.
+- **File replacement is staged.** Parse and insert the new nodes before retiring last-good nodes.
+  A partial old-node delete keeps the replacement, marks the remaining old IDs as stale in both
+  the manifest and persisted node metadata, and retries them on a later sweep. A partial insert
+  that cannot be rolled back is likewise marked stale and forces a full source rebuild. The
+  metadata marker survives a crash between the index snapshot and manifest commit.
+- **Stale nodes are never retrieval candidates.** The scorer, whole-document fallback, recent
+  highlights and recent-event scan all filter the marker; the internal marker is excluded from
+  prompt and embedding metadata. Ingestion-history writes are ancillary and cannot turn a
+  committed index update into a reported indexing failure.
 - **Typing**: every node gets a `source_type` from its path, most specific first — persona, user
   profile (a profile lives inside its user's log folder), user log, dream, news, her own note,
   snapshot, otherwise general knowledge.

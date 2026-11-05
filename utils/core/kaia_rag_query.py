@@ -213,6 +213,39 @@ class RAGQueryMixin:
         r"|\b\d{4}-\d{2}-\d{2}[-_][\w\-]{4,}\b",
         re.IGNORECASE)
 
+    def _is_stale_replacement_node(self, node, manifest_stale_ids: Optional[Set[str]] = None) -> bool:
+        """Check candidate copies against the authoritative docstore and manifest."""
+        metadata = getattr(node, "metadata", {}) or {}
+        if metadata.get("_rag_replacement_stale"):
+            return True
+        node_id = getattr(node, "node_id", None)
+        if not node_id:
+            return False
+        if manifest_stale_ids is not None and node_id in manifest_stale_ids:
+            return True
+        if manifest_stale_ids is None:
+            for entry in getattr(self, "indexed_files", {}).values():
+                if node_id in entry.get("stale_nodes", []):
+                    return True
+        # BM25/vector retrieval may hold a detached pre-marker copy. Re-read
+        # the stored node by ID. In this app's SimpleVectorStore all live nodes
+        # also exist in the docstore; a vector-only ID is an orphan from a
+        # partial insert/delete and must never reach a prompt.
+        found_in_docstore = False
+        for index in getattr(self, "indices", {}).values():
+            try:
+                docstore = index.storage_context.docstore
+                if not docstore.document_exists(node_id):
+                    continue
+                found_in_docstore = True
+                current = docstore.get_node(node_id, raise_error=False)
+                if current is not None and (getattr(current, "metadata", {}) or {}).get("_rag_replacement_stale"):
+                    return True
+            except Exception:
+                # Fail closed if the candidate's authoritative store cannot be read.
+                return True
+        return not found_in_docstore
+
     def _title_match(self, query_words: set, fname_stops: set,
                      strict_identity: bool = False,
                      allowed_user_ids: Optional[Set[str]] = None):
@@ -496,6 +529,8 @@ class RAGQueryMixin:
                 try:
                     node = docstore.get_document(nid)
                     if node:
+                        if (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale"):
+                            continue
                         # The manifest is a cache, not an authority for node
                         # ownership. A stale/corrupt nodes list must not make an
                         # allowed filename return content stored for another file.
@@ -517,9 +552,12 @@ class RAGQueryMixin:
             for itype, index in self.indices.items():
                 all_docs = list(index.storage_context.docstore.docs.values())
                 matching = [
-                    n for n in all_docs 
-                    if n.metadata.get('file_path') == target_file_path or 
-                       os.path.abspath(n.metadata.get('file_path', '')) == os.path.abspath(target_file_path)
+                    n for n in all_docs
+                    if not (getattr(n, "metadata", {}) or {}).get("_rag_replacement_stale")
+                    and (
+                        n.metadata.get('file_path') == target_file_path
+                        or os.path.abspath(n.metadata.get('file_path', '')) == os.path.abspath(target_file_path)
+                    )
                 ]
                 if matching:
                     file_nodes = matching
@@ -626,7 +664,10 @@ class RAGQueryMixin:
         for itype, index in list(self.indices.items()):
             if self.bm25_cache.get(itype):
                 continue
-            nodes = list(index.storage_context.docstore.docs.values())
+            nodes = [
+                node for node in index.storage_context.docstore.docs.values()
+                if not (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale")
+            ]
             if nodes:
                 retriever = SimpleBM25Retriever(nodes)
                 await retriever.initialize_async()
@@ -644,7 +685,10 @@ class RAGQueryMixin:
             # built) and a rebuild costs about what loading one would.
             bm25_retriever = self.bm25_cache.get(itype)
             if not bm25_retriever:
-                index_nodes = list(index.storage_context.docstore.docs.values())
+                index_nodes = [
+                    node for node in index.storage_context.docstore.docs.values()
+                    if not (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale")
+                ]
                 if index_nodes:
                     bm25_retriever = SimpleBM25Retriever(index_nodes)
                     await bm25_retriever.initialize_async()
@@ -794,6 +838,14 @@ class RAGQueryMixin:
         is_dream_query = routing["is_dream_query"]
         is_social_identity = routing["is_social_identity"]
 
+        # Snapshot stale IDs once for this scoring pass; the docstore check below
+        # also protects in-flight BM25 candidates created before cache eviction.
+        manifest_stale_ids = {
+            node_id
+            for entry in getattr(self, "indexed_files", {}).values()
+            for node_id in entry.get("stale_nodes", [])
+        }
+
         # Pre-compute current time for recency decay calculations
         _now_ts = time.time()
         _half_lives = recency_half_lives(config)
@@ -849,6 +901,10 @@ class RAGQueryMixin:
             node = node_result.node if hasattr(node_result, 'node') else node_result
             base_score = node_result.score if hasattr(node_result, 'score') else 0.5
             
+            metadata = get_node_metadata(node)
+            if self._is_stale_replacement_node(node, manifest_stale_ids):
+                continue
+
             content = get_node_text(node)
             if not content: continue
 
@@ -858,7 +914,6 @@ class RAGQueryMixin:
                 continue
             seen_content_hashes.add(content_hash)
 
-            metadata = get_node_metadata(node)
             retrieval_method = metadata.get('_retrieval_method', 'unknown')
             
             source_type = metadata.get('source_type', 'general')
@@ -1067,7 +1122,11 @@ class RAGQueryMixin:
                 if node_id in held:
                     continue
                 node = index.docstore.get_node(node_id, raise_error=False)
-                if node is not None and (topic_re is None or topic_re.search(node.text or "")):
+                if (
+                    node is not None
+                    and not (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale")
+                    and (topic_re is None or topic_re.search(node.text or ""))
+                ):
                     node.metadata['_retrieval_method'] = 'recent'
                     out.append(NodeWithScore(node=node, score=base))
         return out
@@ -1368,6 +1427,8 @@ class RAGQueryMixin:
             
             recent_nodes = []
             for node in all_nodes:
+                if (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale"):
+                    continue
                 ts = self._node_timestamp(node)
                 if ts > cutoff:
                     recent_nodes.append(node)
@@ -1430,6 +1491,8 @@ class RAGQueryMixin:
             
             recent_nodes = []
             for node in all_nodes:
+                if (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale"):
+                    continue
                 ts = self._node_timestamp(node)
                 if ts > cutoff:
                     recent_nodes.append(node)
