@@ -1,10 +1,10 @@
 """Pond purification and tavern/Shrine recovery actions for Aethelgard."""
 import discord
 
-from utils.ttrpg.shop import find_item
 
 async def _handle_purify(ctx, msg, send, rest, uid, uname, is_owner, *, load_character, no_character_handler):
     """Purify Tricklebrook Pond as one global, recoverable player/world action."""
+    from utils.ttrpg.shop import find_item
     sheet = await load_character(uid)
     if not sheet:
         return await no_character_handler(msg)
