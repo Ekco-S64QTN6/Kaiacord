@@ -715,6 +715,13 @@ header. Rules that keep it safe, each with a test in `test_context_enricher_file
   inside the text (`[USER_MESSAGE]` …) are defused.
 - **What cannot be read says so.** A PDF, archive, binary, or oversized file arrives as
   `Contents unknown: …` — a fact, not an instruction, so she has nothing to guess from.
+- **A linked PDF is parsed out of process.** Ordinary chat-link extraction runs pypdf in an
+  isolated child with the address-space and CPU ceilings from `MAX_PDF_PARSE_MEMORY_BYTES` /
+  `MAX_PDF_PARSE_CPU_SECONDS`, plus `MAX_PDF_PARSE_TIMEOUT_SECONDS`. Raw bytes, pages and text
+  are capped. A timeout, resource kill, unsupported platform or parser error returns no extracted
+  text; never fall back to parsing an untrusted PDF in the bot process. Linux integration tests
+  exercise real `RLIMIT_AS`, `RLIMIT_CPU` and timeout/reaping behavior in
+  `test_context_enricher_links.py`.
 - **"summarize this file" after the file** finds it on the replied-to message, or on the author's
   own last 5 messages within 15 minutes. Images are not handled here; they stay on the vision path.
 
