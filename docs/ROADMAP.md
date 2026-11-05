@@ -10,7 +10,6 @@ pull requests.
 
 | Item | What | Effort | Call |
 |:--|:--|:--|:--|
-| **Stitch fragmented shortwave broadcasts** | A KiwiSDR reconnect splits one number-station broadcast into fragments, each posted. Join an unsquelched listen's WAVs before processing, one post per scheduled broadcast. | ½ day | Yes |
 | **Twitch chat** | Kaia in the owner's Twitch chat (IRC over TLS/WebSocket with a bot account's OAuth token). | 1–2 days | Yes, when the owner says go |
 | **UV-K5 as a scanner receiver** | The Quansheng UV-K5 alongside or instead of the RTL-SDR. It demodulates inside the radio and sends no IQ, so it needs an audio path (an AIOC, or a cable into a USB sound card). Receive only: Kaia never transmits. | 1 day once the audio path exists | Yes; blocked on hardware |
 
