@@ -16,6 +16,7 @@ def _manager(tmp_path, monkeypatch):
     manager._news_followup_retry_task = None
     manager._news_followup_retry_date = None
     monkeypatch.setattr(bg, "NEWS_DAILY_DIR", Path(tmp_path))
+    monkeypatch.setattr(bg, "NEWS_FOLLOWUP_STATE_PATH", Path(tmp_path) / "news_followup_retry.json")
     monkeypatch.setattr(CoreTaskManager, "NEWS_FOLLOWUP_RETRY_DELAY_SECONDS", 0)
     monkeypatch.setattr(bg, "_request_rag_retry", lambda _reason: None)
     return manager
@@ -78,5 +79,22 @@ def test_scheduled_and_followup_refreshes_are_serialized(tmp_path, monkeypatch):
         release.set()
         await asyncio.gather(first, second)
         assert max_active == 1
+
+    asyncio.run(run())
+
+
+def test_daily_cap_survives_a_manager_restart(tmp_path, monkeypatch):
+    async def run():
+        first = _manager(tmp_path, monkeypatch)
+        first.run_news_update = AsyncMock()
+        first._schedule_news_followup_retry()
+        await first._news_followup_retry_task
+        first.run_news_update.assert_awaited_once()
+
+        restarted = _manager(tmp_path, monkeypatch)
+        restarted.run_news_update = AsyncMock()
+        restarted._schedule_news_followup_retry()
+        assert restarted._news_followup_retry_task is None
+        restarted.run_news_update.assert_not_awaited()
 
     asyncio.run(run())
