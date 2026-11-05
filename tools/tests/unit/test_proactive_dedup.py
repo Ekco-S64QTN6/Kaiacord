@@ -131,7 +131,7 @@ def test_digest_with_same_preface_but_distinct_observation_is_not_suppressed():
     )
 
 
-def test_legacy_trigger_without_source_category_is_recorded_cleanly(tmp_path, monkeypatch):
+def test_legacy_trigger_without_source_category_is_supported_or_rejected_cleanly(tmp_path, monkeypatch):
     import json
     from types import SimpleNamespace
 
