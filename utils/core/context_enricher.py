@@ -647,7 +647,7 @@ class ContextEnricher:
                         max_len = config.url_max_content_length
                         if len(parsed_text) > max_len:
                             parsed_text = parsed_text[:max_len] + "... [TRUNCATED]"
-                                                final_result = f"Source: {url}\n{parsed_text}"
+                        final_result = f"Source: {url}\n{parsed_text}"
                         self._prune(self._url_cache, now)
                         self._url_cache[url] = (now, final_result)
                         return final_result
