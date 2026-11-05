@@ -1914,33 +1914,43 @@ class CoreTaskManager:
             import sys
             import asyncio
             api_key = os.getenv("GEMINI_API_KEY")
+            global_brief_succeeded = False
             if api_key:
-                # Run as a separate process using the same python executable to assure environment consistency.
+                # Run as a separate process using the same Python executable to assure environment consistency.
                 script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools", "maintenance", "update_kaia_news.py")
-                log_debug(f"Invoking {script_path} via {sys.executable}")
-                process = await asyncio.create_subprocess_exec(
-                    sys.executable, script_path, "--skip-backfill", "--no-prompt",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=os.environ.copy(),
-                    start_new_session=True,
-                )
-                stdout, stderr = await self._communicate_or_kill(process, "news update")
-
-                if process.returncode == 0:
-                     log_success("External news update process completed successfully.")
-                     if stdout:
-                        for line in stdout.decode().splitlines():
-                             if line.strip(): log_debug(f"[News] {line}")
-                else:
-                     log_error(f"External news update process failed with return code {process.returncode}")
-                     if stderr:
-                         for line in stderr.decode().splitlines():
-                              if line.strip(): log_error(f"[News] {line}")
+                try:
+                    log_debug(f"Invoking {script_path} via {sys.executable}")
+                    process = await asyncio.create_subprocess_exec(
+                        sys.executable, script_path, "--skip-backfill", "--no-prompt",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=os.environ.copy(),
+                        start_new_session=True,
+                    )
+                    stdout, stderr = await self._communicate_or_kill(process, "news update")
+                    global_brief_succeeded = process.returncode == 0
+                    if global_brief_succeeded:
+                        log_success("Grounded global news brief generated.")
+                    else:
+                        log_error(f"Grounded global news brief failed with return code {process.returncode}")
+                    # The updater prints retry diagnostics to stdout. Preserve those
+                    # on failure too; previously only stderr survived a nonzero exit.
+                    if stdout:
+                        for line in stdout.decode(errors="replace").splitlines():
+                            if line.strip():
+                                log_debug(f"[News] {line}")
+                    if stderr:
+                        for line in stderr.decode(errors="replace").splitlines():
+                            if line.strip():
+                                (log_debug if global_brief_succeeded else log_error)(f"[News] {line}")
+                except Exception as news_error:
+                    log_error(f"Could not execute the grounded global news updater: {news_error}")
             else:
-                log_warning("Integrated news update skipped: GEMINI_API_KEY not set.")
-            
-            # Run daily tech news aggregator
+                log_warning("Grounded global news update skipped: GEMINI_API_KEY not set.")
+
+            # Run daily tech news aggregator independently of the grounded
+            # global brief so one provider failure does not discard this feed.
+            tech_aggregator_succeeded = False
             try:
                 tech_scraper_path = os.path.join(
                     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -1956,6 +1966,7 @@ class CoreTaskManager:
                 )
                 ts_stdout, ts_stderr = await self._communicate_or_kill(tech_process, "tech news aggregator")
                 if tech_process.returncode == 0:
+                    tech_aggregator_succeeded = True
                     log_success("Daily tech news aggregator completed successfully.")
                     if ts_stdout:
                         for line in ts_stdout.decode().splitlines():
@@ -1981,10 +1992,17 @@ class CoreTaskManager:
 
             if self.ctx.news_manager:
                 self.ctx.news_manager.refresh()
-            if rag_refresh_completed:
-                log_success("Integrated news update completed.")
+            if global_brief_succeeded and tech_aggregator_succeeded and rag_refresh_completed:
+                log_success("Integrated news refresh completed: global brief, tech digest, and RAG index are current.")
             else:
-                log_warning("News update completed; RAG indexing remains queued for retry.")
+                incomplete = []
+                if not global_brief_succeeded:
+                    incomplete.append("grounded global brief unavailable; !news overview will show the last filed date")
+                if not tech_aggregator_succeeded:
+                    incomplete.append("technology digest unavailable")
+                if not rag_refresh_completed:
+                    incomplete.append("RAG indexing remains queued for retry")
+                log_warning("News refresh partially completed: " + "; ".join(incomplete) + ".")
         except Exception as e:
             log_error(f"Failed to run news update: {e}")
 

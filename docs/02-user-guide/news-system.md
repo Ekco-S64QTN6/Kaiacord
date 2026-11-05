@@ -66,9 +66,15 @@ on the Google Cloud project for more quota. Without the bot, a cron line does th
 The script automatically archives news briefs and summaries older than **14 days** to `knowledge_base/news/archive/` to keep the knowledge base focused.
 
 ## 8. `!news`
-`!news` answers in the standard embed box: today's headlines, numbered. `!news 3` opens story 3
-with its background from earlier briefs, and `!news security` (or any category above) shows one
-section. `!news hacking` is accepted for `hacker`.
+`!news` answers in the standard embed box: the latest successfully filed global brief, with
+numbered headlines. If today's Gemini-grounded brief failed, the embed labels the older brief's
+date rather than presenting it as current. `!news 3` opens story 3 with its background from
+earlier briefs. `!news security` (or any category above) shows one category feed.
+
+The independent tech scraper writes `tech_updates/tech_digest_YYYYMMDD.md`; its headlines are
+stored as single news items with their source and details, so `!news technology` remains useful
+even when the grounded global brief could not be generated. The two feeds are separate: a
+successful tech scrape does not mean the global brief succeeded.
 
 ## 9. Dependencies
 - **google-genai**: New Google GenAI SDK with grounding support
