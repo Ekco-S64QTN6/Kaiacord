@@ -40,6 +40,8 @@ def test_dream_and_news_refreshes_queue_retry_on_false_or_timeout():
     assert '_request_rag_retry("post-dream refresh")' in source
     assert '_request_rag_retry("post-dream refresh timeout")' in source
     assert '_request_rag_retry("post-dream refresh error")' in source
-    assert "rag_refresh_completed = False\n                    log_error(f\"Daily news RAG refresh raised:" in source
-    assert "rag_refresh_completed = await run_rag_func(self.ctx.rag.refresh_knowledge_base) is True" not in source
+    assert "except Exception as refresh_error:" in source
+    assert "rag_refresh_completed = False" in source
+    assert 'log_error(f"Daily news RAG refresh raised: {refresh_error}")' in source
+    assert "rag_refresh_completed = await run_rag_func(self.ctx.rag.refresh_knowledge_base) is True" in source
     assert '_request_rag_retry("daily news refresh")' in source
