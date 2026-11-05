@@ -2,6 +2,7 @@ import re
 import asyncio
 import discord
 import aiohttp
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 from utils.infrastructure.system.yaml_config import config
@@ -11,6 +12,8 @@ from utils.core.sanitizer import is_safe_url, public_only_connector, read_capped
 # (url_max_content_length). Without a cap a linked multi-gigabyte file served
 # as text/html was read whole into memory.
 MAX_PAGE_BYTES = 2_000_000
+MAX_PDF_PAGES = 20
+MAX_PDF_TEXT_CHARS = 16_000
 # Entries older than the TTL are dropped once a cache grows past this.
 CACHE_MAX_ENTRIES = 256
 # A quoted or linked message's embeds are kept up to this many characters:
@@ -55,6 +58,38 @@ _MARKER_IN_FILE = re.compile(
     r"|SYSTEM WARNING|VISUAL GROUNDING)\b)",
     re.IGNORECASE,
 )
+
+
+def _extract_pdf_text(raw_bytes: bytes) -> str:
+    """Extract bounded text from a small PDF without sending binary data to the model."""
+    if not raw_bytes.startswith(b"%PDF-"):
+        return ""
+    from io import BytesIO
+    from pypdf import PdfReader
+
+    reader = PdfReader(BytesIO(raw_bytes), strict=False)
+    if reader.is_encrypted:
+        return ""
+
+    chunks = []
+    remaining = MAX_PDF_TEXT_CHARS
+    for page in reader.pages[:MAX_PDF_PAGES]:
+        page_text = (page.extract_text() or "").strip()
+        if not page_text:
+            continue
+        page_text = page_text[:remaining]
+        if page_text:
+            chunks.append(page_text)
+            remaining -= len(page_text)
+        if remaining <= 0:
+            break
+
+    extracted = re.sub(r"\\n{3,}", "\\n\\n", "\\n\\n".join(chunks)).strip()
+    if len(reader.pages) > MAX_PDF_PAGES and extracted:
+        extracted += "\\n\\n[PDF truncated after 20 pages]"
+    elif remaining <= 0 and extracted:
+        extracted += "\\n\\n[PDF text truncated]"
+    return extracted[:MAX_PDF_TEXT_CHARS + 64]
 
 
 def _human_size(size: int) -> str:
@@ -595,10 +630,32 @@ class ContextEnricher:
                         return ""
                         
                     content_type = response.headers.get('Content-Type', '').lower()
+                    pdf_url = urlparse(current_url).path.lower().endswith(".pdf")
+                    is_pdf = "application/pdf" in content_type or (
+                        pdf_url and "application/octet-stream" in content_type
+                    )
+                    if is_pdf:
+                        raw_pdf = await read_capped(response, MAX_PAGE_BYTES)
+                        try:
+                            parsed_text = await asyncio.to_thread(_extract_pdf_text, raw_pdf)
+                        except Exception as e:
+                            log_debug(f"URL PDF extraction failed {url}: {type(e).__name__}: {e}")
+                            return ""
+                        if not parsed_text:
+                            log_debug(f"URL PDF {url} had no extractable text (encrypted, malformed, or image-only)")
+                            return ""
+                        max_len = config.url_max_content_length
+                        if len(parsed_text) > max_len:
+                            parsed_text = parsed_text[:max_len] + "... [TRUNCATED]"
+                        final_result = f"Source: {url}\\n{parsed_text}"
+                        self._prune(self._url_cache, now)
+                        self._url_cache[url] = (now, final_result)
+                        return final_result
+
                     if 'text/html' not in content_type and 'text/plain' not in content_type:
                         log_debug(f"URL {url} skipped due to content type: {content_type}")
                         return ""
-                        
+
                     raw = await read_capped(response, MAX_PAGE_BYTES)
                     try:
                         html = raw.decode(response.charset or "utf-8", errors="replace")
