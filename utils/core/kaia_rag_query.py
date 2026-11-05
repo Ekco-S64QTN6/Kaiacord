@@ -343,7 +343,7 @@ class RAGQueryMixin:
             return False
         owner_id = owner_folder.rpartition("_")[2]
         allowed = {str(uid) for uid in (allowed_user_ids or ()) if uid is not None}
-        return bool(owner_id) and owner_id in allowed
+        return owner_folder in allowed or (owner_id.isdigit() and owner_id in allowed)
 
     def _get_summarization_nodes(
         self, query_lower: str, target_path: Optional[str] = None,

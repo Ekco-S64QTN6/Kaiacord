@@ -44,7 +44,7 @@ def test_summary_path_scope_matches_normal_identity_policy():
     )
     assert RAGQueryMixin._summary_path_allowed(
         "/kb/user_logs/social_x_handle/interactions_20261104.md",
-        True, {"handle"},
+        True, {"social_x_handle"},
     )
     assert RAGQueryMixin._summary_path_allowed(
         "/kb/documents/public.md", True, allowed
