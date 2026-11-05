@@ -216,6 +216,12 @@ async def _recover_pending_transaction_locked() -> bool:
     sheet = record.get("character_sheet")
     if not isinstance(sheet, dict) or not sheet.get("user_id"):
         raise RuntimeError("Pending world-state transaction has no recoverable character sheet.")
+    journal_owner = str(record.get("user_id") or "")
+    snapshot_owner = str(sheet.get("user_id") or "")
+    if not journal_owner or journal_owner != snapshot_owner:
+        raise RuntimeError(
+            "Pending world-state transaction owner mismatch; refusing to replay it."
+        )
 
     # Both writes are snapshot replays and therefore idempotent. Keep the
     # journal until both destinations are durable.

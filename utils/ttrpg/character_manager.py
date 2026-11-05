@@ -158,6 +158,16 @@ def _load_sync(user_id: str) -> Optional[Dict[str, Any]]:
     with _lock:
         with open(p, 'r', encoding='utf-8') as f:
             sheet = json.load(f)
+            if not isinstance(sheet, dict):
+                raise ValueError("character root must be a JSON object")
+            stored_uid = sheet.get("user_id")
+            if stored_uid is None:
+                # The requested filename is authoritative for legacy sheets.
+                sheet["user_id"] = str(user_id)
+            elif str(stored_uid) != str(user_id):
+                raise ValueError(
+                    f"character user_id {stored_uid!r} does not match requested owner {user_id!r}"
+                )
             _migrate_inventory(sheet)
             _migrate_hp_bonuses(sheet)
             _migrate_quests(sheet)

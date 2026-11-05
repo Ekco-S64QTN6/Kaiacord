@@ -52,10 +52,16 @@ memory/ttrpg/world_events.json     ← Rolling log of world events
 
 1. **Player sends `!rpg <command>`** → the RPG router dispatches to the relevant handler.
 2. **Handler loads the sheet** via `character_manager.load(uid)` → JSON from `memory/ttrpg/characters/`.
+   Character and housing loads verify the embedded owner matches the requested filename; legacy
+   records without an owner ID adopt the filename, while mismatches fail closed before gameplay
+   mutation.
 3. **Game logic** runs deterministically (dice_engine, combat_engine, shop, etc.).
 4. **Shared world reads** use `world_state.load_world_state()`, which returns an expiry-normalized view and does not write.
 5. **World-only updates** use `world_state.update_world_state(mutator)`; the transaction lock covers fresh load, mutation, and atomic save.
 6. **Character + world actions** use `world_state.mutate_world_state()` so resource costs/rewards and global state share one recovery journal. Combat, housing, dungeon, and Spine use their corresponding outcome/resource journals.
+
+A pending shared-world journal is single-owner. Recovery verifies that its non-empty `user_id` matches the saved `character_sheet.user_id` before writing either snapshot. A mismatch fails closed and leaves the journal untouched for diagnosis; it must never replay one player's snapshot into another player's character file.
+
 7. **Kaia narrates** via `rpg_prompt_builder.py` → GPU-guarded LLM call → flavor text embed.
 8. **Sheet/UI state** is persisted before the Discord view is returned.
 

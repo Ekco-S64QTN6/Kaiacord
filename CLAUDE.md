@@ -210,8 +210,11 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   which deletes the *regular* dungeon's save (`test_outing.py` pins both).
 - **Defence soft-cap** `min(10, raw) + max(0, raw - 10) // 2` and **global DEF cap**
   `level * 1.5 + 12` are intentional. Do not remove or bypass.
-- **Character sheets** go through `character_manager.load()` / `.save()` only, never direct file
-  access. It uses per-user async locks.
+- **Character and housing records** go through their per-player loaders and journaled save
+  paths, never direct writes. Single-record loads verify the embedded `user_id` matches the
+  requested filename owner; legacy records without an ID adopt the filename as the source of truth.
+  A mismatch or non-object record fails closed before it can be read into gameplay or saved.
+  Character read-modify-write sequences use per-user async locks.
 - **Atomic writes everywhere**: `utils/core/atomic_write.write_atomic()`. Do not call
   `Path.write_text` on anything under `knowledge_base/` or `memory/`. The rule dates from a
   half-written registry that caused an outage, and it was being followed where people remembered
@@ -265,7 +268,10 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   Spine snapshots go through `housing_transactions.commit_character_resource()`; character +
   shared pond/town updates go through `world_state.mutate_world_state()`; combat rewards and
   encounter mutations go through `combat_outcomes.commit_outcome()`. Do not split one logical
-  action into independent character/resource saves. Channel sessions are shared by every player
+  action into independent character/resource saves. The shared world-state journal is single-owner:
+  recovery must verify its non-empty `user_id` matches `character_sheet.user_id` before writing
+  either snapshot; a mismatch must fail closed and preserve the journal. Channel sessions are
+  shared by every player
   in that channel: never persist or replay a stale whole-session snapshot as one player's recovery
   payload. Patch only the owned encounter by owner ID + stable monster ID, and deduplicate
   combat-log entries by outcome ID. Ordinary flee and Smoke Bomb use pending combat outcomes;

@@ -110,7 +110,18 @@ def load_housing(user_id: str) -> dict | None:
         if not os.path.exists(p):
             return None
         with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
+            home = json.load(f)
+        if not isinstance(home, dict):
+            raise ValueError("housing root must be a JSON object")
+        stored_uid = home.get("user_id")
+        if stored_uid is None:
+            # The requested filename is authoritative for legacy housing.
+            home["user_id"] = str(user_id)
+        elif str(stored_uid) != str(user_id):
+            raise ValueError(
+                f"housing user_id {stored_uid!r} does not match requested owner {user_id!r}"
+            )
+        return home
 
 
 def apply_daily_housing_reset(housing: dict, *, today: str | None = None) -> bool:
