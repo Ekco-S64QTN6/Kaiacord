@@ -318,6 +318,7 @@ def _manager(config_values, sent):
     state.save = lambda: None
     manager.ctx = types.SimpleNamespace(bot=MagicMock(), bot_state=state)
     manager.proactive_engine = MagicMock()
+    manager.proactive_engine.has_recent_duplicate_opener.return_value = False
 
     class Cfg:
         max_memory_messages = 10
