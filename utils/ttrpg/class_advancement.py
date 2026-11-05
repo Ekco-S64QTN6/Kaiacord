@@ -385,7 +385,7 @@ def _is_wealthiest(sheet: dict) -> bool:
                             ):
                                 raise ValueError(f"{key} must be a finite number")
                             balances[key] = amount
-                        total = balances["gil"] + balances["bank_balance"]
+                        total = _total_gil(other)
                         if not math.isfinite(total):
                             raise ValueError("combined Gil total must be finite")
                     except (TypeError, ValueError, OverflowError) as exc:
