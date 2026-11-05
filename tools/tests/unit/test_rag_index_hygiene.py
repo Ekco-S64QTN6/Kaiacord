@@ -584,6 +584,29 @@ def test_partial_new_insert_rollback_is_tracked_and_forces_full_reindex(indexer,
     assert rebuilt["stale_nodes"] == [partial]
     assert rebuilt["reindex_required"] is True
 
+    # A rollback may remove the partial node from the docstore but leave its
+    # vector behind. In that state only the last-good node's durable
+    # reindex-required marker can rediscover the source after manifest loss.
+    index = ix.indices["knowledge"]
+    index.docstore.delete_document(partial, raise_error=False)
+    assert not index.docstore.document_exists(partial)
+    assert partial in ix._vector_ids(index)
+
+    ix.indexed_files = {}
+    ix._populate_indexed_files()
+    rebuilt_again = ix.indexed_files[abs_path]
+    assert rebuilt_again["nodes"] == [old]
+    assert rebuilt_again["reindex_required"] is True
+    assert rebuilt_again.get("stale_nodes", []) == []
+
+    # Reconciliation removes the orphaned vector; the marked active node
+    # still makes the unchanged source due for a complete rebuild.
+    changed = ix._reconcile_indices()
+    assert "knowledge" in changed
+    assert partial not in ix._vector_ids(index)
+    due = ix._find_changed_files()
+    assert any(os.path.abspath(item[0]) == abs_path for item in due)
+
 
 
 
@@ -726,3 +749,24 @@ def test_recent_event_and_highlight_docstore_scans_skip_stale_log_nodes(indexer)
     assert all("unique_stale_marker" not in text for text in highlights)
     searched = rag.search_recent_events("unique_stale_marker", hours=24, limit=20)
     assert not any("unique_stale_marker" in item["content"] for item in searched)
+
+
+
+@pytest.mark.asyncio
+async def test_bm25_warmup_does_not_index_stale_replacement_nodes(indexer):
+    """Stale docstore entries must not crowd current nodes out of BM25 top-k."""
+    from utils.core.kaia_rag_query import RAGQueryMixin
+
+    ix, kb = indexer
+    path = str((kb / "bm25-stale.md").resolve())
+    stale = _add(ix, "knowledge", kb / "bm25-stale.md", "old unique stale replacement phrase")
+    active = _add(ix, "knowledge", kb / "bm25-stale.md", "current unique active replacement phrase")
+    ix._mark_nodes_stale("knowledge", [stale])
+
+    query = RAGQueryMixin.__new__(RAGQueryMixin)
+    query.indices = ix.indices
+    query.bm25_cache = {}
+    await query.pre_warm()
+
+    nodes = query.bm25_cache["knowledge"].nodes
+    assert [node.node_id for node in nodes] == [active]
