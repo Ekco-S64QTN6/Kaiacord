@@ -342,9 +342,6 @@ _WEALTHIEST_LOCK = threading.Lock()
 
 def _is_wealthiest(sheet: dict) -> bool:
     """Check the richest player using a single background refresh at a time."""
-    import json
-    import os
-
     my_uid = str(sheet.get("user_id", ""))
     now = time.time()
     start_refresh = False
@@ -363,21 +360,48 @@ def _is_wealthiest(sheet: dict) -> bool:
             max_gil = 0
             successful_scan = False
             try:
-                char_dir = os.path.join("memory", "ttrpg", "characters")
-                if not os.path.isdir(char_dir):
-                    return
-                for fname in os.listdir(char_dir):
-                    if not fname.endswith(".json"):
-                        continue
+                from utils.ttrpg.character_manager import (
+                    CHARACTERS_DIR, _load_all_sync_report,
+                )
+                from utils.ttrpg.record_scan import (
+                    ScanFailure, log_scan_failures,
+                )
+
+                report = _load_all_sync_report()
+                for other in report.records:
+                    owner_id = str(other.get("user_id", ""))
                     try:
-                        with open(os.path.join(char_dir, fname), "r", encoding="utf-8") as f:
-                            other = json.load(f)
                         total = _total_gil(other)
-                        if total > max_gil:
-                            max_gil = total
-                            richest_uid = str(other.get("user_id", fname[:-5]))
-                    except Exception:
+                        if (
+                            isinstance(total, bool)
+                            or not isinstance(total, (int, float))
+                            or not math.isfinite(total)
+                        ):
+                            raise ValueError("Gil total must be a finite number")
+                    except (TypeError, ValueError, OverflowError) as exc:
+                        report.failures.append(ScanFailure(
+                            os.path.join(CHARACTERS_DIR, f"{owner_id}.json"),
+                            owner_id or None,
+                            f"invalid Gil/bank balance: {exc}",
+                        ))
                         continue
+
+                    if total > max_gil:
+                        max_gil = total
+                        richest_uid = owner_id
+
+                if report.failures:
+                    # A global winner cannot be inferred from a partial or
+                    # malformed population. Publish no winner, never a guess.
+                    log_scan_failures("character sheets", report)
+                    successful_scan = True
+                    return
+
+                successful_scan = True
+            except Exception as exc:
+                from utils.infrastructure.logging.kaia_logger import log_warning
+                log_warning(f"[rpg titles] Wealthiest refresh failed; title withheld: {exc}")
+                # Failure is not evidence that the cached winner is still richest.
                 successful_scan = True
             finally:
                 # Publish all cache fields together. A caller can never observe
