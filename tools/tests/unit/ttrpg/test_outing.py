@@ -40,6 +40,264 @@ def test_fights_and_events_accumulate_per_player(in_tmp):
     assert two["fight_count"] == 1 and two["zones"] == ["trade_road"]     # their own trip
 
 
+def test_open_outing_owner_mismatch_fails_closed_before_read_modify_write(in_tmp):
+    path = outing._path("alice")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    record = {
+        "uid": "bob",
+        "outing_id": "bob_trip",
+        "day": outing._local_day(),
+        "started": 1,
+        "zones": ["whisperwood_edge"],
+        "fights": [],
+        "events": [],
+        "fight_count": 0,
+        "wins": 0,
+        "losses": 0,
+        "xp": 0,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(record, handle)
+
+    with pytest.raises(RuntimeError, match="does not match filename owner"):
+        asyncio.run(outing.peek("alice"))
+    with pytest.raises(RuntimeError, match="does not match filename owner"):
+        asyncio.run(outing.record_event("alice", "trade_road", "New event"))
+
+    with open(path, encoding="utf-8") as handle:
+        assert json.load(handle) == record
+
+
+def test_legacy_open_outing_without_uid_adopts_its_filename_owner(in_tmp):
+    path = outing._path("alice")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    record = {
+        "outing_id": "legacy_trip",
+        "day": outing._local_day(),
+        "started": 1,
+        "zones": [],
+        "fights": [],
+        "events": [],
+        "fight_count": 0,
+        "wins": 0,
+        "losses": 0,
+        "xp": 0,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(record, handle)
+
+    data = asyncio.run(outing.peek("alice"))
+
+    assert data["uid"] == "alice"
+    with open(path, encoding="utf-8") as handle:
+        assert "uid" not in json.load(handle)
+
+
+def test_legacy_daily_and_untold_records_adopt_filename_owner(in_tmp):
+    day = outing._local_day()
+    os.makedirs(outing.DAILY_DIR, exist_ok=True)
+    os.makedirs(outing.UNTOLD_DIR, exist_ok=True)
+    daily_path = outing._daily_path("alice", day)
+    untold_path = os.path.join(outing.UNTOLD_DIR, f"daily_{day}_alice.json")
+    legacy = {
+        "day": day,
+        "zones": [],
+        "fights": [],
+        "events": [],
+        "fight_count": 0,
+        "wins": 0,
+        "losses": 0,
+        "xp": 0,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": [],
+        "trips": 0,
+    }
+    for path in (daily_path, untold_path):
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(legacy, handle)
+        data = outing._load_path_sync(path)
+        assert data["uid"] == "alice"
+        with open(path, encoding="utf-8") as handle:
+            assert "uid" not in json.load(handle)
+
+
+def test_daily_merge_rejects_wrong_owner_and_keeps_open_outing(in_tmp):
+    day = outing._local_day()
+    open_path = outing._path("alice")
+    daily_path = outing._daily_path("alice", day)
+    os.makedirs(outing.DAILY_DIR, exist_ok=True)
+    open_record = {
+        "uid": "alice",
+        "outing_id": "alice_trip",
+        "day": day,
+        "started": 1,
+        "zones": ["whisperwood_edge"],
+        "fights": [{"monster": "cave bat"}],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 10,
+        "gil": 2,
+        "loot": [],
+        "levels": [],
+    }
+    wrong_daily = {
+        "uid": "bob",
+        "day": day,
+        "zones": ["trade_road"],
+        "fights": [],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 99,
+        "gil": 99,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": ["bob_trip"],
+        "trips": 1,
+    }
+    os.makedirs(os.path.dirname(open_path), exist_ok=True)
+    with open(open_path, "w", encoding="utf-8") as handle:
+        json.dump(open_record, handle)
+    with open(daily_path, "w", encoding="utf-8") as handle:
+        json.dump(wrong_daily, handle)
+
+    with pytest.raises(RuntimeError, match="does not match filename owner"):
+        outing._take_sync("alice", {
+            "uid": "alice",
+            "uname": "Ash",
+            "reason": "came back",
+            "ended": 2,
+            "sheet": {"user_id": "alice"},
+            "day": day,
+        })
+
+    with open(open_path, encoding="utf-8") as handle:
+        assert json.load(handle) == open_record
+    with open(daily_path, encoding="utf-8") as handle:
+        assert json.load(handle) == wrong_daily
+
+
+def test_daily_outing_owner_mismatch_is_preserved_during_finalization(in_tmp):
+    day = outing._local_day()
+    os.makedirs(outing.DAILY_DIR, exist_ok=True)
+    path = outing._daily_path("alice", day)
+    record = {
+        "uid": "bob",
+        "day": day,
+        "zones": ["whisperwood_edge"],
+        "fights": [],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 20,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": ["bob_trip"],
+        "trips": 1,
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(record, handle)
+
+    assert outing._finalize_daily_sync(day) == []
+    with open(path, encoding="utf-8") as handle:
+        assert json.load(handle) == record
+    assert os.listdir(outing.UNTOLD_DIR) == []
+
+
+def test_mismatched_existing_untold_target_does_not_discard_daily_source(in_tmp):
+    day = outing._local_day()
+    os.makedirs(outing.DAILY_DIR, exist_ok=True)
+    os.makedirs(outing.UNTOLD_DIR, exist_ok=True)
+    source = outing._daily_path("alice", day)
+    target = os.path.join(outing.UNTOLD_DIR, f"daily_{day}_alice.json")
+    daily_record = {
+        "uid": "alice",
+        "day": day,
+        "zones": ["whisperwood_edge"],
+        "fights": [],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 20,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": ["alice_trip"],
+        "trips": 1,
+    }
+    wrong_pending = {
+        **daily_record,
+        "uid": "bob",
+        "trip_ids": ["bob_trip"],
+    }
+    with open(source, "w", encoding="utf-8") as handle:
+        json.dump(daily_record, handle)
+    with open(target, "w", encoding="utf-8") as handle:
+        json.dump(wrong_pending, handle)
+
+    assert outing._finalize_daily_sync(day) == []
+    assert os.path.exists(source)
+    assert os.path.exists(target)
+    with open(source, encoding="utf-8") as handle:
+        assert json.load(handle) == daily_record
+    with open(target, encoding="utf-8") as handle:
+        assert json.load(handle) == wrong_pending
+
+
+def test_untold_outing_owner_mismatch_is_not_narrated_or_posted(in_tmp, monkeypatch):
+    day = outing._local_day()
+    os.makedirs(outing.UNTOLD_DIR, exist_ok=True)
+    path = os.path.join(outing.UNTOLD_DIR, f"daily_{day}_alice.json")
+    record = {
+        "uid": "bob",
+        "day": day,
+        "zones": ["whisperwood_edge"],
+        "fights": [],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 20,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": ["bob_trip"],
+        "trips": 1,
+        "daily_summary": True,
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(record, handle)
+
+    ctx = SimpleNamespace(
+        bot=_Bot(),
+        ollama_client=SimpleNamespace(chat=AsyncMock()),
+    )
+    assert asyncio.run(outing.tell_untold(ctx)) == 0
+    ctx.ollama_client.chat.assert_not_awaited()
+    assert os.path.exists(path)
+    with open(path, encoding="utf-8") as handle:
+        assert json.load(handle) == record
+
+
 def test_closing_with_nothing_recorded_tells_nothing(in_tmp):
     assert asyncio.run(outing.close(None, None, "nobody", "x", {}, reason="came back")) is False
 
