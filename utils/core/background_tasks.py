@@ -6,12 +6,12 @@ import time
 import sys
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 
 #: The first dream check waits this long after the bot comes up.
 DREAM_AFTER_BOOT_S = 20 * 60
 NEWS_DAILY_DIR = Path("knowledge_base/news/daily")
 NEWS_FOLLOWUP_STATE_PATH = Path("memory/news_followup_retry.json")
-from pathlib import Path
 import discord
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info, log_warning, log_debug
