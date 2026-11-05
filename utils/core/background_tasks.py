@@ -1916,7 +1916,12 @@ class CoreTaskManager:
         """Serialize scheduled and follow-up news refreshes."""
         if not self.ctx:
             return
-        async with self._news_update_lock:
+        # Some focused tests and legacy callers construct the manager with
+        # __new__; keep the serialization guard lazy for those instances.
+        lock = getattr(self, "_news_update_lock", None)
+        if lock is None:
+            lock = self._news_update_lock = asyncio.Lock()
+        async with lock:
             await self._run_news_update_body()
 
     def _schedule_news_followup_retry(self) -> None:
