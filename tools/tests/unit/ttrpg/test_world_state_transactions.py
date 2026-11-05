@@ -207,6 +207,31 @@ def test_unknown_world_transaction_version_fails_closed(monkeypatch, tmp_path):
     assert json.loads(journal_path.read_text(encoding="utf-8"))["transaction_id"] == "unknown-version"
 
 
+
+@pytest.mark.parametrize("journal_owner", ["bob", None])
+def test_pending_world_transaction_owner_mismatch_fails_closed_and_is_preserved(
+    monkeypatch, tmp_path, journal_owner
+):
+    state_path, journal_path, saved_sheets = _isolated_world_state(monkeypatch, tmp_path)
+    record = {
+        "version": 1,
+        "transaction_id": "alice:123",
+        "user_id": journal_owner,
+        "world_state": {**world_state.DEFAULT_STATE, "town_fund": 50_000},
+        "character_sheet": {"user_id": "alice", "gil": 10},
+    }
+    journal_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="owner mismatch"):
+        asyncio.run(world_state.recover_pending_world_state_transaction())
+
+    # A corrupt journal must not write either snapshot or be cleared to get
+    # past the recovery error; preserve it for diagnosis and repair.
+    assert not state_path.exists()
+    assert saved_sheets == []
+    assert json.loads(journal_path.read_text(encoding="utf-8")) == record
+
+
 def test_rejected_world_action_does_not_persist_either_file(monkeypatch, tmp_path):
     state_path, journal_path, saved_sheets = _isolated_world_state(monkeypatch, tmp_path)
     initial = {**world_state.DEFAULT_STATE, "town_fund": 10}
