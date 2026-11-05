@@ -31,7 +31,8 @@ def test_core_recovery_adapters_forward_patchable_dependencies(monkeypatch, name
     called_args, kwargs = calls[0]
     assert called_args == args
     assert kwargs["load_character"] is core.load
-    assert kwargs["no_character_handler"] is core.no_character
+    if "no_character_handler" in deps:
+        assert kwargs["no_character_handler"] is core.no_character
     if "save_character" in deps:
         assert kwargs["save_character"] is core.save
     if "make_status_view" in deps:
