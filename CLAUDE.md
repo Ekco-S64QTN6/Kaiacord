@@ -1417,6 +1417,15 @@ channel memory, and the reply context names no recipient for it. It used to fall
 person who spoke before the post, quoted it as "Kaia (replying to Ekco)", and she answered
 GuardNGnowm as ekco.
 
+**Automated broadcasts share recent-message deduplication.** Proactive openers,
+observation digests and monologue broadcasts use
+`CoreTaskManager._guard_opener_broadcast` around the actual Discord send. The check,
+send and history write are serialized; a message enters `proactive_topics.json` only after
+Discord accepts it. A post waiting in `unprompted._drain` keeps the same guard and is checked
+when it reaches the front of the queue, not when it is first enqueued. The history is bounded to
+50 entries, channel-aware and compared over one hour. Signatures use the first 16 lexical words
+across sentence boundaries, so abbreviations do not terminate the signature early.
+
 **An absence check-in is addressed to a person.** It goes out unlabelled and is never
 cross-posted, and it names them: `harden` strips a leading name from any reply, which sent "been quiet without you
 around." to the channel addressed to nobody, so `kaia_proactive.addressed_to` runs after the filters. Key that on `trigger_type == "absence"`, not on `target_user` being set —
