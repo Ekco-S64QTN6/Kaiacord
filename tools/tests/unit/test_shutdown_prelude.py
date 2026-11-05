@@ -29,7 +29,7 @@ async def test_bounded_shutdown_component_returns_at_deadline_and_keeps_task_tra
 
     assert result is False
     assert started.is_set()
-    assert cancellation_seen.is_set()
+    await asyncio.wait_for(cancellation_seen.wait(), timeout=0.2)
     pending = registry.get_all_tasks()
     assert len(pending) == 1
     task = next(iter(pending.values()))
@@ -44,10 +44,12 @@ async def test_bounded_shutdown_component_returns_at_deadline_and_keeps_task_tra
 @pytest.mark.asyncio
 async def test_async_shutdown_skips_resource_teardown_when_voice_stop_exceeds_budget(monkeypatch):
     from utils.audio import strudel_session
-    from utils.infrastructure.monitoring.async_task_registry import task_registry
+    from utils.infrastructure.monitoring import async_task_registry
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
     from utils.infrastructure.system import shutdown_fixed
 
-    task_registry.reset()
+    registry = AsyncTaskRegistry()
+    monkeypatch.setattr(async_task_registry, "task_registry", registry)
     monkeypatch.setattr(shutdown_fixed, "_shutdown_prelude_timeout", lambda: 0.03)
     monkeypatch.setattr(strudel_session, "active_sessions", lambda: [object()])
 
@@ -79,13 +81,14 @@ async def test_async_shutdown_skips_resource_teardown_when_voice_stop_exceeds_bu
     await asyncio.wait_for(shutdown.async_shutdown(), timeout=0.5)
 
     assert started.is_set()
-    assert cancellation_seen.is_set()
+    await asyncio.wait_for(cancellation_seen.wait(), timeout=0.2)
     assert rag.persist_called is False
     assert shutdown._shutdown_complete.is_set() is False
-    pending = task_registry.get_all_tasks()
+    pending = registry.get_all_tasks()
     assert "shutdown_component_music" in pending
 
     release.set()
     await asyncio.wait_for(pending["shutdown_component_music"], timeout=1.0)
     await asyncio.sleep(0)
-    task_registry.reset()
+    await asyncio.sleep(0)
+    assert registry.get_all_tasks() == {}
