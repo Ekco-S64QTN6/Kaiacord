@@ -1,6 +1,6 @@
 # Roadmap
 
-What is open, and the call on each. Updated 4 November 2026.
+What is open, and the call on each. Updated 5 November 2026.
 
 Each item carries a decision: **Yes** (to build), **Watch** (measure before building), **Owner's
 call**, or **No** (researched and declined, with the reason). Closed work is in `git log` and the
@@ -10,7 +10,6 @@ pull requests.
 
 | Item | What | Effort | Call |
 |:--|:--|:--|:--|
-| **Kaia knows her own commands** | Asked about `!help`, she described it as an internal diagnostic tool. When a turn asks about her commands, inject the registry's command list (names and one-line summaries). | 1–2 h | Yes |
 | **Stitch fragmented shortwave broadcasts** | A KiwiSDR reconnect splits one number-station broadcast into fragments, each posted. Join an unsquelched listen's WAVs before processing, one post per scheduled broadcast. | ½ day | Yes |
 | **Twitch chat** | Kaia in the owner's Twitch chat (IRC over TLS/WebSocket with a bot account's OAuth token). | 1–2 days | Yes, when the owner says go |
 | **UV-K5 as a scanner receiver** | The Quansheng UV-K5 alongside or instead of the RTL-SDR. It demodulates inside the radio and sends no IQ, so it needs an audio path (an AIOC, or a cable into a USB sound card). Receive only: Kaia never transmits. | 1 day once the audio path exists | Yes; blocked on hardware |
@@ -37,7 +36,6 @@ pull requests.
 |:--|:--|:--|
 | **Split the rest of `_dungeon_combat_round`** | Rewards and loot are split out and tested (#45). Context loading and the victory / defeat / continue branches are still one function. | Yes, when next touched |
 | **Split `rpg_core_handler.py`** | 2,675 lines; navigation and world handlers would separate cleanly. | Yes, when next touched |
-| **Dead `bone_shield_passive`** | Read in `combat_engine.py` and `rpg_core_handler.py`; no class defines it. | Yes, 15 min |
 | **More Spine creatures** | The 77 stair guardians now have explicit floor-scaled HP/ATK/DEF and milestone Resonance Ward progression; additional rare spawns per zone would add variety. | Content, optional |
 | **Shadowblade endgame damage** | The highest sustained damage per round (crit on 17 with the Voidstep Blade), offset by the Rogue's low HP. | Watch |
 | **Board games as real game state** | Tic-tac-toe with Python holding the board, about 2 h. | No — one game asked for in five months |
