@@ -87,6 +87,7 @@ def _empty_response_diagnostics(response) -> str:
             })
         candidate_summaries.append({
             "finish_reason": str(getattr(candidate, "finish_reason", None)),
+            "finish_message": getattr(candidate, "finish_message", None),
             "part_count": len(parts),
             "parts": part_types,
         })

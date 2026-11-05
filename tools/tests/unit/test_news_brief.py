@@ -76,6 +76,7 @@ def test_empty_grounded_response_records_candidate_diagnostics_without_content()
     response = SimpleNamespace(
         candidates=[SimpleNamespace(
             finish_reason="STOP",
+            finish_message="Model returned no user-visible text.",
             content=SimpleNamespace(parts=[
                 SimpleNamespace(text=None, function_call=None, inline_data=None)
             ]),
@@ -87,6 +88,7 @@ def test_empty_grounded_response_records_candidate_diagnostics_without_content()
     )
     details = ukn._empty_response_diagnostics(response)
     assert "finish_reason" in details and "STOP" in details
+    assert "finish_message" in details and "no user-visible text" in details
     assert "part_count" in details and "has_text" in details
     assert "output_tokens=0" in details
     assert "model_version=gemini-2.5-flash-test" in details
