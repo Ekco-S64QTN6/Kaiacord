@@ -216,3 +216,87 @@ def test_a_quoted_embed_is_capped():
     enricher = ContextEnricher(MagicMock())
     big = SimpleNamespace(embeds=[_embed("t", "x" * 20_000)])
     assert len(enricher._with_embeds("hi", big)) < ce.QUOTED_EMBED_CHARS + 10
+
+
+
+
+
+def _small_pdf(text="verified text from the PDF link"):
+    """Build a minimal one-page PDF with extractable Helvetica text."""
+    escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    stream = f"BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET".encode("ascii")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+    ]
+    data = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(data))
+        data.extend(f"{number} 0 obj\n".encode("ascii"))
+        data.extend(body)
+        data.extend(b"\nendobj\n")
+    xref = len(data)
+    data.extend(f"xref\n0 {len(offsets)}\n".encode("ascii"))
+    data.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        data.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    data.extend(
+        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\n"
+        f"startxref\n{xref}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(data)
+
+
+def test_chat_link_extractor_reads_a_real_pdf_response():
+    from aiohttp import web
+    import aiohttp
+
+    pdf = _small_pdf("verified text from an ordinary chat PDF link")
+
+    async def run():
+        app = web.Application()
+        app.router.add_get("/report", lambda _r: web.Response(body=pdf, content_type="application/pdf"))
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            with patch.object(ce, "is_safe_url", return_value=True), \
+                 patch.object(ce, "public_only_connector", return_value=aiohttp.TCPConnector()), \
+                 patch.object(type(ce.config), "url_max_content_length", 10000, create=True):
+                return await ContextEnricher(MagicMock())._scrape_single_url(
+                    f"http://127.0.0.1:{port}/report"
+                )
+        finally:
+            await runner.cleanup()
+
+    out = asyncio.run(run())
+    assert out.startswith("Source: http://")
+    assert "verified text from an ordinary chat PDF link" in out
+
+
+def test_malformed_or_encrypted_pdfs_fail_closed():
+    from io import BytesIO
+    from pypdf import PdfWriter
+
+    assert ce._extract_pdf_text(b"%PDF-1.4\nnot a valid document") == ""
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    writer.encrypt("secret")
+    output = BytesIO()
+    writer.write(output)
+    assert ce._extract_pdf_text(output.getvalue()) == ""
+
+
+def test_pdf_extraction_caps_pages_and_text(monkeypatch):
+    import utils.core.context_enricher as module
+
+    monkeypatch.setattr(module, "MAX_PDF_TEXT_CHARS", 12)
+    assert len(module._extract_pdf_text(_small_pdf("this text is deliberately longer than twelve"))) <= 76
