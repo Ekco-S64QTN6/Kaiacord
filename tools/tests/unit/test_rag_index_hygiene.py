@@ -695,8 +695,16 @@ def test_stale_replacement_nodes_are_excluded_from_normal_scoring_and_dedup(inde
     active.excluded_llm_metadata_keys = []
     active.excluded_embed_metadata_keys = []
 
+    # Supply authoritative docstore entries: scoring now fails closed for
+    # vector candidates that cannot be found in any active docstore.
+    ix.indices["knowledge"].insert_nodes([stale, active])
+    ix._mark_nodes_stale("knowledge", [stale.node_id])
+
     rag = RAGQueryMixin()
-    rag.indices = {}
+    rag.indices = ix.indices
+    rag.indexed_files = {
+        path: {"nodes": [active.node_id], "stale_nodes": [stale.node_id], "itype": "knowledge"}
+    }
     out = rag._score_and_filter_nodes(
         [NodeWithScore(node=stale, score=1.5), NodeWithScore(node=active, score=1.0)],
         "current source?",
