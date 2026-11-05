@@ -13,6 +13,7 @@ from utils.infrastructure.system.yaml_config import config
 from utils.ttrpg.world_state import get_current_state
 from utils.ttrpg.character_manager import load, save, create, load_all
 from utils.ttrpg.session_manager import load_session
+from utils.ttrpg.rpg_recovery_handler import GAMBLE_DAILY_WIN_CAP
 from utils.ttrpg.progression import (
     hunts_remaining, check_level_up, get_max_hunts, xp_to_next_level, XP_THRESHOLDS,
 )
