@@ -701,6 +701,8 @@ Kaia (the bot's persona) narrates via LLM. Ground-truth blocks are injected into
 
 **Hunt reports are posted once per player per day** (`utils/ttrpg/outing.py`). Fights and forest events are recorded per player, and an outing's results are merged into a daily accumulator when it ends. At midnight, before hunts reset, Kaia combines all of that player's outings (including a still-open outing) into one narrated report for `#aethelgard`. Failed generation or delivery stays in `memory/ttrpg/outings/untold/` for retry. Moving between hunting grounds remains one outing; returning to town no longer creates a separate post.
 
+Each open outing, daily accumulator, and untold report is bound to the player ID encoded in its filename. A mismatched embedded `uid` is preserved and fails closed before cross-player merging, finalization, or posting. Legacy outing records without a `uid` adopt the filename owner.
+
 The daily digest is posted to **#aethelgard** (`discord.rpg_channel`) so players can follow what everyone did that day; its totals combine the day's fights, XP, Gil, loot, events, and other outing notes. The final report is first persisted in `memory/ttrpg/outings/untold/`; if generation or delivery fails, or the bot restarts mid-report, that same daily digest is retried at boot. The prompt retains creature descriptions, how fights felt (close calls, clean wins, lucky strikes), the latest HP, sensory detail, and Kaia's lowercase GM voice.
 
 Prompt builders in `rpg_prompt_builder.py`:
