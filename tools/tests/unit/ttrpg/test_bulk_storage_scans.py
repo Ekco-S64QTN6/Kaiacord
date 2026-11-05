@@ -2,6 +2,8 @@
 import asyncio
 import json
 
+import pytest
+
 from utils.ttrpg import (
     character_manager,
     housing,
@@ -65,7 +67,6 @@ def test_single_character_load_rejects_a_sheet_owned_by_another_user(
     }
     path.write_text(json.dumps(record), encoding="utf-8")
 
-    import pytest
     with pytest.raises(ValueError, match="does not match requested owner"):
         character_manager._load_sync("alice")
 
@@ -88,6 +89,46 @@ def test_single_character_load_migrates_legacy_owner_from_filename(
 
     assert sheet["user_id"] == "legacy"
     assert sheet["character_name"] == "Legacy"
+
+
+def test_single_housing_load_rejects_a_home_owned_by_another_user(
+    tmp_path, monkeypatch
+):
+    directory = tmp_path / "housing"
+    directory.mkdir()
+    monkeypatch.setattr(housing, "HOUSING_DIR", str(directory))
+    path = directory / "alice.json"
+    record = {
+        "user_id": "bob",
+        "character_name": "Bob",
+        "farming": {"plots": []},
+        "pets": [],
+    }
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not match requested owner"):
+        housing.load_housing("alice")
+
+    # A mismatched property cannot be read or rewritten through this owner.
+    assert json.loads(path.read_text(encoding="utf-8")) == record
+
+
+def test_single_housing_load_migrates_legacy_owner_from_filename(
+    tmp_path, monkeypatch
+):
+    directory = tmp_path / "housing"
+    directory.mkdir()
+    monkeypatch.setattr(housing, "HOUSING_DIR", str(directory))
+    (directory / "legacy.json").write_text(json.dumps({
+        "character_name": "Legacy",
+        "farming": {"plots": []},
+        "pets": [],
+    }), encoding="utf-8")
+
+    home = housing.load_housing("legacy")
+
+    assert home["user_id"] == "legacy"
+    assert home["character_name"] == "Legacy"
 
 
 def test_character_list_compatibility_wrapper_returns_valid_records_and_logs_failures(
