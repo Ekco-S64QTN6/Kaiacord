@@ -142,7 +142,7 @@ async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner, *, load_charac
         await commit_outcome(
             sheet,
             outcome,
-            save_sheet=save,
+            save_sheet=save_character,
             persist_encounter=_persist_escape,
         )
 
