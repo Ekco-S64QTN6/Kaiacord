@@ -19,6 +19,7 @@ What stays here is what is particular to starting a conversation:
 """
 
 import asyncio
+from difflib import SequenceMatcher
 import json
 import re
 import os
@@ -44,6 +45,30 @@ ABSENCE_THRESHOLD_DAYS = 3  # User must be gone this long to trigger
 DIVERSITY_LOG_PATH = os.path.join("memory", "proactive_topics.json")
 MAX_DIVERSITY_HISTORY = 10
 MAX_SAME_SOURCE_IN_WINDOW = 3  # No source type more than 3× in last 10
+MAX_RECENT_MESSAGES = 50
+OPENER_DEDUPE_WINDOW_SECONDS = 60 * 60
+OPENER_DEDUPE_SIMILARITY = 0.88
+
+
+def _opener_signature(message: str) -> str:
+    """Normalised first-sentence signature for cross-trigger opener comparison."""
+    text = (message or "").strip()
+    if not text:
+        return ""
+    first_sentence = re.split(r"(?<=[.!?])\\s+", text, maxsplit=1)[0]
+    words = re.findall(r"[a-z0-9]+", first_sentence.casefold())
+    return " ".join(words[:16])
+
+
+def _opener_signatures_match(left: str, right: str) -> bool:
+    """Exact-match short signatures; fuzzy-match substantive opening phrases."""
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if min(len(left), len(right)) < 28:
+        return False
+    return SequenceMatcher(None, left, right, autojunk=False).ratio() >= OPENER_DEDUPE_SIMILARITY
 
 # ── Source Weights ──────────────────────────────────────────────────
 # Higher weight = more likely to be selected.
@@ -167,6 +192,36 @@ class ProactiveEngine:
         except Exception:
             return False
 
+    def has_recent_duplicate_opener(
+        self, message: str, channel_id: int, now: Optional[float] = None
+    ) -> bool:
+        """Whether this channel received a materially identical opener recently.
+
+        This is separate from source-category diversity: two different trigger
+        types can produce the same words. Old log entries without a channel ID
+        are compared conservatively for backward compatibility.
+        """
+        signature = _opener_signature(message)
+        if not signature:
+            return False
+        now = time.time() if now is None else float(now)
+        for entry in reversed(self._load_diversity_log()):
+            try:
+                sent_at = float(entry.get("timestamp", 0))
+            except (TypeError, ValueError):
+                continue
+            if now - sent_at > OPENER_DEDUPE_WINDOW_SECONDS:
+                break
+            if sent_at > now:
+                continue
+            previous_channel = entry.get("channel_id")
+            if previous_channel is not None and str(previous_channel) != str(channel_id):
+                continue
+            previous = _opener_signature(entry.get("summary", ""))
+            if _opener_signatures_match(signature, previous):
+                return True
+        return False
+
     def _is_rate_limited(self, bot_state) -> bool:
         """Has the shared unprompted allowance run out for now?
 
@@ -213,7 +268,7 @@ class ProactiveEngine:
         try:
             os.makedirs(os.path.dirname(DIVERSITY_LOG_PATH), exist_ok=True)
             from utils.core.atomic_write import write_atomic
-            write_atomic(DIVERSITY_LOG_PATH, json.dumps({"history": history[-MAX_DIVERSITY_HISTORY:]}, indent=2))
+            write_atomic(DIVERSITY_LOG_PATH, json.dumps({"history": history[-MAX_RECENT_MESSAGES:]}, indent=2))
         except Exception as e:
             log_debug(f"Diversity log save failed (non-fatal): {e}")
 
@@ -1444,6 +1499,7 @@ class ProactiveEngine:
             entry = {
                 "timestamp": now,
                 "source": trigger.source_category or trigger.trigger_type,
+                "channel_id": trigger.channel_id,
                 "summary": message if message else "",
             }
             # Track specific content ID for dedup (e.g. ingestion filename)
