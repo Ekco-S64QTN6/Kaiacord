@@ -33,8 +33,8 @@ RELATED_TESTS = {
     "utils/core/background_tasks.py": (
         "tools/tests/unit/test_rag_refresh_callers.py",
         "tools/tests/unit/test_news_manager.py",
-    ),
-    "utils/commands/news_handler.py": ("tools/tests/unit/test_command_boxes.py",),
+        "tools/tests/unit/test_monologue_observation.py",
+    ),    "utils/commands/news_handler.py": ("tools/tests/unit/test_command_boxes.py",),
     "tools/maintenance/scrape_tech_news.py": ("tools/tests/unit/test_news_manager.py",),
     "tools/maintenance/update_kaia_news.py": ("tools/tests/unit/test_news_brief.py",),
     "utils/commands/reindex_handler.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
