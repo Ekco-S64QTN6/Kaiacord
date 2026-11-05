@@ -770,3 +770,33 @@ async def test_bm25_warmup_does_not_index_stale_replacement_nodes(indexer):
 
     nodes = query.bm25_cache["knowledge"].nodes
     assert [node.node_id for node in nodes] == [active]
+
+
+
+def test_marking_stale_nodes_invalidates_cached_bm25_and_rejects_detached_candidates(indexer):
+    """A BM25 node copy created before marker persistence cannot re-enter retrieval."""
+    from llama_index.core.schema import TextNode
+    from utils.core.kaia_rag_query import RAGQueryMixin
+
+    ix, kb = indexer
+    doc = kb / "documents" / "cached-stale.md"
+    doc.parent.mkdir()
+    doc.write_text("current source")
+    stale_id = _add(ix, "knowledge", doc, "superseded cached node content")
+
+    detached = TextNode(
+        id_=stale_id,
+        text="superseded cached node content",
+        metadata={"file_path": str(doc.resolve()), "source_type": "general_knowledge"},
+    )
+    ix.bm25_cache["knowledge"] = type("Cached", (), {"nodes": [detached]})()
+
+    ix._mark_nodes_stale("knowledge", [stale_id])
+
+    assert "knowledge" not in ix.bm25_cache
+    query = RAGQueryMixin.__new__(RAGQueryMixin)
+    query.indices = ix.indices
+    query.indexed_files = {
+        str(doc.resolve()): {"nodes": [], "stale_nodes": [stale_id], "itype": "knowledge"}
+    }
+    assert query._is_stale_replacement_node(detached)

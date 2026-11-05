@@ -213,6 +213,33 @@ class RAGQueryMixin:
         r"|\b\d{4}-\d{2}-\d{2}[-_][\w\-]{4,}\b",
         re.IGNORECASE)
 
+    def _is_stale_replacement_node(self, node, manifest_stale_ids: Optional[Set[str]] = None) -> bool:
+        """Check candidate copies against the authoritative docstore and manifest."""
+        metadata = getattr(node, "metadata", {}) or {}
+        if metadata.get("_rag_replacement_stale"):
+            return True
+        node_id = getattr(node, "node_id", None)
+        if not node_id:
+            return False
+        if manifest_stale_ids is not None and node_id in manifest_stale_ids:
+            return True
+        if manifest_stale_ids is None:
+            for entry in getattr(self, "indexed_files", {}).values():
+                if node_id in entry.get("stale_nodes", []):
+                    return True
+        # BM25 may hold a detached pre-marker copy. Re-read the stored node by ID.
+        for index in getattr(self, "indices", {}).values():
+            try:
+                docstore = index.storage_context.docstore
+                if not docstore.document_exists(node_id):
+                    continue
+                current = docstore.get_node(node_id, raise_error=False)
+                if current is not None and (getattr(current, "metadata", {}) or {}).get("_rag_replacement_stale"):
+                    return True
+            except Exception:
+                continue
+        return False
+
     def _title_match(self, query_words: set, fname_stops: set,
                      strict_identity: bool = False,
                      allowed_user_ids: Optional[Set[str]] = None):
@@ -805,6 +832,14 @@ class RAGQueryMixin:
         is_dream_query = routing["is_dream_query"]
         is_social_identity = routing["is_social_identity"]
 
+        # Snapshot stale IDs once for this scoring pass; the docstore check below
+        # also protects in-flight BM25 candidates created before cache eviction.
+        manifest_stale_ids = {
+            node_id
+            for entry in getattr(self, "indexed_files", {}).values()
+            for node_id in entry.get("stale_nodes", [])
+        }
+
         # Pre-compute current time for recency decay calculations
         _now_ts = time.time()
         _half_lives = recency_half_lives(config)
@@ -861,7 +896,7 @@ class RAGQueryMixin:
             base_score = node_result.score if hasattr(node_result, 'score') else 0.5
             
             metadata = get_node_metadata(node)
-            if metadata.get("_rag_replacement_stale"):
+            if self._is_stale_replacement_node(node, manifest_stale_ids):
                 continue
 
             content = get_node_text(node)

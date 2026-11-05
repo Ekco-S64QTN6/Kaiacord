@@ -669,6 +669,9 @@ class RAGIndexerMixin:
             changed_nodes.append(node)
         if changed_nodes:
             docstore.add_documents(changed_nodes, allow_update=True)
+        # Cached BM25 retrievers hold deserialized node copies. Evict even when
+        # no IDs were deleted, otherwise those copies can still return stale text.
+        self.bm25_cache.pop(itype, None)
 
     def _mark_nodes_reindex_required(self, itype: str, node_ids) -> None:
         """Persist a full-reindex request on the last-good nodes for crash recovery."""
