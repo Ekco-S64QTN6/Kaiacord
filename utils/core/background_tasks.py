@@ -2389,7 +2389,7 @@ class CoreTaskManager:
                 async def _retry_without_quotes():
                     nonlocal prompt
                     prompt += (
-                        "\\n\\nCORRECTION — your previous draft contained a quote that nobody said. "
+                        "\n\nCORRECTION — your previous draft contained a quote that nobody said. "
                         "Rewrite the digest from the conversation above as a grounded paraphrase only. "
                         "Do not quote anyone, do not use quotation marks, and do not attribute wording "
                         "to a person. Describe only the topic or what the conversation was about. "
