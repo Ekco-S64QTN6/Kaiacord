@@ -30,6 +30,8 @@ def test_startup_does_not_claim_rag_refresh_succeeded_when_it_did_not():
     assert "refresh_completed = await run_rag(ctx.rag.refresh_knowledge_base)" in source
     assert "if refresh_completed is True:" in source
     assert 'request_reindex()' in source
+    startup_except = source.split("except Exception as e:", 1)[1].split("# 3e.", 1)[0]
+    assert "request_reindex()" in startup_except
 
 
 def test_dream_and_news_refreshes_queue_retry_on_false_or_timeout():
@@ -37,5 +39,7 @@ def test_dream_and_news_refreshes_queue_retry_on_false_or_timeout():
     assert "refresh_completed = await asyncio.wait_for(" in source
     assert '_request_rag_retry("post-dream refresh")' in source
     assert '_request_rag_retry("post-dream refresh timeout")' in source
-    assert "rag_refresh_completed = await run_rag_func(self.ctx.rag.refresh_knowledge_base) is True" in source
+    assert '_request_rag_retry("post-dream refresh error")' in source
+    assert "rag_refresh_completed = False\n                    log_error(f\"Daily news RAG refresh raised:" in source
+    assert "rag_refresh_completed = await run_rag_func(self.ctx.rag.refresh_knowledge_base) is True" not in source
     assert '_request_rag_retry("daily news refresh")' in source

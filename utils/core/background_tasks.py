@@ -1071,6 +1071,9 @@ class CoreTaskManager:
                                 _request_rag_retry("post-dream refresh")
                         except asyncio.TimeoutError:
                             _request_rag_retry("post-dream refresh timeout")
+                        except Exception as refresh_error:
+                            _request_rag_retry("post-dream refresh error")
+                            log_error(f"[Dream] Post-dream RAG refresh failed: {refresh_error}")
                         
                         self.ctx.bot_state.last_dream_date = today
                         self.ctx.bot_state.save()
@@ -1968,7 +1971,11 @@ class CoreTaskManager:
             from utils.core.rag_executor import run_rag as run_rag_func
             rag_refresh_completed = True
             if self.ctx.rag:
-                rag_refresh_completed = await run_rag_func(self.ctx.rag.refresh_knowledge_base) is True
+                try:
+                    rag_refresh_completed = await run_rag_func(self.ctx.rag.refresh_knowledge_base) is True
+                except Exception as refresh_error:
+                    rag_refresh_completed = False
+                    log_error(f"Daily news RAG refresh raised: {refresh_error}")
                 if not rag_refresh_completed:
                     _request_rag_retry("daily news refresh")
 

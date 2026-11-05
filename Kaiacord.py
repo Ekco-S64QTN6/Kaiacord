@@ -451,7 +451,9 @@ async def _phase3_background_init():
             request_reindex()
             log_warning("[Phase 3] RAG refresh did not complete; a maintenance retry was queued.")
     except Exception as e:
-        log_error(f"[Phase 3] RAG refresh error: {e}")
+        from utils.core.rag_utils import request_reindex
+        request_reindex()
+        log_error(f"[Phase 3] RAG refresh error; a maintenance retry was queued: {e}")
 
     # 3e. Start all background task loops — news, dreams, social.
     #     These run last so they don't compete for I/O during the critical

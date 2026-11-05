@@ -96,5 +96,10 @@ async def handle_reindex_command(ctx, msg, send_kaia_response):
         await status.edit(embed=box("✅  Reindex complete", summary))
         log_success(f"!reindex complete — {summary}")
     except Exception as e:
+        from utils.core.rag_utils import request_reindex
+        request_reindex()
         log_error(f"!reindex failed: {e}")
-        await status.edit(embed=notice(f"The reindex failed: {type(e).__name__}. The log has the details.", error=True))
+        await status.edit(embed=notice(
+            f"The reindex failed: {type(e).__name__}. A retry has been queued; the log has the details.",
+            error=True,
+        ))
