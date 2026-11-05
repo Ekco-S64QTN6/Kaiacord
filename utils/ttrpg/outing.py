@@ -333,8 +333,17 @@ def _finalize_daily_sync(through_day: str) -> list:
             target = os.path.join(UNTOLD_DIR, f"daily_{day}_{uid}.json")
             data["daily_summary"] = True
             # Keep the file pending if the same day's report is already waiting;
-            # never replace a generated paragraph that failed to post.
-            if not os.path.exists(target):
+            # never replace a generated paragraph that failed to post. Validate
+            # the existing target before dropping the daily source: a wrong-owner
+            # or damaged untold file must not make this player's digest disappear.
+            if os.path.exists(target):
+                try:
+                    pending = _load_path_sync(target)
+                except RuntimeError:
+                    continue
+                if pending is None:
+                    write_atomic(target, json.dumps(data, indent=1))
+            else:
                 write_atomic(target, json.dumps(data, indent=1))
             try:
                 os.remove(src)
