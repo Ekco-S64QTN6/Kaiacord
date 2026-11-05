@@ -69,9 +69,24 @@ async def handle_reindex_command(ctx, msg, send_kaia_response):
         before = len(rag.indexed_files)
 
         from utils.core.rag_executor import run_rag
-        await run_rag(rag.refresh_knowledge_base)
+        refresh_completed = await run_rag(rag.refresh_knowledge_base)
+        from utils.core.rag_utils import request_reindex
+        if refresh_completed is not True:
+            request_reindex()
+            await status.edit(embed=notice(
+                "The reindex did not complete. A retry has been queued; check the log for failed files or persistence.",
+                error=True,
+            ))
+            return
         if getattr(rag, 'persist_needed', False):
-            await rag.persist_async()
+            persist_result = await rag.persist_async()
+            if persist_result is False:
+                request_reindex()
+                await status.edit(embed=notice(
+                    "The reindex could not be persisted. A retry has been queued; check the log for details.",
+                    error=True,
+                ))
+                return
 
         after = len(rag.indexed_files)
         elapsed = int(time.time() - start)

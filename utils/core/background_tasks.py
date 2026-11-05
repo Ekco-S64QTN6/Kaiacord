@@ -19,6 +19,17 @@ from utils.infrastructure.system.yaml_config import config
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
 
 
+def _request_rag_retry(reason: str) -> None:
+    """Keep a refresh request visible when a background refresh did not finish."""
+    try:
+        from utils.core.rag_utils import request_reindex
+        request_reindex()
+    except Exception as exc:
+        log_error(f"[RAG] Could not queue retry after {reason}: {exc}")
+        return
+    log_warning(f"[RAG] Refresh did not complete after {reason}; queued a maintenance retry.")
+
+
 async def _mutate_player_sheet(user_id, mutation):
     """Apply a synchronous mutation to a fresh sheet under the RPG user-action lock.
 
@@ -1052,12 +1063,14 @@ class CoreTaskManager:
                             await asyncio.sleep(30)
                             
                         try:
-                            await asyncio.wait_for(
+                            refresh_completed = await asyncio.wait_for(
                                 run_rag_func(self.ctx.rag.refresh_knowledge_base),
                                 timeout=300.0  # 5 min max for post-dream reindex
                             )
+                            if refresh_completed is not True:
+                                _request_rag_retry("post-dream refresh")
                         except asyncio.TimeoutError:
-                            log_warning("[Dream] Post-dream RAG refresh timed out. Index will catch up on next !reindex.")
+                            _request_rag_retry("post-dream refresh timeout")
                         
                         self.ctx.bot_state.last_dream_date = today
                         self.ctx.bot_state.save()
@@ -1953,12 +1966,18 @@ class CoreTaskManager:
                 log_error(f"Failed to execute tech news aggregator: {e}")
             
             from utils.core.rag_executor import run_rag as run_rag_func
+            rag_refresh_completed = True
             if self.ctx.rag:
-                await run_rag_func(self.ctx.rag.refresh_knowledge_base)
-                
+                rag_refresh_completed = await run_rag_func(self.ctx.rag.refresh_knowledge_base) is True
+                if not rag_refresh_completed:
+                    _request_rag_retry("daily news refresh")
+
             if self.ctx.news_manager:
                 self.ctx.news_manager.refresh()
-            log_success("Integrated news update completed.")
+            if rag_refresh_completed:
+                log_success("Integrated news update completed.")
+            else:
+                log_warning("News update completed; RAG indexing remains queued for retry.")
         except Exception as e:
             log_error(f"Failed to run news update: {e}")
 
