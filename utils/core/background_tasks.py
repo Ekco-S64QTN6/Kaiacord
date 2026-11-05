@@ -2065,6 +2065,26 @@ class CoreTaskManager:
         said = norm(conversation)
         return [q for q in cls._QUOTED.findall(digest) if norm(q).strip(" .,!?") not in said]
 
+    @classmethod
+    async def _recover_unverified_digest(
+        cls, digest: str, conversation: str, retry_generation
+    ) -> tuple[str | None, bool, list]:
+        """Retry one rejected digest once, and validate the replacement again.
+
+        The callback must generate from a quote-free corrective prompt. Invalid
+        text is never returned to the caller for persistence or broadcast.
+        """
+        unverified = cls._unverified_quotes(digest, conversation)
+        if not unverified:
+            return digest, False, []
+        replacement = await retry_generation()
+        if not replacement or replacement.strip(" .").upper() == "NOTHING":
+            return None, True, []
+        remaining = cls._unverified_quotes(replacement, conversation)
+        if remaining:
+            return None, True, remaining
+        return replacement, True, []
+
     @staticmethod
     def _recent_digests() -> list:
         try:
@@ -2363,11 +2383,39 @@ class CoreTaskManager:
                 if not digest_text or digest_text.strip(" .").upper() == "NOTHING":
                     return
                 # It is posted as her observation of real people: a quote
-                # has to be something one of them actually said.
-                misquoted = self._unverified_quotes(digest_text, joined_messages)
-                if misquoted:
-                    log_warning(f"Observation digest declined: quote not in the conversation "
-                                f"({summarize_payload('quote', misquoted[0])})")
+                # has to be something one of them actually said. Give one
+                # recoverable draft a strict no-quotation retry, then validate
+                # the replacement with the same exact-text gate.
+                async def _retry_without_quotes():
+                    nonlocal prompt
+                    prompt += (
+                        "\\n\\nCORRECTION — your previous draft contained a quote that nobody said. "
+                        "Rewrite the digest from the conversation above as a grounded paraphrase only. "
+                        "Do not quote anyone, do not use quotation marks, and do not attribute wording "
+                        "to a person. Describe only the topic or what the conversation was about. "
+                        "If nothing can be said accurately without a quote, reply only NOTHING."
+                    )
+                    return await _digest()
+
+                digest_text, did_retry, remaining_misquotes = await self._recover_unverified_digest(
+                    digest_text, joined_messages, _retry_without_quotes
+                )
+                if did_retry and not digest_text:
+                    log_warning(
+                        "Observation digest recovery produced no usable quote-free paraphrase; "
+                        "leaving the conversation window eligible for a later retry."
+                    )
+                    return
+                if remaining_misquotes:
+                    log_warning(
+                        "Observation digest declined after quote-free retry: quote still not in "
+                        f"the conversation ({summarize_payload('quote', remaining_misquotes[0])})"
+                    )
+                    return
+                if did_retry:
+                    log_info("Observation digest recovered with a validated quote-free paraphrase.")
+
+                if not digest_text or digest_text.strip(" .").upper() == "NOTHING":
                     return
 
                 # Save to memory/observation_digest.json with rolling window
