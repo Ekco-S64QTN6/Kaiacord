@@ -5,6 +5,7 @@ import sys
 import json
 import datetime
 import time
+import random
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import ollama
@@ -103,12 +104,35 @@ def _empty_response_diagnostics(response) -> str:
     )
 
 
-def grounding_retry_delay(attempt: int) -> int:
-    """Capped exponential backoff; attempt numbers are 1-based."""
+class RetryableGroundingResponseError(RuntimeError):
+    """A grounded response that is incomplete and safe to request again."""
+
+
+def _is_retryable_grounding_error(error: Exception) -> bool:
+    """Retry transient provider/network failures, not permanent API/config errors."""
+    if isinstance(error, (RetryableGroundingResponseError, TimeoutError, ConnectionError, ServerError)):
+        return True
+    if isinstance(error, APIError):
+        status = getattr(error, "code", None)
+        if status is None:
+            status = getattr(error, "status_code", None)
+        try:
+            status = int(status)
+        except (TypeError, ValueError):
+            return False
+        return status in {408, 425, 429, 500, 502, 503, 504}
+    return False
+
+
+def grounding_retry_delay(attempt: int) -> float:
+    """Full-jitter exponential backoff; attempt numbers are 1-based."""
     if attempt < 1:
         raise ValueError("attempt must be at least 1")
-    return min(GROUNDING_RETRY_BASE_SECONDS * (2 ** (attempt - 1)),
-               GROUNDING_RETRY_MAX_SECONDS)
+    cap = min(
+        GROUNDING_RETRY_BASE_SECONDS * (2 ** (attempt - 1)),
+        GROUNDING_RETRY_MAX_SECONDS,
+    )
+    return random.uniform(0.0, float(cap))
 
 
 class KaiaNewsUpdater:
@@ -225,8 +249,10 @@ RULES:
         # generativeai SDK: grounding via GoogleSearch tool with robust retries
         max_attempts = GROUNDING_MAX_ATTEMPTS
         last_exception = None
-        
+        attempts_made = 0
+
         for attempt in range(1, max_attempts + 1):
+            attempts_made = attempt
             try:
                 print(f"[DEBUG] Model generation attempt {attempt}/{max_attempts}...")
                 response = self.client.models.generate_content(
@@ -237,49 +263,43 @@ RULES:
                         temperature=0.0
                     )
                 )
-                
-                # Robust text extraction, including candidate parts if the
-                # response-level convenience property is empty.
+
+                # Some SDK responses expose candidate text only through parts.
                 brief = _extract_response_text(response)
-
                 if not brief:
-                    candidates = getattr(response, "candidates", None) or []
-                    part_text = [
-                        str(getattr(part, "text", "") or "").strip()
-                        for candidate in candidates
-                        for part in (getattr(getattr(candidate, "content", None), "parts", None) or [])
-                        if getattr(part, "text", None)
-                    ]
-                    brief = "\\n".join(text for text in part_text if text).strip()
-
-                if not brief:
-                    raise ValueError(
+                    raise RetryableGroundingResponseError(
                         "Empty grounded response (" + _empty_response_diagnostics(response) + ")"
                     )
-                
+
                 if story_count(brief) == 0:
-                    # Every section "No verified developments": the search came
-                    # back empty, not the world. Saved, it blocks the day's
-                    # retries and tells her nothing happened.
-                    raise ValueError("the brief has no stories in any section")
+                    # Do not file an empty result as proof that no news exists.
+                    raise RetryableGroundingResponseError(
+                        "The grounded brief has no verified stories in any section"
+                    )
                 return brief
-                
-            except (ServerError, APIError) as e:
-                last_exception = e
-                print(f"⚠️ API attempt {attempt} failed with transient error: {e}")
-                if attempt < max_attempts:
-                    sleep_time = grounding_retry_delay(attempt)
-                    print(f"Retrying in {sleep_time} seconds...")
-                    time.sleep(sleep_time)
+
             except Exception as e:
                 last_exception = e
-                print(f"⚠️ Attempt {attempt} failed with error: {e}")
+                if not _is_retryable_grounding_error(e):
+                    print(
+                        f"❌ Non-retryable news generation error on attempt {attempt}: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                    break
+
+                print(
+                    f"⚠️ Transient grounded-news attempt {attempt}/{max_attempts} failed: "
+                    f"{type(e).__name__}: {e}"
+                )
                 if attempt < max_attempts:
                     sleep_time = grounding_retry_delay(attempt)
-                    print(f"Retrying in {sleep_time} seconds...")
+                    print(f"Retrying in {sleep_time:.1f} seconds (full jitter)...")
                     time.sleep(sleep_time)
-        
-        error_msg = f"Grounding failed after {max_attempts} attempts ({last_exception}). Refusing to fall back to ungrounded standard generation to prevent hallucinated news."
+
+        error_msg = (
+            f"Grounding failed after {attempts_made} attempt(s) ({last_exception}). "
+            "Refusing to fall back to ungrounded standard generation to prevent hallucinated news."
+        )
         print(f"❌ CRITICAL: {error_msg}")
         raise Exception(error_msg)
     
