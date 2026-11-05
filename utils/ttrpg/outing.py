@@ -121,12 +121,25 @@ def _merge_daily_sync(trip: dict) -> None:
     write_atomic(path, json.dumps(current, indent=1))
 
 
-def _validate_outing_record(data: object, path: str) -> dict:
-    """Validate durable outing JSON before any read-modify-write can proceed."""
+def _validate_outing_record(
+    data: object, path: str, *, expected_uid: str | None = None
+) -> dict:
+    """Validate durable outing JSON and bind it to its per-player path owner."""
     error = None
     if not isinstance(data, dict) or not data:
         error = "root value must be a non-empty JSON object"
     else:
+        if expected_uid is not None:
+            stored_uid = data.get("uid")
+            if stored_uid is None:
+                # Legacy outing records predate the embedded owner. The
+                # requested per-player filename is the authoritative identity.
+                data["uid"] = str(expected_uid)
+            elif str(stored_uid) != str(expected_uid):
+                error = (
+                    f"uid {stored_uid!r} does not match filename owner "
+                    f"{str(expected_uid)!r}"
+                )
         list_fields = ("zones", "fights", "events", "loot", "levels", "trip_ids")
         dict_fields = ("notes",)
         numeric_fields = (
@@ -190,7 +203,7 @@ def _load_sync(uid: str) -> Optional[dict]:
             f"[rpg outing] Refusing to reset unreadable record {path}: {exc}"
         )
         raise RuntimeError(f"Cannot safely load RPG outing record {path}") from exc
-    return _validate_outing_record(data, path)
+    return _validate_outing_record(data, path, expected_uid=str(uid))
 
 
 def _update_sync(uid: str, fn) -> dict:
@@ -528,8 +541,37 @@ async def tell(ctx, path: str, *, channel=None) -> bool:
         _telling.discard(path)
 
 
+def _expected_uid_for_path(path: str) -> str:
+    """Resolve the owner encoded in a daily or untold record filename."""
+    parent = os.path.abspath(os.path.dirname(path))
+    stem = os.path.basename(path)
+    if not stem.endswith(".json"):
+        raise RuntimeError(f"Unrecognized RPG outing record path: {path}")
+    stem = stem[:-5]
+
+    if parent == os.path.abspath(DAILY_DIR):
+        # daily/YYYY-MM-DD_<uid>.json
+        day, separator, uid = stem[:10], stem[10:11], stem[11:]
+    elif parent == os.path.abspath(UNTOLD_DIR):
+        # untold/daily_YYYY-MM-DD_<uid>.json
+        if not stem.startswith("daily_"):
+            raise RuntimeError(f"Unrecognized untold RPG outing record path: {path}")
+        day, separator, uid = stem[6:16], stem[16:17], stem[17:]
+    else:
+        raise RuntimeError(f"Unrecognized RPG outing record directory: {path}")
+
+    from datetime import date
+    try:
+        date.fromisoformat(day)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"Invalid outing day in record path: {path}") from exc
+    if separator != "_" or not uid:
+        raise RuntimeError(f"Missing outing owner in record path: {path}")
+    return uid
+
+
 def _load_path_sync(path: str) -> Optional[dict]:
-    """Read an outing/daily/untold record, distinguishing absence from damage."""
+    """Read a daily/untold record, binding it to the owner encoded in its path."""
     try:
         with open(path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
@@ -540,7 +582,9 @@ def _load_path_sync(path: str) -> Optional[dict]:
             f"[rpg outing] Refusing to reset unreadable record {path}: {exc}"
         )
         raise RuntimeError(f"Cannot safely load RPG outing record {path}") from exc
-    return _validate_outing_record(data, path)
+    return _validate_outing_record(
+        data, path, expected_uid=_expected_uid_for_path(path)
+    )
 
 
 def _title(data: dict, reason: str) -> str:
