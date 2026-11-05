@@ -21,6 +21,9 @@ from utils.core.kaia_rag_query import RAGQueryMixin
 class _Indexer(RAGIndexerMixin):
     def __init__(self, kb_dir):
         self.knowledge_base_dir = str(kb_dir)
+        self.persist_dir = os.path.join(str(kb_dir), "_rag_test_state")
+        self.state_file = os.path.join(self.persist_dir, "file_manifest.json")
+        os.makedirs(self.persist_dir, exist_ok=True)
         self.indices = {t: VectorStoreIndex([]) for t in ("knowledge", "logs", "dreams")}
         self.bm25_cache = {}
         self.indexed_files = {}
@@ -606,6 +609,7 @@ def test_partial_log_insert_rollback_is_tracked_and_retried_as_full_rewrite(inde
                 TextNode(text="partial corrected log chunk two", metadata=dict(documents[0].metadata)),
             ]
 
+    original_parser = ix._get_node_parser_for_doc
     monkeypatch.setattr(ix, "_get_node_parser_for_doc", lambda *_a, **_k: TwoNodeParser())
     index = ix.indices["logs"]
     original_insert = index.insert_nodes
@@ -633,6 +637,7 @@ def test_partial_log_insert_rollback_is_tracked_and_retried_as_full_rewrite(inde
     # the last-good old nodes and the partial attempted replacement.
     monkeypatch.setattr(index, "insert_nodes", original_insert)
     monkeypatch.setattr(ix, "_delete_nodes", original_delete)
+    monkeypatch.setattr(ix, "_get_node_parser_for_doc", original_parser)
     assert ix._index_log_tail(str(log), str(log), "logs")
     new_entry = ix.indexed_files[abs_path]
     assert "reindex_required" not in new_entry

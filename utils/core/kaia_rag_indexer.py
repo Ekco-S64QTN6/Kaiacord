@@ -645,7 +645,9 @@ class RAGIndexerMixin:
         if index is None:
             return
         for node_id in dict.fromkeys(node_ids):
-            node = index.docstore.get_node(node_id, raise_error=False)
+            # Mutate the stored object itself. get_node() may return a detached
+            # copy, which would make the recovery marker disappear before persist.
+            node = index.docstore.docs.get(node_id)
             if node is not None:
                 marker_keys = ["_rag_replacement_stale"]
                 node.metadata["_rag_replacement_stale"] = True
@@ -667,7 +669,9 @@ class RAGIndexerMixin:
         if index is None:
             return
         for node_id in dict.fromkeys(node_ids):
-            node = index.docstore.get_node(node_id, raise_error=False)
+            # Use the object held by the docstore, not a potentially detached
+            # get_node() view.
+            node = index.docstore.docs.get(node_id)
             if node is None:
                 continue
             node.metadata["_rag_reindex_required"] = True
