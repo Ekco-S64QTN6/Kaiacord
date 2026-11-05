@@ -375,13 +375,19 @@ def _is_wealthiest(sheet: dict) -> bool:
                 for other in report.records:
                     owner_id = str(other.get("user_id", ""))
                     try:
-                        total = _total_gil(other)
-                        if (
-                            isinstance(total, bool)
-                            or not isinstance(total, (int, float))
-                            or not math.isfinite(total)
-                        ):
-                            raise ValueError("Gil total must be a finite number")
+                        balances = {}
+                        for key in ("gil", "bank_balance"):
+                            amount = other.get(key, 0)
+                            if (
+                                isinstance(amount, bool)
+                                or not isinstance(amount, (int, float))
+                                or not math.isfinite(amount)
+                            ):
+                                raise ValueError(f"{key} must be a finite number")
+                            balances[key] = amount
+                        total = balances["gil"] + balances["bank_balance"]
+                        if not math.isfinite(total):
+                            raise ValueError("combined Gil total must be finite")
                     except (TypeError, ValueError, OverflowError) as exc:
                         report.failures.append(ScanFailure(
                             os.path.join(CHARACTERS_DIR, f"{owner_id}.json"),
