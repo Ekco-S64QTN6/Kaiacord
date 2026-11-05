@@ -231,10 +231,13 @@ class BotState:
         self.consecutive_quips = 0
         self.save()
 
-    def update_interaction(self, channel_id: int):
-        """Update last interaction time and channel"""
-        self.last_interaction_time = time.time()
-        self.channel_last_activity[channel_id] = time.time()
+    def update_interaction(self, channel_id: Optional[int] = None):
+        """Update the interaction clock and, when supplied, the active guild channel."""
+        now = time.time()
+        self.last_interaction_time = now
+        if channel_id is None:
+            return
+        self.channel_last_activity[channel_id] = now
         if self.last_active_channel_id != channel_id:
             self.last_active_channel_id = channel_id
             self.save()

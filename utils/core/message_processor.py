@@ -236,6 +236,11 @@ def _pronoun_line() -> str:
         return "Anyone you mention: they/them unless you know otherwise — or just use their name."
 
 
+def _is_private_dm(ctx) -> bool:
+    """Whether this turn belongs to a private Discord DM conversation."""
+    return bool(getattr(ctx, "is_dm", False))
+
+
 #: Platforms whose "message" is her own prompt, not a person speaking to her.
 UNADDRESSED_PLATFORMS = frozenset(("broadcast", "overnight"))
 
@@ -535,7 +540,9 @@ class MessageProcessor:
         # keeps the one platform comparison this module is allowed — see
         # test_pipeline_parity.test_prompt_assembly_has_no_platform_conditionals.
         if not ctx.is_social:
-            self.bot_state.update_interaction(msg.channel.id)
+            # A DM is a real Discord interaction, but its private channel must
+            # never become the server-wide target for proactive messages.
+            self.bot_state.update_interaction(None if is_dm else msg.channel.id)
         else:
             log_debug("Interaction clock not stamped: message came from an external platform.")
         
@@ -896,7 +903,8 @@ class MessageProcessor:
         # 8b3. Theory-of-mind injection: a model of the user's current state.
         try:
             if self.bot_state:
-                self.bot_state.update_user_state(ctx.author_id, ctx.own_words)
+                if not _is_private_dm(ctx):
+                    self.bot_state.update_user_state(ctx.author_id, ctx.own_words)
                 tom_read = self.bot_state.get_user_state_read(ctx.author_id, ctx.author_name)
                 if tom_read:
                     ctx.system_prompt = ctx.system_prompt + f"\n\n{tom_read}"
@@ -2598,6 +2606,7 @@ class MessageProcessor:
         """Perform slow updates in the background to avoid holding up the UI."""
         # Use semaphore to limit concurrent background tasks
         async with self._bg_semaphore:
+            is_private_dm = _is_private_dm(ctx)
             try:
                 # Update memory
                 if ctx.channel_id not in self.bot_state.channel_memory:
@@ -2692,7 +2701,8 @@ class MessageProcessor:
                     self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response, "timestamp": time.time(), **_mark})
                 # ----------------------------------------------------
                 
-                await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, bot_response)
+                if not is_private_dm:
+                    await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, bot_response)
                 
                 # A DM stays private: its own log under memory/, which nothing
                 # indexes or quotes (utils/core/dm_log.py).
@@ -2726,55 +2736,56 @@ class MessageProcessor:
                 from utils.core.sanitizer import user_authored_text
                 _own = user_authored_text(ctx.sanitized_content)
 
-                # ── Relationship State Update (Items 2, 3, 7) ─────────────────
-                event_type = None  # Initialize before try so growth block can safely read it
-                valence = 0.5      # Neutral fallback — overwritten by estimate_sentiment() below
-                try:
-                    from utils.core.relationship_manager import (
-                        estimate_sentiment, detect_event_type,
-                        save_event_async, RelationshipEvent
-                    )
-                    # Sentiment estimation (keyword-based, no LLM call)
-                    valence = estimate_sentiment(_own)
-                    self.bot_state.update_relationship(
-                        ctx.author_id,
-                        valence_sample=valence,
-                        display_name=ctx.author_name,
-                    )
-
-                    # Detect notable events and persist them
-                    event_type = detect_event_type(_own, bot_response)
-                    if event_type:
-                        # Generate a brief summary from the exchange
-                        summary = _own[:120]
-                        if len(_own) > 120:
-                            summary += "..."
-                        topics = []
-                        if event_type in ('disagreement', 'repair'):
-                            from utils.core.relationship_manager import topic_words
-                            topics = topic_words(_own)
-                        if event_type == 'disagreement':
-                            _held = re.split(r"(?<=[.!?])\s", bot_response.strip(), maxsplit=1)[0][:120]
-                            summary = f'they said "{summary}"; you held "{_held}"'
-                        weight_map = {
-                            'positive': 0.6, 'friction': 0.8, 'disagreement': 0.85,
-                            'repair': 0.9, 'milestone': 1.0, 'neutral': 0.3
-                        }
-                        event = RelationshipEvent(
-                            timestamp=time.time(),
-                            event_type=event_type,
-                            summary=summary,
-                            emotional_weight=weight_map.get(event_type, 0.5),
-                            topics=topics
+                if not is_private_dm:
+                    # ── Relationship State Update (Items 2, 3, 7) ─────────────────
+                    event_type = None  # Initialize before try so growth block can safely read it
+                    valence = 0.5      # Neutral fallback — overwritten by estimate_sentiment() below
+                    try:
+                        from utils.core.relationship_manager import (
+                            estimate_sentiment, detect_event_type,
+                            save_event_async, RelationshipEvent
                         )
-                        await save_event_async(ctx.author_id, event)
-                        log_debug(f"Relationship event saved: {event_type} for {ctx.author_name}")
-                except Exception as _rel_err:
-                    log_debug(f"Relationship update error (non-fatal): {_rel_err}")
+                        # Sentiment estimation (keyword-based, no LLM call)
+                        valence = estimate_sentiment(_own)
+                        self.bot_state.update_relationship(
+                            ctx.author_id,
+                            valence_sample=valence,
+                            display_name=ctx.author_name,
+                        )
+
+                        # Detect notable events and persist them
+                        event_type = detect_event_type(_own, bot_response)
+                        if event_type:
+                            # Generate a brief summary from the exchange
+                            summary = _own[:120]
+                            if len(_own) > 120:
+                                summary += "..."
+                            topics = []
+                            if event_type in ('disagreement', 'repair'):
+                                from utils.core.relationship_manager import topic_words
+                                topics = topic_words(_own)
+                            if event_type == 'disagreement':
+                                _held = re.split(r"(?<=[.!?])\s", bot_response.strip(), maxsplit=1)[0][:120]
+                                summary = f'they said "{summary}"; you held "{_held}"'
+                            weight_map = {
+                                'positive': 0.6, 'friction': 0.8, 'disagreement': 0.85,
+                                'repair': 0.9, 'milestone': 1.0, 'neutral': 0.3
+                            }
+                            event = RelationshipEvent(
+                                timestamp=time.time(),
+                                event_type=event_type,
+                                summary=summary,
+                                emotional_weight=weight_map.get(event_type, 0.5),
+                                topics=topics
+                            )
+                            await save_event_async(ctx.author_id, event)
+                            log_debug(f"Relationship event saved: {event_type} for {ctx.author_name}")
+                    except Exception as _rel_err:
+                        log_debug(f"Relationship update error (non-fatal): {_rel_err}")
 
                 # A reply grounded in reference documents, kept so a later check
                 # can compare it with its sources. Discord only.
-                if not ctx.is_social and ctx.grounded_sources:
+                if not ctx.is_social and not is_private_dm and ctx.grounded_sources:
                     try:
                         from utils.core.self_correction import record_claim
                         await asyncio.to_thread(record_claim, ctx.channel_id, ctx.author_name,
@@ -2785,171 +2796,175 @@ class MessageProcessor:
                 # An argued point about one of her beliefs, kept for the nightly
                 # review. Discord only: strangers on a public feed don't
                 # get to move what she thinks.
-                if not ctx.is_social:
+                if not ctx.is_social and not is_private_dm:
                     try:
                         from utils.core.conversation_beliefs import note_argument
                         await asyncio.to_thread(note_argument, ctx.author_id, ctx.author_name, _own)
                     except Exception as _arg_err:
                         log_debug(f"Belief argument not recorded (non-fatal): {_arg_err}")
 
-                # ── Emotional Arc Update ───────────────────────────────────────
-                try:
-                    from utils.core.kaia_mood import emotional_arc
-                    emotional_arc.update(
-                        sentiment_score=valence,
-                        message_length=len(_own),
-                    )
-                except Exception:
-                    pass  # Never let mood arc break the pipeline
+                if not is_private_dm:
+                    # ── Emotional Arc Update ───────────────────────────────────────
+                    try:
+                        from utils.core.kaia_mood import emotional_arc
+                        emotional_arc.update(
+                            sentiment_score=valence,
+                            message_length=len(_own),
+                        )
+                    except Exception:
+                        pass  # Never let mood arc break the pipeline
 
-                # ── Desire Update (roadmap 55-4) ───────────────────────────────
-                # An exchange discharges the social need, and a substantive or
-                # document-grounded one also discharges the intellectual need.
-                # Without this the needs vector would only ever rise.
-                try:
-                    from utils.core.kaia_desires import desire_engine
-                    desire_engine.observe_exchange(
-                        grounded=bool(getattr(ctx, "is_grounded", False)),
-                        length=len(bot_response or ""),
-                    )
-                except Exception:
-                    pass  # Never let desire tracking break the pipeline
+                    # ── Desire Update (roadmap 55-4) ───────────────────────────────
+                    # An exchange discharges the social need, and a substantive or
+                    # document-grounded one also discharges the intellectual need.
+                    # Without this the needs vector would only ever rise.
+                    try:
+                        from utils.core.kaia_desires import desire_engine
+                        desire_engine.observe_exchange(
+                            grounded=bool(getattr(ctx, "is_grounded", False)),
+                            length=len(bot_response or ""),
+                        )
+                    except Exception:
+                        pass  # Never let desire tracking break the pipeline
 
-                # ── Interaction-Driven Growth ──────────────────────────────────
-                # Lightweight real-time growth triggers — supplements the nightly
-                # dream cycle with immediate responses to significant exchanges.
-                try:
-                    # 1. Interaction Milestone Detector
-                    rel = self.bot_state.relationships.get(str(ctx.author_id))
-                    if rel:
-                        count = rel.get('interaction_count', 0)
-                        milestones = {10, 25, 50, 100, 250, 500}
-                        if count in milestones:
-                            from pathlib import Path
-                            growth_log = Path("memory") / "growth_log.jsonl"
-                            growth_log.parent.mkdir(parents=True, exist_ok=True)
-                            milestone_entry = json.dumps({
-                                "ts": time.time(),
-                                "type": "relationship_milestone",
-                                "user": ctx.author_name,
-                                "milestone": count,
-                                "note": f"{count} exchanges with {ctx.author_name}"
-                            })
-                            def _write_and_rotate_growth_log():
-                                with _growth_log_lock:
-                                    with open(growth_log, 'a', encoding='utf-8') as gl:
-                                        gl.write(milestone_entry + '\n')
-                                        gl.flush()
-                                        try:
-                                            os.fsync(gl.fileno())
-                                        except OSError:
-                                            pass
-                                    # Rotate: keep last 2000 entries (atomic)
-                                    try:
-                                        with open(growth_log, 'r', encoding='utf-8') as gl:
-                                            lines = gl.readlines()
-                                        if len(lines) > 2000:
-                                            from utils.core.atomic_write import write_atomic
-                                            write_atomic(growth_log, "".join(lines[-2000:]))
-                                    except Exception:
-                                        pass
-                            await asyncio.to_thread(_write_and_rotate_growth_log)
-                            log_info(f"Growth milestone: {count} interactions with {ctx.author_name}")
-
-                    # 2. Significant Exchange Detector
-                    # Flag substantive conversations for the continuity file
-                    is_significant = False
-                    significance_reason = ""
-
-                    # Long substantive exchange
-                    if len(_own) > 200 and len(bot_response) > 500:
-                        is_significant = True
-                        significance_reason = "substantive exchange"
-
-                    # Friction or repair events (already detected above)
-                    if event_type and event_type in ('friction', 'repair', 'milestone'):
-                        is_significant = True
-                        significance_reason = f"{event_type} event"
-
-                    if is_significant:
-                        # Queue an afterthought (10% chance)
-                        if getattr(self.bot_state, 'pending_afterthoughts', None) is not None:
-                            import secrets as _sec
-                            if _sec.randbelow(100) < 10:
-                                self.bot_state.pending_afterthoughts.append({
-                                    "channel_id": ctx.channel_id,
-                                    "user_id": ctx.author_id,
-                                    "user_name": ctx.author_name,
-                                    "timestamp": time.time(),
-                                    "topic": _own[:200]
+                if not is_private_dm:
+                    # ── Interaction-Driven Growth ──────────────────────────────────
+                    # Lightweight real-time growth triggers — supplements the nightly
+                    # dream cycle with immediate responses to significant exchanges.
+                    try:
+                        # 1. Interaction Milestone Detector
+                        rel = self.bot_state.relationships.get(str(ctx.author_id))
+                        if rel:
+                            count = rel.get('interaction_count', 0)
+                            milestones = {10, 25, 50, 100, 250, 500}
+                            if count in milestones:
+                                from pathlib import Path
+                                growth_log = Path("memory") / "growth_log.jsonl"
+                                growth_log.parent.mkdir(parents=True, exist_ok=True)
+                                milestone_entry = json.dumps({
+                                    "ts": time.time(),
+                                    "type": "relationship_milestone",
+                                    "user": ctx.author_name,
+                                    "milestone": count,
+                                    "note": f"{count} exchanges with {ctx.author_name}"
                                 })
-                                log_info(f"Queued afterthought for {ctx.author_name} ({significance_reason})")
+                                def _write_and_rotate_growth_log():
+                                    with _growth_log_lock:
+                                        with open(growth_log, 'a', encoding='utf-8') as gl:
+                                            gl.write(milestone_entry + '\n')
+                                            gl.flush()
+                                            try:
+                                                os.fsync(gl.fileno())
+                                            except OSError:
+                                                pass
+                                        # Rotate: keep last 2000 entries (atomic)
+                                        try:
+                                            with open(growth_log, 'r', encoding='utf-8') as gl:
+                                                lines = gl.readlines()
+                                            if len(lines) > 2000:
+                                                from utils.core.atomic_write import write_atomic
+                                                write_atomic(growth_log, "".join(lines[-2000:]))
+                                        except Exception:
+                                            pass
+                                await asyncio.to_thread(_write_and_rotate_growth_log)
+                                log_info(f"Growth milestone: {count} interactions with {ctx.author_name}")
 
-                        # Append a brief note to the continuity file (NOT identity stream)
-                        # This gives the dream engine more material for the next cycle
-                        continuity_path = os.path.join("memory", "rag_storage", "kaia_continuity.md")
-                        if os.path.exists(continuity_path):
-                            note = f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {significance_reason} with {ctx.author_name}: {_own[:100]}"
-                            try:
-                                from utils.core.atomic_write import write_atomic
+                        # 2. Significant Exchange Detector
+                        # Flag substantive conversations for the continuity file
+                        is_significant = False
+                        significance_reason = ""
 
-                                def _append_note():
-                                    with open(continuity_path, 'r', encoding='utf-8') as cf:
-                                        current_content = cf.read()
-                                    write_atomic(continuity_path, current_content + note)
+                        # Long substantive exchange
+                        if len(_own) > 200 and len(bot_response) > 500:
+                            is_significant = True
+                            significance_reason = "substantive exchange"
 
-                                await asyncio.to_thread(_append_note)
-                                log_info(f"Continuity note appended atomically: {significance_reason} with {ctx.author_name}")
-                            except Exception as _write_err:
-                                log_debug(f"Failed atomic write to continuity file: {_write_err}")
-                except Exception as _growth_err:
-                    log_debug(f"Growth tracking error (non-fatal): {_growth_err}")
+                        # Friction or repair events (already detected above)
+                        if event_type and event_type in ('friction', 'repair', 'milestone'):
+                            is_significant = True
+                            significance_reason = f"{event_type} event"
 
-                # ── Open Loop Detection ────────────────────────────────────────
-                # "I'm going to try X" → next session she can ask how X went.
-                try:
-                    from utils.core.open_loops import find as _find_open_loop
-                    _loop_text = _find_open_loop(_own)
-                    if _loop_text:
-                        _rel = self.bot_state.relationships.get(str(ctx.author_id))
-                        if _rel is not None:
-                            _rel['last_open_loop'] = _loop_text
-                            self.bot_state.save()
-                            log_info(f"Open loop saved for {ctx.author_name}: {_loop_text[:60]}")
-                except Exception:
-                    pass  # Never let open loop detection break anything
+                        if is_significant:
+                            # Queue an afterthought (10% chance)
+                            if getattr(self.bot_state, 'pending_afterthoughts', None) is not None:
+                                import secrets as _sec
+                                if _sec.randbelow(100) < 10:
+                                    self.bot_state.pending_afterthoughts.append({
+                                        "channel_id": ctx.channel_id,
+                                        "user_id": ctx.author_id,
+                                        "user_name": ctx.author_name,
+                                        "timestamp": time.time(),
+                                        "topic": _own[:200]
+                                    })
+                                    log_info(f"Queued afterthought for {ctx.author_name} ({significance_reason})")
 
-                # ── Generation Quality Logging (Item 11) ──────────────────────
-                try:
-                    gen_log_path = telemetry_path("memory/generation_log.jsonl")
-                    log_entry = {
-                        "ts": time.time(),
-                        "user_id": ctx.author_id,
-                        "category": ctx.category,
-                        "strategy": ctx.fast_intent_strategy or (ctx.intent.suggested_strategy if ctx.intent else None),
-                        "retrieval_confidence": getattr(ctx, 'retrieval_confidence', 0.0),
-                        "retrieval_nodes": getattr(ctx, 'retrieval_node_count', 0),
-                        "response_len": len(bot_response),
-                        "response_time_s": round(response_time, 2),
-                    }
-                    os.makedirs(os.path.dirname(gen_log_path), exist_ok=True)
-                    def _write_and_rotate_gen_log():
-                        with _gen_log_lock:
-                            with open(gen_log_path, 'a', encoding='utf-8') as glf:
-                                glf.write(json.dumps(log_entry) + '\n')
-                            # Rotate: keep last 5000 entries (atomic)
-                            try:
-                                with open(gen_log_path, 'r', encoding='utf-8') as glf:
-                                    lines = glf.readlines()
-                                if len(lines) > 5000:
+                            # Append a brief note to the continuity file (NOT identity stream)
+                            # This gives the dream engine more material for the next cycle
+                            continuity_path = os.path.join("memory", "rag_storage", "kaia_continuity.md")
+                            if os.path.exists(continuity_path):
+                                note = f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {significance_reason} with {ctx.author_name}: {_own[:100]}"
+                                try:
                                     from utils.core.atomic_write import write_atomic
-                                    write_atomic(gen_log_path, "".join(lines[-5000:]))
-                            except Exception:
-                                pass
-                    await asyncio.to_thread(_write_and_rotate_gen_log)
-                except Exception:
-                    pass  # Never let logging break the pipeline
-                
+
+                                    def _append_note():
+                                        with open(continuity_path, 'r', encoding='utf-8') as cf:
+                                            current_content = cf.read()
+                                        write_atomic(continuity_path, current_content + note)
+
+                                    await asyncio.to_thread(_append_note)
+                                    log_info(f"Continuity note appended atomically: {significance_reason} with {ctx.author_name}")
+                                except Exception as _write_err:
+                                    log_debug(f"Failed atomic write to continuity file: {_write_err}")
+                    except Exception as _growth_err:
+                        log_debug(f"Growth tracking error (non-fatal): {_growth_err}")
+
+                if not is_private_dm:
+                    # ── Open Loop Detection ────────────────────────────────────────
+                    # "I'm going to try X" → next session she can ask how X went.
+                    try:
+                        from utils.core.open_loops import find as _find_open_loop
+                        _loop_text = _find_open_loop(_own)
+                        if _loop_text:
+                            _rel = self.bot_state.relationships.get(str(ctx.author_id))
+                            if _rel is not None:
+                                _rel['last_open_loop'] = _loop_text
+                                self.bot_state.save()
+                                log_info(f"Open loop saved for {ctx.author_name}: {_loop_text[:60]}")
+                    except Exception:
+                        pass  # Never let open loop detection break anything
+
+                if not is_private_dm:
+                    # ── Generation Quality Logging (Item 11) ──────────────────────
+                    try:
+                        gen_log_path = telemetry_path("memory/generation_log.jsonl")
+                        log_entry = {
+                            "ts": time.time(),
+                            "user_id": ctx.author_id,
+                            "category": ctx.category,
+                            "strategy": ctx.fast_intent_strategy or (ctx.intent.suggested_strategy if ctx.intent else None),
+                            "retrieval_confidence": getattr(ctx, 'retrieval_confidence', 0.0),
+                            "retrieval_nodes": getattr(ctx, 'retrieval_node_count', 0),
+                            "response_len": len(bot_response),
+                            "response_time_s": round(response_time, 2),
+                        }
+                        os.makedirs(os.path.dirname(gen_log_path), exist_ok=True)
+                        def _write_and_rotate_gen_log():
+                            with _gen_log_lock:
+                                with open(gen_log_path, 'a', encoding='utf-8') as glf:
+                                    glf.write(json.dumps(log_entry) + '\n')
+                                # Rotate: keep last 5000 entries (atomic)
+                                try:
+                                    with open(gen_log_path, 'r', encoding='utf-8') as glf:
+                                        lines = glf.readlines()
+                                    if len(lines) > 5000:
+                                        from utils.core.atomic_write import write_atomic
+                                        write_atomic(gen_log_path, "".join(lines[-5000:]))
+                                except Exception:
+                                    pass
+                        await asyncio.to_thread(_write_and_rotate_gen_log)
+                    except Exception:
+                        pass  # Never let logging break the pipeline
+                    
             except Exception as e:
                 log_error(f"Error in background logging: {e}")
 

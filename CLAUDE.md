@@ -409,6 +409,14 @@ quotes into the busiest channel. DM turns in channel memory carry `"private": Tr
 that reads across channels (the monologue) must skip them. Nothing from a DM may be written
 anywhere retrieval reads — her notes (`knowledge_base/kaia_notes/`) were, until September 2026.
 
+That boundary also covers secondary state: a DM must not update relationship events or stages,
+open-loop callbacks, conversation-belief arguments, grounded-claim checks, learned public
+personalization, the theory-of-mind state later injected into replies, global mood/desire inputs,
+continuity/growth logs, or the delayed-afterthought queue. The DM's own transcript and private
+channel-memory turns are the only conversational memory writes. It must not mark its DM channel
+as the server's last active channel or proactive destination. Aggregate operational counters may
+still count a message, but they must not retain the content or channel identity of the DM.
+
 ### Token budget
 
 The context window is `performance.max_context_tokens` (16,384 by default). `optimize_context()`
