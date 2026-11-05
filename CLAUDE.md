@@ -1741,7 +1741,9 @@ retrieval never reported:
   `stale_nodes`, and retry them on later sweeps. The marker is stored in both the manifest and
   node metadata, so it survives a crash between index-snapshot and manifest commits as well as
   restart and deleted-file pruning. Partial new inserts that cannot be rolled back are marked
-  stale and force a full source rebuild. Never roll back new content after old-node deletion has begun.
+  stale and force a full source rebuild. The retrieval scorer, whole-document fallback, recent
+  highlights and event scan must exclude stale nodes; internal marker keys are excluded from
+  prompt/embedding metadata. Never roll back new content after old-node deletion has begun.
 - **Ingestion history is ancillary.** A failure in `bot_state.add_ingestion()` must not turn a
   successful index update into a failed file result; otherwise refresh can save the global
   manifest without saving the changed index snapshot.
