@@ -33,7 +33,7 @@ pull requests.
 
 | Item | What | Call |
 |:--|:--|:--|
-| **Split `rpg_core_handler.py`** | Moved world information, navigation, inventory/equipment, recovery, bank transactions, and read-only RPG reference commands to dedicated handler modules. The core file is down to 1,833 lines; character setup, progression, combat-item use, gambling, and other state changes remain for further cohesive splits. | Yes, when next touched |
+| **Split `rpg_core_handler.py`** | Moved world information, navigation, inventory/equipment, recovery, bank transactions, read-only RPG reference commands, and combat consumable use to dedicated handler modules. The core file is down to 1,598 lines; character setup, progression, gambling, and remaining state changes remain for further cohesive splits. | Yes, when next touched |
 | **More Spine creatures** | The 77 stair guardians now have explicit floor-scaled HP/ATK/DEF and milestone Resonance Ward progression; additional rare spawns per zone would add variety. | Content, optional |
 | **Shadowblade endgame damage** | The highest sustained damage per round (crit on 17 with the Voidstep Blade), offset by the Rogue's low HP. | Watch |
 | **Board games as real game state** | Tic-tac-toe with Python holding the board, about 2 h. | No — one game asked for in five months |
