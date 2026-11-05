@@ -1764,7 +1764,9 @@ retrieval never reported:
   Ask them the way chat does — as a user, with `strict_identity` — because that is where
   scoping bites: "who is starkind" is identity-scoped, and scoped to the asker alone it reached
   nothing Starkind had said. Logs and profiles are scoped to the asker *and anyone the question
-  names*, matched against the `user_logs/` folder names. Every error question is a diagnostic,
+  names*, matched against the `user_logs/` folder names. Whole-document summaries and manifest-title fast
+  paths apply that same scope before returning; they must reject another person's `user_logs/`
+  path unless that person's ID was named in the request. Every error question is a diagnostic,
   and diagnostics searched chat logs only, so no troubleshooting guide was ever retrieved.
 - **A summarise request reads the file it names, or says it can't.** `_get_summarization_nodes` matches
   the name against the manifest; a file named outright that the index has not reached yet is read from

@@ -315,8 +315,39 @@ class RAGQueryMixin:
             "is_followup_query": (not intent and len(query_lower.split()) <= 6 and not is_kaia_query and not is_social_identity and not is_dream_query)
         }
 
-    def _get_summarization_nodes(self, query_lower: str, target_path: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Identify a target file for summarization and retrieve its content."""
+    @staticmethod
+    def _summary_path_allowed(path: str, strict_identity: bool = False,
+                              allowed_user_ids: Optional[Set[str]] = None) -> bool:
+        """Apply normal user-log identity scope to whole-document shortcuts.
+
+        The normal scorer filters user_logs using the owner directory's ID.
+        These shortcuts return before scoring, so they must enforce the same
+        rule themselves. Non-log knowledge documents remain available.
+        """
+        if not strict_identity:
+            return True
+        normalized = (path or "").replace("\\", "/")
+        marker = "/user_logs/"
+        normalized = "/" + normalized.lstrip("/")
+        if marker not in normalized:
+            return True
+        remainder = normalized.split(marker, 1)[1]
+        owner_folder = remainder.split("/", 1)[0]
+        if not owner_folder:
+            return False
+        owner_id = owner_folder.rpartition("_")[2]
+        allowed = {str(uid) for uid in (allowed_user_ids or ()) if uid is not None}
+        return owner_folder in allowed or (bool(owner_id) and owner_id in allowed)
+
+    def _get_summarization_nodes(
+        self, query_lower: str, target_path: Optional[str] = None,
+        strict_identity: bool = False, allowed_user_ids: Optional[Set[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Identify a target file for summarization and retrieve its content.
+
+        Identity-scoped turns may only summarize the requester's or a named
+        person's user-log files, matching the normal retrieval scorer.
+        """
         # Stopword set and query token set are needed on BOTH branches below: the fast
         # path skips filename matching entirely but still feeds query_words into the
         # relevance scoring for middle-chunk selection further down. Bind them up front
@@ -333,6 +364,9 @@ class RAGQueryMixin:
 
         # Fast path if explicit target_path was already resolved by caller
         if target_path and target_path in self.indexed_files:
+            if not self._summary_path_allowed(target_path, strict_identity, allowed_user_ids):
+                log_warning(f"[summarize] refusing identity-scoped access to another user's log: {target_path}")
+                return []
             target_file_path = target_path
             best_match_score = 100.0
         else:
@@ -371,6 +405,8 @@ class RAGQueryMixin:
             # raised "dictionary changed size during iteration" and aborted the
             # whole retrieval (kaiacord.log, 00:34:54).
             for path, meta in list(self.indexed_files.items()):
+                if not self._summary_path_allowed(path, strict_identity, allowed_user_ids):
+                    continue
                 fname = os.path.basename(path).lower()
                 fname_no_ext = os.path.splitext(fname)[0]
                 clean_slug = re.sub(r'^\d{4}[-_]\d{2}[-_]\d{2}[-_]', '', fname_no_ext)
@@ -643,6 +679,22 @@ class RAGQueryMixin:
             
             log_error(f"Retrieval failed for {itype}: {e}")
             return []
+
+    async def _refresh_known_user_folders(self) -> None:
+        """Refresh the log-owner directory cache used by identity-scoped retrieval."""
+        if time.time() - self._last_user_scan <= self._user_scan_interval:
+            return
+
+        def _scan():
+            path = os.path.join(self.knowledge_base_dir, "user_logs")
+            return [d.name for d in os.scandir(path)
+                    if d.is_dir() and "_" in d.name] if os.path.exists(path) else []
+
+        self._known_user_folders = await asyncio.to_thread(_scan)
+        self._known_users_cache = [
+            f.rsplit("_", 1)[0].replace("_", " ") for f in self._known_user_folders
+        ]
+        self._last_user_scan = time.time()
 
     def _resolve_identity_mappings(self, user_id: Any) -> Set[str]:
         """Resolve all linked identities (Discord/Forum) for a given user ID."""
@@ -1027,6 +1079,14 @@ class RAGQueryMixin:
             query_lower = query.lower()
             own_lower = self._own_words(query)
             routing = self._route_retrieval_strategy(category, query_lower, intent, own_lower)
+            # These whole-document routes return before normal scoring. Resolve
+            # the same requester + named-person IDs first, so they cannot skip
+            # the identity filter used by _score_and_filter_nodes().
+            allowed_summary_ids: Set[str] = set()
+            if strict_identity:
+                await self._refresh_known_user_folders()
+                allowed_summary_ids = self._resolve_identity_mappings(user_id)
+                allowed_summary_ids |= self._named_user_ids(own_lower)
             if include_news:
                 # A news turn is not small talk, however short: "any news
                 # today?" routed as casual searched profiles and logs only.
@@ -1035,7 +1095,10 @@ class RAGQueryMixin:
                 routing["names_period"] = bool(_NAMED_PERIOD.search(query_lower))
 
             if routing["strategy"] == "SUMMARIZATION":
-                results = self._get_summarization_nodes(own_lower)
+                results = self._get_summarization_nodes(
+                    own_lower, strict_identity=strict_identity,
+                    allowed_user_ids=allowed_summary_ids,
+                )
                 if results:
                     self._last_retrieval_results = results
                     self._last_retrieval_confidence = 1.0
@@ -1112,6 +1175,8 @@ class RAGQueryMixin:
                     _fname_results = self._get_summarization_nodes(
                         os.path.splitext(os.path.basename(_best_path))[0].lower(),
                         target_path=_best_path,
+                        strict_identity=strict_identity,
+                        allowed_user_ids=allowed_summary_ids,
                     )
                     if _fname_results:
                         self._last_retrieval_results = _fname_results
@@ -1131,7 +1196,10 @@ class RAGQueryMixin:
                         _hint = _match.group(1).strip()
                         if len(_hint) >= 6:  # Ignore short accidental matches
                             log_debug(f"Filename-reference fast path triggered: '{_hint}'")
-                            _fname_results = self._get_summarization_nodes(_hint)
+                            _fname_results = self._get_summarization_nodes(
+                                _hint, strict_identity=strict_identity,
+                                allowed_user_ids=allowed_summary_ids,
+                            )
                             if _fname_results:
                                 self._last_retrieval_results = _fname_results
                                 self._last_retrieval_confidence = 1.0
@@ -1142,13 +1210,7 @@ class RAGQueryMixin:
                         break
             
             # Update user cache
-            if time.time() - self._last_user_scan > self._user_scan_interval:
-                def _scan():
-                    path = os.path.join(self.knowledge_base_dir, "user_logs")
-                    return [d.name for d in os.scandir(path) if d.is_dir() and "_" in d.name] if os.path.exists(path) else []
-                self._known_user_folders = await asyncio.to_thread(_scan)
-                self._known_users_cache = [f.rsplit("_", 1)[0].replace("_", " ") for f in self._known_user_folders]
-                self._last_user_scan = time.time()
+            await self._refresh_known_user_folders()
 
             enriched_query = query
             detected_user = next((u for u in self._known_users_cache if u.lower() in query_lower), None)
