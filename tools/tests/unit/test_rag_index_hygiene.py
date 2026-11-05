@@ -404,3 +404,118 @@ def test_pruning_manifest_only_entries_still_saves_without_index_writes(tmp_path
     assert changed == set()
     with open(ix.state_file, encoding="utf-8") as f:
         assert json.load(f) == {}
+
+
+
+def test_failed_modified_document_keeps_old_nodes_and_manifest(indexer, monkeypatch, tmp_path):
+    """A parse failure must leave the last-good nodes searchable and the source in place."""
+    ix, kb = indexer
+    doc = kb / "documents" / "notes.md"
+    doc.parent.mkdir()
+    doc.write_text("old indexed document")
+    old_mtime = os.path.getmtime(doc)
+    old_stat = os.stat(doc)
+    old_node = _add(ix, "knowledge", doc, "old indexed document")
+    abs_path = str(doc.resolve())
+    old_entry = {"mtime": old_stat.st_mtime, "size": old_stat.st_size, "nodes": [old_node], "itype": "knowledge"}
+    ix.indexed_files[abs_path] = dict(old_entry)
+    doc.write_text("replacement content that cannot be parsed")
+    os.utime(doc, (old_mtime + 5, old_mtime + 5))
+    monkeypatch.setattr(ix, "_get_node_parser_for_doc", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("parser failure")))
+
+    assert ix._index_single_file(str(doc), True, False, "knowledge", str(kb / "_quarantine" / "corrupt_files")) is False
+    assert doc.exists()
+    assert ix.indices["knowledge"].docstore.document_exists(old_node)
+    assert old_node in ix._vector_ids(ix.indices["knowledge"])
+    assert ix.indexed_files[abs_path] == old_entry
+
+
+def test_failed_log_rewrite_keeps_old_nodes_and_manifest(indexer, monkeypatch):
+    """A failed full-log rebuild must not delete the last-good transcript chunks."""
+    ix, kb = indexer
+    log = kb / "user_logs" / "Ekco_1" / "interactions_20260922.md"
+    log.parent.mkdir(parents=True)
+    log.write_text("[2026-09-22 01:00:00] Kaia: original long answer to preserve\n")
+    assert ix._index_log_tail(str(log), str(log), "logs")
+    abs_path = str(log.resolve())
+    old_entry = dict(ix.indexed_files[abs_path])
+    old_nodes = list(old_entry["nodes"])
+    log.write_text("[2026-09-22 01:00:00] Kaia: corrected\n")
+    monkeypatch.setattr(ix, "_get_node_parser_for_doc", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("parser failure")))
+
+    assert ix._index_single_file(str(log), True, True, "logs", str(kb / "_quarantine" / "corrupt_files")) is False
+    assert all(ix.indices["logs"].docstore.document_exists(n) for n in old_nodes)
+    assert ix.indexed_files[abs_path] == old_entry
+
+
+def test_partial_old_node_delete_keeps_new_replacement_and_retries_leftovers(indexer, monkeypatch):
+    """A partial backend delete must not roll back the new version and lose both."""
+    ix, kb = indexer
+    doc = kb / "documents" / "partial-delete.md"
+    doc.parent.mkdir()
+    doc.write_text("new replacement document content")
+    old_one = _add(ix, "knowledge", doc, "old version one")
+    old_two = _add(ix, "knowledge", doc, "old version two")
+    abs_path = str(doc.resolve())
+    stat = os.stat(doc)
+    ix.indexed_files[abs_path] = {
+        "mtime": stat.st_mtime - 10, "size": stat.st_size - 3,
+        "nodes": [old_one, old_two], "itype": "knowledge",
+    }
+    original_delete = ix._delete_nodes
+    def partially_delete_old(itype, node_ids):
+        ids = list(node_ids)
+        if old_one in ids and old_two in ids:
+            original_delete(itype, [old_one])
+            raise OSError("simulated partial docstore/vector delete")
+        return original_delete(itype, ids)
+    monkeypatch.setattr(ix, "_delete_nodes", partially_delete_old)
+
+    assert ix._index_single_file(str(doc), True, False, "knowledge", str(kb / "_quarantine" / "corrupt_files"))
+    entry = ix.indexed_files[abs_path]
+    assert entry["nodes"]
+    assert entry["stale_nodes"] == [old_two]
+    assert not ix.indices["knowledge"].docstore.document_exists(old_one)
+    assert ix.indices["knowledge"].docstore.document_exists(old_two)
+    assert all(ix.indices["knowledge"].docstore.document_exists(n) for n in entry["nodes"])
+    assert any("new replacement" in ix.indices["knowledge"].docstore.get_node(n).text for n in entry["nodes"])
+
+    monkeypatch.setattr(ix, "_delete_nodes", original_delete)
+    changed, manifest_changed = ix._cleanup_stale_file_nodes()
+    assert changed == {"knowledge"}
+    assert manifest_changed
+    assert "stale_nodes" not in ix.indexed_files[abs_path]
+    assert not ix.indices["knowledge"].docstore.document_exists(old_two)
+
+
+def test_manifest_rebuild_preserves_stale_replacement_marker(indexer):
+    """A restart must not turn leftover old nodes back into active content."""
+    ix, kb = indexer
+    doc = kb / "documents" / "restart-marker.md"
+    doc.parent.mkdir()
+    doc.write_text("content")
+    active = _add(ix, "knowledge", doc, "current indexed content")
+    stale = _add(ix, "knowledge", doc, "superseded old content")
+    abs_path = str(doc.resolve())
+    stat = os.stat(doc)
+    ix.indexed_files[abs_path] = {
+        "mtime": stat.st_mtime, "size": stat.st_size, "nodes": [active],
+        "stale_nodes": [stale], "itype": "knowledge",
+    }
+    ix._populate_indexed_files()
+    assert ix.indexed_files[abs_path]["nodes"] == [active]
+    assert ix.indexed_files[abs_path]["stale_nodes"] == [stale]
+
+
+def test_ingestion_history_failure_does_not_turn_index_success_into_failure(indexer, monkeypatch):
+    """Ancillary telemetry failure must not trigger manifest-only persistence."""
+    from utils.infrastructure.system.bot_state import bot_state
+    ix, kb = indexer
+    doc = kb / "documents" / "history-write.md"
+    doc.parent.mkdir()
+    doc.write_text("document that should still be indexed")
+    monkeypatch.setattr(bot_state, "add_ingestion", lambda *_a, **_k: (_ for _ in ()).throw(OSError("history disk failure")))
+    assert ix._index_single_file(str(doc), False, False, "knowledge", str(kb / "_quarantine" / "corrupt_files"))
+    entry = ix.indexed_files[str(doc.resolve())]
+    assert entry["nodes"]
+    assert all(ix.indices["knowledge"].docstore.document_exists(n) for n in entry["nodes"])

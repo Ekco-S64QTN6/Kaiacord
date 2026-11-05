@@ -1736,6 +1736,13 @@ retrieval never reported:
   file appear current on restart even though its new vectors were absent from the on-disk index;
   the next scan then skipped it forever. A partial snapshot write must leave the old manifest
   intact so the failed index can be rebuilt.
+- **Document replacement is staged:** parse and insert all new nodes before deleting last-good
+  nodes. If deletion partially fails, keep the replacement, record remaining old IDs as
+  `stale_nodes`, and retry them on later sweeps. The marker must survive restart and deleted-file
+  pruning. Never roll back new content after old-node deletion has begun.
+- **Ingestion history is ancillary.** A failure in `bot_state.add_ingestion()` must not turn a
+  successful index update into a failed file result; otherwise refresh can save the global
+  manifest without saving the changed index snapshot.
 - **Any index change drops that index's BM25 retriever from `bm25_cache`.** BM25 lives in
   memory only, rebuilt from the docstore on the next query; a stale entry would keep serving
   removed nodes. (It was a pickle whose freshness check was file mtimes, which a deletion never
