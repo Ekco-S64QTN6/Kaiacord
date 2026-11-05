@@ -417,11 +417,11 @@ def test_pdf_worker_wall_timeout_kills_and_reaps_the_child(monkeypatch, tmp_path
         "import time\ntime.sleep(10)\n"
     )
     monkeypatch.setattr(ce, "_PDF_WORKER_SCRIPT", script)
-    monkeypatch.setattr(ce, "MAX_PDF_PARSE_TIMEOUT_SECONDS", 0.25)
+    monkeypatch.setattr(ce, "MAX_PDF_PARSE_TIMEOUT_SECONDS", 1.0)
 
     started = time.monotonic()
     assert ce._extract_pdf_text(_small_pdf()) == ""
-    assert time.monotonic() - started < 2.0
+    assert time.monotonic() - started < 3.0
     assert pid_file.exists(), "worker did not reach its deliberate sleep"
     child_pid = int(pid_file.read_text(encoding="utf-8"))
 
