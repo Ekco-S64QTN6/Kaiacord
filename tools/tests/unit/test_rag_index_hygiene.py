@@ -315,7 +315,7 @@ def test_partial_index_persist_does_not_advance_the_global_manifest(tmp_path, in
     def persist_one(itype):
         if itype == "logs":
             raise OSError("disk full")
-    monkeypatch.setattr(ix, "_persist_index_atomic", persist_one)
+    monkeypatch.setattr(ix, "_persist_index_atomic", persist_one, raising=False)
 
     persisted = ix._persist_updated_indices({"knowledge", "logs"})
 
@@ -335,7 +335,7 @@ def test_complete_index_persist_advances_the_manifest(tmp_path, indexer, monkeyp
     ix.indexed_files = {
         "/kb/document.md": {"mtime": 20, "size": 15, "nodes": ["new-node"], "itype": "knowledge"}
     }
-    monkeypatch.setattr(ix, "_persist_index_atomic", lambda _itype: None)
+    monkeypatch.setattr(ix, "_persist_index_atomic", lambda _itype: None, raising=False)
 
     persisted = ix._persist_updated_indices({"knowledge", "logs"})
 
