@@ -33,7 +33,6 @@ pull requests.
 
 | Item | What | Call |
 |:--|:--|:--|
-| **Split the rest of `_dungeon_combat_round`** | Rewards and loot are split out and tested (#45). Context loading and the victory / defeat / continue branches are still one function. | Yes, when next touched |
 | **Split `rpg_core_handler.py`** | 2,675 lines; navigation and world handlers would separate cleanly. | Yes, when next touched |
 | **More Spine creatures** | The 77 stair guardians now have explicit floor-scaled HP/ATK/DEF and milestone Resonance Ward progression; additional rare spawns per zone would add variety. | Content, optional |
 | **Shadowblade endgame damage** | The highest sustained damage per round (crit on 17 with the Voidstep Blade), offset by the Rogue's low HP. | Watch |
