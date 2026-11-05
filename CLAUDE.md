@@ -192,7 +192,10 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   clearing a dungeon). A call per kill held every hunt behind up to 45 s of typing indicator.
   The paragraph goes to #aethelgard (`discord.rpg_channel`) so everyone can follow the day, never
   through a button's follow-up; a closed trip waits in `outings/untold/` with its text until the
-  post succeeds, and the boot tells whatever is still waiting.
+  post succeeds, and the boot tells whatever is still waiting. Open outing records are bound to the
+  player ID in their filename; daily and untold records are bound to the ID in their dated filename.
+  A mismatch is preserved and fails closed before merge, finalization, or posting. Legacy records
+  without an embedded `uid` adopt the filename owner.
 - **Forest-event rates and procedural boss scaling follow the system manual.** Keep
   `encounter_tables.EVENT_CHANCE` aligned with the location base percentages in
   `docs/ttrpg/aethelgard_system.md`; world-state and weather bonuses remain additive at roll time.
