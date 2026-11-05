@@ -661,6 +661,22 @@ class RAGIndexerMixin:
                             excluded.append(key)
                     setattr(node, attr_name, excluded)
 
+    def _mark_nodes_reindex_required(self, itype: str, node_ids) -> None:
+        """Persist a full-reindex request on the last-good nodes for crash recovery."""
+        index = self.indices.get(itype)
+        if index is None:
+            return
+        for node_id in dict.fromkeys(node_ids):
+            node = index.docstore.get_node(node_id, raise_error=False)
+            if node is None:
+                continue
+            node.metadata["_rag_reindex_required"] = True
+            for attr_name in ("excluded_llm_metadata_keys", "excluded_embed_metadata_keys"):
+                excluded = list(getattr(node, attr_name, []) or [])
+                if "_rag_reindex_required" not in excluded:
+                    excluded.append("_rag_reindex_required")
+                setattr(node, attr_name, excluded)
+
     def _record_partial_insert_cleanup(self, abs_path: str, itype: str, node_ids) -> bool:
         """Retain and mark partial insertions when rollback itself cannot fully delete them."""
         remaining = self._nodes_still_held(itype, node_ids)
@@ -669,6 +685,9 @@ class RAGIndexerMixin:
         self._mark_nodes_stale(itype, remaining, reindex_required=True)
         old_entry = dict(self.indexed_files.get(abs_path) or {})
         active = list(old_entry.get("nodes", []))
+        # The last-good nodes keep the source path discoverable after a restart
+        # even if every partial new vector is orphaned from the docstore.
+        self._mark_nodes_reindex_required(itype, active)
         stale = list(dict.fromkeys(list(old_entry.get("stale_nodes", [])) + remaining))
         old_entry.setdefault("mtime", 0)
         old_entry.setdefault("size", -1)

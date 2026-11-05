@@ -568,6 +568,7 @@ def test_partial_new_insert_rollback_is_tracked_and_forces_full_reindex(indexer,
     assert entry["reindex_required"] is True
     assert len(entry["stale_nodes"]) == 1
     assert ix.indices["knowledge"].docstore.document_exists(old)
+    assert ix.indices["knowledge"].docstore.get_node(old).metadata["_rag_reindex_required"] is True
     partial = entry["stale_nodes"][0]
     assert ix.indices["knowledge"].docstore.get_node(partial).metadata["_rag_replacement_stale"] is True
     assert ix.indices["knowledge"].docstore.get_node(partial).metadata["_rag_reindex_required"] is True
