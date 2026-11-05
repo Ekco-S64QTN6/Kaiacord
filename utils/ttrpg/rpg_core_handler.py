@@ -860,6 +860,7 @@ async def _handle_unequip(ctx, msg, send, rest, uid, uname, is_owner):
 
 # Drinking a potion is a combat action; keep the serializer at the public
 # command/view boundary and pass the core module's patchable dependencies through.
+# The extracted handler retains the Cleric/High Priest heal_mult consumable rule.
 @serialize_combat_action
 async def _handle_use(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.rpg_consumable_handler import _handle_use as handle
