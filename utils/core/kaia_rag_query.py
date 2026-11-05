@@ -332,7 +332,7 @@ class RAGQueryMixin:
         """
         if not strict_identity:
             return True
-        normalized = (path or "").replace("\\", "/")
+        normalized = os.path.realpath((path or "").replace("\\", "/")).replace("\\", "/")
         marker = "/user_logs/"
         normalized = "/" + normalized.lstrip("/")
         if marker not in normalized:
@@ -496,6 +496,18 @@ class RAGQueryMixin:
                 try:
                     node = docstore.get_document(nid)
                     if node:
+                        # The manifest is a cache, not an authority for node
+                        # ownership. A stale/corrupt nodes list must not make an
+                        # allowed filename return content stored for another file.
+                        node_path = (getattr(node, "metadata", {}) or {}).get("file_path", "")
+                        if not node_path:
+                            continue
+                        if os.path.realpath(node_path) != os.path.realpath(target_file_path):
+                            continue
+                        if not self._summary_path_allowed(
+                            node_path, strict_identity, allowed_user_ids
+                        ):
+                            continue
                         file_nodes.append(node)
                 except Exception:
                     pass

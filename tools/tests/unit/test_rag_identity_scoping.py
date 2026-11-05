@@ -208,3 +208,24 @@ def test_unindexed_disk_fallback_obeys_identity_scope(tmp_path):
         strict_identity=True, allowed_user_ids={"111"},
     )
     assert denied is None
+
+
+
+def test_manifest_node_ids_cannot_cross_file_or_user_boundaries(tmp_path):
+    """A stale manifest entry must not make a permitted path return another user's node."""
+    alice_path = str(tmp_path / "user_logs" / "Alice_111" / "interactions_20261104.md")
+    bob_path = str(tmp_path / "user_logs" / "Bob_222" / "interactions_20261104.md")
+    nodes = {
+        "bob": _Node(bob_path, "Bob private conversation"),
+    }
+    rag = _SummaryRAG({
+        # The path itself belongs to Alice, but the manifest points at Bob's node.
+        alice_path: {"itype": "logs", "nodes": ["bob"]},
+    }, nodes)
+
+    results = rag._get_summarization_nodes(
+        "interactions_20261104.md", target_path=alice_path,
+        strict_identity=True, allowed_user_ids={"111"},
+    )
+
+    assert results == []
