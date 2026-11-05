@@ -379,17 +379,26 @@ sys.exit(43)
 
 
 @pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux resource limits required")
-def test_pdf_worker_cpu_limit_terminates_a_cpu_bound_child(monkeypatch):
+def test_pdf_worker_cpu_limit_terminates_a_cpu_bound_child(monkeypatch, tmp_path):
     """The actual worker must hit RLIMIT_CPU before its wall-clock timeout."""
     import time
 
-    script = ce._PDF_WORKER_SCRIPT + "\nwhile True:\n    pass\n"
+    loop_started = tmp_path / "cpu-loop-started"
+    script = ce._PDF_WORKER_SCRIPT + (
+        "\\nfrom pathlib import Path\\n"
+        f"Path({str(loop_started)!r}).write_text('started')\\n"
+        "while True:\\n    pass\\n"
+    )
     monkeypatch.setattr(ce, "_PDF_WORKER_SCRIPT", script)
     real_run = ce.subprocess.run
     observed = {}
 
     def capture_run(*args, **kwargs):
-        completed = real_run(*args, **kwargs)
+        try:
+            completed = real_run(*args, **kwargs)
+        except ce.subprocess.TimeoutExpired:
+            observed["timed_out"] = True
+            raise
         observed["returncode"] = completed.returncode
         return completed
 
@@ -398,10 +407,12 @@ def test_pdf_worker_cpu_limit_terminates_a_cpu_bound_child(monkeypatch):
     assert ce._extract_pdf_text(_small_pdf()) == ""
     elapsed = time.monotonic() - started
 
-    assert observed["returncode"] != 0, "CPU-bound worker exited normally"
-    assert elapsed < ce.MAX_PDF_PARSE_CPU_SECONDS + 1.5, (
+    assert loop_started.exists(), "worker failed before reaching the CPU-bound loop"
+    assert observed.get("timed_out") is not True, (
         "worker reached the wall-clock timeout instead of its CPU limit"
     )
+    assert observed.get("returncode", 0) != 0, "CPU-bound worker exited normally"
+    assert elapsed < ce.MAX_PDF_PARSE_TIMEOUT_SECONDS
 
 
 @pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux process handling required")
