@@ -123,12 +123,14 @@ async def rebuild_rag(clear_storage: bool = False, file_path: str = None,
             if abs_file in rag.indexed_files:
                 del rag.indexed_files[abs_file]
                 rag.persist_needed = True
-            await rag.refresh_knowledge_base()
+            if await rag.refresh_knowledge_base() is not True:
+                raise RuntimeError(f"Target file re-index did not complete: {file_path}")
             log_success(f"Target file re-indexed: {file_path}")
         else:
             log_action("Starting full knowledge base refresh...")
             start_time = time.time()
-            await rag.refresh_knowledge_base()
+            if await rag.refresh_knowledge_base() is not True:
+                raise RuntimeError("Full RAG refresh did not complete; see the log for failed files or persistence.")
             duration = time.time() - start_time
             log_success(f"RAG rebuild complete in {duration:.2f} seconds.")
             

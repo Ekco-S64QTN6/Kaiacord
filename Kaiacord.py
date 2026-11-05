@@ -443,10 +443,17 @@ async def _phase3_background_init():
         # Bug 2 Fix: Allow Ollama to stabilize after pre-warm before embedding pass
         log_info("Allowing Ollama to stabilize before embedding pass...")
         await asyncio.sleep(3.0)
-        await run_rag(ctx.rag.refresh_knowledge_base)
-        log_success("[Phase 3] RAG knowledge base refreshed.")
+        refresh_completed = await run_rag(ctx.rag.refresh_knowledge_base)
+        if refresh_completed is True:
+            log_success("[Phase 3] RAG knowledge base refreshed.")
+        else:
+            from utils.core.rag_utils import request_reindex
+            request_reindex()
+            log_warning("[Phase 3] RAG refresh did not complete; a maintenance retry was queued.")
     except Exception as e:
-        log_error(f"[Phase 3] RAG refresh error: {e}")
+        from utils.core.rag_utils import request_reindex
+        request_reindex()
+        log_error(f"[Phase 3] RAG refresh error; a maintenance retry was queued: {e}")
 
     # 3e. Start all background task loops — news, dreams, social.
     #     These run last so they don't compete for I/O during the critical
