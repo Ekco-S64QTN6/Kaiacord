@@ -112,7 +112,7 @@ def _compute_player_defense(sheet: dict, def_mod_global: int = 0, pet_bonuses: d
         for base_opts in ADVANCED_CLASSES.values():
             if adv_class in base_opts:
                 b = base_opts[adv_class].get("bonuses", {})
-                adv_flat_def = b.get("def_bonus", 0) + b.get("bone_shield_passive", 0)
+                adv_flat_def = b.get("def_bonus", 0)
                 break
 
     # Gear soft-cap
