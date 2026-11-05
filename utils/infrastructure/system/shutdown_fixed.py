@@ -25,6 +25,52 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 warnings.filterwarnings("ignore", message="resource_tracker:.*semaphore", category=UserWarning)
 
 
+async def _bounded_shutdown_component(awaitable, label: str, deadline: float, registry=None) -> bool:
+    """Run a teardown operation without allowing it to overrun the shared deadline.
+
+    Use asyncio.wait rather than wait_for: wait_for awaits cancellation completion,
+    so a coroutine that suppresses CancelledError can exceed the shutdown budget.
+    A timed-out operation remains registered while callers preserve its resources.
+    """
+    if registry is None:
+        from utils.infrastructure.monitoring.async_task_registry import task_registry
+        registry = task_registry
+
+    task = asyncio.create_task(awaitable, name=f"shutdown:{label}")
+    registry.register(f"shutdown_component_{label}", task)
+    timeout = max(0.0, deadline - asyncio.get_running_loop().time())
+    try:
+        _done, pending = await asyncio.wait({task}, timeout=timeout)
+    except asyncio.CancelledError:
+        task.cancel()
+        raise
+
+    if pending:
+        task.cancel()
+        log_error(
+            f"  ❌ Shutdown step '{label}' exceeded the shared voice/radio "
+            f"cleanup deadline ({timeout:.1f}s); preserving resources."
+        )
+        return False
+
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        log_error(f"  ❌ Shutdown step '{label}' was cancelled before completion; preserving resources.")
+        return False
+    except Exception as exc:
+        log_error(f"  ❌ Shutdown step '{label}' failed: {exc}; preserving resources.")
+        return False
+    return True
+
+
+def _shutdown_prelude_timeout() -> float:
+    """One shared budget for voice/radio teardown before task cancellation."""
+    try:
+        from utils.infrastructure.system.yaml_config import config
+        return max(0.0, float(config.shutdown_task_cancel_timeout))
+    except Exception:
+        return 5.0
 
 class CleanShutdown:
     """Proper shutdown handler that doesn't break async loops"""
@@ -104,40 +150,51 @@ class CleanShutdown:
         """
         log_info("  🔄 Running async shutdown...")
 
-        # 0. Leave any voice channel first. This has to happen before the task
-        #    registry is torn down, because a graceful disconnect is itself an
-        #    await against the gateway — cancelled mid-flight, the bot lingers
-        #    in the channel as a ghost until Discord times the session out.
+        # 0. Stop voice/radio operations before cancelling the background registry.
+        # Graceful Discord disconnects should complete where possible, but all four
+        # operations share one configured budget. If one hangs, preserve resources
+        # and let the dashboard's bounded emergency exit end the process.
+        prelude_deadline = asyncio.get_running_loop().time() + _shutdown_prelude_timeout()
+
         try:
             from utils.audio.strudel_session import active_sessions, stop_all
-            if active_sessions():
-                log_info(f"  🔄 Leaving {len(active_sessions())} voice channel(s)...")
-                await stop_all()
+            sessions = active_sessions()
+            if sessions:
+                log_info(f"  🔄 Leaving {len(sessions)} voice channel(s)...")
+                if not await _bounded_shutdown_component(stop_all(), "music", prelude_deadline):
+                    return
                 log_info("  ✅ Voice channels released")
         except ImportError:
             pass                      # audio engine not installed
         except Exception as e:
-            log_warning(f"  ⚠️  Failed to leave voice channel: {e}")
+            log_error(f"  ❌ Could not stop music safely: {e}; preserving resources.")
+            return
 
         try:
             from utils.audio.records import stop_all as records_stop_all
-            await records_stop_all()
+            if not await _bounded_shutdown_component(records_stop_all(), "records", prelude_deadline):
+                return
         except Exception as e:
-            log_warning(f"  ⚠️  Failed to stop records: {e}")
+            log_error(f"  ❌ Could not stop records safely: {e}; preserving resources.")
+            return
 
         try:
             from utils.radio.live import active as radio_active, stop_all as radio_stop_all
             if radio_active():
-                await radio_stop_all()
+                if not await _bounded_shutdown_component(radio_stop_all(), "radio-live", prelude_deadline):
+                    return
                 log_info("  ✅ Live radio stopped")
         except Exception as e:
-            log_warning(f"  ⚠️  Failed to stop live radio: {e}")
+            log_error(f"  ❌ Could not stop live radio safely: {e}; preserving resources.")
+            return
 
         try:
             from utils.radio import scanner
-            await scanner.shutdown()
+            if not await _bounded_shutdown_component(scanner.shutdown(), "radio-scanner", prelude_deadline):
+                return
         except Exception as e:
-            log_warning(f"  ⚠️  Failed to stop the scanner: {e}")
+            log_error(f"  ❌ Could not stop the radio scanner safely: {e}; preserving resources.")
+            return
 
         # 1. Cancel all registered tasks via registry (STOP EVERYTHING FIRST).
         # A task may suppress CancelledError and outlive the configured deadline.
