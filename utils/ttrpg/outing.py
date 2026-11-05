@@ -146,10 +146,11 @@ def _validate_outing_record(
             "fight_count", "wins", "losses", "xp", "gil", "trips",
             "duration_seconds", "started", "ended",
         )
-        for field in list_fields:
-            if field in data and not isinstance(data[field], list):
-                error = f"{field} must be a JSON array"
-                break
+        if error is None:
+            for field in list_fields:
+                if field in data and not isinstance(data[field], list):
+                    error = f"{field} must be a JSON array"
+                    break
         if error is None:
             for field in ("fights", "events"):
                 if field in data and any(not isinstance(item, dict) for item in data[field]):
