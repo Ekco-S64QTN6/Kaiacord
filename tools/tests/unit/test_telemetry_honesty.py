@@ -66,8 +66,8 @@ def test_external_platforms_do_not_stamp_the_discord_interaction_clock():
     from utils.core import message_processor as mp
 
     src = inspect.getsource(mp)
-    assert "if not ctx.is_social:\n            self.bot_state.update_interaction" in src, \
-        "the interaction clock is stamped regardless of platform"
+    assert "self.bot_state.update_interaction(None if is_dm else msg.channel.id)" in src, \\
+        "a DM can still become the last active guild channel"
 
 
 def test_batch_persistence_reports_what_actually_reached_disk():
