@@ -1,6 +1,8 @@
 """Pond purification and tavern/Shrine recovery actions for Aethelgard."""
 import discord
 
+from utils.ttrpg.shop import find_item
+
 async def _handle_purify(ctx, msg, send, rest, uid, uname, is_owner, *, load_character, no_character_handler):
     """Purify Tricklebrook Pond as one global, recoverable player/world action."""
     sheet = await load_character(uid)
@@ -112,6 +114,12 @@ async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner, *, load_char
             description=f"{barkeeper} glances at your coin purse and shakes her head.\n{drink_name.capitalize()} costs {DRINK_COST} gil. You have {sheet.get('gil', 0)}g.",
             color=0xcc4444
         ))
+
+    # Apply the daily boundary before granting the new buff. hunts_remaining()
+    # also checks/resets the day; doing that after adding ale_warmth would strip
+    # the +3 HP that this drink just granted on a character's first action today.
+    from utils.ttrpg.progression import check_and_reset_hunts
+    check_and_reset_hunts(sheet)
 
     # Grant temp HP by raising max temporarily (tracked via condition)
     TEMP_HP = 3
