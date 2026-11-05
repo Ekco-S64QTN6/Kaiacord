@@ -255,3 +255,26 @@ def test_explain_back_steps_to_an_earlier_retrieval():
     asyncio.run(handle_explain_command(MagicMock(), msg, AsyncMock()))
     assert "older question" in msg.channel.send.call_args.kwargs["embed"].description
     retrieval_trace.clear()
+
+
+
+def test_news_overview_warns_when_only_an_older_global_brief_is_filed():
+    """A failed generation must not make yesterday's brief look like today's."""
+    from utils.commands import news_handler
+
+    brief = briefs.parse(BRIEF, datetime(2026, 9, 23))
+    embed, _ = news_handler.overview_embed(brief)
+
+    status = next(field for field in embed.fields if field.name == "Brief status")
+    assert "Sep 23" in status.value
+    assert "news technology" in status.value
+
+
+def test_news_no_global_brief_points_to_the_independent_technology_feed(monkeypatch):
+    from utils.commands import news_handler
+
+    monkeypatch.setattr(news_handler, "_load", lambda _with_background: (None, []))
+    msg = _msg("!news")
+    asyncio.run(news_handler.handle_news_command(MagicMock(), msg, AsyncMock()))
+    embed = msg.channel.send.call_args.kwargs["embed"]
+    assert "news technology" in embed.description
