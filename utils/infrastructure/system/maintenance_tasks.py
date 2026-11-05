@@ -3,7 +3,7 @@ import psutil
 import os
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import (
-    log_info, log_debug, log_error, log_action, log_success,
+    log_info, log_debug, log_warning, log_error, log_action, log_success,
 )
 
 # Dependencies managed via AppContext
@@ -38,39 +38,78 @@ async def rag_maintenance_task():
 
         _rag_tick_count += 1
             
-        # Check if a manual trigger exists
+        # A request is atomically claimed so a concurrent request can create a
+        # fresh trigger while this sweep is running. A stale claim is recovered
+        # on the next tick if the process died before it could settle the file.
         from utils.core.rag_utils import reindex_trigger_path
         trigger_path = str(reindex_trigger_path())
+        claimed_path = trigger_path + ".processing"
+        if os.path.exists(claimed_path):
+            if os.path.exists(trigger_path):
+                # The new trigger subsumes the interrupted request.
+                os.remove(claimed_path)
+            else:
+                os.replace(claimed_path, trigger_path)
+
         force_sweep = os.path.exists(trigger_path)
         is_hourly = (_rag_tick_count % 12 == 0)  # Full scan every ~60 minutes
-        
+
         # Indexing and persisting hold the GIL long enough to make the voice
-        # thread late. While she is playing in voice the sweep waits; the
-        # trigger stays where it is, so the next tick after the music sees it.
+        # thread late. Deferred work remains signalled for the next tick.
         if force_sweep or is_hourly:
             from utils.audio import voice_busy
             busy = voice_busy.playing()
             if busy:
                 log_debug(f"RAG maintenance deferred: {busy} is playing")
                 return
+
+        claimed = False
+        refresh_completed = False
         if force_sweep:
             log_info("🔗 Detected .trigger_reindex. Performing maintenance sweep...")
-            try: os.remove(trigger_path)
-            except Exception: pass
+            try:
+                os.replace(trigger_path, claimed_path)
+                claimed = True
+            except FileNotFoundError:
+                # Another writer already removed the request. An hourly sweep
+                # may still be due, but there is no manual signal to settle.
+                force_sweep = False
         elif is_hourly:
             log_action("Periodic RAG self-heal starting (hourly)...")
         else:
             # No trigger and not the hourly tick — skip
             return
-        
-        # 1. Scan for new/changed/deleted files (Self-Heal)
-        await run_rag(ctx.rag.refresh_knowledge_base)
-        
-        # 2. Persist if needed (only if persist_async wasn't already triggered)
-        if getattr(ctx.rag, 'persist_needed', False):
-            await ctx.rag.persist_async()
-            
-        log_success("RAG maintenance complete.")
+
+        try:
+            # 1. Scan for new/changed/deleted files (Self-Heal)
+            refresh_completed = await run_rag(ctx.rag.refresh_knowledge_base) is True
+            if not refresh_completed:
+                log_warning("RAG refresh did not complete; preserving its reindex request.")
+                return
+
+            # 2. Persist if needed (only if persist_async wasn't already triggered)
+            if getattr(ctx.rag, 'persist_needed', False):
+                await ctx.rag.persist_async()
+
+            log_success("RAG maintenance complete.")
+        finally:
+            if claimed and os.path.exists(claimed_path):
+                try:
+                    if refresh_completed or os.path.exists(trigger_path):
+                        # On success the claim is consumed. If a new trigger
+                        # arrived during the sweep, it remains at trigger_path.
+                        # On failure the new trigger supersedes the old one.
+                        os.remove(claimed_path)
+                    else:
+                        # No newer request exists; put the failed request back.
+                        os.replace(claimed_path, trigger_path)
+                except OSError as settle_error:
+                    log_error(f"Could not settle reindex request: {settle_error}")
+                    if os.path.exists(claimed_path) and not os.path.exists(trigger_path):
+                        try:
+                            os.replace(claimed_path, trigger_path)
+                        except OSError as restore_error:
+                            log_error(f"Could not restore reindex request: {restore_error}")
     except Exception as e:
         log_error(f"RAG maintenance failed: {e}")
 

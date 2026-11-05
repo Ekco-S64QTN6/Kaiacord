@@ -1661,8 +1661,10 @@ it headless (Playwright) against the real data.
   heading at a guessed position attaches a chapter name to the wrong passage and retrieves worse
   than no heading at all.
 - **Request a RAG refresh with `rag_utils.request_reindex()`**, never by touching a path. The
-  bot watches `knowledge_base/.trigger_reindex` (`reindex_trigger_path()`); writers had
-  scattered between that, the repo root and the cwd, and a trigger in the wrong place is
+  bot watches `knowledge_base/.trigger_reindex` (`reindex_trigger_path()`). The maintenance
+  loop atomically claims that file as `.processing`, consumes it only after a completed sweep,
+  restores it after failure/deferral, and leaves a newly-created trigger alone. A crashed process
+  leaves a recoverable claim for the next maintenance tick; a trigger in the wrong path is still
   silently never seen.
 - `knowledge_base/_ingress/` is a **staging area**, excluded from RAG indexing. `!download` and
   `!youtube` write there with a `.meta.json` sidecar; `tools/maintenance/process_ingress.py` (hourly, and from

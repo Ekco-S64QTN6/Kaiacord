@@ -52,7 +52,7 @@ def test_the_rag_sweep_waits_and_keeps_its_trigger(records_playing, monkeypatch,
     trigger.write_text("")
     monkeypatch.setattr(rag_utils, "reindex_trigger_path", lambda: trigger)
     called = []
-    rag = types.SimpleNamespace(_initialized=True, refresh_knowledge_base=lambda: called.append(1),
+    rag = types.SimpleNamespace(_initialized=True, refresh_knowledge_base=lambda: called.append(1) or True,
                                 persist_needed=False)
     monkeypatch.setattr(mt, "ctx", types.SimpleNamespace(rag=rag))
     asyncio.run(mt.rag_maintenance_task.coro())
@@ -142,3 +142,70 @@ def test_a_refresh_asked_for_during_records_waits_as_a_trigger(records_playing, 
     fake = types.SimpleNamespace(indices={"logs": object()}, _index_lock=None)
     asyncio.run(kaia_rag_indexer.RAGIndexerMixin.refresh_knowledge_base(fake))
     assert asked == [1]                        # deferred: never reached the lock
+
+
+
+def _run_reindex_sweep(monkeypatch, trigger, refresh):
+    from utils.audio import voice_busy
+    from utils.core import rag_utils
+    from utils.infrastructure.system import maintenance_tasks as mt
+
+    monkeypatch.setattr(rag_utils, "reindex_trigger_path", lambda: trigger)
+    monkeypatch.setattr(voice_busy, "playing", lambda: "")
+    rag = types.SimpleNamespace(
+        _initialized=True,
+        refresh_knowledge_base=refresh,
+        persist_needed=False,
+    )
+    monkeypatch.setattr(mt, "ctx", types.SimpleNamespace(rag=rag))
+    asyncio.run(mt.rag_maintenance_task.coro())
+
+
+def test_reindex_trigger_is_removed_only_after_a_successful_sweep(monkeypatch, tmp_path):
+    trigger = tmp_path / ".trigger_reindex"
+    trigger.write_text("")
+    _run_reindex_sweep(monkeypatch, trigger, lambda: False)
+    assert trigger.exists()
+    assert not (tmp_path / ".trigger_reindex.processing").exists()
+
+
+def test_successful_sweep_consumes_the_claimed_trigger(monkeypatch, tmp_path):
+    trigger = tmp_path / ".trigger_reindex"
+    trigger.write_text("")
+    _run_reindex_sweep(monkeypatch, trigger, lambda: True)
+    assert not trigger.exists()
+    assert not (tmp_path / ".trigger_reindex.processing").exists()
+
+
+def test_request_created_during_sweep_is_not_consumed(monkeypatch, tmp_path):
+    trigger = tmp_path / ".trigger_reindex"
+    trigger.write_text("")
+    def refresh():
+        # The original request is in .processing, so this creates a distinct
+        # new request which must survive the successful current sweep.
+        trigger.touch()
+        return True
+    _run_reindex_sweep(monkeypatch, trigger, refresh)
+    assert trigger.exists()
+    assert not (tmp_path / ".trigger_reindex.processing").exists()
+
+
+def test_interrupted_processing_claim_is_recovered(monkeypatch, tmp_path):
+    trigger = tmp_path / ".trigger_reindex"
+    claimed = tmp_path / ".trigger_reindex.processing"
+    claimed.write_text("")
+    called = []
+    _run_reindex_sweep(monkeypatch, trigger, lambda: called.append(1) or True)
+    assert called == [1]
+    assert not trigger.exists()
+    assert not claimed.exists()
+
+
+def test_failed_sweep_restores_claim_when_no_new_request_arrived(monkeypatch, tmp_path):
+    trigger = tmp_path / ".trigger_reindex"
+    trigger.write_text("")
+    def refresh():
+        raise RuntimeError("simulated refresh failure")
+    _run_reindex_sweep(monkeypatch, trigger, refresh)
+    assert trigger.exists()
+    assert not (tmp_path / ".trigger_reindex.processing").exists()

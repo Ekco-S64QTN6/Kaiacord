@@ -721,8 +721,10 @@ class RAGIndexerMixin:
                 os.fsync(f.fileno())
             os.replace(tmp_path, self.state_file)
             log_debug(f"Saved {len(self.indexed_files)} entries to {self.state_file}")
+            return True
         except Exception as e:
             log_error(f"Failed to save indexed files state: {e}")
+            return False
 
     def _load_indexed_files(self):
         """Load the mapping of indexed files from disk and fall back to legacy if needed."""
@@ -1077,7 +1079,9 @@ class RAGIndexerMixin:
         # that file look current after restart, so its missing content is never
         # indexed again. Save the manifest only when every affected snapshot did.
         if persisted == updated_itypes:
-            self._save_indexed_files()
+            if not self._save_indexed_files():
+                log_warning("RAG index snapshots persisted, but the file manifest did not.")
+                return set()
         else:
             failed = updated_itypes - persisted
             log_warning(
@@ -1086,8 +1090,13 @@ class RAGIndexerMixin:
             )
         return persisted
 
-    async def refresh_knowledge_base(self, max_concurrent_files: int = 2):
-        """Refresh knowledge base with concurrent file processing and batch persistence."""
+    async def refresh_knowledge_base(self, max_concurrent_files: int = 2) -> bool:
+        """Refresh the knowledge base; True means the sweep and persistence completed.
+
+        A false result means the caller must retain its reindex request (voice
+        deferral, an overlapping refresh, a failed file, failed snapshot or
+        manifest persistence, or an exception).
+        """
         # Indexing and persisting hold the GIL long enough to make the voice
         # thread late, and the boot refresh and the news refresh ran straight
         # into a records set started 30 s after boot. While she is playing, the
@@ -1103,19 +1112,20 @@ class RAGIndexerMixin:
                 from utils.core.rag_utils import request_reindex
                 request_reindex()
                 log_info(f"RAG refresh deferred until the music stops: {busy} is playing")
-                return
+                return False
         if not self._index_lock.acquire(blocking=False):
             log_info("RAG refresh already in progress, marking as pending.")
             self._refresh_pending = True
-            return
+            return False
 
+        refresh_ok = True
         try:
             self._indexing_in_progress = True
             self._refresh_pending = False
             
             if not os.path.exists(self.knowledge_base_dir):
                 os.makedirs(self.knowledge_base_dir)
-                return
+                return True
 
             log_action(f"Refreshing knowledge base (Parallel, max={max_concurrent_files})...")
             
@@ -1144,7 +1154,7 @@ class RAGIndexerMixin:
                     # Abort if shutdown started mid-refresh
                     try:
                         if shutdown_manager.shutting_down:
-                            return None
+                            return False
                     except Exception:
                         pass
                     file_path, is_modified, is_log, itype = file_info
@@ -1155,7 +1165,7 @@ class RAGIndexerMixin:
                                 return itype
                         except Exception as e:
                             log_error(f"Error indexing {file_path}: {e}")
-                        return None
+                        return False
 
                 tasks = [process_file(finfo) for finfo in new_file_paths]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1164,6 +1174,10 @@ class RAGIndexerMixin:
                 for i, itype in enumerate(results):
                     if isinstance(itype, Exception):
                         log_error(f"Parallel indexing task {i} failed: {itype}")
+                        refresh_ok = False
+                        continue
+                    if itype is False or itype is None:
+                        refresh_ok = False
                         continue
                     if itype:
                         result_itypes.add(itype)
@@ -1180,6 +1194,7 @@ class RAGIndexerMixin:
                     self._persist_updated_indices, updated_itypes)
                 failed = updated_itypes - (persisted or set())
                 if failed:
+                    refresh_ok = False
                     log_warning(
                         f"Batch persistence partial: {', '.join(sorted(persisted))} saved; "
                         f"FAILED {', '.join(sorted(failed))}."
@@ -1187,10 +1202,12 @@ class RAGIndexerMixin:
                 else:
                     log_success(f"Batch persistence complete for: {', '.join(sorted(persisted))}")
             elif new_file_paths:
-                # Still save the manifest if we scanned files
-                await asyncio.to_thread(self._save_indexed_files)
+                # Still save the manifest if the scan changed only file metadata
+                if not await asyncio.to_thread(self._save_indexed_files):
+                    refresh_ok = False
                 
         except Exception as e:
+            refresh_ok = False
             log_error(f"Error in parallel RAG refresh: {e}")
             log_debug(traceback.format_exc())
         finally:
@@ -1205,6 +1222,8 @@ class RAGIndexerMixin:
                     
                 from utils.infrastructure.monitoring.async_task_registry import task_registry
                 task_registry.register("rag_trigger_refresh", asyncio.create_task(trigger_refresh()))
+
+        return refresh_ok
 
     def _convert_pdf_to_md(self, pdf_path: str) -> Optional[str]:
         """Convert a PDF file to a Markdown file by extracting text."""
