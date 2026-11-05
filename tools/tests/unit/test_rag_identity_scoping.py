@@ -151,16 +151,18 @@ async def test_retrieve_resolves_requester_and_named_people_before_summary_short
 
 
 def test_manifest_title_match_ignores_disallowed_same_named_logs(tmp_path):
-    alice_path = str(tmp_path / "user_logs" / "Alice_111" / "interactions_20261104.md")
-    bob_path = str(tmp_path / "user_logs" / "Bob_222" / "interactions_20261104.md")
+    filename = "2026-11-04-interactions-forum-events.md"
+    alice_path = str(tmp_path / "user_logs" / "Alice_111" / filename)
+    bob_path = str(tmp_path / "user_logs" / "Bob_222" / filename)
     rag = _SummaryRAG({alice_path: {}, bob_path: {}}, {})
 
-    path, _ = rag._title_match(
-        {"interactions", "november"}, set(),
+    path, overlap = rag._title_match(
+        {"interactions", "forum", "events"}, set(),
         strict_identity=True, allowed_user_ids={"111"},
     )
 
-    assert path is None or path == alice_path
+    assert path == alice_path
+    assert overlap == {"interactions", "forum", "events"}
 
 
 def test_unindexed_disk_fallback_obeys_identity_scope(tmp_path):
@@ -178,11 +180,11 @@ def test_unindexed_disk_fallback_obeys_identity_scope(tmp_path):
     rag = _SummaryRAG({}, {})
     rag.knowledge_base_dir = str(logs)
 
-    denied = rag._named_file_on_disk(
+    scoped_to_alice = rag._named_file_on_disk(
         "interactions_20261104.md", "interactions_20261104.md",
         strict_identity=True, allowed_user_ids={"111"},
     )
-    allowed = rag._named_file_on_disk(
+    scoped_to_bob = rag._named_file_on_disk(
         "interactions_20261104.md", "interactions_20261104.md",
         strict_identity=True, allowed_user_ids={"222"},
     )
@@ -190,6 +192,19 @@ def test_unindexed_disk_fallback_obeys_identity_scope(tmp_path):
         "interactions_20261104.md", "interactions_20261104.md",
     )
 
-    assert denied == str(alice.resolve())  # Alice is permitted; Bob is not.
-    assert allowed == str(bob.resolve())
+    assert scoped_to_alice == str(alice.resolve())
+    assert scoped_to_bob == str(bob.resolve())
     assert general in {str(alice.resolve()), str(bob.resolve())}
+
+    # With no copy owned by the requester, the other user's file is not a
+    # fallback candidate at all.
+    only_bob = tmp_path / "only_bob" / "user_logs"
+    private = only_bob / "Bob_222" / "interactions_20261104.md"
+    private.parent.mkdir(parents=True)
+    private.write_text("Bob's private interaction", encoding="utf-8")
+    rag.knowledge_base_dir = str(only_bob)
+    denied = rag._named_file_on_disk(
+        "interactions_20261104.md", "interactions_20261104.md",
+        strict_identity=True, allowed_user_ids={"111"},
+    )
+    assert denied is None
