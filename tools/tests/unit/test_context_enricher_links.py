@@ -346,3 +346,84 @@ def test_oversized_pdf_response_is_rejected_before_parser(monkeypatch):
     monkeypatch.setattr(ce.subprocess, "run", lambda *a, **k: called.append(True))
     assert ce._extract_pdf_text(b"%PDF-" + b"x" * ce.MAX_PAGE_BYTES) == ""
     assert not called
+
+
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux resource limits required")
+def test_pdf_worker_enforces_the_configured_address_space_limit(monkeypatch):
+    """Exercise RLIMIT_AS in the real isolated worker, not a mocked subprocess."""
+    import subprocess
+    import sys
+
+    script = ce._PDF_WORKER_SCRIPT + f"""
+import mmap
+try:
+    mmap.mmap(-1, {ce.MAX_PDF_PARSE_MEMORY_BYTES + 32 * 1024 * 1024})
+except (OSError, MemoryError):
+    sys.exit(42)
+sys.exit(43)
+"""
+    monkeypatch.setattr(ce, "_PDF_WORKER_SCRIPT", script)
+    real_run = ce.subprocess.run
+    observed = {}
+
+    def capture_run(*args, **kwargs):
+        completed = real_run(*args, **kwargs)
+        observed["returncode"] = completed.returncode
+        return completed
+
+    monkeypatch.setattr(ce.subprocess, "run", capture_run)
+    assert ce._extract_pdf_text(_small_pdf()) == ""
+    assert observed["returncode"] == 42, (
+        "worker did not hit its configured RLIMIT_AS before the probe mapping"
+    )
+
+
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux resource limits required")
+def test_pdf_worker_cpu_limit_terminates_a_cpu_bound_child(monkeypatch):
+    """The actual worker must hit RLIMIT_CPU before its wall-clock timeout."""
+    import time
+
+    script = ce._PDF_WORKER_SCRIPT + "\nwhile True:\n    pass\n"
+    monkeypatch.setattr(ce, "_PDF_WORKER_SCRIPT", script)
+    real_run = ce.subprocess.run
+    observed = {}
+
+    def capture_run(*args, **kwargs):
+        completed = real_run(*args, **kwargs)
+        observed["returncode"] = completed.returncode
+        return completed
+
+    monkeypatch.setattr(ce.subprocess, "run", capture_run)
+    started = time.monotonic()
+    assert ce._extract_pdf_text(_small_pdf()) == ""
+    elapsed = time.monotonic() - started
+
+    assert observed["returncode"] != 0, "CPU-bound worker exited normally"
+    assert elapsed < ce.MAX_PDF_PARSE_CPU_SECONDS + 1.5, (
+        "worker reached the wall-clock timeout instead of its CPU limit"
+    )
+
+
+@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux process handling required")
+def test_pdf_worker_wall_timeout_kills_and_reaps_the_child(monkeypatch, tmp_path):
+    """A timed-out real worker is killed and reaped by subprocess.run."""
+    import os
+    import time
+
+    pid_file = tmp_path / "pdf-worker.pid"
+    script = ce._PDF_WORKER_SCRIPT + (
+        f"\nimport os\nfrom pathlib import Path\n"
+        f"Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        "import time\ntime.sleep(10)\n"
+    )
+    monkeypatch.setattr(ce, "_PDF_WORKER_SCRIPT", script)
+    monkeypatch.setattr(ce, "MAX_PDF_PARSE_TIMEOUT_SECONDS", 1.0)
+
+    started = time.monotonic()
+    assert ce._extract_pdf_text(_small_pdf()) == ""
+    assert time.monotonic() - started < 3.0
+    assert pid_file.exists(), "worker did not reach its deliberate sleep"
+    child_pid = int(pid_file.read_text(encoding="utf-8"))
+
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)

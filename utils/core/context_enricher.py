@@ -71,8 +71,8 @@ import sys
 # Set process limits before importing the PDF parser or touching untrusted data.
 try:
     import resource
-    memory_limit = 256 * 1024 * 1024
-    cpu_limit = 3
+    memory_limit = __MAX_PDF_PARSE_MEMORY_BYTES__
+    cpu_limit = __MAX_PDF_PARSE_CPU_SECONDS__
     resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit + 1))
 except Exception:
@@ -119,7 +119,11 @@ try:
 except Exception:
     # Parser errors, decompression failures, and resource-limit exceptions fail closed.
     sys.exit(4)
-"""
+""".replace(
+    "__MAX_PDF_PARSE_MEMORY_BYTES__", str(MAX_PDF_PARSE_MEMORY_BYTES)
+).replace(
+    "__MAX_PDF_PARSE_CPU_SECONDS__", str(MAX_PDF_PARSE_CPU_SECONDS)
+)
 
 
 def _extract_pdf_text(raw_bytes: bytes) -> str:
