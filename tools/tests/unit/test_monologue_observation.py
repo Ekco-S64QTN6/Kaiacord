@@ -620,3 +620,99 @@ def test_a_valid_digest_does_not_spend_a_retry():
     assert result == "i keep thinking about the rover's loose wheel."
     assert did_retry is False
     assert remaining == []
+
+
+
+def test_observation_digest_is_suppressed_when_recent_proactive_opener_matches(
+    tmp_path, monkeypatch
+):
+    import asyncio
+    from unittest.mock import patch
+    from utils.core import unprompted
+    import utils.core.kaia_proactive as proactive
+    from utils.core.kaia_proactive import ProactiveEngine
+
+    digest = "I noticed the same failure pattern across the deployment logs today."
+    monkeypatch.setattr(
+        proactive, "DIVERSITY_LOG_PATH", str(tmp_path / "proactive_topics.json")
+    )
+    sent = []
+    manager, channel, cfg = _manager(
+        {"unprompted.min_interval_minutes": 0,
+         "unprompted.shared_gap_minutes": 0}, sent
+    )
+    manager.proactive_engine = ProactiveEngine.__new__(ProactiveEngine)
+    manager.proactive_engine.record_broadcast_sent(digest, channel.id, "proactive")
+
+    with patch.object(unprompted, "_config", lambda: cfg):
+        with patch("discord.utils.get", return_value=channel):
+            with patch("asyncio.sleep", _instant):
+                result = asyncio.run(
+                    manager._broadcast_observation_digest(digest, 1.0)
+                )
+
+    assert result is False
+    assert sent == []
+
+
+def test_monologue_broadcast_records_signature_for_later_proactive_dispatch(
+    tmp_path, monkeypatch
+):
+    import asyncio
+    from unittest.mock import patch
+    from utils.core import unprompted
+    import utils.core.kaia_proactive as proactive
+    from utils.core.kaia_proactive import ProactiveEngine
+
+    thought = "The afternoon rain changed the way the station sounded outside."
+    monkeypatch.setattr(
+        proactive, "DIVERSITY_LOG_PATH", str(tmp_path / "proactive_topics.json")
+    )
+    sent = []
+    manager, channel, cfg = _manager(
+        {"unprompted.min_interval_minutes": 0,
+         "unprompted.shared_gap_minutes": 0}, sent
+    )
+    manager.proactive_engine = ProactiveEngine.__new__(ProactiveEngine)
+
+    with patch.object(unprompted, "_config", lambda: cfg):
+        with patch("discord.utils.get", return_value=channel):
+            with patch("asyncio.sleep", _instant):
+                result = asyncio.run(manager._broadcast_monologue(thought))
+
+    assert result is True
+    assert manager.proactive_engine.has_recent_duplicate_opener(thought, channel.id)
+
+
+def test_successful_cross_source_broadcasts_share_the_configured_dedupe_window(
+    tmp_path, monkeypatch
+):
+    import asyncio
+    from unittest.mock import patch
+    from utils.core import unprompted
+    import utils.core.kaia_proactive as proactive
+    from utils.core.kaia_proactive import ProactiveEngine
+
+    shared = "The server was quiet, and the radio carried a faint repeating tone."
+    monkeypatch.setattr(
+        proactive, "DIVERSITY_LOG_PATH", str(tmp_path / "proactive_topics.json")
+    )
+    sent = []
+    manager, channel, cfg = _manager(
+        {"unprompted.min_interval_minutes": 0,
+         "unprompted.shared_gap_minutes": 0}, sent
+    )
+    manager.proactive_engine = ProactiveEngine.__new__(ProactiveEngine)
+
+    async def run_broadcasts():
+        with patch.object(unprompted, "_config", lambda: cfg):
+            with patch("discord.utils.get", return_value=channel):
+                with patch("asyncio.sleep", _instant):
+                    first = await manager._broadcast_monologue(shared)
+                    second = await manager._broadcast_observation_digest(shared, 2.0)
+        return first, second
+
+    first, second = asyncio.run(run_broadcasts())
+    assert first is True
+    assert second is False
+    assert len(sent) == 1
