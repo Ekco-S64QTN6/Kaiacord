@@ -706,7 +706,8 @@ class RAGIndexerMixin:
         # after every snapshot succeeds. If no index needed changing, the prune
         # was manifest-only and can be saved here.
         if not updated_itypes:
-            self._save_indexed_files()
+            if not self._save_indexed_files():
+                raise OSError("Could not persist the RAG manifest after pruning")
         return updated_itypes
 
     def _save_indexed_files(self):

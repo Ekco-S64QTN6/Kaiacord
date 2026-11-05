@@ -145,7 +145,7 @@ def test_a_refresh_asked_for_during_records_waits_as_a_trigger(records_playing, 
 
 
 
-def _run_reindex_sweep(monkeypatch, trigger, refresh):
+def _run_reindex_sweep(monkeypatch, trigger, refresh, *, persist_needed=False, persist_async=None):
     from utils.audio import voice_busy
     from utils.core import rag_utils
     from utils.infrastructure.system import maintenance_tasks as mt
@@ -155,7 +155,8 @@ def _run_reindex_sweep(monkeypatch, trigger, refresh):
     rag = types.SimpleNamespace(
         _initialized=True,
         refresh_knowledge_base=refresh,
-        persist_needed=False,
+        persist_needed=persist_needed,
+        persist_async=persist_async,
     )
     monkeypatch.setattr(mt, "ctx", types.SimpleNamespace(rag=rag))
     asyncio.run(mt.rag_maintenance_task.coro())
@@ -207,5 +208,22 @@ def test_failed_sweep_restores_claim_when_no_new_request_arrived(monkeypatch, tm
     def refresh():
         raise RuntimeError("simulated refresh failure")
     _run_reindex_sweep(monkeypatch, trigger, refresh)
+    assert trigger.exists()
+    assert not (tmp_path / ".trigger_reindex.processing").exists()
+
+
+
+def test_failed_persistence_restores_the_reindex_request(monkeypatch, tmp_path):
+    trigger = tmp_path / ".trigger_reindex"
+    trigger.write_text("")
+
+    async def persist_failure():
+        return False
+
+    _run_reindex_sweep(
+        monkeypatch, trigger, lambda: True,
+        persist_needed=True, persist_async=persist_failure,
+    )
+
     assert trigger.exists()
     assert not (tmp_path / ".trigger_reindex.processing").exists()

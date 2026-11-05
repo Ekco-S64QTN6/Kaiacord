@@ -89,7 +89,11 @@ async def rag_maintenance_task():
 
             # 2. Persist if needed (only if persist_async wasn't already triggered)
             if getattr(ctx.rag, 'persist_needed', False):
-                await ctx.rag.persist_async()
+                persist_result = await ctx.rag.persist_async()
+                if persist_result is False:
+                    refresh_completed = False
+                    log_warning("RAG persistence did not complete; preserving its reindex request.")
+                    return
 
             log_success("RAG maintenance complete.")
         finally:
