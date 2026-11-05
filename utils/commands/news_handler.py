@@ -1,5 +1,5 @@
 """
-!news           — today's brief: the summary and numbered headlines.
+!news           — latest filed global brief: the summary and numbered headlines.
 !news N         — story N in full, with related items from today and earlier briefs.
 !news <category> — a category feed (technology, security, politics, ...).
 
@@ -126,7 +126,7 @@ async def handle_news_command(ctx, msg, send_kaia_response):
 
         category = arg
         log_action(f"News request from {msg.author} (Category: {category})")
-        news_items = await ctx.news_manager.get_news_async(category)
+        news_items = await ctx.news_manager.get_news_async(category, limit=6)
         items = []
         for item in news_items or []:
             text = item.get('text', str(item)) if isinstance(item, dict) else str(item)
