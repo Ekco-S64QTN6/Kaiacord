@@ -288,3 +288,57 @@ def test_nothing_is_dropped_when_keyword_search_found_nothing_or_a_document_was_
     mixed = [_node("hybrid"), _node("vector")]
     assert without_padding(mixed, "statement", strategy="PRECISE_RECALL") == mixed
     assert without_padding(mixed, "statement", strategy="SUMMARIZATION") == mixed
+
+
+
+def test_partial_index_persist_does_not_advance_the_global_manifest(tmp_path, indexer, monkeypatch):
+    """A stale index snapshot must not inherit the new file mtime from the manifest."""
+    import json
+
+    ix, _ = indexer
+    ix.persist_dir = str(tmp_path / "rag_storage")
+    ix.state_file = os.path.join(ix.persist_dir, "file_manifest.json")
+    os.makedirs(ix.persist_dir)
+
+    old_manifest = {
+        "/kb/document.md": {"mtime": 10, "size": 5, "nodes": ["old-node"], "itype": "knowledge"}
+    }
+    with open(ix.state_file, "w", encoding="utf-8") as f:
+        json.dump(old_manifest, f)
+
+    # In-memory indexing has already seen the new file version, but the logs
+    # index snapshot fails while knowledge succeeds.
+    ix.indexed_files = {
+        "/kb/document.md": {"mtime": 20, "size": 15, "nodes": ["new-node"], "itype": "knowledge"}
+    }
+
+    def persist_one(itype):
+        if itype == "logs":
+            raise OSError("disk full")
+    monkeypatch.setattr(ix, "_persist_index_atomic", persist_one)
+
+    persisted = ix._persist_updated_indices({"knowledge", "logs"})
+
+    assert persisted == {"knowledge"}
+    with open(ix.state_file, encoding="utf-8") as f:
+        assert json.load(f) == old_manifest
+
+
+def test_complete_index_persist_advances_the_manifest(tmp_path, indexer, monkeypatch):
+    """The manifest is still committed once every affected index reached disk."""
+    import json
+
+    ix, _ = indexer
+    ix.persist_dir = str(tmp_path / "rag_storage")
+    ix.state_file = os.path.join(ix.persist_dir, "file_manifest.json")
+    os.makedirs(ix.persist_dir)
+    ix.indexed_files = {
+        "/kb/document.md": {"mtime": 20, "size": 15, "nodes": ["new-node"], "itype": "knowledge"}
+    }
+    monkeypatch.setattr(ix, "_persist_index_atomic", lambda _itype: None)
+
+    persisted = ix._persist_updated_indices({"knowledge", "logs"})
+
+    assert persisted == {"knowledge", "logs"}
+    with open(ix.state_file, encoding="utf-8") as f:
+        assert json.load(f) == ix.indexed_files

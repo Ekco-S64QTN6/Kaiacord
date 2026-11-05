@@ -1725,6 +1725,11 @@ retrieval never reported:
   docstore was old versions and removed files, and 3,852 nodes were superseded persona text.
   `_reconcile_indices()` runs on every refresh and removes any node with no embedding, no
   source file, a deleted or excluded file, or persona text; a second pass should find nothing.
+- **The file manifest only advances after every affected index snapshot persists.** It is
+  global across index types. Saving new file mtimes/nodes after one snapshot failed made the
+  file appear current on restart even though its new vectors were absent from the on-disk index;
+  the next scan then skipped it forever. A partial snapshot write must leave the old manifest
+  intact so the failed index can be rebuilt.
 - **Any index change drops that index's BM25 retriever from `bm25_cache`.** BM25 lives in
   memory only, rebuilt from the docstore on the next query; a stale entry would keep serving
   removed nodes. (It was a pickle whose freshness check was file mtimes, which a deletion never
