@@ -1738,8 +1738,10 @@ retrieval never reported:
   intact so the failed index can be rebuilt.
 - **Document replacement is staged:** parse and insert all new nodes before deleting last-good
   nodes. If deletion partially fails, keep the replacement, record remaining old IDs as
-  `stale_nodes`, and retry them on later sweeps. The marker must survive restart and deleted-file
-  pruning. Never roll back new content after old-node deletion has begun.
+  `stale_nodes`, and retry them on later sweeps. The marker is stored in both the manifest and
+  node metadata, so it survives a crash between index-snapshot and manifest commits as well as
+  restart and deleted-file pruning. Partial new inserts that cannot be rolled back are marked
+  stale and force a full source rebuild. Never roll back new content after old-node deletion has begun.
 - **Ingestion history is ancillary.** A failure in `bot_state.add_ingestion()` must not turn a
   successful index update into a failed file result; otherwise refresh can save the global
   manifest without saving the changed index snapshot.

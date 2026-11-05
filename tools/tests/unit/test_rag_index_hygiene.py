@@ -498,10 +498,10 @@ def test_manifest_rebuild_preserves_stale_replacement_marker(indexer):
     stale = _add(ix, "knowledge", doc, "superseded old content")
     abs_path = str(doc.resolve())
     stat = os.stat(doc)
-    ix.indexed_files[abs_path] = {
-        "mtime": stat.st_mtime, "size": stat.st_size, "nodes": [active],
-        "stale_nodes": [stale], "itype": "knowledge",
-    }
+    ix._mark_nodes_stale("knowledge", [stale])
+    # Simulate a crash after index snapshot persistence but before the global
+    # manifest could commit: the per-node marker is the recovery authority.
+    ix.indexed_files = {}
     ix._populate_indexed_files()
     assert ix.indexed_files[abs_path]["nodes"] == [active]
     assert ix.indexed_files[abs_path]["stale_nodes"] == [stale]
@@ -576,3 +576,64 @@ def test_partial_new_insert_rollback_is_tracked_and_forces_full_reindex(indexer,
     assert rebuilt["reindex_required"] is True
 
 
+
+
+
+def test_partial_log_insert_rollback_is_tracked_and_retried_as_full_rewrite(indexer, monkeypatch):
+    """A partial insert in a rewritten log must not duplicate or supersede last-good turns."""
+    from llama_index.core.schema import TextNode
+
+    ix, kb = indexer
+    log = kb / "user_logs" / "Ekco_1" / "interactions_20260922.md"
+    log.parent.mkdir(parents=True)
+    log.write_text("[2026-09-22 01:00:00] Kaia: last good answer to preserve\n")
+    assert ix._index_log_tail(str(log), str(log), "logs")
+    abs_path = str(log.resolve())
+    old_nodes = list(ix.indexed_files[abs_path]["nodes"])
+
+    log.write_text("[2026-09-22 01:05:00] Kaia: corrected replacement answer\n")
+
+    class TwoNodeParser:
+        def get_nodes_from_documents(self, documents):
+            return [
+                TextNode(text="partial corrected log chunk one", metadata=dict(documents[0].metadata)),
+                TextNode(text="partial corrected log chunk two", metadata=dict(documents[0].metadata)),
+            ]
+
+    monkeypatch.setattr(ix, "_get_node_parser_for_doc", lambda *_a, **_k: TwoNodeParser())
+    index = ix.indices["logs"]
+    original_insert = index.insert_nodes
+    original_delete = ix._delete_nodes
+
+    def partial_insert(nodes):
+        prepared = list(nodes)
+        original_insert([prepared[0]])
+        raise OSError("simulated second log chunk insertion failure")
+
+    monkeypatch.setattr(index, "insert_nodes", partial_insert)
+    monkeypatch.setattr(ix, "_delete_nodes", lambda *_a, **_k: (_ for _ in ()).throw(OSError("rollback failed")))
+
+    assert ix._index_single_file(
+        str(log), True, True, "logs", str(kb / "_quarantine" / "corrupt_files")
+    )
+    entry = ix.indexed_files[abs_path]
+    assert entry["nodes"] == old_nodes
+    assert entry["reindex_required"] is True
+    assert len(entry["stale_nodes"]) == 1
+    assert all(index.docstore.document_exists(node_id) for node_id in old_nodes)
+
+    # The retry must rebuild the full log (not append from EOF), then remove both
+    # the last-good old nodes and the partial attempted replacement.
+    monkeypatch.setattr(index, "insert_nodes", original_insert)
+    monkeypatch.setattr(ix, "_delete_nodes", original_delete)
+    assert ix._index_log_tail(str(log), str(log), "logs")
+    new_entry = ix.indexed_files[abs_path]
+    assert "reindex_required" not in new_entry
+    assert "stale_nodes" not in new_entry
+    assert all(not index.docstore.document_exists(node_id) for node_id in old_nodes)
+    assert any(
+        "corrected replacement answer" in index.docstore.get_node(node_id).text
+        for node_id in new_entry["nodes"]
+    )
+    texts = "\n".join(index.docstore.get_node(node_id).text for node_id in new_entry["nodes"])
+    assert "partial corrected log chunk one" not in texts
