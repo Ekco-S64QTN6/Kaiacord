@@ -2736,7 +2736,7 @@ class MessageProcessor:
                 from utils.core.sanitizer import user_authored_text
                 _own = user_authored_text(ctx.sanitized_content)
 
-                if !is_private_dm:
+                if not is_private_dm:
                     # ── Relationship State Update (Items 2, 3, 7) ─────────────────
                     event_type = None  # Initialize before try so growth block can safely read it
                     valence = 0.5      # Neutral fallback — overwritten by estimate_sentiment() below
@@ -2803,7 +2803,7 @@ class MessageProcessor:
                     except Exception as _arg_err:
                         log_debug(f"Belief argument not recorded (non-fatal): {_arg_err}")
 
-                if !is_private_dm:
+                if not is_private_dm:
                     # ── Emotional Arc Update ───────────────────────────────────────
                     try:
                         from utils.core.kaia_mood import emotional_arc
@@ -2827,7 +2827,7 @@ class MessageProcessor:
                     except Exception:
                         pass  # Never let desire tracking break the pipeline
 
-                if !is_private_dm:
+                if not is_private_dm:
                     # ── Interaction-Driven Growth ──────────────────────────────────
                     # Lightweight real-time growth triggers — supplements the nightly
                     # dream cycle with immediate responses to significant exchanges.
@@ -2918,7 +2918,7 @@ class MessageProcessor:
                     except Exception as _growth_err:
                         log_debug(f"Growth tracking error (non-fatal): {_growth_err}")
 
-                if !is_private_dm:
+                if not is_private_dm:
                     # ── Open Loop Detection ────────────────────────────────────────
                     # "I'm going to try X" → next session she can ask how X went.
                     try:
@@ -2933,7 +2933,7 @@ class MessageProcessor:
                     except Exception:
                         pass  # Never let open loop detection break anything
 
-                if !is_private_dm:
+                if not is_private_dm:
                     # ── Generation Quality Logging (Item 11) ──────────────────────
                     try:
                         gen_log_path = telemetry_path("memory/generation_log.jsonl")
