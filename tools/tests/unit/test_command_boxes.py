@@ -278,3 +278,23 @@ def test_news_no_global_brief_points_to_the_independent_technology_feed(monkeypa
     asyncio.run(news_handler.handle_news_command(MagicMock(), msg, AsyncMock()))
     embed = msg.channel.send.call_args.kwargs["embed"]
     assert "news technology" in embed.description
+
+
+
+def test_category_news_requests_all_six_items_it_renders():
+    from types import SimpleNamespace
+    from utils.commands.news_handler import handle_news_command
+
+    news = [
+        {"text": f"Technology headline {n} with useful verified detail."}
+        for n in range(1, 7)
+    ]
+    manager = SimpleNamespace(get_news_async=AsyncMock(return_value=news))
+    ctx = SimpleNamespace(news_manager=manager)
+    msg = _msg("!news technology")
+
+    asyncio.run(handle_news_command(ctx, msg, AsyncMock()))
+
+    manager.get_news_async.assert_awaited_once_with("technology", limit=6)
+    embed = msg.channel.send.call_args.kwargs["embed"]
+    assert "Technology headline 6" in embed.description
