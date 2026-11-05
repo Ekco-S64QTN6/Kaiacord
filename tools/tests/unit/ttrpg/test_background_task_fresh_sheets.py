@@ -6,6 +6,8 @@ import secrets
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from utils.ttrpg.record_scan import ScanReport
+
 
 def test_moogle_festival_preserves_player_update_after_candidate_snapshot(monkeypatch):
     from utils.core import background_tasks
@@ -145,7 +147,10 @@ def test_blight_event_preserves_crop_planted_after_candidate_snapshot(monkeypatc
         live_housing.clear()
         live_housing.update(copy.deepcopy(value))
 
-    monkeypatch.setattr(housing, "load_all_housing", load_all_homes)
+    monkeypatch.setattr(
+        housing, "load_all_housing_report",
+        lambda: ScanReport([copy.deepcopy(live_housing)], []),
+    )
     monkeypatch.setattr(housing, "load_housing_async", load_home)
     monkeypatch.setattr(housing, "save_housing_async", save_home)
     monkeypatch.setattr(background_tasks.asyncio, "sleep", AsyncMock())
@@ -215,7 +220,7 @@ def test_dawn_reset_reloads_after_player_action_and_holds_user_lock(monkeypatch)
     live_sheet = copy.deepcopy(stale_candidate)
     saves = []
 
-    async def load_all():
+    async def load_all_report():
         # A real player action commits after candidate discovery and before the
         # dawn worker starts its per-player read-modify-write.
         async with await session_manager.get_action_lock(f"user:{uid}"):
@@ -223,7 +228,7 @@ def test_dawn_reset_reloads_after_player_action_and_holds_user_lock(monkeypatch)
             live_sheet["gil"] -= 25
             live_sheet["inventory"].append("potion_standard")
             live_sheet["conditions"].append("blessed")
-        return [copy.deepcopy(stale_candidate)]
+        return ScanReport([copy.deepcopy(stale_candidate)], [])
 
     async def load(user_id):
         assert str(user_id) == uid
@@ -236,7 +241,7 @@ def test_dawn_reset_reloads_after_player_action_and_holds_user_lock(monkeypatch)
         live_sheet.clear()
         live_sheet.update(copy.deepcopy(sheet))
 
-    monkeypatch.setattr(character_manager, "load_all", load_all)
+    monkeypatch.setattr(character_manager, "load_all_report", load_all_report)
     monkeypatch.setattr(character_manager, "load", load)
     monkeypatch.setattr(character_manager, "save", save)
 
@@ -274,7 +279,11 @@ def test_dawn_reset_skips_noop_sheets_without_saving(monkeypatch):
     }
     saves = []
 
-    monkeypatch.setattr(character_manager, "load_all", AsyncMock(return_value=[copy.deepcopy(sheet)]))
+    monkeypatch.setattr(
+        character_manager,
+        "load_all_report",
+        AsyncMock(return_value=ScanReport([copy.deepcopy(sheet)], [])),
+    )
     monkeypatch.setattr(character_manager, "load", AsyncMock(return_value=copy.deepcopy(sheet)))
     monkeypatch.setattr(character_manager, "save", AsyncMock(side_effect=lambda value: saves.append(value)))
 
@@ -305,8 +314,8 @@ def test_dawn_reset_removes_only_flagged_hp_buffs_and_is_idempotent(monkeypatch)
     }
     saves = []
 
-    async def load_all():
-        return [copy.deepcopy(live_sheet)]
+    async def load_all_report():
+        return ScanReport([copy.deepcopy(live_sheet)], [])
 
     async def load(user_id):
         return copy.deepcopy(live_sheet)
@@ -319,7 +328,7 @@ def test_dawn_reset_removes_only_flagged_hp_buffs_and_is_idempotent(monkeypatch)
     monkeypatch.setattr(calendar, "SPECIAL_DAYS", {
         "winter_resolve": {"buff": "winter_resolve", "buff_value": 5}
     })
-    monkeypatch.setattr(character_manager, "load_all", load_all)
+    monkeypatch.setattr(character_manager, "load_all_report", load_all_report)
     monkeypatch.setattr(character_manager, "load", load)
     monkeypatch.setattr(character_manager, "save", save)
 
