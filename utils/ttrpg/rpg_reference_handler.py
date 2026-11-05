@@ -27,8 +27,6 @@ async def _handle_xp(ctx, msg, send, rest, uid, uname, is_owner):
 
 async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner, *, location_data, class_icons, location_icons, get_title_fn, make_status_view):
     """!rpg leaderboard — show all characters ranked by XP."""
-    from utils.ttrpg.world import location_data
-
     from utils.ttrpg.character_manager import load_all_report
     scan = await load_all_report()
     sheets = scan.records
