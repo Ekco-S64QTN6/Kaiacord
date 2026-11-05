@@ -312,3 +312,46 @@ async def test_registration_racing_shutdown_is_cancelled_not_left_pending():
     assert not worker.is_alive()
     assert registry.get_all_tasks() == {}
     assert task.cancelled_state, "task racing shutdown was not cancelled"
+
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_respects_timeout_and_keeps_cancellation_suppressing_tasks_tracked():
+    """A task that catches cancellation must not make the timeout unbounded or disappear."""
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    registry = AsyncTaskRegistry()
+    started = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+    release = asyncio.Event()
+
+    async def cancellation_suppressing_task():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancellation_seen.set()
+            # Simulate cleanup that outlives the registry's shutdown deadline.
+            await release.wait()
+
+    task = asyncio.create_task(cancellation_suppressing_task())
+    registry.register("slow_cleanup", task)
+    await started.wait()
+
+    loop = asyncio.get_running_loop()
+    began = loop.time()
+    cancelled = await registry.cancel_all(timeout=0.05)
+    elapsed = loop.time() - began
+
+    assert cancelled == 1
+    assert elapsed < 0.5, f"cancel_all exceeded its timeout: {elapsed:.3f}s"
+    assert cancellation_seen.is_set()
+    assert not task.done()
+    assert registry.get_pending_count() == 1
+    assert any(pending is task for pending in registry.get_all_tasks().values())
+
+    release.set()
+    await asyncio.wait_for(task, timeout=1.0)
+    await asyncio.sleep(0)  # Let the registered done callback remove the task.
+    assert registry.get_pending_count() == 0
+    assert registry.get_all_tasks() == {}
