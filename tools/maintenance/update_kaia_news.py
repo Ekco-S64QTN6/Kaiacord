@@ -55,6 +55,38 @@ def story_count(brief: str) -> int:
     return n
 
 
+def _empty_response_diagnostics(response) -> str:
+    """Summarize an empty Gemini candidate without logging prompt or response content."""
+    candidates = getattr(response, "candidates", None) or []
+    candidate_summaries = []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) or []
+        part_types = []
+        for part in parts:
+            part_types.append({
+                "type": type(part).__name__,
+                "has_text": bool(getattr(part, "text", None)),
+                "has_function_call": getattr(part, "function_call", None) is not None,
+                "has_inline_data": getattr(part, "inline_data", None) is not None,
+            })
+        candidate_summaries.append({
+            "finish_reason": str(getattr(candidate, "finish_reason", None)),
+            "part_count": len(parts),
+            "parts": part_types,
+        })
+    feedback = getattr(response, "prompt_feedback", None)
+    usage = getattr(response, "usage_metadata", None)
+    return (
+        f"candidates={candidate_summaries}; "
+        f"prompt_block_reason={getattr(feedback, 'block_reason', None)}; "
+        f"prompt_tokens={getattr(usage, 'prompt_token_count', None)}; "
+        f"output_tokens={getattr(usage, 'candidates_token_count', None)}; "
+        f"model_version={getattr(response, 'model_version', None)}; "
+        f"response_id={getattr(response, 'response_id', None)}"
+    )
+
+
 def grounding_retry_delay(attempt: int) -> int:
     """Capped exponential backoff; attempt numbers are 1-based."""
     if attempt < 1:
@@ -190,16 +222,23 @@ RULES:
                     )
                 )
                 
-                # Robust text extraction
+                # Robust text extraction, including candidate parts if the
+                # response-level convenience property is empty.
                 brief = (response.text or "").strip()
-                
                 if not brief:
-                    # Check for candidates and finish reason
-                    if hasattr(response, 'candidates') and response.candidates:
-                        finish_reason = response.candidates[0].finish_reason
-                        raise ValueError(f"Empty response text (Finish Reason: {finish_reason})")
-                    else:
-                        raise ValueError("Empty response feedback (no candidates)")
+                    candidates = getattr(response, "candidates", None) or []
+                    part_text = [
+                        str(getattr(part, "text", "") or "").strip()
+                        for candidate in candidates
+                        for part in (getattr(getattr(candidate, "content", None), "parts", None) or [])
+                        if getattr(part, "text", None)
+                    ]
+                    brief = "\\n".join(text for text in part_text if text).strip()
+
+                if not brief:
+                    raise ValueError(
+                        "Empty grounded response (" + _empty_response_diagnostics(response) + ")"
+                    )
                 
                 if story_count(brief) == 0:
                     # Every section "No verified developments": the search came

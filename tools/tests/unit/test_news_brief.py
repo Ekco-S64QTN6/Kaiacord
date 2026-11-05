@@ -60,3 +60,35 @@ def test_grounding_retries_503_with_capped_exponential_backoff(monkeypatch):
     assert [ukn.grounding_retry_delay(n) for n in range(1, 7)] == [
         10, 20, 40, 60, 60, 60
     ]
+
+
+
+def test_empty_grounded_response_records_candidate_diagnostics_without_content():
+    import importlib.util
+    from types import SimpleNamespace
+
+    spec = importlib.util.spec_from_file_location(
+        "_ukn_empty", "tools/maintenance/update_kaia_news.py"
+    )
+    ukn = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ukn)
+
+    response = SimpleNamespace(
+        candidates=[SimpleNamespace(
+            finish_reason="STOP",
+            content=SimpleNamespace(parts=[
+                SimpleNamespace(text=None, function_call=None, inline_data=None)
+            ]),
+        )],
+        prompt_feedback=SimpleNamespace(block_reason=None),
+        usage_metadata=SimpleNamespace(prompt_token_count=900, candidates_token_count=0),
+        model_version="gemini-2.5-flash-test",
+        response_id="resp-123",
+    )
+    details = ukn._empty_response_diagnostics(response)
+    assert "finish_reason" in details and "STOP" in details
+    assert "part_count" in details and "has_text" in details
+    assert "output_tokens=0" in details
+    assert "model_version=gemini-2.5-flash-test" in details
+    assert "resp-123" in details
+    assert "private prompt" not in details
