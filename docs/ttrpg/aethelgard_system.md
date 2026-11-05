@@ -51,7 +51,7 @@ memory/ttrpg/world_events.json     ← Rolling log of world events
 ### Data Flow
 
 1. **Player sends `!rpg <command>`** → the RPG router dispatches to the relevant handler.
-2. **Handler loads the sheet** via `character_manager.load(uid)` → JSON from `memory/ttrpg/characters/`.
+2. **Handler loads the sheet** via `character_manager.load(uid)` → JSON from `memory/ttrpg/characters/`. Single-sheet loads verify the embedded owner matches the requested filename; legacy sheets without an owner ID adopt the filename, while mismatches fail closed before gameplay mutation.
 3. **Game logic** runs deterministically (dice_engine, combat_engine, shop, etc.).
 4. **Shared world reads** use `world_state.load_world_state()`, which returns an expiry-normalized view and does not write.
 5. **World-only updates** use `world_state.update_world_state(mutator)`; the transaction lock covers fresh load, mutation, and atomic save.
