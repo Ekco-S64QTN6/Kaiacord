@@ -561,6 +561,7 @@ def test_partial_new_insert_rollback_is_tracked_and_forces_full_reindex(indexer,
         original_insert([prepared[0]])
         raise OSError("simulated second vector insert failure")
     monkeypatch.setattr(target, "insert_nodes", partial_insert)
+    original_delete_nodes = ix._delete_nodes
     monkeypatch.setattr(ix, "_delete_nodes", lambda *_a, **_k: (_ for _ in ()).throw(OSError("rollback failed")))
 
     assert ix._index_single_file(
@@ -599,8 +600,10 @@ def test_partial_new_insert_rollback_is_tracked_and_forces_full_reindex(indexer,
     assert rebuilt_again["reindex_required"] is True
     assert rebuilt_again.get("stale_nodes", []) == []
 
-    # Reconciliation removes the orphaned vector; the marked active node
-    # still makes the unchanged source due for a complete rebuild.
+    # Reconciliation removes the orphaned vector; restore the real delete
+    # helper after the simulated rollback failure has been exercised.
+    monkeypatch.setattr(ix, "_delete_nodes", original_delete_nodes)
+    # The marked active node still makes the unchanged source due for a rebuild.
     changed = ix._reconcile_indices()
     assert "knowledge" in changed
     assert partial not in ix._vector_ids(index)
