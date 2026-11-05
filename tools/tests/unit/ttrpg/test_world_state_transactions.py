@@ -207,7 +207,6 @@ def test_unknown_world_transaction_version_fails_closed(monkeypatch, tmp_path):
     assert json.loads(journal_path.read_text(encoding="utf-8"))["transaction_id"] == "unknown-version"
 
 
-
 @pytest.mark.parametrize("journal_owner", ["bob", None])
 def test_pending_world_transaction_owner_mismatch_fails_closed_and_is_preserved(
     monkeypatch, tmp_path, journal_owner
