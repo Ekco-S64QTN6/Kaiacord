@@ -35,6 +35,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_rag_refresh_callers.py",
         "tools/tests/unit/test_news_manager.py",
         "tools/tests/unit/test_monologue_observation.py",
+        "tools/tests/unit/test_news_followup_retry.py",
     ),
     "utils/commands/news_handler.py": ("tools/tests/unit/test_command_boxes.py",),
     "tools/maintenance/scrape_tech_news.py": ("tools/tests/unit/test_news_manager.py",),
