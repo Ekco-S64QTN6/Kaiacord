@@ -386,7 +386,7 @@ def test_send_guard_runs_when_a_queued_post_is_actually_delivered(monkeypatch, c
     assert queued.queued is True
     assert checks == []
 
-    monkeypatch.setattr(up, "shared_wait", lambda _state: 0.0)
+    monkeypatch.setattr(up, "shared_wait", lambda _state, _now=None: 0.0)
     state.unprompted_last_sent = 0.0
     asyncio.run(up._drain())
     assert checks == ["queued thought."]
