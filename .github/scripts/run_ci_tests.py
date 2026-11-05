@@ -24,6 +24,7 @@ RELATED_TESTS = {
     **{f"finetune/{name}": ("tools/tests/unit/test_finetune_dataset.py",)
        for name in ("kaia_quality.py", "01_convert_logs.py", "01f_check_dataset.py",
                     "05c_evaluate_persona.py")},
+    ".github/scripts/run_ci_tests.py": ("tools/tests/unit/test_ci_test_selection.py",),
     "utils/core/response_filter.py": (
         "tools/tests/unit/test_response_filters.py",
         "tools/tests/unit/test_ellipsis_salvage.py",
@@ -67,16 +68,12 @@ RELATED_TESTS = {
     "utils/audio/dj_dashboard.py": ("tools/tests/unit/test_records.py",),
     "utils/commands/music_handler.py": ("tools/tests/unit/test_records_startup_cleanup.py",),
     "utils/social/agent_board_verify.py": ("tools/tests/unit/test_agent_boards.py",),
-    "utils/core/context_enricher.py": ("tools/tests/unit/test_context_enricher_links.py",),
-    "utils/core/sanitizer.py": ("tools/tests/unit/test_channel_memory_scaffolding.py",
-                                "tools/tests/unit/test_reactions_and_logging.py"),
     "utils/core/kaia_dream.py": ("tools/tests/unit/test_memory_anchors.py", "tools/tests/unit/test_beliefs_store.py",
                                  "tools/tests/unit/test_memory_layer_regressions.py"),
     "utils/core/relationship_manager.py": (
         "tools/tests/unit/test_memory_anchors.py",
         "tools/tests/unit/test_relationship_events.py",
     ),
-    "utils/core/sanitizer.py": ("tools/tests/unit/test_reactions_and_logging.py",),
     "utils/core/safety_pipeline.py": ("tools/tests/unit/test_response_filters.py",),
     "utils/admin/sources.py": ("tools/tests/unit/test_admin_dashboard.py",),
     "utils/audio/process_lifecycle.py": (
