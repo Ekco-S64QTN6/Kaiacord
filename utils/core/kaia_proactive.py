@@ -55,8 +55,7 @@ def _opener_signature(message: str) -> str:
     text = (message or "").strip()
     if not text:
         return ""
-    first_sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)
-    words = re.findall(r"[a-z0-9]+", first_sentence[0].casefold())
+    first_sentence = re.split(r"(?<=[.!?])\\s+", text, maxsplit=1)[0]
     return " ".join(words[:16])
 
 
