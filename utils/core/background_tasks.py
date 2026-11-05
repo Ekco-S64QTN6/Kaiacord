@@ -920,6 +920,13 @@ class CoreTaskManager:
         if not message:
             return False
 
+        if self.proactive_engine.has_recent_duplicate_opener(message, trigger.channel_id):
+            log_info(
+                f"Proactive opener suppressed as a recent repeat "
+                f"({getattr(trigger, 'source_category', None) or trigger.trigger_type}, channel={trigger.channel_id})."
+            )
+            return False
+
         import secrets as _secrets
         async with channel.typing():
             # Natural reading pause before sending
