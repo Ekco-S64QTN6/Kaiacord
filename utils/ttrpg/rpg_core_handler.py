@@ -425,8 +425,6 @@ async def _handle_sheet(ctx, msg, send, rest, uid, uname, is_owner):
                     adv_bonus_info.append(f"+{b['atk_vs_undead']} vs Undead")
                 if b.get("death_resist"):
                     adv_bonus_info.append("Death Resist")
-                if b.get("bone_shield_passive"):
-                    adv_bonus_info.append(f"Bone Shield +{b['bone_shield_passive']}")
                 if b.get("gil_bonus_pct"):
                     adv_bonus_info.append(f"+{int(b['gil_bonus_pct']*100)}% Gil")
                 if b.get("xp_bonus_pct"):
