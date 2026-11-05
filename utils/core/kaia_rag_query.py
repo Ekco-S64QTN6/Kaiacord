@@ -496,6 +496,8 @@ class RAGQueryMixin:
                 try:
                     node = docstore.get_document(nid)
                     if node:
+                        if (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale"):
+                            continue
                         # The manifest is a cache, not an authority for node
                         # ownership. A stale/corrupt nodes list must not make an
                         # allowed filename return content stored for another file.
@@ -517,9 +519,12 @@ class RAGQueryMixin:
             for itype, index in self.indices.items():
                 all_docs = list(index.storage_context.docstore.docs.values())
                 matching = [
-                    n for n in all_docs 
-                    if n.metadata.get('file_path') == target_file_path or 
-                       os.path.abspath(n.metadata.get('file_path', '')) == os.path.abspath(target_file_path)
+                    n for n in all_docs
+                    if not (getattr(n, "metadata", {}) or {}).get("_rag_replacement_stale")
+                    and (
+                        n.metadata.get('file_path') == target_file_path
+                        or os.path.abspath(n.metadata.get('file_path', '')) == os.path.abspath(target_file_path)
+                    )
                 ]
                 if matching:
                     file_nodes = matching
@@ -849,6 +854,10 @@ class RAGQueryMixin:
             node = node_result.node if hasattr(node_result, 'node') else node_result
             base_score = node_result.score if hasattr(node_result, 'score') else 0.5
             
+            metadata = get_node_metadata(node)
+            if metadata.get("_rag_replacement_stale"):
+                continue
+
             content = get_node_text(node)
             if not content: continue
 
@@ -858,7 +867,6 @@ class RAGQueryMixin:
                 continue
             seen_content_hashes.add(content_hash)
 
-            metadata = get_node_metadata(node)
             retrieval_method = metadata.get('_retrieval_method', 'unknown')
             
             source_type = metadata.get('source_type', 'general')
@@ -1368,6 +1376,8 @@ class RAGQueryMixin:
             
             recent_nodes = []
             for node in all_nodes:
+                if (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale"):
+                    continue
                 ts = self._node_timestamp(node)
                 if ts > cutoff:
                     recent_nodes.append(node)
@@ -1430,6 +1440,8 @@ class RAGQueryMixin:
             
             recent_nodes = []
             for node in all_nodes:
+                if (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale"):
+                    continue
                 ts = self._node_timestamp(node)
                 if ts > cutoff:
                     recent_nodes.append(node)

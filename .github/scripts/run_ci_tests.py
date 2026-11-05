@@ -30,6 +30,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_ellipsis_salvage.py",
     ),
     "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py",),
+    "utils/core/kaia_rag_query.py": ("tools/tests/unit/test_rag_index_hygiene.py",),
     "utils/core/background_tasks.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
     "utils/commands/reindex_handler.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
     "tools/maintenance/reindex_rag.py": ("tools/tests/unit/test_rag_refresh_callers.py",),

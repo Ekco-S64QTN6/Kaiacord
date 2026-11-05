@@ -15,6 +15,7 @@ from llama_index.core.embeddings import MockEmbedding
 from llama_index.core.schema import MetadataMode, TextNode
 
 from utils.core.kaia_rag_indexer import ConversationTurnSplitter, RAGIndexerMixin
+from utils.core.kaia_rag_query import RAGQueryMixin
 
 
 class _Indexer(RAGIndexerMixin):
@@ -643,3 +644,79 @@ def test_partial_log_insert_rollback_is_tracked_and_retried_as_full_rewrite(inde
     )
     texts = "\n".join(index.docstore.get_node(node_id).text for node_id in new_entry["nodes"])
     assert "partial corrected log chunk one" not in texts
+
+
+
+def test_stale_replacement_nodes_are_excluded_from_normal_scoring_and_dedup(indexer):
+    from llama_index.core.schema import NodeWithScore
+
+    ix, kb = indexer
+    path = str((kb / "same.md").resolve())
+    stale = TextNode(text="identical current source content", metadata={
+        "file_path": path, "source_type": "general_knowledge", "_rag_replacement_stale": True,
+    })
+    active = TextNode(text="identical current source content", metadata={
+        "file_path": path, "source_type": "general_knowledge",
+    })
+    stale.excluded_llm_metadata_keys = ["_rag_replacement_stale"]
+    stale.excluded_embed_metadata_keys = ["_rag_replacement_stale"]
+    active.excluded_llm_metadata_keys = []
+    active.excluded_embed_metadata_keys = []
+
+    rag = RAGQueryMixin()
+    rag.indices = {}
+    out = rag._score_and_filter_nodes(
+        [NodeWithScore(node=stale, score=1.5), NodeWithScore(node=active, score=1.0)],
+        "current source?",
+        set(),
+        {
+            "strategy": None, "is_casual": False, "is_dream_query": False,
+            "is_social_identity": False, "is_entity_query": False, "is_news_query": False,
+        },
+        10, False, False,
+    )
+    assert len(out) == 1
+    assert out[0]["node_id"] == active.node_id
+
+
+def test_summarization_docstore_fallback_never_returns_stale_only_nodes(indexer):
+    ix, kb = indexer
+    path = str((kb / "documents" / "stale-only.md").resolve())
+    doc = kb / "documents" / "stale-only.md"
+    doc.parent.mkdir()
+    doc.write_text("last failed partial replacement")
+    stale = TextNode(text="partial uncommitted replacement text", metadata={
+        "file_path": path, "source_type": "general_knowledge", "_rag_replacement_stale": True,
+    })
+    ix.indices["knowledge"].insert_nodes([stale])
+
+    rag = RAGQueryMixin()
+    rag.indices = {"knowledge": ix.indices["knowledge"]}
+    rag.indexed_files = {
+        path: {"mtime": os.path.getmtime(path), "size": os.path.getsize(path),
+               "nodes": [], "stale_nodes": [stale.node_id], "itype": "knowledge"}
+    }
+    assert rag._get_summarization_nodes("stale-only.md", target_path=path) == []
+
+
+def test_recent_event_and_highlight_docstore_scans_skip_stale_log_nodes(indexer):
+    import time
+
+    ix, kb = indexer
+    path = str((kb / "user_logs" / "Ekco_1" / "interactions_20261104.md").resolve())
+    stale = TextNode(
+        text="unique_stale_marker should never be returned in a recent event",
+        metadata={"file_path": path, "timestamp": time.time(), "_rag_replacement_stale": True},
+    )
+    active = TextNode(
+        text="a valid recent log entry that should remain",
+        metadata={"file_path": path, "timestamp": time.time()},
+    )
+    ix.indices["logs"].insert_nodes([stale, active])
+
+    rag = RAGQueryMixin()
+    rag.indices = {"logs": ix.indices["logs"]}
+    highlights = rag.get_recent_highlights(hours=24, limit=20)
+    assert all("unique_stale_marker" not in text for text in highlights)
+    searched = rag.search_recent_events("unique_stale_marker", hours=24, limit=20)
+    assert not any("unique_stale_marker" in item["content"] for item in searched)
