@@ -533,7 +533,7 @@ def test_a_fabricated_quote_gets_one_quote_free_retry_and_is_revalidated():
     import asyncio
     from utils.core.background_tasks import CoreTaskManager as M
 
-    conversation = "Ekco: the rover is still losing its left wheel\\nStarkind: the cat knocked over the plant"
+        conversation = "Ekco: the rover is still losing its left wheel\nStarkind: the cat knocked over the plant"
     calls = []
 
     async def retry():
