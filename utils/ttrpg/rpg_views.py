@@ -1903,7 +1903,14 @@ class MailMenuView(StaleSafeView):
         recipients = others[:25]
         
         if not recipients:
-            return await interaction.response.send_message("Kupo? There's no one else in Aethelgard to write to!", ephemeral=True)
+            message = "Kupo? There's no one else in Aethelgard to write to!"
+            if recipient_scan.failures:
+                message = (
+                    f"Kupo? No readable recipients were found. {len(recipient_scan.failures)} "
+                    "player record(s) could not be read, so the recipient list may be incomplete. "
+                    "Administrators have been alerted."
+                )
+            return await interaction.response.send_message(message, ephemeral=True)
 
         view = MailSendView(self.ctx, self.msg, self.uid, self.uname, self.is_owner, self.sheet, recipients)
         embed = discord.Embed(

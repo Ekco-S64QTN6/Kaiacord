@@ -150,7 +150,10 @@ async def _handle_bard_song(ctx, msg, send, rest, uid, uname, is_owner):
         description=f"*{song_text}*",
         color=0x9b59b6
     )
-    embed.set_footer(text="The Stone Hearth goes quiet for a moment. Then Mira refills something.")
+    footer = "The Stone Hearth goes quiet for a moment. Then Mira refills something."
+    if scan.failures:
+        footer += f" · Incomplete adventurer scan: {len(scan.failures)} unreadable record(s)."
+    embed.set_footer(text=footer)
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=embed, view=view)
 
