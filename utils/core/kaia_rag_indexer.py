@@ -701,7 +701,12 @@ class RAGIndexerMixin:
                 if self._delete_nodes(itype, node_ids):
                     updated_itypes.add(itype)
 
-        self._save_indexed_files()
+        # A changed index snapshot and the global manifest must move forward
+        # together. The caller persists these types and saves the manifest only
+        # after every snapshot succeeds. If no index needed changing, the prune
+        # was manifest-only and can be saved here.
+        if not updated_itypes:
+            self._save_indexed_files()
         return updated_itypes
 
     def _save_indexed_files(self):
@@ -1067,7 +1072,18 @@ class RAGIndexerMixin:
             except Exception as e: 
                 log_error(f"Failed to persist {itype}: {e}")
                 
-        self._save_indexed_files()
+        # The manifest is global across index types. Advancing file mtimes/nodes
+        # while even one affected snapshot stayed on disk in its old state makes
+        # that file look current after restart, so its missing content is never
+        # indexed again. Save the manifest only when every affected snapshot did.
+        if persisted == updated_itypes:
+            self._save_indexed_files()
+        else:
+            failed = updated_itypes - persisted
+            log_warning(
+                "Leaving the RAG file manifest unchanged because index snapshots "
+                f"failed to persist: {', '.join(sorted(failed))}"
+            )
         return persisted
 
     async def refresh_knowledge_base(self, max_concurrent_files: int = 2):
