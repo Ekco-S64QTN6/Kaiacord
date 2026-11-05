@@ -1520,7 +1520,12 @@ class ProactiveEngine:
                 rel["last_proactive_checkin"] = now
 
         if bot_state is not None and callable(getattr(bot_state, "save", None)):
-            bot_state.save()
+            try:
+                bot_state.save()
+            except Exception as e:
+                # The Discord post has already succeeded; a bookkeeping
+                # persistence error must not interrupt the remaining send path.
+                log_debug(f"Proactive bot-state save failed (non-fatal): {e}")
 
         source = getattr(trigger, "source_category", None) or trigger_type or "proactive"
         self.record_broadcast_sent(
