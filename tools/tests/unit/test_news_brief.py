@@ -92,3 +92,26 @@ def test_empty_grounded_response_records_candidate_diagnostics_without_content()
     assert "model_version=gemini-2.5-flash-test" in details
     assert "resp-123" in details
     assert "private prompt" not in details
+
+
+
+def test_candidate_text_parts_are_joined_as_real_lines():
+    import importlib.util
+    from types import SimpleNamespace
+
+    spec = importlib.util.spec_from_file_location(
+        "_ukn_parts", "tools/maintenance/update_kaia_news.py"
+    )
+    ukn = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ukn)
+
+    response = SimpleNamespace(
+        text=None,
+        candidates=[SimpleNamespace(content=SimpleNamespace(parts=[
+            SimpleNamespace(text="First verified story."),
+            SimpleNamespace(text="Second verified story."),
+        ]))],
+    )
+    assert ukn._extract_response_text(response) == (
+        "First verified story.\nSecond verified story."
+    )

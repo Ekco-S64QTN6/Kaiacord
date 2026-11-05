@@ -55,6 +55,21 @@ def story_count(brief: str) -> int:
     return n
 
 
+def _extract_response_text(response) -> str:
+    """Read text from the response convenience property or candidate text parts."""
+    text = (getattr(response, "text", None) or "").strip()
+    if text:
+        return text
+    candidates = getattr(response, "candidates", None) or []
+    part_text = [
+        str(getattr(part, "text", "") or "").strip()
+        for candidate in candidates
+        for part in (getattr(getattr(candidate, "content", None), "parts", None) or [])
+        if getattr(part, "text", None)
+    ]
+    return "\n".join(text for text in part_text if text).strip()
+
+
 def _empty_response_diagnostics(response) -> str:
     """Summarize an empty Gemini candidate without logging prompt or response content."""
     candidates = getattr(response, "candidates", None) or []
@@ -224,7 +239,8 @@ RULES:
                 
                 # Robust text extraction, including candidate parts if the
                 # response-level convenience property is empty.
-                brief = (response.text or "").strip()
+                brief = _extract_response_text(response)
+
                 if not brief:
                     candidates = getattr(response, "candidates", None) or []
                     part_text = [
