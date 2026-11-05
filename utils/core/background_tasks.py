@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 
 #: The first dream check waits this long after the bot comes up.
 DREAM_AFTER_BOOT_S = 20 * 60
+NEWS_DAILY_DIR = Path("knowledge_base/news/daily")
+NEWS_FOLLOWUP_STATE_PATH = Path("memory/news_followup_retry.json")
 from pathlib import Path
 import discord
 from discord.ext import tasks
@@ -262,8 +264,13 @@ async def _process_dawn_character_resets(today):
 
 class CoreTaskManager:
     """Manager for core background loops with dependency injection and error handling."""
+    NEWS_FOLLOWUP_RETRY_DELAY_SECONDS = 15 * 60
+
     def __init__(self, ctx):
         self.ctx = ctx
+        self._news_update_lock = asyncio.Lock()
+        self._news_followup_retry_task = None
+        self._news_followup_retry_date = None
         self.news_refresh_task = self._make_news_refresh_task()
         self.dream_engine_task = self._make_dream_engine_task()
         self.evening_reflection_task = self._make_evening_reflection_task()
@@ -1913,7 +1920,88 @@ class CoreTaskManager:
                 return b"", b""
 
     async def run_news_update(self):
-        """Run integrated news refresh."""
+        """Serialize scheduled and follow-up news refreshes."""
+        if not self.ctx:
+            return
+        # Some focused tests and legacy callers construct the manager with
+        # __new__; keep the serialization guard lazy for those instances.
+        lock = getattr(self, "_news_update_lock", None)
+        if lock is None:
+            lock = self._news_update_lock = asyncio.Lock()
+        async with lock:
+            await self._run_news_update_body()
+
+    def _schedule_news_followup_retry(self) -> None:
+        """Queue at most one transient-failure follow-up per local calendar day."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        pending = self._news_followup_retry_task
+        if self._news_followup_retry_date == today or (pending and not pending.done()):
+            log_debug(f"Grounded-news follow-up already scheduled or used for {today}.")
+            return
+
+        # Persist the daily cap so a bot restart cannot turn one transient
+        # outage into repeated API retries throughout the same local date.
+        try:
+            if NEWS_FOLLOWUP_STATE_PATH.exists():
+                saved = json.loads(NEWS_FOLLOWUP_STATE_PATH.read_text(encoding="utf-8"))
+                if isinstance(saved, dict) and saved.get("date") == today:
+                    self._news_followup_retry_date = today
+                    log_debug(f"Grounded-news follow-up already consumed or scheduled for {today}.")
+                    return
+            NEWS_FOLLOWUP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            from utils.core.atomic_write import write_atomic
+            write_atomic(
+                NEWS_FOLLOWUP_STATE_PATH,
+                json.dumps({"date": today, "scheduled_at": datetime.now().isoformat()}),
+            )
+        except Exception as e:
+            # Fail closed: when the quota guard cannot be persisted, do not
+            # risk an unbounded retry loop after another process restart.
+            log_warning(f"Grounded-news follow-up not scheduled; daily cap could not be persisted: {e}")
+            return
+
+        self._news_followup_retry_date = today
+        self._news_followup_retry_task = asyncio.create_task(
+            self._run_news_followup_retry(today),
+            name=f"grounded_news_followup_{today}",
+        )
+        log_warning(
+            f"Grounded global brief exhausted transient retries; one follow-up is "
+            f"scheduled in {self.NEWS_FOLLOWUP_RETRY_DELAY_SECONDS // 60} minutes."
+        )
+
+    async def _run_news_followup_retry(self, target_date: str) -> None:
+        """Retry only a transiently failed global brief, once, without overlapping refreshes."""
+        try:
+            await asyncio.sleep(self.NEWS_FOLLOWUP_RETRY_DELAY_SECONDS)
+            if shutdown_manager.shutting_down:
+                log_info("Grounded-news follow-up cancelled during shutdown.")
+                return
+            if datetime.now().strftime("%Y-%m-%d") != target_date:
+                log_info("Grounded-news follow-up expired at the local date boundary.")
+                return
+
+            filed = NEWS_DAILY_DIR / f"news_brief_{target_date.replace('-', '')}.md"
+            if filed.exists():
+                log_info("Grounded-news follow-up skipped: today's brief has already been filed.")
+                if self.ctx and self.ctx.news_manager:
+                    self.ctx.news_manager.refresh()
+                _request_rag_retry("already-filed grounded-news follow-up")
+                return
+
+            log_action("Running the one scheduled follow-up for today's grounded global news brief.")
+            # The normal path owns the same lock and refreshes the technology
+            # feed/RAG/cache independently. This retry cannot overlap it.
+            await self.run_news_update()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log_warning(f"Grounded-news follow-up failed (no further retry today): {e}")
+        finally:
+            self._news_followup_retry_task = None
+
+    async def _run_news_update_body(self):
+        """Run integrated news refresh while holding the refresh lock."""
         if not self.ctx: return
         try:
             log_action("Starting integrated news refresh...")
@@ -1922,6 +2010,7 @@ class CoreTaskManager:
             import asyncio
             api_key = os.getenv("GEMINI_API_KEY")
             global_brief_succeeded = False
+            retryable_global_failure = False
             if api_key:
                 # Run as a separate process using the same Python executable to assure environment consistency.
                 script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools", "maintenance", "update_kaia_news.py")
@@ -1935,7 +2024,12 @@ class CoreTaskManager:
                         start_new_session=True,
                     )
                     stdout, stderr = await self._communicate_or_kill(process, "news update")
+                    stdout_text = stdout.decode(errors="replace") if stdout else ""
                     global_brief_succeeded = process.returncode == 0
+                    retryable_global_failure = (
+                        not global_brief_succeeded
+                        and "[NEWS_RETRYABLE_EXHAUSTED]" in stdout_text
+                    )
                     if global_brief_succeeded:
                         log_success("Grounded global news brief generated.")
                     else:
@@ -1954,6 +2048,9 @@ class CoreTaskManager:
                     log_error(f"Could not execute the grounded global news updater: {news_error}")
             else:
                 log_warning("Grounded global news update skipped: GEMINI_API_KEY not set.")
+
+            if retryable_global_failure:
+                self._schedule_news_followup_retry()
 
             # Run daily tech news aggregator independently of the grounded
             # global brief so one provider failure does not discard this feed.

@@ -296,6 +296,11 @@ RULES:
                     print(f"Retrying in {sleep_time:.1f} seconds (full jitter)...")
                     time.sleep(sleep_time)
 
+        if _is_retryable_grounding_error(last_exception):
+            # Machine-readable signal for the bot's one delayed follow-up.
+            # Permanent API/configuration failures must never schedule it.
+            print("[NEWS_RETRYABLE_EXHAUSTED] grounded generation may recover on a later attempt.")
+
         error_msg = (
             f"Grounding failed after {attempts_made} attempt(s) ({last_exception}). "
             "Refusing to fall back to ungrounded standard generation to prevent hallucinated news."
