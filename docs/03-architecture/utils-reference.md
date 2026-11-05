@@ -225,7 +225,7 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `enhancement.py` & `town_projects.py` | Endgame gil sinks: gear rework +1..+5, and pooled gil for the town walls |
 | `housing.py`, `farming.py`, `pets.py`, `alchemy.py` | Estate management, harvesting, companions, brewing |
 | `furniture.py`, `look_targets.py`, `pantheon.py` | The furniture catalog, `!rpg look at` targets per location, and the pantheon |
-| `rpg_core_handler.py`, `rpg_world_handler.py`, `rpg_combat_handler.py`, `rpg_housing_handler.py`, `rpg_shop_handler.py`, `rpg_social_handler.py` | `!rpg` subcommands, split by area; seasonal calendar, deterministic weather and tavern rumors live in `rpg_world_handler.py` |
+| `rpg_core_handler.py`, `rpg_world_handler.py`, `rpg_navigation_handler.py`, `rpg_combat_handler.py`, `rpg_housing_handler.py`, `rpg_shop_handler.py`, `rpg_social_handler.py` | `!rpg` subcommands, split by area; calendar/weather/rumors in `rpg_world_handler.py`, travel/look/map in `rpg_navigation_handler.py` |
 | `calendar.py` | Seasons, dynamic weather, and 13 special calendar holidays |
 | `quest_registry.py` | 12 progressive quests (L1–L15) |
 | `npc_registry.py` & `loot_tables.py` | NPC dialogue definitions and tiered drop tables |
