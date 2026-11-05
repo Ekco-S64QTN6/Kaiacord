@@ -40,6 +40,128 @@ def test_fights_and_events_accumulate_per_player(in_tmp):
     assert two["fight_count"] == 1 and two["zones"] == ["trade_road"]     # their own trip
 
 
+def test_open_outing_owner_mismatch_fails_closed_before_read_modify_write(in_tmp):
+    path = outing._path("alice")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    record = {
+        "uid": "bob",
+        "outing_id": "bob_trip",
+        "day": outing._local_day(),
+        "started": 1,
+        "zones": ["whisperwood_edge"],
+        "fights": [],
+        "events": [],
+        "fight_count": 0,
+        "wins": 0,
+        "losses": 0,
+        "xp": 0,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(record, handle)
+
+    with pytest.raises(RuntimeError, match="does not match filename owner"):
+        asyncio.run(outing.peek("alice"))
+    with pytest.raises(RuntimeError, match="does not match filename owner"):
+        asyncio.run(outing.record_event("alice", "trade_road", "New event"))
+
+    with open(path, encoding="utf-8") as handle:
+        assert json.load(handle) == record
+
+
+def test_legacy_open_outing_without_uid_adopts_its_filename_owner(in_tmp):
+    path = outing._path("alice")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    record = {
+        "outing_id": "legacy_trip",
+        "day": outing._local_day(),
+        "started": 1,
+        "zones": [],
+        "fights": [],
+        "events": [],
+        "fight_count": 0,
+        "wins": 0,
+        "losses": 0,
+        "xp": 0,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(record, handle)
+
+    data = asyncio.run(outing.peek("alice"))
+
+    assert data["uid"] == "alice"
+    assert "uid" not in json.loads(open(path, encoding="utf-8").read())
+
+
+def test_daily_outing_owner_mismatch_is_preserved_during_finalization(in_tmp):
+    day = outing._local_day()
+    os.makedirs(outing.DAILY_DIR, exist_ok=True)
+    path = outing._daily_path("alice", day)
+    record = {
+        "uid": "bob",
+        "day": day,
+        "zones": ["whisperwood_edge"],
+        "fights": [],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 20,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": ["bob_trip"],
+        "trips": 1,
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(record, handle)
+
+    assert outing._finalize_daily_sync(day) == []
+    assert json.loads(open(path, encoding="utf-8").read()) == record
+    assert os.listdir(outing.UNTOLD_DIR) == [] if os.path.isdir(outing.UNTOLD_DIR) else True
+
+
+def test_untold_outing_owner_mismatch_is_not_narrated_or_posted(in_tmp, monkeypatch):
+    day = outing._local_day()
+    os.makedirs(outing.UNTOLD_DIR, exist_ok=True)
+    path = os.path.join(outing.UNTOLD_DIR, f"daily_{day}_alice.json")
+    record = {
+        "uid": "bob",
+        "day": day,
+        "zones": ["whisperwood_edge"],
+        "fights": [],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 20,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": ["bob_trip"],
+        "trips": 1,
+        "daily_summary": True,
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(record, handle)
+
+    ctx = SimpleNamespace(
+        bot=_Bot(),
+        ollama_client=SimpleNamespace(chat=AsyncMock()),
+    )
+    assert asyncio.run(outing.tell_untold(ctx)) == 0
+    ctx.ollama_client.chat.assert_not_awaited()
+    assert os.path.exists(path)
+    assert json.loads(open(path, encoding="utf-8").read()) == record
+
+
 def test_closing_with_nothing_recorded_tells_nothing(in_tmp):
     assert asyncio.run(outing.close(None, None, "nobody", "x", {}, reason="came back")) is False
 
