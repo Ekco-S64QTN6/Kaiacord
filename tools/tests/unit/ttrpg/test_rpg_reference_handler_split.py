@@ -161,4 +161,4 @@ def test_rpg_help_guide_still_lists_core_command_groups():
     assert "⚔️ World" in names
     assert "🏦 Oakhaven" in names
     assert "⛩️ Shrine" in names
-    assert "!rpg bank_deposit" in next(field.value for field in embed.fields if field.name == "🏦 Oakhaven")
+    assert "!rpg bank` — balance; deposit/withdraw at the bank" in next(field.value for field in embed.fields if field.name == "🏦 Oakhaven")
