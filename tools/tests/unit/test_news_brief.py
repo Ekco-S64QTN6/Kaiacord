@@ -87,7 +87,7 @@ def test_grounding_retry_delay_uses_full_jitter(monkeypatch):
     ]
 
 
-def test_permanent_api_error_is_not_retried(monkeypatch):
+def test_permanent_api_error_is_not_retried(monkeypatch, capsys):
     import importlib.util
     from types import SimpleNamespace
 
@@ -122,6 +122,7 @@ def test_permanent_api_error_is_not_retried(monkeypatch):
 
     assert models.attempts == 1
     assert sleeps == []
+    assert "[NEWS_RETRYABLE_EXHAUSTED]" not in capsys.readouterr().out
 
 
 
@@ -179,3 +180,38 @@ def test_candidate_text_parts_are_joined_as_real_lines():
     assert ukn._extract_response_text(response) == (
         "First verified story.\nSecond verified story."
     )
+
+
+
+def test_exhausted_transient_grounding_failure_emits_followup_marker(monkeypatch, capsys):
+    import importlib.util
+    from types import SimpleNamespace
+    import pytest
+
+    spec = importlib.util.spec_from_file_location(
+        "_ukn_followup_signal", "tools/maintenance/update_kaia_news.py"
+    )
+    ukn = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ukn)
+
+    class TemporaryUnavailable(Exception):
+        pass
+
+    class BusyModels:
+        def generate_content(self, **_kwargs):
+            raise TemporaryUnavailable("503 UNAVAILABLE")
+
+    updater = ukn.KaiaNewsUpdater.__new__(ukn.KaiaNewsUpdater)
+    updater.client = SimpleNamespace(models=BusyModels())
+    updater.model_name = "gemini-2.5-flash"
+    updater.today = "2026-11-05"
+
+    monkeypatch.setattr(ukn, "ServerError", TemporaryUnavailable)
+    monkeypatch.setattr(ukn, "GROUNDING_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(ukn.random, "uniform", lambda _low, _high: 0)
+    monkeypatch.setattr(ukn.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(Exception, match="Grounding failed after 2 attempt"):
+        updater.generate_daily_brief()
+
+    assert "[NEWS_RETRYABLE_EXHAUSTED]" in capsys.readouterr().out
