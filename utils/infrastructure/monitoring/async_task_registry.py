@@ -145,7 +145,7 @@ class AsyncTaskRegistry:
         cancelled_count = 0
         for task in tasks:
             if not task.done():
-                task.cancel()
+                self._cancel_task(task)
                 cancelled_count += 1
 
         if not cancelled_count:

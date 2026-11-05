@@ -355,3 +355,48 @@ async def test_cancel_all_respects_timeout_and_keeps_cancellation_suppressing_ta
     await asyncio.sleep(0)  # Let the registered done callback remove the task.
     assert registry.get_pending_count() == 0
     assert registry.get_all_tasks() == {}
+
+
+
+@pytest.mark.asyncio
+async def test_shutdown_does_not_close_shared_resources_while_cancelled_task_is_still_running(monkeypatch):
+    """A timeout leaves shared resources open until the process's emergency exit."""
+    import sys
+    import types
+    from unittest.mock import AsyncMock, Mock
+
+    from utils.infrastructure.monitoring.async_task_registry import task_registry
+    from utils.infrastructure.system.shutdown_fixed import CleanShutdown
+
+    # Keep shutdown's unrelated voice/radio preflight paths deterministic.
+    strudel = types.ModuleType("utils.audio.strudel_session")
+    strudel.active_sessions = lambda: []
+    strudel.stop_all = AsyncMock()
+    records = types.ModuleType("utils.audio.records")
+    records.stop_all = AsyncMock()
+    radio_live = types.ModuleType("utils.radio.live")
+    radio_live.active = lambda: False
+    radio_live.stop_all = AsyncMock()
+    scanner = types.ModuleType("utils.radio.scanner")
+    scanner.shutdown = AsyncMock()
+    for name, module in (
+        ("utils.audio.strudel_session", strudel),
+        ("utils.audio.records", records),
+        ("utils.radio.live", radio_live),
+        ("utils.radio.scanner", scanner),
+    ):
+        monkeypatch.setitem(sys.modules, name, module)
+
+    monkeypatch.setattr(task_registry, "cancel_all", AsyncMock(return_value=1))
+    monkeypatch.setattr(task_registry, "get_pending_count", lambda: 1)
+
+    rag = Mock()
+    app_ctx = types.SimpleNamespace(ollama_client=object(), close=AsyncMock())
+    shutdown = CleanShutdown()
+    shutdown.register_rag(rag)
+
+    await shutdown.async_shutdown(app_ctx)
+
+    rag.persist.assert_not_called()
+    app_ctx.close.assert_not_awaited()
+    assert shutdown._shutdown_complete.is_set() is False

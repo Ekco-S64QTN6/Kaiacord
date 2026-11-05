@@ -1866,9 +1866,10 @@ Two accounting rules that are easy to get wrong:
 `asyncio.wait(..., timeout=...)`, not `wait_for(gather(...))`: a task may catch
 `CancelledError` and continue cleanup, causing `wait_for` to wait beyond its timeout.
 Tasks still pending after the deadline stay in the registry until their done callbacks
-remove them. Shutdown must not pretend those tasks stopped or clear their ownership
-before the event loop reports completion. `force_clear()` remains an explicitly
-emergency-only escape hatch.
+remove them. `CleanShutdown.async_shutdown()` checks that count before resource teardown;
+if tasks remain, it leaves RAG persistence, the RAG executor, the Ollama client and GPU
+resources intact for the dashboard's bounded emergency process exit. It must not report
+that shutdown completed. `force_clear()` remains an explicitly emergency-only escape hatch.
 
 
 **Measure before optimising.** Numbers from this codebase that changed decisions:

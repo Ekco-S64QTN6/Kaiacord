@@ -139,18 +139,36 @@ class CleanShutdown:
         except Exception as e:
             log_warning(f"  ⚠️  Failed to stop the scanner: {e}")
 
-        # 1. Cancel all registered tasks via registry (STOP EVERYTHING FIRST)
+        # 1. Cancel all registered tasks via registry (STOP EVERYTHING FIRST).
+        # A task may suppress CancelledError and outlive the configured deadline.
+        # Never persist/close the resources it may still be using in that case.
+        tasks_stopped = True
         try:
             from utils.infrastructure.monitoring.async_task_registry import task_registry
             from utils.infrastructure.system.yaml_config import config
-            
+
             timeout = config.shutdown_task_cancel_timeout
             cancelled = await task_registry.cancel_all(timeout=timeout)
-            log_info(f"  ✅ Cancelled {cancelled} async tasks")
+            remaining = task_registry.get_pending_count()
+            if remaining:
+                tasks_stopped = False
+                log_error(
+                    f"  ❌ {remaining} async task(s) remain active after the {timeout:.1f}s "
+                    "shutdown deadline. Their ownership is retained; skipping resource teardown."
+                )
+            else:
+                log_info(f"  ✅ Cancelled {cancelled} async tasks")
         except ImportError:
             log_warning("  ⚠️  Task registry not available")
         except Exception as e:
-            log_error(f"  ❌ Error cancelling tasks: {e}")
+            tasks_stopped = False
+            log_error(f"  ❌ Error cancelling tasks; skipping resource teardown: {e}")
+
+        if not tasks_stopped:
+            # The dashboard's bounded join ends in force_exit(). Keep Ollama,
+            # RAG storage/executor, AppContext and GPU resources alive until then
+            # rather than racing a task that is still cleaning up.
+            return
 
         # 2. Force Ollama Model Unload (Crucial for VRAM release - DO THIS BEFORE RAG I/O)
         try:

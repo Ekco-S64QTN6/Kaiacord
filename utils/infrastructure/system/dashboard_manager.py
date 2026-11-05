@@ -287,8 +287,11 @@ class DashboardManager:
         # Ollama model unloading, GPU memory release, process cleanup.
         shutdown_manager.register_rag(rag)
         await shutdown_manager.async_shutdown(self.ctx)
-        
-        log_success("Shutdown complete.")
+
+        if shutdown_manager._shutdown_complete.is_set():
+            log_success("Shutdown complete.")
+        else:
+            log_error("Shutdown is incomplete: pending tasks prevented safe resource teardown; the process will use its bounded emergency exit.")
 
     async def run_bot_async(self, stats_poller, initialize_logic_layer, 
                             sequenced_boot_tasks, stop_event=None):
