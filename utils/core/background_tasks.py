@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 DREAM_AFTER_BOOT_S = 20 * 60
 from pathlib import Path
 NEWS_DAILY_DIR = Path("knowledge_base/news/daily")
+NEWS_FOLLOWUP_STATE_PATH = Path("memory/news_followup_retry.json")
 import discord
 from discord.ext import tasks
 from utils.infrastructure.logging.kaia_logger import log_action, log_success, log_error, log_info, log_warning, log_debug
@@ -1924,6 +1925,27 @@ class CoreTaskManager:
         pending = self._news_followup_retry_task
         if self._news_followup_retry_date == today or (pending and not pending.done()):
             log_debug(f"Grounded-news follow-up already scheduled or used for {today}.")
+            return
+
+        # Persist the daily cap so a bot restart cannot turn one transient
+        # outage into repeated API retries throughout the same local date.
+        try:
+            if NEWS_FOLLOWUP_STATE_PATH.exists():
+                saved = json.loads(NEWS_FOLLOWUP_STATE_PATH.read_text(encoding="utf-8"))
+                if isinstance(saved, dict) and saved.get("date") == today:
+                    self._news_followup_retry_date = today
+                    log_debug(f"Grounded-news follow-up already consumed or scheduled for {today}.")
+                    return
+            NEWS_FOLLOWUP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            from utils.core.atomic_write import write_atomic
+            write_atomic(
+                NEWS_FOLLOWUP_STATE_PATH,
+                json.dumps({"date": today, "scheduled_at": datetime.now().isoformat()}),
+            )
+        except Exception as e:
+            # Fail closed: when the quota guard cannot be persisted, do not
+            # risk an unbounded retry loop after another process restart.
+            log_warning(f"Grounded-news follow-up not scheduled; daily cap could not be persisted: {e}")
             return
 
         self._news_followup_retry_date = today
