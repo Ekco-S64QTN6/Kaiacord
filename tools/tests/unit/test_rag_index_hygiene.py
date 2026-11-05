@@ -519,3 +519,60 @@ def test_ingestion_history_failure_does_not_turn_index_success_into_failure(inde
     entry = ix.indexed_files[str(doc.resolve())]
     assert entry["nodes"]
     assert all(ix.indices["knowledge"].docstore.document_exists(n) for n in entry["nodes"])
+
+
+
+def test_partial_new_insert_rollback_is_tracked_and_forces_full_reindex(indexer, monkeypatch):
+    """A partially inserted failed replacement is marked stale and retried after restart."""
+    from llama_index.core.schema import TextNode
+
+    ix, kb = indexer
+    doc = kb / "documents" / "partial-insert.md"
+    doc.parent.mkdir()
+    doc.write_text("new content")
+    old = _add(ix, "knowledge", doc, "last good content")
+    abs_path = str(doc.resolve())
+    stat = os.stat(doc)
+    ix.indexed_files[abs_path] = {
+        "mtime": stat.st_mtime - 5, "size": stat.st_size - 1,
+        "nodes": [old], "itype": "knowledge",
+    }
+
+    class TwoNodeParser:
+        def get_nodes_from_documents(self, documents):
+            return [
+                TextNode(text="new partial node one", metadata=dict(documents[0].metadata)),
+                TextNode(text="new partial node two", metadata=dict(documents[0].metadata)),
+            ]
+
+    monkeypatch.setattr(ix, "_get_node_parser_for_doc", lambda *_a, **_k: TwoNodeParser())
+    target = ix.indices["knowledge"]
+    original_insert = target.insert_nodes
+    def partial_insert(nodes):
+        prepared = list(nodes)
+        original_insert([prepared[0]])
+        raise OSError("simulated second vector insert failure")
+    monkeypatch.setattr(target, "insert_nodes", partial_insert)
+    monkeypatch.setattr(ix, "_delete_nodes", lambda *_a, **_k: (_ for _ in ()).throw(OSError("rollback failed")))
+
+    assert ix._index_single_file(
+        str(doc), True, False, "knowledge", str(kb / "_quarantine" / "corrupt_files")
+    )
+    entry = ix.indexed_files[abs_path]
+    assert entry["nodes"] == [old]
+    assert entry["reindex_required"] is True
+    assert len(entry["stale_nodes"]) == 1
+    assert ix.indices["knowledge"].docstore.document_exists(old)
+    partial = entry["stale_nodes"][0]
+    assert ix.indices["knowledge"].docstore.get_node(partial).metadata["_rag_replacement_stale"] is True
+    assert ix.indices["knowledge"].docstore.get_node(partial).metadata["_rag_reindex_required"] is True
+
+    # Simulate a restart where the file-manifest commit was not reached.
+    ix.indexed_files = {}
+    ix._populate_indexed_files()
+    rebuilt = ix.indexed_files[abs_path]
+    assert rebuilt["nodes"] == [old]
+    assert rebuilt["stale_nodes"] == [partial]
+    assert rebuilt["reindex_required"] is True
+
+

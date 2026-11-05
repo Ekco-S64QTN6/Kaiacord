@@ -457,15 +457,20 @@ class RAGIndexerMixin:
         # Caller (_initialize_indices) already holds self._lock
         # Rebuild _file_to_nodes mapping from indices
         new_file_to_nodes = {}
+        new_stale_by_path = {}
+        reindex_required_by_path = set()
         for itype, index in self.indices.items():
             for node_id, node in index.docstore.docs.items():
-                file_path = node.metadata.get('file_path')
+                metadata = node.metadata or {}
+                file_path = metadata.get('file_path')
                 if file_path:
                     abs_path = os.path.abspath(file_path)
-                    if abs_path not in new_file_to_nodes:
-                        new_file_to_nodes[abs_path] = []
-                    new_file_to_nodes[abs_path].append(node_id)
-        
+                    new_file_to_nodes.setdefault(abs_path, []).append(node_id)
+                    if metadata.get("_rag_replacement_stale"):
+                        new_stale_by_path.setdefault(abs_path, set()).add(node_id)
+                    if metadata.get("_rag_reindex_required"):
+                        reindex_required_by_path.add(abs_path)
+
         self._file_to_nodes = new_file_to_nodes
         
         # Update manifest based on current disk + index state
@@ -477,6 +482,7 @@ class RAGIndexerMixin:
 
         count_added = 0
         for abs_path, node_ids in self._file_to_nodes.items():
+            stale_from_nodes = new_stale_by_path.get(abs_path, set())
             # Resolve itype from any of this file's known node IDs
             resolved_itype = ""
             for nid in node_ids:
@@ -503,25 +509,33 @@ class RAGIndexerMixin:
                 if os.path.exists(abs_path):
                     mtime = os.path.getmtime(abs_path)
                     size = os.path.getsize(abs_path)
-                    self.indexed_files[abs_path] = {
+                    active_nodes = [nid for nid in node_ids if nid not in stale_from_nodes]
+                    entry = {
                         "mtime": mtime,
                         "size": size,
-                        "nodes": node_ids,
+                        "nodes": active_nodes,
                         "itype": resolved_itype,  # Fix #4: inject itype so BM25 cache invalidation works on boot
                         "title": doc_title
                     }
+                    if stale_from_nodes:
+                        entry["stale_nodes"] = [nid for nid in node_ids if nid in stale_from_nodes]
+                    if abs_path in reindex_required_by_path:
+                        entry["reindex_required"] = True
+                    self.indexed_files[abs_path] = entry
                     count_added += 1
             else:
                 # Sync active nodes while retaining any surviving old-version
                 # nodes as cleanup work. The marker must survive restart.
                 entry = self.indexed_files[abs_path]
-                stale = set(entry.get("stale_nodes", []))
+                stale = set(entry.get("stale_nodes", [])) | stale_from_nodes
                 entry["nodes"] = [nid for nid in node_ids if nid not in stale]
                 stale = [nid for nid in node_ids if nid in stale]
                 if stale:
                     entry["stale_nodes"] = stale
                 else:
                     entry.pop("stale_nodes", None)
+                if abs_path in reindex_required_by_path:
+                    entry["reindex_required"] = True
                 if not entry.get("itype") and resolved_itype:
                     self.indexed_files[abs_path]["itype"] = resolved_itype
                 if not self.indexed_files[abs_path].get("title") and doc_title:
@@ -625,6 +639,38 @@ class RAGIndexerMixin:
         self.bm25_cache.pop(itype, None)
         return len(held)
 
+    def _mark_nodes_stale(self, itype: str, node_ids, *, reindex_required: bool = False) -> None:
+        """Persist recovery intent in node metadata as well as the file manifest."""
+        index = self.indices.get(itype)
+        if index is None:
+            return
+        for node_id in dict.fromkeys(node_ids):
+            node = index.docstore.get_node(node_id, raise_error=False)
+            if node is not None:
+                node.metadata["_rag_replacement_stale"] = True
+                if reindex_required:
+                    node.metadata["_rag_reindex_required"] = True
+
+    def _record_partial_insert_cleanup(self, abs_path: str, itype: str, node_ids) -> bool:
+        """Retain and mark partial insertions when rollback itself cannot fully delete them."""
+        remaining = self._nodes_still_held(itype, node_ids)
+        if not remaining:
+            return False
+        self._mark_nodes_stale(itype, remaining, reindex_required=True)
+        old_entry = dict(self.indexed_files.get(abs_path) or {})
+        active = list(old_entry.get("nodes", []))
+        stale = list(dict.fromkeys(list(old_entry.get("stale_nodes", [])) + remaining))
+        old_entry.setdefault("mtime", 0)
+        old_entry.setdefault("size", -1)
+        old_entry["itype"] = itype
+        old_entry["nodes"] = active
+        old_entry["stale_nodes"] = stale
+        old_entry["reindex_required"] = True
+        self.indexed_files[abs_path] = old_entry
+        self._file_to_nodes[abs_path] = list(dict.fromkeys(active + stale))
+        log_warning(f"Partial replacement insert for {abs_path} left {len(remaining)} node(s) queued for cleanup and reindex.")
+        return True
+
     def _nodes_still_held(self, itype: str, node_ids) -> List[str]:
         """Return old node IDs still present in either the vector store or docstore."""
         index = self.indices.get(itype)
@@ -656,6 +702,7 @@ class RAGIndexerMixin:
         if len(remaining) < len(unique):
             self.bm25_cache.pop(itype, None)
         if remaining:
+            self._mark_nodes_stale(itype, remaining)
             log_warning(f"{len(remaining)} superseded {itype} node(s) remain queued for cleanup.")
         return remaining
 
@@ -900,8 +947,9 @@ class RAGIndexerMixin:
                     entry = self.indexed_files.get(norm_path)
                     is_new = entry is None
                     is_modified = not is_new and (
-                        mtime > entry.get("mtime", 0) or 
-                        os.path.getsize(norm_path) != entry.get("size", 0)
+                        entry.get("reindex_required", False)
+                        or mtime > entry.get("mtime", 0)
+                        or os.path.getsize(norm_path) != entry.get("size", 0)
                     )
                     
                     if (is_new or is_modified) and "user_memories.txt" not in file:
@@ -936,6 +984,7 @@ class RAGIndexerMixin:
         import hashlib
         target_index = self.indices[itype]
         entry = self.indexed_files.get(abs_path) or {}
+        prior_entry = dict(entry)
 
         with open(file_path, 'rb') as f:
             data = f.read()
@@ -951,10 +1000,10 @@ class RAGIndexerMixin:
             entry["indexed_prefix_sha1"] = hashlib.sha1(data[:indexed]).hexdigest()
         indexed = indexed or 0
 
-        rewritten = bool(indexed and (
+        rewritten = bool(entry.get("reindex_required") or (indexed and (
             len(data) < indexed
             or entry.get("indexed_prefix_sha1") not in (None, hashlib.sha1(data[:indexed]).hexdigest())
-        ))
+        )))
         if rewritten:
             log_action(f"Log rewritten since it was indexed; re-indexing in full: {file_path}")
             old_nodes_to_delete = list(dict.fromkeys(
@@ -1015,6 +1064,19 @@ class RAGIndexerMixin:
                         self._delete_nodes(itype, new_node_ids)
                     except Exception as cleanup_error:
                         log_warning(f"Could not fully roll back partial log insertion for {file_path}: {cleanup_error}")
+                    base_nodes = list(prior_entry.get("nodes", []))
+                    base_stale = list(prior_entry.get("stale_nodes", []))
+                    if self._record_partial_insert_cleanup(abs_path, itype, new_node_ids):
+                        # The file must be rebuilt from byte zero after the partial
+                        # insert leftovers are removed; keep the last-good turns active.
+                        current = self.indexed_files[abs_path]
+                        current["nodes"] = base_nodes
+                        current["stale_nodes"] = list(dict.fromkeys(base_stale + current["stale_nodes"]))
+                        current["reindex_required"] = True
+                        current["indexed_bytes"] = 0
+                        current["indexed_prefix_sha1"] = ""
+                        self._file_to_nodes[abs_path] = current["nodes"] + current["stale_nodes"]
+                        return True
                 raise
             remaining_old = self._delete_replaced_nodes(itype, old_nodes_to_delete)
             _record(existing_nodes + new_node_ids, remaining_old)
@@ -1076,6 +1138,10 @@ class RAGIndexerMixin:
                         self._delete_nodes(itype, new_node_ids)
                     except Exception as cleanup_error:
                         log_warning(f"Could not fully roll back partial replacement insert for {file_path}: {cleanup_error}")
+                    if self._record_partial_insert_cleanup(abs_path, itype, new_node_ids):
+                        # Keep the old version as active and make this path due again
+                        # after its partial new nodes are removed.
+                        return True
                 raise
 
             stale_nodes = self._delete_replaced_nodes(itype, old_node_ids)
