@@ -2775,9 +2775,18 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
     """!rpg leaderboard — show all characters ranked by XP."""
     from utils.ttrpg.world import LOCATION_DATA
 
-    sheets = await load_all()
+    from utils.ttrpg.character_manager import load_all_report
+    scan = await load_all_report()
+    sheets = scan.records
     if not sheets:
-        return await msg.channel.send(embed=discord.Embed(description="No adventurers have been created yet.", color=0x888888))
+        if scan.failures:
+            description = (
+                f"No readable adventurers were found. {len(scan.failures)} character "
+                "record(s) could not be read; administrators have been alerted."
+            )
+        else:
+            description = "No adventurers have been created yet."
+        return await msg.channel.send(embed=discord.Embed(description=description, color=0x888888))
 
     # Sort by XP descending, then by level descending, then by least deaths
     sheets.sort(key=lambda s: (s.get("xp", 0), s.get("level", 1), -s.get("deaths", 0)), reverse=True)
@@ -2808,7 +2817,10 @@ async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
         description="\n\n".join(lines),
         color=0xd4a843  # gold
     )
-    embed.set_footer(text=f"{len(sheets)} adventurer{'s' if len(sheets) != 1 else ''} registered")
+    footer = f"{len(sheets)} readable adventurer{'s' if len(sheets) != 1 else ''}"
+    if scan.failures:
+        footer += f" · incomplete scan: {len(scan.failures)} unreadable record(s)"
+    embed.set_footer(text=footer)
 
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=embed, view=view)

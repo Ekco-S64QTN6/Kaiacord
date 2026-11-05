@@ -1091,12 +1091,15 @@ def _build_fishing_shop_ui(ctx, uid: str, uname: str, is_owner: bool, sheet: dic
 
 async def _handle_fishing_leaderboard(ctx, interaction: discord.Interaction, uid: str, uname: str, is_owner: bool):
     """Show fishing leaderboard — world records and top anglers."""
-    from utils.ttrpg.character_manager import load_all
+    from utils.ttrpg.character_manager import load_all_report
     records = get_world_records()
 
-    # Build top anglers — resolve char names from all sheets
-    all_sheets = await load_all()
-    uid_to_name = {str(s["user_id"]): s["character_name"] for s in all_sheets}
+    # Build top anglers — retain catch totals even if a character sheet is unreadable.
+    scan = await load_all_report()
+    uid_to_name = {
+        str(s["user_id"]): s.get("character_name", "Unknown Angler")
+        for s in scan.records
+    }
     angler_totals = records.get("angler_totals", {})
 
     angler_lines = []
@@ -1141,6 +1144,11 @@ async def _handle_fishing_leaderboard(ctx, interaction: discord.Interaction, uid
         title="🏆 Tricklebrook Fishing Records",
         color=POND_COLOR,
     )
+    if scan.failures:
+        embed.description = (
+            f"⚠️ Character-name lookup is incomplete: {len(scan.failures)} "
+            "character record(s) could not be read. Catch totals and records are retained."
+        )
     if angler_lines:
         embed.add_field(
             name="🎣 Top Anglers (Total Catches)",
@@ -1162,6 +1170,11 @@ async def _handle_fishing_leaderboard(ctx, interaction: discord.Interaction, uid
 
     if not (angler_lines or heaviest_lines or rarest_lines):
         embed.description = "*No records yet. Be the first to cast a line.*"
+        if scan.failures:
+            embed.description += (
+                f"\n\n⚠️ Character-name lookup is incomplete: {len(scan.failures)} "
+                "character record(s) could not be read. Catch totals and records are retained."
+            )
 
     sheet = await load(uid)
     view = FishingMenuView(ctx, uid, uname, is_owner, sheet) if sheet else StaleSafeView()

@@ -89,9 +89,15 @@ async def _handle_bard_song(ctx, msg, send, rest, uid, uname, is_owner):
         except Exception:
             pass
 
-    all_sheets = await load_all()
-    top_adventurers = sorted(all_sheets, key=lambda s: s.get("xp", 0), reverse=True)[:4]
-    names = [s["character_name"] for s in top_adventurers]
+    from utils.ttrpg.character_manager import load_all_report
+    scan = await load_all_report()
+    top_adventurers = sorted(scan.records, key=lambda s: s.get("xp", 0), reverse=True)[:4]
+    names = [s.get("character_name", "An adventurer") for s in top_adventurers]
+    scan_note = (
+        f"Character scan warning: {len(scan.failures)} character record(s) were unreadable; "
+        "the notable-adventurer sample may be incomplete. Do not imply this is a complete ranking. "
+        if scan.failures else ""
+    )
 
     events_str = "\n".join([f"- {e}" for e in recent_events]) if recent_events else "- A quiet season. The forest waits."
     names_str = ", ".join(names) if names else uname
@@ -100,7 +106,8 @@ async def _handle_bard_song(ctx, msg, send, rest, uid, uname, is_owner):
     prompt = (
         f"You are Caelindra the Bard performing at the Stone Hearth Inn in Oakhaven.\n"
         f"Recent events:\n{events_str}\n\n"
-        f"Notable adventurers: {names_str}\n\n"
+        f"Notable adventurers: {names_str}\n"
+        f"{scan_note}\n"
         f"Write a ballad (4-10 lines) about these deeds. "
         f"Voice: dry, specific, sardonic — like a journalist who found melody. "
         f"It MUST name at least one adventurer. Reference a specific event. "
@@ -143,7 +150,10 @@ async def _handle_bard_song(ctx, msg, send, rest, uid, uname, is_owner):
         description=f"*{song_text}*",
         color=0x9b59b6
     )
-    embed.set_footer(text="The Stone Hearth goes quiet for a moment. Then Mira refills something.")
+    footer = "The Stone Hearth goes quiet for a moment. Then Mira refills something."
+    if scan.failures:
+        footer += f" · Incomplete adventurer scan: {len(scan.failures)} unreadable record(s)."
+    embed.set_footer(text=footer)
     view = _make_status_view(ctx, msg, uid, uname, is_owner)
     await msg.channel.send(embed=embed, view=view)
 

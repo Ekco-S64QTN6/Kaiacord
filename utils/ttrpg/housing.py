@@ -9,6 +9,9 @@ PLAYER_PLOT_PREFIX = "plot_"
 # ── Housing Tiers ─────────────────────────────────────────────────────────────
 # Each tier unlocks more furniture slots, farming plots, and pet slots.
 
+from utils.ttrpg.record_scan import ScanFailure, ScanReport, log_scan_failures
+
+
 HOUSING_TIERS = {
     "hut": {
         "name": "Wattle Hut",
@@ -155,18 +158,66 @@ async def save_housing_async(housing: dict) -> None:
     # Serialised on the caller's thread; the dict is live.
     await asyncio.to_thread(_write_housing, str(housing["user_id"]), _serialise_housing(housing))
 
+def load_all_housing_report() -> ScanReport:
+    """Load valid homes and expose damaged or mismatched per-player files."""
+    records: list[dict] = []
+    failures: list[ScanFailure] = []
+    try:
+        os.makedirs(HOUSING_DIR, exist_ok=True)
+        with _lock:
+            filenames = sorted(os.listdir(HOUSING_DIR))
+    except OSError as exc:
+        return ScanReport(
+            [],
+            [ScanFailure(HOUSING_DIR, None, f"{type(exc).__name__}: {exc}")],
+        )
+
+    for fname in filenames:
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(HOUSING_DIR, fname)
+        owner_id = fname[:-5]
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                home = json.load(handle)
+            if not isinstance(home, dict):
+                raise ValueError("housing root must be a JSON object")
+            stored_uid = home.get("user_id")
+            if stored_uid is None:
+                home["user_id"] = owner_id
+            elif str(stored_uid) != owner_id:
+                raise ValueError(
+                    f"housing user_id {stored_uid!r} does not match filename owner {owner_id!r}"
+                )
+            farming = home.get("farming")
+            if farming is not None:
+                if not isinstance(farming, dict):
+                    raise ValueError("farming must be a JSON object")
+                plots = farming.get("plots", [])
+                if not isinstance(plots, list) or any(
+                    not isinstance(plot, dict) for plot in plots
+                ):
+                    raise ValueError("farming.plots must be an array of JSON objects")
+            pets = home.get("pets", [])
+            if not isinstance(pets, list) or any(not isinstance(pet, dict) for pet in pets):
+                raise ValueError("pets must be an array of JSON objects")
+            records.append(home)
+        except FileNotFoundError:
+            # A concurrent delete after directory enumeration is not corruption.
+            continue
+        except Exception as exc:
+            failures.append(
+                ScanFailure(path, owner_id, f"{type(exc).__name__}: {str(exc)[:180]}")
+            )
+
+    report = ScanReport(records, failures)
+    log_scan_failures("housing records", report)
+    return report
+
+
 def load_all_housing() -> list[dict]:
-    os.makedirs(HOUSING_DIR, exist_ok=True)
-    result = []
-    with _lock:
-        for fname in os.listdir(HOUSING_DIR):
-            if fname.endswith(".json"):
-                try:
-                    with open(os.path.join(HOUSING_DIR, fname), 'r', encoding='utf-8') as f:
-                        result.append(json.load(f))
-                except Exception:
-                    pass
-    return result
+    """Compatibility list API; skipped housing files are logged with exact paths."""
+    return load_all_housing_report().records
 
 def get_tier_data(tier_key: str) -> dict:
     return HOUSING_TIERS.get(tier_key, HOUSING_TIERS["hut"])

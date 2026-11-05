@@ -220,9 +220,15 @@ async def _process_dawn_character_resets(today):
     sheets that were due for a new hunt day. Every write re-loads the latest
     sheet under the owner's user-action lock.
     """
-    from utils.ttrpg.character_manager import load_all
+    from utils.ttrpg.character_manager import load_all_report
 
-    candidates = await load_all()
+    scan = await load_all_report()
+    candidates = scan.records
+    if scan.failures:
+        log_warning(
+            f"[dawn] Skipping {len(scan.failures)} unreadable character record(s); "
+            "see the RPG storage scan warning for exact paths."
+        )
     reset_count = 0
     total_interest = 0  # Bank interest was intentionally retired.
 
@@ -4893,7 +4899,7 @@ async def run_blight_on_the_crops(bot_ctx, channel):
     import asyncio
     import secrets
     import random
-    from utils.ttrpg.housing import load_all_housing
+    from utils.ttrpg.housing import load_all_housing_report
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
 
     await channel.send(embed=discord.Embed(
@@ -4909,10 +4915,16 @@ async def run_blight_on_the_crops(bot_ctx, channel):
 
     # Housing snapshots are for candidate discovery only. Each selected owner
     # is reloaded under their user-action lock before a plot is changed.
+    housing_scan = load_all_housing_report()
     candidate_ids = list(dict.fromkeys(
-        str(h.get("user_id")) for h in load_all_housing()
+        str(h.get("user_id")) for h in housing_scan.records
         if h.get("user_id") and h.get("farming", {}).get("plots")
     ))
+    if housing_scan.failures:
+        log_warning(
+            f"[blight] Skipping {len(housing_scan.failures)} unreadable housing record(s); "
+            "see the RPG storage scan warning for exact paths."
+        )
     if not candidate_ids:
         await channel.send(embed=discord.Embed(
             description="*The mist dissipated harmlessly. No active fields or crops were in use in the housing district.*",

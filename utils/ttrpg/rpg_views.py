@@ -568,8 +568,9 @@ class RPGFullLocationView(StaleSafeView):
 
         if location == "housing_district":
             # Housing district special dropdown — only Oakhaven + player plots
-            from utils.ttrpg.housing import load_all_housing, HOUSING_TIERS
-            all_housing = load_all_housing()
+            from utils.ttrpg.housing import load_all_housing_report, HOUSING_TIERS
+            housing_scan = load_all_housing_report()
+            all_housing = housing_scan.records
             
             options = [discord.SelectOption(
                 label="Oakhaven Town Square",
@@ -585,7 +586,10 @@ class RPGFullLocationView(StaleSafeView):
                     description=f"{tier_data.get('name', 'Home')} · {h['character_name']}"
                 ))
             
-            sel = discord.ui.Select(placeholder="Visit a plot...", options=options[:25], row=4)
+            placeholder = "Visit a plot..."
+            if housing_scan.failures:
+                placeholder = "Visit a plot... (some homes unavailable)"
+            sel = discord.ui.Select(placeholder=placeholder, options=options[:25], row=4)
         else:
             all_locs = []
             for k in LOCATION_DATA.keys():
@@ -1890,14 +1894,23 @@ class MailMenuView(StaleSafeView):
         if fresh_sheet:
             self.sheet = fresh_sheet
 
-        all_sheets = await load_all()
+        from utils.ttrpg.character_manager import load_all_report
+        recipient_scan = await load_all_report()
+        all_sheets = recipient_scan.records
         # Filter out self and limit to 25 recent-ish players
         others = [s for s in all_sheets if str(s["user_id"]) != self.uid]
         others.sort(key=lambda s: s.get("last_updated", 0), reverse=True)
         recipients = others[:25]
         
         if not recipients:
-            return await interaction.response.send_message("Kupo? There's no one else in Aethelgard to write to!", ephemeral=True)
+            message = "Kupo? There's no one else in Aethelgard to write to!"
+            if recipient_scan.failures:
+                message = (
+                    f"Kupo? No readable recipients were found. {len(recipient_scan.failures)} "
+                    "player record(s) could not be read, so the recipient list may be incomplete. "
+                    "Administrators have been alerted."
+                )
+            return await interaction.response.send_message(message, ephemeral=True)
 
         view = MailSendView(self.ctx, self.msg, self.uid, self.uname, self.is_owner, self.sheet, recipients)
         embed = discord.Embed(
@@ -1905,6 +1918,11 @@ class MailMenuView(StaleSafeView):
             description="\"Kupo! Who are we sending this to? And don't forget the delivery fee is included!\"",
             color=0xf4a460
         )
+        if recipient_scan.failures:
+            embed.description += (
+                f"\n\n⚠️ {len(recipient_scan.failures)} unreadable player record(s) "
+                "were omitted. Administrators have been alerted."
+            )
         await interaction.response.edit_message(embed=embed, view=view)
 
 

@@ -240,6 +240,13 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `session_manager.get_action_lock("user:<uid>")`, reloads the current character, applies a
   synchronous mutation, and saves only when changed. The character manager's own file lock
   protects one read or one write at a time; it does not make a read-modify-write atomic.
+- **Bulk RPG scans report partial data.** Use character_manager.load_all_report() or
+  housing.load_all_housing_report() when completeness matters; each returns readable records
+  plus per-file failures (owner ID, exact path, and reason). Compatibility list helpers still
+  return readable records but emit a deduplicated path-specific warning. A bulk scan must never
+  silently treat a skipped corrupt file as an empty population or report the result as complete.
+  Leaderboards and recipient lists should label partial results; dawn/background jobs should skip
+  only the unreadable record and report the affected path for repair.
 - **Housing getters are read-only.** housing.load_housing() never applies daily resets or writes.
   housing.apply_daily_housing_reset(home, today=...) is an in-memory idempotent transition only.
   character_manager.load() applies it under the per-character lock and commits changed home state

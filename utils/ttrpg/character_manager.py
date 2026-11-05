@@ -10,6 +10,8 @@ import asyncio
 import functools
 from typing import Optional, Dict, Any, List
 
+from utils.ttrpg.record_scan import ScanFailure, ScanReport, log_scan_failures
+
 CHARACTERS_DIR = os.path.join("memory", "ttrpg", "characters")
 _lock = threading.Lock()  # Protects internal file I/O
 # Held inside load() and inside save(), and released between them, so each file
@@ -213,32 +215,77 @@ async def load(user_id: str) -> Optional[Dict[str, Any]]:
                 await asyncio.to_thread(functools.partial(_save_sync, sheet))
         return sheet
 
-async def load_all() -> List[Dict[str, Any]]:
-    """Load every character sheet on disk. Returns a list of dicts."""
+async def load_all_report() -> ScanReport:
+    """Load every character and expose unreadable files instead of hiding them."""
     from utils.ttrpg.world_state import recover_pending_world_state_transaction
     from utils.ttrpg.housing_transactions import recover_all_pending_housing_transactions
     await recover_pending_world_state_transaction()
     await recover_all_pending_housing_transactions()
-    return await asyncio.to_thread(_load_all_sync)
+    report = await asyncio.to_thread(_load_all_sync_report)
+    log_scan_failures("character sheets", report)
+    return report
+
+
+async def load_all() -> List[Dict[str, Any]]:
+    """Compatibility list API; incomplete scans are logged with exact file paths.
+
+    Call load_all_report() when the caller needs to disclose that results are partial.
+    """
+    return (await load_all_report()).records
+
+
+def _load_all_sync_report() -> ScanReport:
+    """Read independent character files; one damaged file cannot hide other records."""
+    records: list[dict] = []
+    failures: list[ScanFailure] = []
+    try:
+        os.makedirs(CHARACTERS_DIR, exist_ok=True)
+        with _lock:
+            filenames = sorted(os.listdir(CHARACTERS_DIR))
+    except OSError as exc:
+        return ScanReport(
+            [],
+            [ScanFailure(CHARACTERS_DIR, None, f"{type(exc).__name__}: {exc}")],
+        )
+
+    for fname in filenames:
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(CHARACTERS_DIR, fname)
+        owner_id = fname[:-5]
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                sheet = json.load(handle)
+            if not isinstance(sheet, dict):
+                raise ValueError("character root must be a JSON object")
+            stored_uid = sheet.get("user_id")
+            if stored_uid is None:
+                # The filename is authoritative for legacy sheets without user_id.
+                sheet["user_id"] = owner_id
+            elif str(stored_uid) != owner_id:
+                raise ValueError(
+                    f"character user_id {stored_uid!r} does not match filename owner {owner_id!r}"
+                )
+            _migrate_inventory(sheet)
+            _migrate_hp_bonuses(sheet)
+            _migrate_quests(sheet)
+            _migrate_advancement_pending(sheet)
+            records.append(sheet)
+        except FileNotFoundError:
+            # A concurrent delete after directory enumeration is not corruption.
+            continue
+        except Exception as exc:
+            failures.append(
+                ScanFailure(path, owner_id, f"{type(exc).__name__}: {str(exc)[:180]}")
+            )
+    return ScanReport(records, failures)
+
 
 def _load_all_sync() -> List[Dict[str, Any]]:
-    os.makedirs(CHARACTERS_DIR, exist_ok=True)
-    sheets = []
-    with _lock:
-        for fname in os.listdir(CHARACTERS_DIR):
-            if not fname.endswith(".json"):
-                continue
-            try:
-                with open(os.path.join(CHARACTERS_DIR, fname), 'r', encoding='utf-8') as f:
-                    sheet = json.load(f)
-                    _migrate_inventory(sheet)
-                    _migrate_hp_bonuses(sheet)
-                    _migrate_quests(sheet)
-                    _migrate_advancement_pending(sheet)
-                    sheets.append(sheet)
-            except (json.JSONDecodeError, OSError):
-                continue
-    return sheets
+    """Backward-compatible synchronous list scan with visible diagnostics."""
+    report = _load_all_sync_report()
+    log_scan_failures("character sheets", report)
+    return report.records
 
 def _serialise(sheet: Dict[str, Any]) -> str:
     sheet["last_updated"] = time.time()
