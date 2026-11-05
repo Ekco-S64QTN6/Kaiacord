@@ -227,18 +227,24 @@ class RAGQueryMixin:
             for entry in getattr(self, "indexed_files", {}).values():
                 if node_id in entry.get("stale_nodes", []):
                     return True
-        # BM25 may hold a detached pre-marker copy. Re-read the stored node by ID.
+        # BM25/vector retrieval may hold a detached pre-marker copy. Re-read
+        # the stored node by ID. In this app's SimpleVectorStore all live nodes
+        # also exist in the docstore; a vector-only ID is an orphan from a
+        # partial insert/delete and must never reach a prompt.
+        found_in_docstore = False
         for index in getattr(self, "indices", {}).values():
             try:
                 docstore = index.storage_context.docstore
                 if not docstore.document_exists(node_id):
                     continue
+                found_in_docstore = True
                 current = docstore.get_node(node_id, raise_error=False)
                 if current is not None and (getattr(current, "metadata", {}) or {}).get("_rag_replacement_stale"):
                     return True
             except Exception:
-                continue
-        return False
+                # Fail closed if the candidate's authoritative store cannot be read.
+                return True
+        return not found_in_docstore
 
     def _title_match(self, query_words: set, fname_stops: set,
                      strict_identity: bool = False,

@@ -803,3 +803,11 @@ def test_marking_stale_nodes_invalidates_cached_bm25_and_rejects_detached_candid
         str(doc.resolve()): {"nodes": [], "stale_nodes": [stale_id], "itype": "knowledge"}
     }
     assert query._is_stale_replacement_node(detached)
+
+    # If the manifest was also lost and a partial vector survives without its
+    # docstore node, the scoring gate must still reject the orphan by ID.
+    index = ix.indices["knowledge"]
+    index.docstore.delete_document(stale_id, raise_error=False)
+    assert stale_id in ix._vector_ids(index)
+    query.indexed_files = {}
+    assert query._is_stale_replacement_node(detached)
