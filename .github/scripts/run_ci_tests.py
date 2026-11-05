@@ -36,7 +36,11 @@ RELATED_TESTS = {
     "Kaiacord.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
     "utils/core/kaia_rag_query.py": ("tools/tests/unit/test_rag_identity_scoping.py",),
     "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py",),
-    "utils/infrastructure/system/shutdown_fixed.py": ("tools/tests/unit/test_telemetry_honesty.py",),
+    "utils/infrastructure/system/shutdown_fixed.py": (
+        "tools/tests/unit/test_telemetry_honesty.py",
+        "tools/tests/unit/test_async_task_registry.py",
+    ),
+    "utils/infrastructure/monitoring/async_task_registry.py": ("tools/tests/unit/test_async_task_registry.py",),
     "utils/core/context_enricher.py": (
         "tools/tests/unit/test_context_enricher_files.py",
         "tools/tests/unit/test_context_enricher_links.py",

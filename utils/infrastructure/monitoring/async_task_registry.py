@@ -122,44 +122,70 @@ class AsyncTaskRegistry:
         """
         with self._lock:
             self._shutdown_requested = True
-            tasks = list(self._tasks.values())
-            task_names = list(self._tasks.keys())
-        
-        if not tasks:
+            # Drop already-completed entries before taking the shutdown snapshot.
+            # Their done callbacks normally do this; pruning here also handles a
+            # callback that has not had its next event-loop turn yet.
+            self._tasks = {name: task for name, task in self._tasks.items() if not task.done()}
+            tracked = self._tasks.copy()
+
+        if not tracked:
             logger.log("No async tasks to cancel", "INFO")
             return 0
-        
-        logger.log(f"Cancelling {len(tasks)} async tasks: {', '.join(task_names[:5])}{'...' if len(task_names) > 5 else ''}", "ACTION")
-        
-        # Cancel all tasks
+
+        # A task may have been registered under more than one name. Cancel and
+        # wait for each task object exactly once.
+        tasks = list(dict.fromkeys(tracked.values()))
+        task_names = list(tracked.keys())
+        logger.log(
+            f"Cancelling {len(tasks)} async tasks: "
+            f"{', '.join(task_names[:5])}{'...' if len(task_names) > 5 else ''}",
+            "ACTION",
+        )
+
         cancelled_count = 0
         for task in tasks:
             if not task.done():
-                task.cancel()
+                self._cancel_task(task)
                 cancelled_count += 1
-        
-        if cancelled_count == 0:
+
+        if not cancelled_count:
+            with self._lock:
+                self._tasks = {name: task for name, task in self._tasks.items() if not task.done()}
             logger.log("All tasks already completed", "INFO")
             return 0
-        
-        # Wait for all tasks with timeout
+
+        # Do not use wait_for(gather(...)) here. wait_for cancels the gather
+        # and then waits for child cancellation to finish; a task that suppresses
+        # CancelledError can therefore make the advertised timeout unbounded.
+        # asyncio.wait returns at the deadline without cancelling the children
+        # again, so tasks that have not stopped remain visible in the registry.
         try:
-            await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=True),
-                timeout=timeout
-            )
-            logger.log(f"All {cancelled_count} tasks cancelled cleanly", "SUCCESS")
-        except asyncio.TimeoutError:
-            # Some tasks didn't complete in time
-            still_pending = sum(1 for t in tasks if not t.done())
-            logger.log(f"Timeout waiting for tasks - {still_pending} still pending", "WARNING")
+            _done, pending = await asyncio.wait(tasks, timeout=timeout)
         except Exception as e:
             logger.log(f"Error during task cancellation: {e}", "ERROR")
-        
-        # Clear registry
+            pending = {task for task in tasks if not task.done()}
+
+        # Keep pending tasks tracked. Their existing done callbacks remove them
+        # when they finally finish. Shutdown callers can then see that cleanup
+        # is incomplete rather than persisting/closing resources as though all
+        # background work had stopped.
         with self._lock:
-            self._tasks.clear()
-        
+            self._tasks = {name: task for name, task in self._tasks.items() if not task.done()}
+
+        if pending:
+            pending_names = [
+                name for name, task in tracked.items()
+                if task in pending
+            ]
+            logger.log(
+                f"Timed out waiting for tasks; {len(pending)} remain running "
+                f"and stay tracked: {', '.join(pending_names[:5])}"
+                f"{'...' if len(pending_names) > 5 else ''}",
+                "WARNING",
+            )
+        else:
+            logger.log(f"All {cancelled_count} tasks cancelled cleanly", "SUCCESS")
+
         return cancelled_count
     
     def force_clear(self) -> int:

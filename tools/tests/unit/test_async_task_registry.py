@@ -312,3 +312,100 @@ async def test_registration_racing_shutdown_is_cancelled_not_left_pending():
     assert not worker.is_alive()
     assert registry.get_all_tasks() == {}
     assert task.cancelled_state, "task racing shutdown was not cancelled"
+
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_respects_timeout_and_keeps_cancellation_suppressing_tasks_tracked():
+    """A task that catches cancellation must not make the timeout unbounded or disappear."""
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    registry = AsyncTaskRegistry()
+    started = asyncio.Event()
+    cancellation_seen = asyncio.Event()
+    release = asyncio.Event()
+
+    async def cancellation_suppressing_task():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancellation_seen.set()
+            # Simulate cleanup that outlives the registry's shutdown deadline.
+            await release.wait()
+
+    task = asyncio.create_task(cancellation_suppressing_task())
+    registry.register("slow_cleanup", task)
+    await started.wait()
+
+    loop = asyncio.get_running_loop()
+    began = loop.time()
+    cancelled = await registry.cancel_all(timeout=0.05)
+    elapsed = loop.time() - began
+
+    assert cancelled == 1
+    assert elapsed < 0.5, f"cancel_all exceeded its timeout: {elapsed:.3f}s"
+    assert cancellation_seen.is_set()
+    assert not task.done()
+    assert registry.get_pending_count() == 1
+    assert any(pending is task for pending in registry.get_all_tasks().values())
+
+    release.set()
+    await asyncio.wait_for(task, timeout=1.0)
+    await asyncio.sleep(0)  # Let the registered done callback remove the task.
+    assert registry.get_pending_count() == 0
+    assert registry.get_all_tasks() == {}
+
+
+
+@pytest.mark.asyncio
+async def test_shutdown_does_not_close_shared_resources_while_cancelled_task_is_still_running(monkeypatch):
+    """A timeout leaves shared resources open until the process's emergency exit."""
+    import sys
+    import types
+    from unittest.mock import AsyncMock, Mock
+
+    from utils.infrastructure.monitoring.async_task_registry import task_registry
+    from utils.infrastructure.system.shutdown_fixed import CleanShutdown
+
+    # Keep shutdown's unrelated voice/radio preflight paths deterministic.
+    strudel = types.ModuleType("utils.audio.strudel_session")
+    strudel.active_sessions = lambda: []
+    strudel.stop_all = AsyncMock()
+    records = types.ModuleType("utils.audio.records")
+    records.stop_all = AsyncMock()
+    radio_live = types.ModuleType("utils.radio.live")
+    radio_live.active = lambda: False
+    radio_live.stop_all = AsyncMock()
+    scanner = types.ModuleType("utils.radio.scanner")
+    scanner.shutdown = AsyncMock()
+    for name, module in (
+        ("utils.audio.strudel_session", strudel),
+        ("utils.audio.records", records),
+        ("utils.radio.live", radio_live),
+        ("utils.radio.scanner", scanner),
+    ):
+        monkeypatch.setitem(sys.modules, name, module)
+
+    # "from utils.radio import scanner" may reuse an already-loaded package
+    # attribute, so replace package attributes as well as sys.modules entries.
+    import utils.audio
+    import utils.radio
+    monkeypatch.setattr(utils.audio, "strudel_session", strudel, raising=False)
+    monkeypatch.setattr(utils.audio, "records", records, raising=False)
+    monkeypatch.setattr(utils.radio, "live", radio_live, raising=False)
+    monkeypatch.setattr(utils.radio, "scanner", scanner, raising=False)
+
+    monkeypatch.setattr(task_registry, "cancel_all", AsyncMock(return_value=1))
+    monkeypatch.setattr(task_registry, "get_pending_count", lambda: 1)
+
+    rag = Mock()
+    app_ctx = types.SimpleNamespace(ollama_client=object(), close=AsyncMock())
+    shutdown = CleanShutdown()
+    shutdown.register_rag(rag)
+
+    await shutdown.async_shutdown(app_ctx)
+
+    rag.persist.assert_not_called()
+    app_ctx.close.assert_not_awaited()
+    assert shutdown._shutdown_complete.is_set() is False
