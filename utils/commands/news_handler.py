@@ -1,5 +1,5 @@
 """
-!news           — today's brief: the summary and numbered headlines.
+!news           — latest filed global brief: the summary and numbered headlines.
 !news N         — story N in full, with related items from today and earlier briefs.
 !news <category> — a category feed (technology, security, politics, ...).
 
@@ -7,6 +7,7 @@ The headlines and the stories come from the latest filed news brief
 (`utils.news.brief`), so `!news 5` always opens what `!news` listed as 5.
 """
 import asyncio
+from datetime import datetime
 
 from utils.commands.embed_style import (
     COLOR_ERROR, COLOR_NEWS, add_field, box, clean)
@@ -56,6 +57,14 @@ def overview_embed(brief):
     for section, items in by_section.items():
         value = "\n".join(f"**{s.number}.** {clean(briefs.headline(s.text), 150)}" for s in items)
         add_field(embed, briefs.section_title(section), value)
+    if brief.date and brief.date.date() < datetime.now().date():
+        add_field(
+            embed,
+            "Brief status",
+            f"The latest global brief on file is dated {_short_day(brief.date)}. "
+            "Today's global brief was not filed; the independent technology feed may "
+            "still be current with !news technology.",
+        )
     return embed, len(stories)
 
 
@@ -101,7 +110,10 @@ async def handle_news_command(ctx, msg, send_kaia_response):
             latest, earlier = await asyncio.to_thread(_load, bool(number))
             if latest is None:
                 await msg.channel.send(embed=box(
-                    "📰  News", "No news brief has been filed yet.", COLOR_ERROR))
+                    "📰  News",
+                    "No global news brief has been filed yet. The independent tech feed may "
+                    "still be available with !news technology.",
+                    COLOR_ERROR))
                 log_warning("No news brief files found")
                 return
             if number:
@@ -114,7 +126,7 @@ async def handle_news_command(ctx, msg, send_kaia_response):
 
         category = arg
         log_action(f"News request from {msg.author} (Category: {category})")
-        news_items = await ctx.news_manager.get_news_async(category)
+        news_items = await ctx.news_manager.get_news_async(category, limit=6)
         items = []
         for item in news_items or []:
             text = item.get('text', str(item)) if isinstance(item, dict) else str(item)

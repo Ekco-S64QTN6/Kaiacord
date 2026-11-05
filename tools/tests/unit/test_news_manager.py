@@ -58,3 +58,96 @@ def test_sync_get_news_does_not_call_refresh_under_the_cache_lock(tmp_path, monk
     monkeypatch.setattr(manager, "refresh", guarded_refresh)
 
     assert manager.get_news()
+
+
+
+def test_generated_tech_digest_parses_as_one_story_per_headline(tmp_path, monkeypatch):
+    """The scraper's digest format must match NewsManager's story parser."""
+    from tools.maintenance.scrape_tech_news import TechNewsScraper
+
+    scraper = TechNewsScraper.__new__(TechNewsScraper)
+    scraper.today = "2026-11-05"
+    monkeypatch.setattr(
+        scraper, "generate_executive_summary",
+        lambda _body: "Two technical developments were reported.",
+    )
+    markdown, count = scraper.generate_digest_markdown([
+        {
+            "title": "A new model release",
+            "source": "Hacker News",
+            "url": "https://example.test/model",
+            "summary": "The project published a new model and technical report.",
+        },
+        {
+            "title": "A cloud platform update",
+            "source": "Ars Technica",
+            "url": "https://example.test/cloud",
+            "summary": "The provider announced a platform infrastructure change.",
+        },
+        {
+            "title": "A new model release",
+            "source": "Duplicate",
+            "url": "https://example.test/duplicate",
+            "summary": "This duplicate must not become a separate story.",
+        },
+    ])
+    assert count == 2
+
+    digest = tmp_path / "tech_updates" / "tech_digest_20261105.md"
+    digest.parent.mkdir(parents=True)
+    digest.write_text(markdown, encoding="utf-8")
+
+    manager = NewsManager(base_path=str(tmp_path))
+    manager.refresh()
+    items = manager.get_news("technology", limit=10)
+    texts = [item["text"] for item in items]
+
+    assert len(texts) == 2
+    assert "A new model release" in texts[0]
+    assert "new model and technical report" in texts[0]
+    assert "Hacker News" in texts[0]
+    assert "https://example.test/model" in texts[0]
+    assert "A cloud platform update" in texts[1]
+    assert not any(text.startswith("Source:") for text in texts)
+    assert not any(text.startswith("Reference:") for text in texts)
+
+
+
+@pytest.mark.asyncio
+async def test_news_scheduler_reports_partial_when_grounded_brief_fails_but_tech_succeeds(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from utils.core import background_tasks
+
+    manager = background_tasks.CoreTaskManager.__new__(background_tasks.CoreTaskManager)
+    manager.ctx = SimpleNamespace(rag=None, news_manager=SimpleNamespace(refresh=lambda: None))
+    manager._communicate_or_kill = AsyncMock(side_effect=[
+        (b"Gemini empty response after five attempts", b"Traceback: grounded brief failed"),
+        (b"Saved 18 technical stories", b""),
+    ])
+
+    processes = [
+        SimpleNamespace(returncode=1),  # Grounded global brief failed.
+        SimpleNamespace(returncode=0),  # Independent tech digest succeeded.
+    ]
+
+    async def fake_create_subprocess_exec(*_args, **_kwargs):
+        return processes.pop(0)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    successes, warnings, errors, debug = [], [], [], []
+    monkeypatch.setattr(background_tasks, "log_success", successes.append)
+    monkeypatch.setattr(background_tasks, "log_warning", warnings.append)
+    monkeypatch.setattr(background_tasks, "log_error", errors.append)
+    monkeypatch.setattr(background_tasks, "log_debug", debug.append)
+
+    await manager.run_news_update()
+
+    assert any("News refresh partially completed" in line for line in warnings)
+    assert not any("Integrated news refresh completed" in line for line in successes)
+    assert any("Gemini empty response" in line for line in debug)
+    assert any("grounded global brief unavailable" in line for line in warnings)
+    assert any("Daily tech news aggregator completed successfully" in line for line in successes)

@@ -180,22 +180,29 @@ class TechNewsScraper:
         body_lines = ["## Key Tech & AI Updates\n"]
         
         seen_titles = set()
+        included_titles = []
         count = 0
         for item in items:
             title = item["title"].strip()
             if not title or title.lower() in seen_titles:
                 continue
             seen_titles.add(title.lower())
-            
-            body_lines.append(f"### {title}")
-            body_lines.append(f"* **Source**: {item['source']}")
-            if item.get("url"):
-                body_lines.append(f"* **Reference**: {item['url']}")
+            included_titles.append(title)
+
+            # NewsManager consumes one bullet as one story. The old H3 + three
+            # metadata bullets caused the title to be discarded and Source,
+            # Reference, and Details to appear as three unrelated headlines.
+            story = f"- **{title}**"
             if item.get("summary"):
-                body_lines.append(f"* **Details**: {item['summary'].strip()}")
+                story += f" — {item['summary'].strip()}"
             elif item.get("score"):
-                body_lines.append(f"* **Details**: Highly discussed item (Score: {item['score']} points)")
-            body_lines.append("")
+                story += f" — Highly discussed item (Score: {item['score']} points)"
+            source = item.get("source", "Unknown")
+            if item.get("url"):
+                story += f" · [Source: {source}]({item['url']})"
+            else:
+                story += f" · Source: {source}"
+            body_lines.append(story)
             count += 1
             if count >= 20:  # Prevent oversized files
                 break
@@ -209,7 +216,7 @@ class TechNewsScraper:
         # the day's digest is rewritten on every scrape, so a summary left for
         # the nightly enrichment to fill was wiped again a few hours later.
         from utils.core.frontmatter import dump_frontmatter
-        titles = [i.get("title", "") for i in items[:count]]
+        titles = included_titles
         front = dump_frontmatter({"title": f"Tech Digest: {self.today}",
                                   "summary": " ".join(exec_summary.split())[:400],
                                   "keywords": _keywords(titles),
