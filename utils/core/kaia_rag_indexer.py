@@ -647,9 +647,19 @@ class RAGIndexerMixin:
         for node_id in dict.fromkeys(node_ids):
             node = index.docstore.get_node(node_id, raise_error=False)
             if node is not None:
+                marker_keys = ["_rag_replacement_stale"]
                 node.metadata["_rag_replacement_stale"] = True
                 if reindex_required:
+                    marker_keys.append("_rag_reindex_required")
                     node.metadata["_rag_reindex_required"] = True
+                # These internal recovery flags must not leak into retrieval
+                # text or be fed to an embedding in any later reindex pass.
+                for attr_name in ("excluded_llm_metadata_keys", "excluded_embed_metadata_keys"):
+                    excluded = list(getattr(node, attr_name, []) or [])
+                    for key in marker_keys:
+                        if key not in excluded:
+                            excluded.append(key)
+                    setattr(node, attr_name, excluded)
 
     def _record_partial_insert_cleanup(self, abs_path: str, itype: str, node_ids) -> bool:
         """Retain and mark partial insertions when rollback itself cannot fully delete them."""
@@ -831,6 +841,9 @@ class RAGIndexerMixin:
                         entry.pop("stale_nodes", None)
                     if len(remaining) < len(stale):
                         changed.add(itype)
+                    self._file_to_nodes[path] = (
+                        list(entry.get("nodes", [])) + list(entry.get("stale_nodes", []))
+                    )
         return changed, manifest_changed
 
     def _save_indexed_files(self):

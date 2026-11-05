@@ -475,6 +475,10 @@ def test_partial_old_node_delete_keeps_new_replacement_and_retries_leftovers(ind
     entry = ix.indexed_files[abs_path]
     assert entry["nodes"]
     assert entry["stale_nodes"] == [old_two]
+    stale_node = ix.indices["knowledge"].docstore.get_node(old_two)
+    assert stale_node.metadata["_rag_replacement_stale"] is True
+    assert "_rag_replacement_stale" in stale_node.excluded_llm_metadata_keys
+    assert "_rag_replacement_stale" in stale_node.excluded_embed_metadata_keys
     assert not ix.indices["knowledge"].docstore.document_exists(old_one)
     assert ix.indices["knowledge"].docstore.document_exists(old_two)
     assert all(ix.indices["knowledge"].docstore.document_exists(n) for n in entry["nodes"])
@@ -617,6 +621,7 @@ def test_partial_log_insert_rollback_is_tracked_and_retried_as_full_rewrite(inde
         str(log), True, True, "logs", str(kb / "_quarantine" / "corrupt_files")
     )
     entry = ix.indexed_files[abs_path]
+    partial_node_id = entry["stale_nodes"][0]
     assert entry["nodes"] == old_nodes
     assert entry["reindex_required"] is True
     assert len(entry["stale_nodes"]) == 1
@@ -631,6 +636,7 @@ def test_partial_log_insert_rollback_is_tracked_and_retried_as_full_rewrite(inde
     assert "reindex_required" not in new_entry
     assert "stale_nodes" not in new_entry
     assert all(not index.docstore.document_exists(node_id) for node_id in old_nodes)
+    assert not index.docstore.document_exists(partial_node_id)
     assert any(
         "corrected replacement answer" in index.docstore.get_node(node_id).text
         for node_id in new_entry["nodes"]
