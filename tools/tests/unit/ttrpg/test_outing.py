@@ -130,6 +130,66 @@ def test_legacy_daily_and_untold_records_adopt_filename_owner(in_tmp):
             assert "uid" not in json.load(handle)
 
 
+def test_daily_merge_rejects_wrong_owner_and_keeps_open_outing(in_tmp):
+    day = outing._local_day()
+    open_path = outing._path("alice")
+    daily_path = outing._daily_path("alice", day)
+    os.makedirs(outing.DAILY_DIR, exist_ok=True)
+    open_record = {
+        "uid": "alice",
+        "outing_id": "alice_trip",
+        "day": day,
+        "started": 1,
+        "zones": ["whisperwood_edge"],
+        "fights": [{"monster": "cave bat"}],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 10,
+        "gil": 2,
+        "loot": [],
+        "levels": [],
+    }
+    wrong_daily = {
+        "uid": "bob",
+        "day": day,
+        "zones": ["trade_road"],
+        "fights": [],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 99,
+        "gil": 99,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": ["bob_trip"],
+        "trips": 1,
+    }
+    os.makedirs(os.path.dirname(open_path), exist_ok=True)
+    with open(open_path, "w", encoding="utf-8") as handle:
+        json.dump(open_record, handle)
+    with open(daily_path, "w", encoding="utf-8") as handle:
+        json.dump(wrong_daily, handle)
+
+    with pytest.raises(RuntimeError, match="does not match filename owner"):
+        outing._take_sync("alice", {
+            "uid": "alice",
+            "uname": "Ash",
+            "reason": "came back",
+            "ended": 2,
+            "sheet": {"user_id": "alice"},
+            "day": day,
+        })
+
+    with open(open_path, encoding="utf-8") as handle:
+        assert json.load(handle) == open_record
+    with open(daily_path, encoding="utf-8") as handle:
+        assert json.load(handle) == wrong_daily
+
+
 def test_daily_outing_owner_mismatch_is_preserved_during_finalization(in_tmp):
     day = outing._local_day()
     os.makedirs(outing.DAILY_DIR, exist_ok=True)
@@ -234,7 +294,8 @@ def test_untold_outing_owner_mismatch_is_not_narrated_or_posted(in_tmp, monkeypa
     assert asyncio.run(outing.tell_untold(ctx)) == 0
     ctx.ollama_client.chat.assert_not_awaited()
     assert os.path.exists(path)
-    assert json.loads(open(path, encoding="utf-8").read()) == record
+    with open(path, encoding="utf-8") as handle:
+        assert json.load(handle) == record
 
 
 def test_closing_with_nothing_recorded_tells_nothing(in_tmp):
