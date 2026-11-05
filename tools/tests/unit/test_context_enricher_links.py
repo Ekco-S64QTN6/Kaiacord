@@ -384,7 +384,14 @@ def test_pdf_worker_cpu_limit_terminates_a_cpu_bound_child(monkeypatch, tmp_path
     import time
 
     loop_started = tmp_path / "cpu-loop-started"
-    script = ce._PDF_WORKER_SCRIPT + (
+    configured_cpu_limit = f"cpu_limit = {ce.MAX_PDF_PARSE_CPU_SECONDS}"
+    assert configured_cpu_limit in ce._PDF_WORKER_SCRIPT
+    # Keep this probe short and deterministic across shared CI runners while
+    # exercising the exact resource.setrlimit call used in production.
+    worker_script = ce._PDF_WORKER_SCRIPT.replace(
+        configured_cpu_limit, "cpu_limit = 1", 1
+    )
+    script = worker_script + (
         "\nfrom pathlib import Path\n"
         f"Path({str(loop_started)!r}).write_text('started')\n"
         "while True:\n    pass\n"
