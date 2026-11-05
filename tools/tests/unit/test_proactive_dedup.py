@@ -148,3 +148,28 @@ def test_legacy_trigger_without_source_category_is_supported_or_rejected_cleanly
     saved = json.loads(path.read_text(encoding="utf-8"))["history"]
     assert saved[-1]["source"] == "mood_reflection"
     assert saved[-1]["channel_id"] == 789
+
+
+def test_sent_broadcast_is_recorded_even_if_bot_state_save_fails(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    engine, path = _engine(tmp_path, monkeypatch)
+
+    class BrokenState:
+        relationships = {}
+
+        def save(self):
+            raise OSError("simulated state disk failure")
+
+    trigger = SimpleNamespace(
+        trigger_type="mood_reflection",
+        channel_id=789,
+        content_id="",
+        target_user=None,
+    )
+    engine.record_sent(BrokenState(), trigger, "this was delivered.")
+
+    saved = json.loads(path.read_text(encoding="utf-8"))["history"]
+    assert saved[-1]["summary"] == "this was delivered."
+    assert saved[-1]["source"] == "mood_reflection"
