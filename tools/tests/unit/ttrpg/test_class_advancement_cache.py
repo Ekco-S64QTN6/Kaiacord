@@ -1,6 +1,8 @@
 """The wealthiest-title background refresh is single-flight and publishes atomically."""
 import json
 
+import pytest
+
 from utils.ttrpg import class_advancement as ca
 
 
@@ -137,6 +139,47 @@ def test_boolean_character_balance_withholds_wealthiest_title(tmp_path, monkeypa
     (directory / "42.json").write_text(json.dumps({
         "user_id": "42", "gil": True, "bank_balance": 2500,
     }), encoding="utf-8")
+
+    monkeypatch.setattr(ca, "_WEALTHIEST_CACHE", {
+        "timestamp": 0, "uid": None, "updating": False,
+    })
+
+    class InlineThread:
+        def __init__(self, target, daemon=False):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(ca.threading, "Thread", InlineThread)
+
+    assert ca._is_wealthiest({"user_id": "42"}) is False
+    assert ca._WEALTHIEST_CACHE["uid"] is None
+    assert ca._WEALTHIEST_CACHE["timestamp"] > 0
+    assert ca._WEALTHIEST_CACHE["updating"] is False
+
+
+@pytest.mark.parametrize(
+    "field,raw_value",
+    [
+        ("gil", "NaN"),
+        ("gil", "Infinity"),
+        ("bank_balance", "-Infinity"),
+    ],
+)
+def test_non_finite_character_balances_withhold_wealthiest_title(
+    tmp_path, monkeypatch, field, raw_value
+):
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "memory" / "ttrpg" / "characters"
+    directory.mkdir(parents=True)
+    balances = {"gil": "1200", "bank_balance": "0"}
+    balances[field] = raw_value
+    (directory / "42.json").write_text(
+        '{"user_id":"42","gil":' + balances["gil"] +
+        ',"bank_balance":' + balances["bank_balance"] + '}',
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(ca, "_WEALTHIEST_CACHE", {
         "timestamp": 0, "uid": None, "updating": False,
