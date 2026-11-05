@@ -527,3 +527,62 @@ def test_a_direct_message_never_reaches_a_thought():
         t["private"] = True
     prompt = _observe(InnerMonologue(), {"111111111111111111": turns})
     assert prompt is None or "between us" not in prompt
+
+
+
+def test_a_fabricated_quote_gets_one_quote_free_retry_and_is_revalidated():
+    import asyncio
+    from utils.core.background_tasks import CoreTaskManager as M
+
+    conversation = "Ekco: the rover is still losing its left wheel\nStarkind: the cat knocked over the plant"
+    calls = []
+
+    async def retry():
+        calls.append("retry")
+        return "i keep thinking about how both problems are really about things coming loose."
+
+    recovered, did_retry, remaining = asyncio.run(M._recover_unverified_digest(
+        'i keep thinking about "the rover is doomed" and the cat.', conversation, retry
+    ))
+
+    assert calls == ["retry"]
+    assert did_retry is True
+    assert remaining == []
+    assert recovered == "i keep thinking about how both problems are really about things coming loose."
+    assert M._unverified_quotes(recovered, conversation) == []
+
+
+def test_a_quote_free_retry_that_still_fabricates_a_quote_is_rejected():
+    import asyncio
+    from utils.core.background_tasks import CoreTaskManager as M
+
+    conversation = "Ekco: the rover is still losing its left wheel"
+    calls = []
+
+    async def retry():
+        calls.append("retry")
+        return 'i keep thinking about "mission control gave up".'
+
+    recovered, did_retry, remaining = asyncio.run(M._recover_unverified_digest(
+        'i keep thinking about "the rover is doomed".', conversation, retry
+    ))
+
+    assert calls == ["retry"]
+    assert did_retry is True
+    assert recovered is None
+    assert remaining == ["mission control gave up"]
+
+
+def test_a_valid_digest_does_not_spend_a_retry():
+    import asyncio
+    from utils.core.background_tasks import CoreTaskManager as M
+
+    async def should_not_run():
+        raise AssertionError("a valid digest must not be regenerated")
+
+    result, did_retry, remaining = asyncio.run(M._recover_unverified_digest(
+        "i keep thinking about the rover's loose wheel.", "Ekco: rover wheel is loose", should_not_run
+    ))
+    assert result == "i keep thinking about the rover's loose wheel."
+    assert did_retry is False
+    assert remaining == []
