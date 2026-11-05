@@ -385,9 +385,9 @@ def test_pdf_worker_cpu_limit_terminates_a_cpu_bound_child(monkeypatch, tmp_path
 
     loop_started = tmp_path / "cpu-loop-started"
     script = ce._PDF_WORKER_SCRIPT + (
-        "\\nfrom pathlib import Path\\n"
-        f"Path({str(loop_started)!r}).write_text('started')\\n"
-        "while True:\\n    pass\\n"
+        "\nfrom pathlib import Path\n"
+        f"Path({str(loop_started)!r}).write_text('started')\n"
+        "while True:\n    pass\n"
     )
     monkeypatch.setattr(ce, "_PDF_WORKER_SCRIPT", script)
     real_run = ce.subprocess.run
