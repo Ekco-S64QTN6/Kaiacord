@@ -352,7 +352,9 @@ def _is_wealthiest(sheet: dict) -> bool:
         if not _WEALTHIEST_CACHE["updating"]:
             _WEALTHIEST_CACHE["updating"] = True
             start_refresh = True
-        stale_uid = _WEALTHIEST_CACHE["uid"]
+        # Once the cache expires, do not continue awarding a possibly stale
+        # global title while the population is being rescanned.
+        stale_uid = None
 
     if start_refresh:
         def _update_cache():
@@ -360,6 +362,8 @@ def _is_wealthiest(sheet: dict) -> bool:
             max_gil = 0
             successful_scan = False
             try:
+                import math
+                import os
                 from utils.ttrpg.character_manager import (
                     CHARACTERS_DIR, _load_all_sync_report,
                 )
@@ -394,6 +398,8 @@ def _is_wealthiest(sheet: dict) -> bool:
                     # A global winner cannot be inferred from a partial or
                     # malformed population. Publish no winner, never a guess.
                     log_scan_failures("character sheets", report)
+                    richest_uid = None
+                    max_gil = 0
                     successful_scan = True
                     return
 
@@ -402,6 +408,8 @@ def _is_wealthiest(sheet: dict) -> bool:
                 from utils.infrastructure.logging.kaia_logger import log_warning
                 log_warning(f"[rpg titles] Wealthiest refresh failed; title withheld: {exc}")
                 # Failure is not evidence that the cached winner is still richest.
+                richest_uid = None
+                max_gil = 0
                 successful_scan = True
             finally:
                 # Publish all cache fields together. A caller can never observe

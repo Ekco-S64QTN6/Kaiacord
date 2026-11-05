@@ -93,9 +93,9 @@ def test_incomplete_character_scan_withholds_wealthiest_title(tmp_path, monkeypa
 
     monkeypatch.setattr(ca.threading, "Thread", InlineThread)
 
-    # The first request uses the stale snapshot while the refresh runs.
-    # Once the scan completes, no player may retain the global title.
-    assert ca._is_wealthiest({"user_id": "42"}) is True
+    # An expired winner is withheld while the refresh runs, and the
+    # incomplete scan must not replace it with a partial-population winner.
+    assert ca._is_wealthiest({"user_id": "42"}) is False
     assert ca._WEALTHIEST_CACHE["uid"] is None
     assert ca._WEALTHIEST_CACHE["timestamp"] > 0
     assert ca._WEALTHIEST_CACHE["updating"] is False
