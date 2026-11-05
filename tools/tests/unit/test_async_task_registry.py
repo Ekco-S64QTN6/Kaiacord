@@ -387,6 +387,15 @@ async def test_shutdown_does_not_close_shared_resources_while_cancelled_task_is_
     ):
         monkeypatch.setitem(sys.modules, name, module)
 
+    # "from utils.radio import scanner" may reuse an already-loaded package
+    # attribute, so replace package attributes as well as sys.modules entries.
+    import utils.audio
+    import utils.radio
+    monkeypatch.setattr(utils.audio, "strudel_session", strudel, raising=False)
+    monkeypatch.setattr(utils.audio, "records", records, raising=False)
+    monkeypatch.setattr(utils.radio, "live", radio_live, raising=False)
+    monkeypatch.setattr(utils.radio, "scanner", scanner, raising=False)
+
     monkeypatch.setattr(task_registry, "cancel_all", AsyncMock(return_value=1))
     monkeypatch.setattr(task_registry, "get_pending_count", lambda: 1)
 
