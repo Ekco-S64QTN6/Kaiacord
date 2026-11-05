@@ -160,6 +160,48 @@ def test_daily_outing_owner_mismatch_is_preserved_during_finalization(in_tmp):
     assert os.listdir(outing.UNTOLD_DIR) == []
 
 
+def test_mismatched_existing_untold_target_does_not_discard_daily_source(in_tmp):
+    day = outing._local_day()
+    os.makedirs(outing.DAILY_DIR, exist_ok=True)
+    os.makedirs(outing.UNTOLD_DIR, exist_ok=True)
+    source = outing._daily_path("alice", day)
+    target = os.path.join(outing.UNTOLD_DIR, f"daily_{day}_alice.json")
+    daily_record = {
+        "uid": "alice",
+        "day": day,
+        "zones": ["whisperwood_edge"],
+        "fights": [],
+        "events": [],
+        "fight_count": 1,
+        "wins": 1,
+        "losses": 0,
+        "xp": 20,
+        "gil": 0,
+        "loot": [],
+        "levels": [],
+        "notes": {},
+        "trip_ids": ["alice_trip"],
+        "trips": 1,
+    }
+    wrong_pending = {
+        **daily_record,
+        "uid": "bob",
+        "trip_ids": ["bob_trip"],
+    }
+    with open(source, "w", encoding="utf-8") as handle:
+        json.dump(daily_record, handle)
+    with open(target, "w", encoding="utf-8") as handle:
+        json.dump(wrong_pending, handle)
+
+    assert outing._finalize_daily_sync(day) == []
+    assert os.path.exists(source)
+    assert os.path.exists(target)
+    with open(source, encoding="utf-8") as handle:
+        assert json.load(handle) == daily_record
+    with open(target, encoding="utf-8") as handle:
+        assert json.load(handle) == wrong_pending
+
+
 def test_untold_outing_owner_mismatch_is_not_narrated_or_posted(in_tmp, monkeypatch):
     day = outing._local_day()
     os.makedirs(outing.UNTOLD_DIR, exist_ok=True)
