@@ -48,7 +48,7 @@ def test_private_dm_does_not_update_cross_channel_memory():
     guarded_names = {
         "learn_from_interaction", "update_relationship", "save_event_async",
         "record_claim", "note_argument", "emotional_arc", "observe_exchange",
-        "desire_engine", "_write_and_rotate_growth_log", "_find_open_loop",
+        "desire_engine", "append_growth_event", "_find_open_loop",
         "write_atomic", "pending_afterthoughts",
     }
     found = set()

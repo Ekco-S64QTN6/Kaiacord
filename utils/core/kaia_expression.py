@@ -12,7 +12,6 @@ discharges her creative need.
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from typing import Optional
 
@@ -53,8 +52,8 @@ def remember(kind: str, line: str, *, channel_id: Optional[int] = None,
                  "summary": line[:300], "ts": time.time()}
         if detail:
             event["detail"] = detail
-        with open(telemetry_path("memory/growth_log.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps(event) + "\n")
+        from utils.core.growth_log import append_growth_event
+        append_growth_event(event, telemetry_path("memory/growth_log.jsonl"))
     except Exception as e:
         log_debug(f"[expression] growth log not updated: {e}")
 
