@@ -104,3 +104,13 @@ def test_rpg_lock_registry_changes_select_metrics_regressions():
             for path in selector["select_tests"]([source])
         }
         assert "tools/tests/unit/test_async_lock_metrics.py" in selected
+
+
+
+def test_background_task_changes_select_subprocess_lifecycle_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/core/background_tasks.py"])
+    }
+    assert "tools/tests/unit/test_background_task_processes.py" in selected
