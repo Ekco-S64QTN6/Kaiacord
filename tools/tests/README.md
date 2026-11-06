@@ -25,7 +25,7 @@ sat in `unit/` with no marker and embedded through the bot's own Ollama on every
 
 ```bash
 venv/bin/python3 -m pytest                                          # everything (loads gemma3:12b)
-venv/bin/python3 -m pytest -m "not ollama and not gpu and not slow" # no external services
+venv/bin/python3 -m pytest -m "not ollama and not gpu and not slow and not network" # no external services
 venv/bin/python3 -m pytest tools/tests/unit -q                      # just the fast ones
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent
 ```
