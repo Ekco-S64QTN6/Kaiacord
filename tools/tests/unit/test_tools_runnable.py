@@ -59,7 +59,7 @@ def _starts(path: Path):
 
 
 # One subprocess per tool, ~80 of them. That is a sweep, not a unit test, so it
-# is excluded from the default `-m "not ollama and not gpu and not slow"` run
+# is excluded from the default `-m "not ollama and not gpu and not slow and not network"` run
 # and invoked deliberately:
 #     venv/bin/python3 -m pytest tools/tests/unit/test_tools_runnable.py -q
 @pytest.mark.slow

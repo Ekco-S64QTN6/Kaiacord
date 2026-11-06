@@ -16,7 +16,7 @@ Core utility modules used by Kaiacord.
 | `kaia_intelligence.py` | Intelligence facade — coordinates intent matching, budgeting and enrichment |
 | `intent_classifier.py` | Intent detection by regex. No model — the `gemma2:2b` second pass was removed in Sept 2026 because its verdict was never read |
 | `context_optimizer.py` | The one context budget, and the labels retrieved chunks carry into the prompt |
-| `context_enricher.py` | Reply context, embeds, attachments and fetched pages, each in its own labelled block |
+| `context_enricher.py` | Reply context, embeds, attachments and fetched pages in labelled blocks; chat-linked PDFs use isolated child parsers with per-worker limits and a process-wide two-worker semaphore |
 | `message_context.py` | `MessageContext`, the state one turn carries through the pipeline |
 | `hallucination_detector.py` | Canonical detector for AI structural leaks and fabrications |
 | `message_processor.py` | The on_message pipeline: intent, retrieval, behavioural injections, generation with retries and salvage |
@@ -29,7 +29,7 @@ Core utility modules used by Kaiacord.
 | `ingress.py` | Files staged documents from `knowledge_base/_ingress/` into the corpus |
 | `frontmatter.py` | The one writer for YAML frontmatter blocks. Every corpus writer that built one with an f-string eventually produced invalid YAML. |
 | `timezone_helper.py` | 4-clock Newsroom Wall timezone engine (12-hour AM/PM format, IANA safety) |
-| `background_tasks.py` | Afterthoughts, dawn tasks, presence loops, and forum scheduling |
+| `background_tasks.py` | Integrated news refresh coordination, bounded transient retry, afterthoughts, dawn/presence loops, forum scheduling and source-checked observation-digest quotes |
 | `kaia_art.py` | Fractal flame renderer (CPU-only, NumPy/SciPy) |
 | `kaia_art_intent.py` | What she decides to make before a fractal is drawn |
 | `kaia_expression.py` | A set she played or a piece she made, remembered as something she did (marked `event`: a note in her prompt, not a turn of hers) |
@@ -45,7 +45,7 @@ Core utility modules used by Kaiacord.
 | `kaia_mood.py` | Persistent emotional state vector (valence/arousal/energy) with 6h decay |
 | `kaia_desires.py` | Needs vector (social/intellectual/creative/rest) driving whether she initiates |
 | `kaia_monologue.py` | Private thought stream from passive channel observation |
-| `kaia_proactive.py` | Autonomous conversation initiation (10-source trigger engine, gated by `kaia_desires`; `private_thought` opens with someone a dream or thought was about) |
+| `kaia_proactive.py` | Autonomous conversation initiation (10-source trigger engine, gated by `kaia_desires`); opener deduplication uses the first 16 punctuation-normalized lexical words over a one-hour, channel-aware window |
 | `unprompted.py` | The one gate, label picker and sender for everything she says unasked (daily cap, gap, quiet hours, Bluesky cross-post) |
 | `kaia_presence.py` | Mood-aware Discord status driven by emotional arc |
 | `memory_anchors.py` | Dream-extracted thematic anchors (100-cap) for cross-session callbacks; recalled ones kept as they age, faded ones offered as fragments |
@@ -225,13 +225,14 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `enhancement.py` & `town_projects.py` | Endgame gil sinks: gear rework +1..+5, and pooled gil for the town walls |
 | `housing.py`, `farming.py`, `pets.py`, `alchemy.py` | Estate management, harvesting, companions, brewing |
 | `furniture.py`, `look_targets.py`, `pantheon.py` | The furniture catalog, `!rpg look at` targets per location, and the pantheon |
-| `rpg_core_handler.py` | `!rpg` command dispatcher and compatibility/dependency adapters; delegates extracted domain actions rather than owning those command implementations |
+| `rpg_core_handler.py` | Compatibility/dependency adapters and remaining orchestration; the public `!rpg` dispatcher is `utils/commands/rpg_handler.py` |
 | `rpg_world_handler.py`, `rpg_navigation_handler.py`, `rpg_inventory_handler.py`, `rpg_recovery_handler.py`, `rpg_bank_handler.py`, `rpg_reference_handler.py`, `rpg_consumable_handler.py`, `rpg_gamble_handler.py`, `rpg_shrine_handler.py`, `rpg_scout_handler.py`, `rpg_advancement_handler.py`, `rpg_character_creation_handler.py`, `rpg_sheet_handler.py`, `rpg_status_handler.py`, `rpg_combat_handler.py`, `rpg_housing_handler.py`, `rpg_shop_handler.py`, `rpg_social_handler.py` | Domain handlers grouped by world/navigation, inventory/equipment, recovery/rest, banking, reference, consumables, gambling, Shrine, scouting, advancement, character creation, sheets/status, combat, housing, shop, and social actions |
 | `rpg_admin_handler.py` | Owner-only `!rpg give` and `!rpg heal`; locks caller and target in sorted UID order, taking one lock for self-targets |
 | `calendar.py` | Seasons, dynamic weather, and 13 special calendar holidays |
 | `quest_registry.py` | 12 progressive quests (L1–L15) |
 | `npc_registry.py` & `loot_tables.py` | NPC dialogue definitions and tiered drop tables |
 | `world.py`, `world_state.py` | The map, and the shared world (weather, events) saved in `memory/ttrpg/world_state.json` |
-| `rpg_*_handler.py`, `rpg_views.py`, `rpg_ui.py`, `session_manager.py` | Command routing by area, the Discord views, and sessions |
+| `session_manager.py` | Per-session file locks plus per-player action locks; combat takes channel then user, owner admin mutations take caller/target locks in sorted UID order |
+| `rpg_views.py`, `rpg_ui.py` | Discord component views, stale-safe controls and RPG display helpers |
 | `dice_engine.py`, `progression.py`, `encounter_tables.py`, `forest_events.py`, `micro_events.py` | Rolls (`secrets`), levelling, encounters and events |
 | `rpg_prompt_builder.py`, `narration.py`, `broadcast.py` | What the model is given to narrate, and posting it |

@@ -74,10 +74,10 @@ away; the hourly ingest pass retries anything that failed.
 ## Testing
 
 ```bash
-venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
+venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow and not network"
 ```
 
-Only a handful of tests need Ollama or the GPU; the rest run anywhere. Test runs log to
+The default command excludes tests marked `ollama`, `gpu`, `slow` and `network`; do not assume every remaining test is portable to every machine. Test runs log to
 `logs/kaiacord.test.log`, never to the production log.
 
 **A passing suite and a clean log are not proof that a feature works.** Both were trusted here for

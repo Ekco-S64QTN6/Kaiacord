@@ -21,7 +21,7 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 | Subsystem | Where | Summary |
 |:--|:--|:--|
 | **Kaia** | `utils/core/` | AI persona. Behavioural injections in `message_processor.py`, post-generation safety pipeline in `safety_pipeline.py` + `response_filter.py`, hybrid BM25 + vector RAG. |
-| **Aethelgard TTRPG** | `utils/ttrpg/` | Deterministic turn-based RPG, 77-floor mega-dungeon. `rpg_core_handler.py` is the command dispatcher and dependency-adapter layer; domain actions are split into dedicated `rpg_*_handler.py` modules. |
+| **Aethelgard TTRPG** | `utils/ttrpg/` | Deterministic turn-based RPG, 77-floor mega-dungeon. `utils/commands/rpg_handler.py` is the public `!rpg` command dispatcher; `utils/ttrpg/rpg_core_handler.py` is the compatibility/dependency-adapter and remaining orchestration layer; domain actions are split into dedicated `rpg_*_handler.py` modules. |
 | **Fractal art** | `utils/core/kaia_sheep.py` | Electric Sheep genomes rendered by flam3 (external, GPL); `kaia_art.py` is the NumPy fallback and the Mandelbrot renderer. |
 | **Music** | `utils/audio/` | Live-coded sets in a voice channel, driving Strudel in a real browser; `!music records` mixes the local library with a playable DJ booth. No LLM, no GPU — see [§7](#7-music-engine). |
 | **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X, each behind its own enable flag. |
@@ -58,7 +58,7 @@ not.
 
 ```bash
 venv/bin/python3 -m pytest -q                                            # whole suite; pytest.ini sets testpaths
-venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"   # no external services
+venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow and not network"   # no external services
 venv/bin/python3 -m pytest tools/tests/unit -q                           # just the fast ones
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py -q  # one file
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent   # one test
@@ -71,14 +71,10 @@ number has been stale in three files at once — CLAUDE.md, README and CONTRIBUT
 different one. Run it and read the tail; what matters is that nothing *failed*, not that the count
 matches a doc.
 
-The no-external-services invocation is the default because only **2** of ~3,200 tests need Ollama
-or a GPU (checked 23 Oct 2026 — take the figure from `--collect-only -m "ollama or gpu"`, not
-here). The rest of what it deselects is the ~54 marked `slow`. Two such tests were once unmarked
-until September 2026 and ran on every "no external services" invocation, embedding through the
-bot's own live Ollama — Ollama's journal (`journalctl -u ollama`) is where that showed up. A test
-that touches the daemon is marked `ollama`, whatever else it does. The full `pytest -q` additionally
-loads `gemma3:12b`, which evicts the production model from VRAM.
-
+The no-external-services invocation is the default. It excludes tests marked `ollama`, `gpu`,
+`slow` and `network`; do not record a fixed count because the suite changes as coverage grows.
+A test that touches the Ollama daemon, even only to embed, is marked `ollama`. The full `pytest -q`
+additionally loads `gemma3:12b`, which evicts the production model from VRAM.
 Markers are declared in `pytest.ini` under `--strict-markers`, so a typo'd marker is an error
 rather than a silently ignored one: `slow`, `gpu`, `ollama`, `network`, `integration`.
 

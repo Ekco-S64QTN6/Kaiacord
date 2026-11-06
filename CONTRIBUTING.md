@@ -31,10 +31,9 @@ otherwise, and why the failure surfaces hours later somewhere unrelated.
 ## Validating
 
 ```bash
-# The default invocation — no Ollama, no GPU
-venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-10-23: 3,134 passed, 2 skipped, 56 deselected, 1 xfailed. Take the count from your own run.
-# Re-run rather than trusting this line — the count moves every phase.
+# The default invocation — excludes Ollama, GPU, slow and network tests
+venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow and not network"
+# Test counts change as coverage grows; use the result from your own run.
 
 # One file, or one test
 venv/bin/python3 -m pytest tools/tests/unit/test_combat_concurrency.py -q
@@ -118,7 +117,7 @@ Open work, with a decision on each, is in [`docs/ROADMAP.md`](docs/ROADMAP.md). 
 
 ### 🔴 Hard (Coordinate First)
 - Combat engine balance changes (defense soft-cap, lifesteal caps)
-- The command handlers (`utils/ttrpg/rpg_*_handler.py`, ~6,600 lines between them; high blast radius)
+- The command handlers (`utils/ttrpg/rpg_*_handler.py` and their compatibility adapters; high blast radius)
 - New game systems (require design doc approval first)
 
 ## Do NOT Touch

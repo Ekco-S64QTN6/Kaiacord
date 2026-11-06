@@ -168,7 +168,7 @@ platform with its own prompt would sound like someone else.
 
 **Features**:
 - Deterministic game math handled entirely by Python; LLM handles narration only.
-- Per-user async locks protect character mutations during combat, item generation, and interactive views. The `rpg_core_handler.py` entry point is the command dispatcher and compatibility/dependency-adapter layer; domain actions live in dedicated `rpg_*_handler.py` modules.
+- Per-user async locks protect character mutations during combat, item generation, and interactive views. The public command dispatcher is `utils/commands/rpg_handler.py`; `utils/ttrpg/rpg_core_handler.py` is the compatibility/dependency-adapter and remaining orchestration layer. Domain actions live in dedicated `rpg_*_handler.py` modules.
 - Owner-only `!rpg give` and `!rpg heal` lock both caller and target character IDs in sorted UID order. Self-target actions acquire the shared lock only once, avoiding both reciprocal-target deadlocks and self-lock re-entry.
 - Full registry system (369 monsters with 44 bosses, 395 pieces of gear across 7 tiers plus 58 consumables, 248 fish species) integrated with procedural dungeon generation.
 - Endgame gil sinks: gear enhancement (+1..+5) and pooled town-wall projects (`enhancement.py`, `town_projects.py`).
@@ -282,3 +282,19 @@ emptied to force a retry.
   and the roadmap of everything proposed and not built
 - `docs/reports/audit_report.md` *(local only)* — the review checklist and verification
 - `docs/reports/history.md` *(local only)* — the chronological engineering log
+
+
+## RPG handler boundaries and action serialization
+
+The public `!rpg` command dispatcher is `utils/commands/rpg_handler.py`. It routes subcommands
+to the RPG adapters and handlers under `utils/ttrpg/`. `rpg_core_handler.py` is not the public
+dispatcher; it remains a compatibility/orchestration layer while domain-specific handlers own
+navigation, world information, inventory/equipment, recovery, banking, combat, consumables,
+gambling, Shrine actions, scouting, advancement, character creation, sheets, status, owner
+administration, housing, shops and social actions.
+
+Character read-modify-write operations use per-player action locks. Combat actions take the
+channel action lock before the character lock. The owner-only `give` and `heal` adapters are
+self-serialized and acquire the unique caller and target `user:<uid>` locks together in sorted
+UID order. The dispatcher must not pre-acquire only the caller lock for these adapters; doing
+so would reintroduce a reciprocal caller/target lock cycle.

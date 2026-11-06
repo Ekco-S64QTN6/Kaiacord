@@ -28,15 +28,13 @@ venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harde
 
 4. **Skipping External Services** (the invocation to use by default):
 ```bash
-venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
-# 2026-10-03: 2,736 passed, 1 skipped, 49 deselected, 1 xfailed. Take the count from your own run.
-# Re-run rather than trusting this line — the count moves every phase, and it
-# has been stale in three files at once. What matters is that nothing failed.
+venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow and not network"
+# Test counts change as coverage grows; use the result from your own run.
 ```
-Only **2** tests need Ollama or a GPU (28 Sept 2026; `--collect-only -m "ollama or gpu"` gives
-today's figure). The rest of what that invocation deselects is the 47 marked `slow`. A bare `pytest -q` runs them, which loads `gemma3:12b` and evicts the production
-model from VRAM. A test that reaches the Ollama daemon at all — even just to embed — is marked
-`ollama`; two were not, and ran against the bot's own daemon on every run.
+The default command excludes tests marked `ollama`, `gpu`, `slow` and `network`. Do not rely on
+fixed totals: use `--collect-only` or the result from the current run. A bare `pytest -q` can load
+`gemma3:12b` and evict the production model from VRAM. Any test that reaches the Ollama daemon,
+even only to embed, must be marked `ollama`.
 
 Markers are declared in `pytest.ini` under `--strict-markers`, so a typo'd marker is an error
 rather than a silently ignored one: `slow`, `gpu`, `ollama`, `network`, `integration`.

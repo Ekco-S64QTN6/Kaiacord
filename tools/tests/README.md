@@ -2,7 +2,7 @@
 
 ```
 tools/tests/
-├── unit/           # Fast, isolated tests — no network, no Ollama, no GPU
+├── unit/           # Fast, isolated component tests; external access is marked
 ├── integration/    # More than one subsystem together, and anything that needs a live service
 └── conftest.py     # Puts the repo root on sys.path; nothing else
 ```
@@ -11,9 +11,10 @@ Configuration lives in `pytest.ini` at the repo root: `testpaths`, marker
 declarations, `--strict-markers`, and the asyncio loop scope.
 
 Everything under `tools/tests` named `test_*.py` is collected. What keeps a test
-that needs Ollama or the GPU out of an ordinary run is its markers, so anything
-that reaches the daemon must carry `ollama` (and `gpu`/`slow` as they apply), or a
-suite run will load a model and evict `gemma3:12b` from VRAM.
+that needs Ollama, a GPU, or public internet out of an ordinary run is its markers:
+anything that reaches the daemon must carry `ollama`, GPU-dependent work carries `gpu`,
+slow sweeps carry `slow`, and public-internet access carries `network`. Without those
+markers, a suite run can reach a live service or load a model and evict `gemma3:12b` from VRAM.
 
 The same holds anywhere in the tree. `test_embed_device.py` and `test_bm25_cache.py`
 sat in `unit/` with no marker and embedded through the bot's own Ollama on every
@@ -25,7 +26,7 @@ sat in `unit/` with no marker and embedded through the bot's own Ollama on every
 
 ```bash
 venv/bin/python3 -m pytest                                          # everything (loads gemma3:12b)
-venv/bin/python3 -m pytest -m "not ollama and not gpu and not slow" # no external services
+venv/bin/python3 -m pytest -m "not ollama and not gpu and not slow and not network" # no external services
 venv/bin/python3 -m pytest tools/tests/unit -q                      # just the fast ones
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent
 ```
