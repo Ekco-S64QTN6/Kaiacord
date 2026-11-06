@@ -41,7 +41,7 @@ pull requests.
 
 | Work | Outcome |
 |:--|:--|
-| **Aethelgard handler extraction** (PRs #221–#226) | Complete. World, navigation, inventory/equipment, recovery/rest, banking, reference, consumables, gambling, Shrine, scouting, advancement, character creation, detailed sheets, status, and owner-only admin commands have dedicated handlers. `rpg_core_handler.py` is the 396-line command dispatcher and compatibility/dependency-adapter layer; no handler-split item remains open. |
+| **Aethelgard handler extraction** (PRs #221–#226) | Complete. World, navigation, inventory/equipment, recovery/rest, banking, reference, consumables, gambling, Shrine, scouting, advancement, character creation, detailed sheets, status, and owner-only admin commands have dedicated handlers. `utils/commands/rpg_handler.py` is the public command dispatcher; `utils/ttrpg/rpg_core_handler.py` is the compatibility/dependency-adapter and remaining orchestration layer; no handler-split item remains open. |
 | **Reciprocal owner-admin locking** (PR #236) | `!rpg give` and `!rpg heal` acquire caller and target action locks in sorted UID order; self-target actions acquire the one shared lock once. |
 | **PDF extraction isolation** (PR #237) | Existing per-worker resource ceilings now sit behind a process-wide two-worker semaphore; saturated requests wait at most one second and fail closed. |
 | **Observation digest quote validation** (PR #238) | Quotes must match one speaker turn; unmatched delimiters fail validation; a single quote-free retry is revalidated before a digest is stored or broadcast. |
