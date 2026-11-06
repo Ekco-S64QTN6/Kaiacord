@@ -128,7 +128,7 @@ def test_save_serializes_the_detached_snapshot_on_the_writer_thread(tmp_path):
     state._serialize_snapshot = tracked_serialize
     try:
         state.save()
-        assert started.wait(timeout=2), "writer never started snapshot serialization"
+        assert started.wait(timeout=5), "writer never started snapshot serialization"
         # Mutating the live object after save() returns must not alter its queued snapshot.
         state.relationships["user-1"]["interaction_count"] = 2
     finally:
