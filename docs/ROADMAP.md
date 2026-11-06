@@ -50,6 +50,7 @@ pull requests.
 | **Dream continuity I/O isolation** (PR #254) | Continuity reads and updates now run in worker threads from async dream flows; updates retain atomic replacement through the shared write helper. |
 | **Dream growth-log event-loop isolation** (PR #255) | Dream identity, relationship, self-model, and belief updates now write growth events in worker threads; nightly belief and self-claim callbacks do the same. |
 | **Creation-event I/O isolation** (PR #256) | Art posts and music-session shutdowns now record creation events in worker threads; the synchronous API remains available to synchronous callers. |
+| **Growth-ledger writer coordination** (PR #257) | Dream, creation, and interaction-milestone writers share one interprocess lock for append and rotation, preventing concurrent writers from losing events; growth-log paths are telemetry-isolated in tests. |
 | **Dispatcher and test-guidance documentation** (PR #248) | Corrected public dispatcher versus compatibility-adapter ownership, aligned the default no-external-services pytest selection with the `network` marker, removed stale test counts, and clarified handler, PDF-ingestion, and CI boundaries. |
 | **RPG navigation name-matching regression** (PR #249) | Added whole-word/phrase-boundary coverage and verified that the public look adapter resolves a partial target name without matching embedded substrings. |
 
