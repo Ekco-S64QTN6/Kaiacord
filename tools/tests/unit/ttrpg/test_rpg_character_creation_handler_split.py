@@ -69,7 +69,7 @@ def test_new_character_rolls_four_d6_drop_lowest_then_applies_race_bonuses(monke
     )
     (embed, view), = sent
     assert embed.title == "✨ New Adventurer Registered"
-    assert "Ash, the Elf Warrior" in embed.description
+    assert "**Ash**, the Elf Warrior" in embed.description
     assert view is None
 
 
