@@ -77,7 +77,7 @@ Full setup, including the optional radio hardware: [Installation](docs/01-gettin
 ## Testing
 
 ```bash
-venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"
+venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow and not network"
 ```
 
 A passing suite is not proof a feature works: open what it wrote (the file, the database row, the
