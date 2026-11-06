@@ -116,6 +116,39 @@ async def test_timeout_keeps_output_when_sigterm_is_enough(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_slow_sigkill_exit_retains_the_reaper_until_the_child_exits(monkeypatch):
+    manager = _manager()
+    process = _FakeProcess(exit_on_term=False, exit_on_kill=False)
+    signals = _route_signals(monkeypatch, process)
+
+    out, err = await manager._communicate_or_kill(
+        process,
+        "slow-kill maintenance child",
+        timeout=0.01,
+        terminate_grace=0.01,
+        kill_grace=0.01,
+    )
+
+    assert (out, err) == (b"", b"")
+    assert signals == [
+        (process.pid, signal.SIGTERM),
+        (process.pid, signal.SIGKILL),
+    ]
+    pending = manager._subprocess_cleanup_tasks
+    assert len(pending) == 1
+    reaper = next(iter(pending))
+    assert not reaper.done()
+
+    # Simulate the kernel completing a delayed SIGKILL after the bounded wait.
+    process.exit_on_kill = True
+    process.signal_event.set()
+    await asyncio.wait_for(reaper, timeout=1)
+
+    assert process.returncode == -signal.SIGKILL
+    assert not pending
+
+
+@pytest.mark.asyncio
 async def test_task_cancellation_stops_and_reaps_its_subprocess(monkeypatch):
     manager = _manager()
     process = _FakeProcess()
