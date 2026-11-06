@@ -138,7 +138,7 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
             # measurements. No player or channel IDs are exposed.
             lock_metrics_report = format_lock_registry_metrics()
             traditional_report = await build_sysmon_report_async()
-            traditional_report += "\\n\\n## RPG lock registries\\n" + lock_metrics_report
+            traditional_report += "\n\n## RPG lock registries\n" + lock_metrics_report
             await asyncio.to_thread(_write_sysmon_snapshot, traditional_report)
 
         except Exception as e:
