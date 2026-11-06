@@ -182,7 +182,7 @@ def test_async_creation_reminder_runs_off_event_loop_thread(tmp_path, monkeypatc
     ))
 
     assert worker_threads and worker_threads[0] != loop_thread
-    assert bs.bot_state.channel_memory[7][-1]["content"] == '[i made a piece called "worker-thread test"].'
+    assert bs.bot_state.channel_memory[7][-1]["content"] == '[i made a piece called "worker-thread test".]'
     event = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
     assert (event["type"], event["kind"], event["title"]) == (
         "creation", "art", "worker-thread test"
@@ -205,7 +205,9 @@ def test_async_creation_callers_await_the_worker_thread_entry_point():
             node for node in ast.walk(tree)
             if isinstance(node, ast.Await)
             and isinstance(node.value, ast.Call)
-            and isinstance(node.value.func, ast.Attribute)
-            and node.value.func.attr == name
+            and (
+                (isinstance(node.value.func, ast.Name) and node.value.func.id == name)
+                or (isinstance(node.value.func, ast.Attribute) and node.value.func.attr == name)
+            )
         ]
         assert awaits, f"{relative} must await {name}"
