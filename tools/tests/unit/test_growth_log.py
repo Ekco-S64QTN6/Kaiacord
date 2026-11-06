@@ -55,4 +55,12 @@ def test_growth_log_rotation_preserves_newest_complete_entries(tmp_path):
         )
 
     assert [row["event_id"] for row in _read_events(path)] == [5, 6, 7]
-    assert not path.with_name(f".{path.name}.tmp").exists()
+    assert not list(path.parent.glob(f".{path.name}.*.tmp"))
+
+
+def test_dream_engine_resolves_growth_log_through_telemetry_path(monkeypatch):
+    from utils.core.kaia_dream import DreamEngine
+
+    monkeypatch.setenv("KAIACORD_TELEMETRY_SUFFIX", ".probe")
+    engine = DreamEngine.__new__(DreamEngine)
+    assert str(engine._growth_log_path()) == "memory/growth_log.probe.jsonl"
