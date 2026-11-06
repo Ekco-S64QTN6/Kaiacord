@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 import discord
 import secrets
 import threading
@@ -7,14 +8,42 @@ from utils.infrastructure.logging.kaia_logger import log_error, log_warning
 from utils.infrastructure.system.yaml_config import config
 
 _WORLD_EVENTS_LOCK = threading.Lock()
+_WORLD_EVENTS_PATH = os.path.join("memory", "ttrpg", "world_events.json")
+
+
+def _load_world_events_sync() -> list[str]:
+    """Read the validated world-event snapshot while sharing the writer lock."""
+    with _WORLD_EVENTS_LOCK:
+        try:
+            with open(_WORLD_EVENTS_PATH, "r", encoding="utf-8") as handle:
+                events = json.load(handle)
+        except FileNotFoundError:
+            return []
+        except (OSError, json.JSONDecodeError, ValueError, UnicodeDecodeError) as exc:
+            log_warning(
+                f"[rpg broadcast] World event log is unreadable at "
+                f"{_WORLD_EVENTS_PATH}: {exc}"
+            )
+            return []
+
+        if not isinstance(events, list) or any(not isinstance(item, str) for item in events):
+            log_warning(
+                f"[rpg broadcast] World event log has an invalid shape at {_WORLD_EVENTS_PATH}."
+            )
+            return []
+        return events
+
+
+async def load_world_events() -> list[str]:
+    """Read the small world-event log without blocking the Discord event loop."""
+    return await asyncio.to_thread(_load_world_events_sync)
 
 
 async def log_world_event(event_text):
-    import asyncio
     import functools
 
     def _sync_log(text):
-        path = os.path.join("memory", "ttrpg", "world_events.json")
+        path = _WORLD_EVENTS_PATH
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with _WORLD_EVENTS_LOCK:
             try:
