@@ -2,7 +2,7 @@
 
 ```
 tools/tests/
-├── unit/           # Fast, isolated component tests; external access is marked
+├── unit/           # Component tests, mostly isolated; some carry slow/ollama markers
 ├── integration/    # More than one subsystem together, and anything that needs a live service
 └── conftest.py     # Puts the repo root on sys.path; nothing else
 ```
@@ -27,9 +27,13 @@ sat in `unit/` with no marker and embedded through the bot's own Ollama on every
 ```bash
 venv/bin/python3 -m pytest                                          # everything (loads gemma3:12b)
 venv/bin/python3 -m pytest -m "not ollama and not gpu and not slow and not network" # no external services
-venv/bin/python3 -m pytest tools/tests/unit -q                      # just the fast ones
+venv/bin/python3 -m pytest tools/tests/unit -q -m "not ollama and not gpu and not slow and not network" # isolated unit tests
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent
 ```
+
+A directory path alone does not deselect marked tests. When running a subset such as
+`tools/tests/unit/`, apply the same marker filter unless you deliberately want to run
+slow/model/GPU/network checks. Markers classify tests; they do not skip them automatically.
 
 ## Markers
 
