@@ -160,7 +160,11 @@ def test_viewing_another_players_sheet_uses_stale_view_bound_to_viewer(monkeypat
         loads.append(str(uid))
         return target
 
+    from utils.ttrpg import housing, pets
+
     monkeypatch.setattr(core, "load", load)
+    monkeypatch.setattr(housing, "load_housing_async", AsyncMock(return_value={"pets": []}))
+    monkeypatch.setattr(pets, "get_pet_passive", lambda _housing: {})
     sent = []
 
     async def send(*, embed=None, view=None):
@@ -187,8 +191,9 @@ def test_viewing_another_players_sheet_uses_stale_view_bound_to_viewer(monkeypat
         view_calls.append(args)
         return "viewer-status-button"
 
+    viewer_ctx = object()
     asyncio.run(sheet._handle_sheet(
-        object(), msg, None, "", "42", "Viewer", False,
+        viewer_ctx, msg, None, "", "42", "Viewer", False,
         load_character=load,
         location_icons={"oakhaven": "🏘️"},
         location_view_factory=lambda *_args: "owner-location-view",
@@ -204,5 +209,4 @@ def test_viewing_another_players_sheet_uses_stale_view_bound_to_viewer(monkeypat
     assert embed.title.startswith("📄  ASH")
     assert view.timeout == 120
     assert view.items == ["viewer-status-button"]
-    assert view_calls == [(object.__class__ if False else view_calls[0][0], "42", "Viewer", False)]
-    assert view_calls[0][1:] == ("42", "Viewer", False)
+    assert view_calls == [(viewer_ctx, "42", "Viewer", False)]
