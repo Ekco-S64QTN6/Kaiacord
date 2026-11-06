@@ -1,7 +1,6 @@
 from utils.ttrpg.session_manager import serialize_combat_action
 from utils.ttrpg.narration import finish_cleanly
 import asyncio
-import re
 import time
 import uuid as _uuid
 import discord
@@ -116,11 +115,6 @@ async def _handle_go(ctx, msg, send, rest, uid, uname, is_owner):
         ctx, msg, send, rest, uid, uname, is_owner,
         load_character=load, save_character=save,
     )
-
-
-def _names(phrase: str, text: str) -> bool:
-    """`phrase` appears in `text` as whole words."""
-    return bool(re.search(rf"\b{re.escape(phrase)}\b", text))
 
 
 async def _handle_look(ctx, msg, send, rest, uid, uname, is_owner):
