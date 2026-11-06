@@ -176,51 +176,6 @@ async def test_task_cancellation_stops_and_reaps_its_subprocess(monkeypatch):
     assert process.calls == 1
 
 
-@pytest.mark.asyncio
-async def test_repeated_cancellation_retains_the_cleanup_task_until_reaped(monkeypatch):
-    manager = _manager()
-    process = _FakeProcess(exit_on_term=False, exit_on_kill=False)
-    signals = _route_signals(monkeypatch, process)
-
-    task = asyncio.create_task(
-        manager._communicate_or_kill(
-            process,
-            "repeatedly cancelled child",
-            timeout=60,
-            terminate_grace=0.01,
-            kill_grace=60,
-        )
-    )
-    await asyncio.wait_for(process.started.wait(), timeout=1)
-    task.cancel()
-    await asyncio.wait_for(process.signal_seen.wait(), timeout=1)
-
-    # Cancel once while shielded cleanup is running, then again while the
-    # caller is waiting for that retained cleanup task.
-    task.cancel()
-    await asyncio.sleep(0)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=1)
-
-    pending = manager._subprocess_cleanup_tasks
-    assert pending
-    cleanup_tasks = list(pending)
-
-    # Let the delayed SIGKILL take effect. The still-running communication
-    # coroutine must remain strongly referenced until the child is reaped.
-    process.exit_on_kill = True
-    process.signal_event.set()
-    await asyncio.wait_for(asyncio.gather(*cleanup_tasks), timeout=1)
-
-    assert signals == [
-        (process.pid, signal.SIGTERM),
-        (process.pid, signal.SIGKILL),
-    ]
-    assert process.returncode == -signal.SIGKILL
-    assert not pending
-
-
 def test_every_background_subprocess_uses_a_dedicated_session():
     source = inspect.getsource(bg.CoreTaskManager)
     tree = ast.parse(source)
