@@ -66,3 +66,15 @@ def test_art_intent_changes_select_the_art_intent_regression_suite():
         for path in selector["select_tests"](["utils/core/kaia_art_intent.py"])
     }
     assert "tools/tests/unit/test_art_intent.py" in selected
+
+
+
+def test_every_behavior_mapping_targets_an_existing_test_file():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    missing = sorted({
+        test_path
+        for test_paths in selector["RELATED_TESTS"].values()
+        for test_path in test_paths
+        if not (ROOT / test_path).is_file()
+    })
+    assert missing == []
