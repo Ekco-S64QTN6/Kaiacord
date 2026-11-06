@@ -101,3 +101,41 @@ def test_save_deep_copies_nested_state_and_retries_runtime_race(tmp_path, monkey
     assert saved["relationships"]["user-1"]["topic_counts"] == {"radio": 3}
     assert state.relationships.calls >= 2
     assert not warnings, warnings
+
+
+
+def test_save_serializes_the_detached_snapshot_on_the_writer_thread(tmp_path):
+    """Only the live-state snapshot belongs on the caller/event-loop thread."""
+    path = tmp_path / "bot_state_worker_serialization.json"
+    state = BotState(state_file=str(path))
+    state.relationships = {"user-1": {"interaction_count": 1}}
+
+    caller_thread = threading.get_ident()
+    started = threading.Event()
+    release = threading.Event()
+    serialization_threads = []
+    original_serialize = state._serialize_snapshot
+
+    def tracked_serialize(snapshot):
+        serialization_threads.append(threading.get_ident())
+        # This value must be detached before the worker begins serializing.
+        assert snapshot["relationships"]["user-1"]["interaction_count"] == 1
+        started.set()
+        if not release.wait(timeout=5):
+            raise TimeoutError("test did not release the writer")
+        return original_serialize(snapshot)
+
+    state._serialize_snapshot = tracked_serialize
+    try:
+        state.save()
+        assert started.wait(timeout=2), "writer never started snapshot serialization"
+        # Mutating the live object after save() returns must not alter its queued snapshot.
+        state.relationships["user-1"]["interaction_count"] = 2
+    finally:
+        release.set()
+        state._executor.shutdown(wait=True)
+
+    assert serialization_threads
+    assert serialization_threads[0] != caller_thread
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["relationships"]["user-1"]["interaction_count"] == 1
