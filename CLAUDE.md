@@ -226,7 +226,10 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   the dream engine. An interrupted rewrite there raises nothing anywhere — it leaves a truncated
   document that is indexed on the next sweep, retrievable, and indistinguishable from a file that
   was simply short. The temporary is written beside its destination because `os.replace` is only
-  atomic within a filesystem. `test_no_corpus_write_bypasses_the_atomic_helper` enforces it now,
+  atomic within a filesystem. The helper fsyncs the temporary file before replacement and the
+  parent directory after replacement, so a successful return confirms both file contents and the
+  renamed directory entry were synced. A sync failure is reported, even though a replacement may
+  already be visible. `test_no_corpus_write_bypasses_the_atomic_helper` enforces it now,
   because two grew back after that sweep — including the forum Off-Topic listing, rewritten on
   every scrape.
 - **Blocking work off the event loop.** File I/O, PIL, and CPU rendering must be wrapped in
