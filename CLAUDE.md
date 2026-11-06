@@ -235,9 +235,10 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
 - **Background subprocesses must have an owner and a cleanup path.** Scheduled maintenance
   children start in their own process session. Bound `communicate()`, keep the pipe-reading task
   shielded across timeout handling, terminate the process group, escalate to SIGKILL when needed,
-  and await the child before returning or propagating task cancellation. A timeout is not cleanup:
-  returning from a scheduler while its child keeps running creates overlapping jobs and orphaned
-  workers.
+  and await the child before returning or propagating task cancellation. Short system utilities
+  such as those behind `!sysmon` must also be killed and reaped on timeout or cancellation. A
+  timeout is not cleanup: returning while a child keeps running creates overlapping jobs and
+  orphaned workers.
 - **Blocking work off the event loop.** File I/O, PIL, and CPU rendering must be wrapped in
   `asyncio.to_thread()`. This is not theoretical — vision image preparation was found running
   full-resolution PIL decode and base64 synchronously on the loop, stalling every other
