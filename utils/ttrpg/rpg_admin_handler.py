@@ -11,8 +11,6 @@ async def _with_target_action_lock(target_uid: str, caller_uid: str, operation):
     self-targeted admin commands because the action locks are not re-entrant.
     """
     target_uid = str(target_uid)
-    if target_uid == str(caller_uid):
-        return await operation()
 
     from contextlib import AsyncExitStack
     from utils.ttrpg.session_manager import get_action_lock
