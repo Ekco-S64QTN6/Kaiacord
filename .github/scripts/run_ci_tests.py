@@ -32,6 +32,13 @@ RELATED_TESTS = {
     "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py",),
     "utils/core/kaia_proactive.py": ("tools/tests/unit/test_proactive_dedup.py",),
     "utils/core/kaia_art_intent.py": ("tools/tests/unit/test_art_intent.py",),
+    "utils/infrastructure/monitoring/async_lock_metrics.py": ("tools/tests/unit/test_async_lock_metrics.py",),
+    "utils/ttrpg/session_manager.py": (
+        "tools/tests/unit/test_async_lock_metrics.py",
+        "tools/tests/unit/ttrpg/test_rpg_serialization.py",
+    ),
+    "utils/ttrpg/character_manager.py": ("tools/tests/unit/test_async_lock_metrics.py",),
+    "utils/commands/sysmon_handler.py": ("tools/tests/unit/test_async_lock_metrics.py",),
     "utils/core/background_tasks.py": (
         "tools/tests/unit/test_rag_refresh_callers.py",
         "tools/tests/unit/test_news_manager.py",
