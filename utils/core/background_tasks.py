@@ -1975,7 +1975,12 @@ class CoreTaskManager:
         try:
             await asyncio.wait_for(process.wait(), timeout=kill_grace)
         except asyncio.TimeoutError:
-            log_error(f"{label} child did not exit after SIGKILL.")
+            log_error(f"{label} child did not exit after SIGKILL; retaining its reaper task.")
+            pending = getattr(self, "_subprocess_cleanup_tasks", None)
+            if pending is None:
+                pending = self._subprocess_cleanup_tasks = set()
+            pending.add(communication_task)
+            communication_task.add_done_callback(pending.discard)
             return b"", b""
 
         try:
