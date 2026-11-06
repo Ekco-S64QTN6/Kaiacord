@@ -32,6 +32,13 @@ RELATED_TESTS = {
     "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py",),
     "utils/core/kaia_proactive.py": ("tools/tests/unit/test_proactive_dedup.py",),
     "utils/core/kaia_art_intent.py": ("tools/tests/unit/test_art_intent.py",),
+    "utils/infrastructure/monitoring/async_lock_metrics.py": ("tools/tests/unit/test_async_lock_metrics.py",),
+    "utils/ttrpg/session_manager.py": (
+        "tools/tests/unit/test_async_lock_metrics.py",
+        "tools/tests/unit/ttrpg/test_rpg_serialization.py",
+    ),
+    "utils/ttrpg/character_manager.py": ("tools/tests/unit/test_async_lock_metrics.py",),
+    "utils/commands/sysmon_handler.py": ("tools/tests/unit/test_async_lock_metrics.py",),
     "utils/core/background_tasks.py": (
         "tools/tests/unit/test_rag_refresh_callers.py",
         "tools/tests/unit/test_news_manager.py",
@@ -161,16 +168,18 @@ def select_tests(paths: list[str]) -> list[Path]:
         if not rel.endswith(".py") or rel.startswith("tools/tests/"):
             continue
 
+        # Apply explicit behavior mappings before the TTRPG broad-suite
+        # shortcut; otherwise the early continue below silently drops them.
+        for test_rel in RELATED_TESTS.get(rel, ()):
+            if test_rel in available:
+                selected.add(available[test_rel])
+
         # TTRPG has its own path-triggered workflow, but run the focused suite
         # here too when the underlying game logic itself changes.
         if rel.startswith("utils/ttrpg/"):
             selected.update(p for name, p in available.items()
                             if name.startswith("tools/tests/unit/ttrpg/"))
             continue
-
-        for test_rel in RELATED_TESTS.get(rel, ()):
-            if test_rel in available:
-                selected.add(available[test_rel])
 
         stem = Path(rel).stem
         direct = [p for name, p in available.items() if Path(name).name == f"test_{stem}.py"]

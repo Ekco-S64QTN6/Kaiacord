@@ -28,7 +28,7 @@ pull requests.
 | **Speaker inversion** | Once, she credited someone else with her own theory. One case; no mechanical cause found. |
 | **Invented facts about real works** | Invented song titles and word definitions, defended when corrected. No guard; a fix needs a source to check against. |
 | **Scanner carrier lockout** | After a full-minute non-speech hold the scanner ignores ±75 kHz, doubling up to 4 h. With several constant carriers, about 1 MHz can be out of view for hours. |
-| **RPG lock-table retention** | `session_manager._action_locks`, `session_manager._chan_locks`, and `character_manager._user_locks` retain one `asyncio.Lock` per encountered user/channel ID; no idle-entry pruning is present. Measure lifetime peak counts and contention before designing safe eviction that cannot replace a held lock or one with waiters. |
+| **RPG lock-table retention** | `session_manager._action_locks`, `session_manager._chan_locks`, and `character_manager._user_locks` retain one lock per encountered ID. Owner-only `!sysmon` now reports current/peak sizes, lock creations, contended acquisitions, and maximum contended wait without exposing IDs. Collect representative deployed measurements before designing eviction that cannot replace a held lock or one with waiters. |
 
 ## Aethelgard
 
@@ -53,6 +53,11 @@ pull requests.
 | **Creation-event I/O isolation** (PR #256) | Art posts and music-session shutdowns now record creation events in worker threads; the synchronous API remains available to synchronous callers. |
 | **Growth-ledger writer coordination** (PR #257) | Dream, creation, and interaction-milestone writers share one interprocess lock for append and rotation, preventing concurrent writers from losing events; growth-log paths are telemetry-isolated in tests. |
 | **Crash-durable atomic replacement** (PR #258) | Atomic writes sync the temporary file, replace the destination, then sync the parent directory; newly created parent directories are synced too. Growth-ledger file-sync failures now surface instead of being silently ignored. |
+| **RPG lock-table assessment** (PR #259) | Recorded the three process-lifetime lock maps as a Watch item and required measurement before safe eviction. |
+| **Growth-ledger interprocess regression** (PR #260) | Six independent Linux writer processes append while rotating the ledger; the test verifies the retained 180-event tail has no duplicates or malformed records. |
+| **Context-enrichment cache hard bounds** (PR #261) | Channel, message, PDF URL, and HTML URL caches now expire stale entries and evict oldest live entries to enforce the 256-entry limit. |
+| **Art-intent event-loop I/O isolation** (PR #262) | Monologue and growth-ledger history reads run in worker threads; monologue parsing retains only the last 12 records. Added focused CI mapping for art-intent regressions. |
+| **Vision image fetch security** (PR #263) | Inline Discord and forum image fetches validate every URL/redirect, enforce public-only connection-time DNS, cap redirects, downloads, image count, and source pixels, and have focused SSRF/resource-bound regressions. |
 | **Dispatcher and test-guidance documentation** (PR #248) | Corrected public dispatcher versus compatibility-adapter ownership, aligned the default no-external-services pytest selection with the `network` marker, removed stale test counts, and clarified handler, PDF-ingestion, and CI boundaries. |
 | **RPG navigation name-matching regression** (PR #249) | Added whole-word/phrase-boundary coverage and verified that the public look adapter resolves a partial target name without matching embedded substrings. |
 

@@ -11,6 +11,10 @@ import functools
 from typing import Optional, Dict, Any, List
 
 from utils.ttrpg.record_scan import ScanFailure, ScanReport, log_scan_failures
+from utils.infrastructure.monitoring.async_lock_metrics import (
+    MeasuredAsyncLock,
+    record_registry_lock_created,
+)
 
 CHARACTERS_DIR = os.path.join("memory", "ttrpg", "characters")
 _lock = threading.Lock()  # Protects internal file I/O
@@ -67,9 +71,12 @@ def _path(user_id: str) -> str:
 async def get_user_lock(user_id: str) -> asyncio.Lock:
     """Return an asyncio.Lock dedicated to this user's character sheet."""
     async with _global_lock:
-        if user_id not in _user_locks:
-            _user_locks[user_id] = asyncio.Lock()
-        return _user_locks[user_id]
+        lock = _user_locks.get(user_id)
+        if lock is None:
+            lock = MeasuredAsyncLock("rpg_character")
+            _user_locks[user_id] = lock
+            record_registry_lock_created("rpg_character", len(_user_locks))
+        return lock
 
 def _migrate_inventory(sheet: Dict[str, Any]) -> None:
     """Normalize legacy equipment keys to their current registry keys."""

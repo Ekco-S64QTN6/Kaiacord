@@ -27,6 +27,7 @@ from utils.infrastructure.system.kaia_sysmon import (
 )
 from utils.infrastructure.monitoring.stats_poller import stats_poller
 from utils.infrastructure.monitoring.stats_tracker import stats_tracker
+from utils.infrastructure.monitoring.async_lock_metrics import format_lock_registry_metrics
 from utils.commands.embed_style import notice
 
 # Outside knowledge_base/: never indexed.
@@ -133,8 +134,11 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
 
             h_count = await asyncio.to_thread(_count_recent_hallucinations)
 
-            # 4. Generate traditional markdown report to write to RAG system logs
+            # 4. Generate the report and include process-local RPG lock-registry
+            # measurements. No player or channel IDs are exposed.
+            lock_metrics_report = format_lock_registry_metrics()
             traditional_report = await build_sysmon_report_async()
+            traditional_report += "\n\n## RPG lock registries\n" + lock_metrics_report
             await asyncio.to_thread(_write_sysmon_snapshot, traditional_report)
 
         except Exception as e:
@@ -269,6 +273,11 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
         name="🧠 Bot & Cognitive Metrics",
         value=bot_cog_value,
         inline=False
+    )
+    embed.add_field(
+        name="🔒 RPG Lock Registries",
+        value=lock_metrics_report,
+        inline=False,
     )
 
     # 8. Security & Ports
