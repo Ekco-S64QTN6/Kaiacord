@@ -10,12 +10,15 @@ Run tests using the project virtual environment:
 
 ### The Quick Commands
 
-1. **Unit Tests** (fast, isolated component tests):
+1. **Unit Tests** (mostly isolated component tests; filter marked slow and service-dependent tests):
 ```bash
-venv/bin/python3 -m pytest tools/tests/unit/ -v
+venv/bin/python3 -m pytest tools/tests/unit/ -v -m "not ollama and not gpu and not slow and not network"
 ```
 
-2. **Integration Tests** (Sanity checks and end-to-end flows):
+A directory path alone does not deselect marked tests. Keep the marker filter on subset runs
+unless you deliberately intend to execute the slow, Ollama, GPU or network-dependent tests.
+
+2. **Integration Tests** (sanity checks and end-to-end flows):
 ```bash
 venv/bin/python3 -m pytest tools/tests/integration/ -v
 ```
