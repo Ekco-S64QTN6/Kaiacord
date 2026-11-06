@@ -38,7 +38,7 @@ How a message is handled, and what she keeps between conversations:
 
 | | |
 |:--|:--|
-| **Aethelgard** | A persistent turn-based RPG: a 77-floor dungeon, 369 monsters, ten advanced classes, housing, farming, pets, alchemy and fishing. Python computes every roll; Kaia narrates each trip out once, when it ends. [System](docs/ttrpg/aethelgard_system.md) |
+| **Aethelgard** | A persistent turn-based RPG: a 77-floor dungeon, 369 monsters, ten advanced classes, housing, farming, pets, alchemy and fishing. Python computes every roll; Kaia narrates each trip out once, when it ends. The public `!rpg` dispatcher is `utils/commands/rpg_handler.py`; `utils/ttrpg/rpg_core_handler.py` is the compatibility/orchestration adapter. [System](docs/ttrpg/aethelgard_system.md) |
 | **Art** | `!art` makes Electric Sheep: real flock genomes rendered by [flam3](https://github.com/scottdraves/flam3), picked from your words or repainted in an attached picture's colours. `!art loop` posts a rotating loop. |
 | **Music** | `!music on` DJs a live-coded [Strudel](https://codeberg.org/uzu/strudel) set in voice across fourteen genres; `!music records` mixes your own library by key and tempo, with a DJ booth window. |
 | **Night shift** | Shortwave and sky: HFGCS Emergency Action Messages, number stations, UVB-76, a local RTL-SDR scanner with a receiver dashboard, the ISS, NASA, space weather and tonight's sky. `!nightshift` opens a panel for all of it. |
