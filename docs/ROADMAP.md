@@ -47,6 +47,13 @@ pull requests.
 | **Observation digest quote validation** (PR #238) | Quotes must match one speaker turn; unmatched delimiters fail validation; a single quote-free retry is revalidated before a digest is stored or broadcast. |
 | **RPG interaction regression coverage** (PRs #239–#241) | Added status-selector ownership/duplicate/stale-state tests, rest-refusal tests, and detailed-sheet pet/DEF/other-player-view tests. |
 | **Proactive and handler cleanup** (PRs #242–#243) | Added punctuation-only opener-dedupe coverage and removed the unused duplicate `_names()` helper from the core adapter. |
+| **Dispatcher and test-guidance documentation** (PR #248) | Corrected public dispatcher versus compatibility-adapter ownership, aligned the default no-external-services pytest selection with the `network` marker, removed stale test counts, and clarified handler, PDF-ingestion, and CI boundaries. |
+| **RPG navigation name-matching regression** (PR #249) | Added whole-word/phrase-boundary coverage and verified that the public look adapter resolves a partial target name without matching embedded substrings. |
+
+## Validation still blocked
+
+- **Live Discord Aethelgard smoke test (#180):** remains open pending an operator-approved run against the deployed bot, a designated test guild/channel, and a disposable character. CI cannot prove live gateway readiness, actual command/component delivery, permissions, or deployed recovery. The issue records the required safe run evidence.
+- **Deployed Linux PDF validation (#206):** automated Linux worker resource-enforcement coverage is merged (#207–#208); the production host's kernel, Python build, cgroup/container memory budget, and a representative PDF test result still need to be captured on that host. GitHub-hosted CI does not substitute for this evidence.
 
 ## Declined, with the reason
 
