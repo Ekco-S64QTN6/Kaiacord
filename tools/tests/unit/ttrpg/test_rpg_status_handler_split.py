@@ -125,5 +125,5 @@ def test_status_renders_the_hud_with_current_combat_and_progression_data(monkeyp
     assert embed.title.startswith("⚔️  ASH")
     assert "Clear skies" in embed.description
     assert "8/10" in embed.fields[0].value
-    assert "4/5 hunts" in embed.fields[3].value
+    assert "4/5 hunts" in embed.fields[4].value
     assert view == "location-view"
