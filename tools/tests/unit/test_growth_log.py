@@ -1,7 +1,9 @@
 """Concurrency and bounded-rotation regressions for the shared growth ledger."""
 from concurrent.futures import ThreadPoolExecutor
 import json
+from pathlib import Path
 
+from utils.core import growth_log
 from utils.core.growth_log import append_growth_event
 
 
@@ -72,3 +74,34 @@ def test_entry_count_only_rotation_matches_milestone_writer_policy(tmp_path):
         append_growth_event({"event_id": i}, path, max_bytes=None, max_entries=2)
 
     assert [row["event_id"] for row in _read_events(path)] == [3, 4]
+
+
+
+def test_new_growth_log_entry_fsyncs_its_parent_directory(tmp_path, monkeypatch):
+    path = tmp_path / "memory" / "growth_log.jsonl"
+    synced = []
+    monkeypatch.setattr(growth_log, "fsync_directory", lambda directory: synced.append(Path(directory)))
+
+    append_growth_event({"event_id": 1}, path)
+    append_growth_event({"event_id": 2}, path)
+
+    assert synced == [path.parent]
+
+
+def test_growth_log_file_fsync_failure_is_not_reported_as_success(tmp_path, monkeypatch):
+    path = tmp_path / "memory" / "growth_log.jsonl"
+    # Keep directory-creation fsync out of this fault injection: the failure
+    # under test is specifically the sync of the newly appended file.
+    path.parent.mkdir()
+
+    def fail_fsync(_fd):
+        raise OSError("simulated growth-log fsync failure")
+
+    monkeypatch.setattr(growth_log.os, "fsync", fail_fsync)
+    import pytest
+    with pytest.raises(OSError, match="growth-log fsync"):
+        append_growth_event({"event_id": 1}, path)
+
+    # The append may be visible in cache, but the helper must not claim it was
+    # durably recorded after the filesystem reported a sync failure.
+    assert _read_events(path)[0]["event_id"] == 1
