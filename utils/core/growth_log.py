@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping, Union
 
-from utils.core.atomic_write import write_atomic
+from utils.core.atomic_write import fsync_directory, write_atomic
 
 PathLike = Union[str, os.PathLike[str]]
 
@@ -48,16 +48,18 @@ def append_growth_event(
     with open(lock_path, "a", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         try:
+            created = not destination.exists()
             with open(destination, "a", encoding="utf-8") as growth_file:
                 growth_file.write(serialized)
                 growth_file.flush()
-                try:
-                    os.fsync(growth_file.fileno())
-                except OSError:
-                    pass
+                os.fsync(growth_file.fileno())
 
-            # Rotation is best-effort, as it was for the previous writers.
-            # The append is already durable even if compaction cannot run.
+            # A newly created JSONL file also needs its directory entry synced.
+            if created:
+                fsync_directory(destination.parent)
+
+            # Rotation is best-effort: the append and any new file entry are
+            # already durable even if compaction cannot run.
             try:
                 if max_bytes is None or destination.stat().st_size > max_bytes:
                     with open(destination, "r", encoding="utf-8") as growth_file:
