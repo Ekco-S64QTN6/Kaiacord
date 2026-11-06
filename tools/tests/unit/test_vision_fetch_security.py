@@ -169,3 +169,49 @@ def test_vision_attachment_processing_is_capped_at_four_images():
     assert "image_attachments = [" in source
     assert "for att in image_attachments[:self.VISION_MAX_IMAGES]" in source
     assert "VISION_MAX_IMAGES = 4" in inspect.getsource(MessageProcessor)
+
+
+
+def test_public_image_redirect_is_validated_and_processed(monkeypatch):
+    processor = _processor()
+    redirect = _FakeResponse(status=302, headers={"Location": "/cdn/photo.png"})
+    final = _FakeResponse(
+        status=200,
+        headers={"Content-Type": "image/png; charset=binary"},
+        chunks=[b"image-bytes"],
+    )
+    session = _FakeSession([redirect, final])
+    checked = []
+    connector = object()
+    decoded = []
+
+    def safe(url):
+        checked.append(url)
+        return True
+
+    def prepare(data, is_gif):
+        decoded.append((data, is_gif))
+        return "encoded-image"
+
+    monkeypatch.setattr(mp, "is_safe_url", safe)
+    monkeypatch.setattr(mp, "public_only_connector", lambda: connector)
+    monkeypatch.setattr(mp.aiohttp, "ClientSession", lambda **kwargs: _FakeSessionFactory(session, kwargs))
+    monkeypatch.setattr(processor, "_prepare_image_payload", prepare)
+
+    result = asyncio.run(
+        processor._fetch_image_as_base64("https://images.example.test/original.png")
+    )
+
+    assert result == "encoded-image"
+    assert checked == [
+        "https://images.example.test/original.png",
+        "https://images.example.test/cdn/photo.png",
+    ]
+    assert [url for url, _kwargs in session.requests] == [
+        "https://images.example.test/original.png",
+        "https://images.example.test/cdn/photo.png",
+    ]
+    assert all(kwargs["allow_redirects"] is False for _url, kwargs in session.requests)
+    assert session.kwargs["connector"] is connector
+    assert decoded == [(b"image-bytes", False)]
+    assert redirect.released and final.released
