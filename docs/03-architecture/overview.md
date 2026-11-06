@@ -282,3 +282,19 @@ emptied to force a retry.
   and the roadmap of everything proposed and not built
 - `docs/reports/audit_report.md` *(local only)* — the review checklist and verification
 - `docs/reports/history.md` *(local only)* — the chronological engineering log
+
+
+## RPG handler boundaries and action serialization
+
+The public `!rpg` command dispatcher is `utils/commands/rpg_handler.py`. It routes subcommands
+to the RPG adapters and handlers under `utils/ttrpg/`. `rpg_core_handler.py` is not the public
+dispatcher; it remains a compatibility/orchestration layer while domain-specific handlers own
+navigation, world information, inventory/equipment, recovery, banking, combat, consumables,
+gambling, Shrine actions, scouting, advancement, character creation, sheets, status, owner
+administration, housing, shops and social actions.
+
+Character read-modify-write operations use per-player action locks. Combat actions take the
+channel action lock before the character lock. The owner-only `give` and `heal` adapters are
+self-serialized and acquire the unique caller and target `user:<uid>` locks together in sorted
+UID order. The dispatcher must not pre-acquire only the caller lock for these adapters; doing
+so would reintroduce a reciprocal caller/target lock cycle.
