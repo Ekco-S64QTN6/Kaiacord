@@ -8,6 +8,11 @@ import functools
 import inspect
 from typing import Dict
 
+from utils.infrastructure.monitoring.async_lock_metrics import (
+    MeasuredAsyncLock,
+    record_registry_lock_created,
+)
+
 SESSIONS_DIR = os.path.join("memory", "ttrpg", "sessions")
 _lock = threading.Lock()
 _chan_locks: Dict[str, asyncio.Lock] = {}
@@ -27,9 +32,12 @@ _action_locks: Dict[str, asyncio.Lock] = {}
 async def get_action_lock(channel_id: str) -> asyncio.Lock:
     """Serialises whole gameplay actions in a channel, not single file writes."""
     async with _chan_global_lock:
-        if channel_id not in _action_locks:
-            _action_locks[channel_id] = asyncio.Lock()
-        return _action_locks[channel_id]
+        lock = _action_locks.get(channel_id)
+        if lock is None:
+            lock = MeasuredAsyncLock("rpg_action")
+            _action_locks[channel_id] = lock
+            record_registry_lock_created("rpg_action", len(_action_locks))
+        return lock
 
 
 def _action_keys(fn, args, kwargs):
@@ -120,9 +128,12 @@ def player_locked(uid: str):
 async def get_session_lock(channel_id: str) -> asyncio.Lock:
     """Guards a single session file read or write."""
     async with _chan_global_lock:
-        if channel_id not in _chan_locks:
-            _chan_locks[channel_id] = asyncio.Lock()
-        return _chan_locks[channel_id]
+        lock = _chan_locks.get(channel_id)
+        if lock is None:
+            lock = MeasuredAsyncLock("rpg_session")
+            _chan_locks[channel_id] = lock
+            record_registry_lock_created("rpg_session", len(_chan_locks))
+        return lock
 
 
 def _path(channel_id: str) -> str:
