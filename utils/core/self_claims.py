@@ -193,6 +193,6 @@ async def nightly(ctx, log_growth=None) -> int:
         for e in events:
             log_info(f"🪞 Self-claim weakened: '{e['claim'][:60]}' {e['was']} → {e['confidence']}")
             if log_growth:
-                log_growth(e)
+                await asyncio.to_thread(log_growth, e)
     await asyncio.to_thread(save, claims)
     return touched

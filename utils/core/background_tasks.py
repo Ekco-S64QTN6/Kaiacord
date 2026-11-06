@@ -2672,7 +2672,7 @@ class CoreTaskManager:
                 try:
                     from utils.core.kaia_dream import DreamEngine
                     de = DreamEngine(config)
-                    de._log_growth_event({
+                    await de._log_growth_event_async({
                         "type": "belief_seed_observed",
                         "digest": digest_text[:200],
                         "message_count": len(new_turns)

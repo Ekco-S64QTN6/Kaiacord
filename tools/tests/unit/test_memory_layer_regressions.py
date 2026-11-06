@@ -303,3 +303,65 @@ def test_dream_continuity_async_callers_await_the_io_helpers():
         assert isinstance(parent, ast.Await) and parent.value is node, (
             f"{node.func.attr} must be awaited at line {node.lineno}"
         )
+
+
+# ── Dream growth-log event loop isolation ─────────────────────────────
+
+def test_dream_growth_log_async_writer_runs_off_event_loop_thread(tmp_path, monkeypatch):
+    import asyncio
+    import json
+    import threading
+    from utils.core.kaia_dream import DreamEngine
+
+    path = tmp_path / "memory" / "growth_log.jsonl"
+    monkeypatch.setattr(DreamEngine, "GROWTH_LOG_PATH", path)
+    engine = DreamEngine.__new__(DreamEngine)
+
+    event_loop_thread = threading.get_ident()
+    writer_threads = []
+    original = engine._log_growth_event
+
+    def tracked_writer(event):
+        writer_threads.append(threading.get_ident())
+        return original(event)
+
+    engine._log_growth_event = tracked_writer
+    asyncio.run(engine._log_growth_event_async({"type": "test_growth_event"}))
+
+    assert writer_threads and writer_threads[0] != event_loop_thread
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["type"] == "test_growth_event"
+    assert rows[0]["ts"] > 0
+
+
+def test_async_growth_log_callbacks_are_dispatched_to_worker_threads():
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    for relative in (
+        "utils/core/conversation_beliefs.py",
+        "utils/core/self_claims.py",
+    ):
+        tree = ast.parse((root / relative).read_text(encoding="utf-8"))
+        calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "to_thread"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "log_growth"
+        ]
+        assert calls, f"{relative} no longer offloads its optional growth logger"
+        parents = {
+            id(child): parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        for call in calls:
+            await_node = parents.get(id(call))
+            assert isinstance(await_node, ast.Await) and await_node.value is call, (
+                f"{relative} worker-thread growth logger must be awaited at line {call.lineno}"
+            )
