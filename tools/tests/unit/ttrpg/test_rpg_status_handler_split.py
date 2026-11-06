@@ -127,3 +127,125 @@ def test_status_renders_the_hud_with_current_combat_and_progression_data(monkeyp
     assert "8/10" in embed.fields[0].value
     assert "4/5 hunts" in embed.fields[4].value
     assert view == "location-view"
+
+
+
+def test_stat_choice_rejects_a_different_user_without_loading(monkeypatch):
+    from utils.ttrpg import rpg_views
+
+    load = AsyncMock()
+    save = AsyncMock()
+    monkeypatch.setattr(rpg_views, "load", load)
+    monkeypatch.setattr(rpg_views, "save", save)
+
+    view = rpg_views.StatChoiceView(None, "42", "Ash", False, "str")
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=99),
+        response=SimpleNamespace(
+            send_message=AsyncMock(),
+            edit_message=AsyncMock(),
+        ),
+    )
+
+    asyncio.run(view._process_choice(interaction, {"str": 2}))
+
+    load.assert_not_awaited()
+    save.assert_not_awaited()
+    interaction.response.send_message.assert_awaited_once_with(
+        "This is not your choice to make.", ephemeral=True
+    )
+
+
+def test_stat_choice_duplicate_click_saves_exactly_once(monkeypatch):
+    from utils.ttrpg import rpg_views, session_manager
+
+    monkeypatch.setattr(session_manager, "_action_locks", {})
+    monkeypatch.setattr(session_manager, "_chan_global_lock", asyncio.Lock())
+    sheet = {
+        "user_id": "42",
+        "level": 2,
+        "_stat_choice_pending": True,
+        "stats": {"str": 10, "dex": 10, "con": 10, "int": 10, "wis": 10, "cha": 10},
+        "hp": {"current": 12, "max": 12},
+    }
+    load = AsyncMock(return_value=sheet)
+    saved = []
+
+    async def save(value):
+        saved.append({
+            "stats": dict(value["stats"]),
+            "pending": value.get("_stat_choice_pending", False),
+        })
+
+    monkeypatch.setattr(rpg_views, "load", load)
+    monkeypatch.setattr(rpg_views, "save", save)
+
+    view = rpg_views.StatChoiceView(None, "42", "Ash", False, "str")
+
+    def interaction():
+        return SimpleNamespace(
+            user=SimpleNamespace(id=42),
+            response=SimpleNamespace(
+                send_message=AsyncMock(),
+                edit_message=AsyncMock(),
+            ),
+        )
+
+    first, second = interaction(), interaction()
+
+    async def run():
+        await asyncio.gather(
+            view._process_choice(first, {"str": 2}),
+            view._process_choice(second, {"str": 2}),
+        )
+
+    asyncio.run(run())
+
+    assert load.await_count == 2
+    assert len(saved) == 1
+    assert saved[0]["stats"]["str"] == 12
+    assert saved[0]["pending"] is False
+    assert (
+        first.response.edit_message.await_count
+        + second.response.edit_message.await_count
+    ) == 1
+    assert (
+        first.response.send_message.await_count
+        + second.response.send_message.await_count
+    ) == 1
+    rejected = (
+        first if first.response.send_message.await_count
+        else second
+    )
+    rejected.response.send_message.assert_awaited_once_with(
+        "No stat choice is currently pending for your character.", ephemeral=True
+    )
+
+
+def test_stat_choice_with_stale_pending_state_does_not_save(monkeypatch):
+    from utils.ttrpg import rpg_views, session_manager
+
+    monkeypatch.setattr(session_manager, "_action_locks", {})
+    monkeypatch.setattr(session_manager, "_chan_global_lock", asyncio.Lock())
+    load = AsyncMock(return_value={"_stat_choice_pending": False})
+    save = AsyncMock()
+    monkeypatch.setattr(rpg_views, "load", load)
+    monkeypatch.setattr(rpg_views, "save", save)
+
+    view = rpg_views.StatChoiceView(None, "42", "Ash", False, "str")
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=42),
+        response=SimpleNamespace(
+            send_message=AsyncMock(),
+            edit_message=AsyncMock(),
+        ),
+    )
+
+    asyncio.run(view._process_choice(interaction, {"str": 2}))
+
+    load.assert_awaited_once_with("42")
+    save.assert_not_awaited()
+    interaction.response.send_message.assert_awaited_once_with(
+        "No stat choice is currently pending for your character.", ephemeral=True
+    )
+    interaction.response.edit_message.assert_not_awaited()
