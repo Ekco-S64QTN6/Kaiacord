@@ -85,3 +85,44 @@ def test_map_handler_renders_the_current_locations_exits(monkeypatch):
     assert "⚔️" in embed.description
     assert "Lv.3+" in embed.description
     assert view == "location-view"
+
+
+def test_navigation_name_matcher_uses_whole_word_phrase_boundaries():
+    assert navigation._names("offering bowl", "the offering bowl")
+    assert not navigation._names("offering bowl", "the offerings bowl")
+    assert not navigation._names("flame", "flamethrower")
+
+
+def test_public_look_handler_resolves_a_partial_multiword_target(monkeypatch):
+    from utils.ttrpg import look_targets
+
+    sheet = {
+        "user_id": "42",
+        "character_name": "Ash",
+        "location": "oakhaven",
+        "inventory": [],
+    }
+    monkeypatch.setattr(core, "load", AsyncMock(return_value=sheet))
+    save = AsyncMock()
+    monkeypatch.setattr(core, "save", save)
+    monkeypatch.setattr(
+        look_targets,
+        "LOCATION_LOOK_TARGETS",
+        {"oakhaven": {"offering bowl": "A silver bowl rests beside the hearth."}},
+    )
+
+    sent = []
+
+    async def send(*, embed=None, view=None):
+        sent.append(embed)
+
+    msg = SimpleNamespace(channel=SimpleNamespace(send=send))
+    asyncio.run(
+        core._handle_look(
+            object(), msg, None, "at offering", "42", "Ash", False
+        )
+    )
+
+    assert len(sent) == 1
+    assert sent[0].description == "A silver bowl rests beside the hearth."
+    save.assert_not_awaited()
