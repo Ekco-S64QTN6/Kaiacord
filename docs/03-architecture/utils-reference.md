@@ -16,7 +16,7 @@ Core utility modules used by Kaiacord.
 | `kaia_intelligence.py` | Intelligence facade — coordinates intent matching, budgeting and enrichment |
 | `intent_classifier.py` | Intent detection by regex. No model — the `gemma2:2b` second pass was removed in Sept 2026 because its verdict was never read |
 | `context_optimizer.py` | The one context budget, and the labels retrieved chunks carry into the prompt |
-| `context_enricher.py` | Reply context, embeds, attachments and fetched pages, each in its own labelled block |
+| `context_enricher.py` | Reply context, embeds, attachments and fetched pages in labelled blocks; chat-linked PDFs use isolated child parsers with per-worker limits and a process-wide two-worker semaphore |
 | `message_context.py` | `MessageContext`, the state one turn carries through the pipeline |
 | `hallucination_detector.py` | Canonical detector for AI structural leaks and fabrications |
 | `message_processor.py` | The on_message pipeline: intent, retrieval, behavioural injections, generation with retries and salvage |
@@ -29,7 +29,7 @@ Core utility modules used by Kaiacord.
 | `ingress.py` | Files staged documents from `knowledge_base/_ingress/` into the corpus |
 | `frontmatter.py` | The one writer for YAML frontmatter blocks. Every corpus writer that built one with an f-string eventually produced invalid YAML. |
 | `timezone_helper.py` | 4-clock Newsroom Wall timezone engine (12-hour AM/PM format, IANA safety) |
-| `background_tasks.py` | Afterthoughts, dawn tasks, presence loops, and forum scheduling |
+| `background_tasks.py` | Integrated news refresh coordination, bounded transient retry, afterthoughts, dawn/presence loops, forum scheduling and source-checked observation-digest quotes |
 | `kaia_art.py` | Fractal flame renderer (CPU-only, NumPy/SciPy) |
 | `kaia_art_intent.py` | What she decides to make before a fractal is drawn |
 | `kaia_expression.py` | A set she played or a piece she made, remembered as something she did (marked `event`: a note in her prompt, not a turn of hers) |
@@ -45,7 +45,7 @@ Core utility modules used by Kaiacord.
 | `kaia_mood.py` | Persistent emotional state vector (valence/arousal/energy) with 6h decay |
 | `kaia_desires.py` | Needs vector (social/intellectual/creative/rest) driving whether she initiates |
 | `kaia_monologue.py` | Private thought stream from passive channel observation |
-| `kaia_proactive.py` | Autonomous conversation initiation (10-source trigger engine, gated by `kaia_desires`; `private_thought` opens with someone a dream or thought was about) |
+| `kaia_proactive.py` | Autonomous conversation initiation (10-source trigger engine, gated by `kaia_desires`); opener deduplication uses the first 16 punctuation-normalized lexical words over a one-hour, channel-aware window |
 | `unprompted.py` | The one gate, label picker and sender for everything she says unasked (daily cap, gap, quiet hours, Bluesky cross-post) |
 | `kaia_presence.py` | Mood-aware Discord status driven by emotional arc |
 | `memory_anchors.py` | Dream-extracted thematic anchors (100-cap) for cross-session callbacks; recalled ones kept as they age, faded ones offered as fragments |
