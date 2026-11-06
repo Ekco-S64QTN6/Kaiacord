@@ -160,3 +160,47 @@ def test_threads_writing_one_file_do_not_share_a_temporary(tmp_path):
     lines = set(target.read_text(encoding="utf-8").splitlines())
     assert len(lines) == 1  # one writer's whole text, never a mix
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+
+def test_atomic_replace_fsyncs_its_parent_directory_after_replacement(tmp_path, monkeypatch):
+    """The file fsync alone does not make the renamed directory entry durable."""
+    import utils.core.atomic_write as atomic_write_module
+
+    target = tmp_path / "state.json"
+    target.write_text("old", encoding="utf-8")
+    real_fsync_directory = atomic_write_module.fsync_directory
+    synced = []
+
+    def observe_directory_sync(directory):
+        assert target.read_text(encoding="utf-8") == "new"
+        synced.append(Path(directory))
+        real_fsync_directory(directory)
+
+    monkeypatch.setattr(
+        atomic_write_module, "fsync_directory", observe_directory_sync
+    )
+    write_atomic(target, "new")
+
+    assert synced == [tmp_path]
+    assert target.read_text(encoding="utf-8") == "new"
+
+
+def test_atomic_replace_reports_parent_directory_sync_failure(tmp_path, monkeypatch):
+    """Do not claim durable replacement when the directory sync failed."""
+    import utils.core.atomic_write as atomic_write_module
+
+    target = tmp_path / "state.json"
+
+    def fail_directory_sync(_directory):
+        raise OSError("simulated directory fsync failure")
+
+    monkeypatch.setattr(
+        atomic_write_module, "fsync_directory", fail_directory_sync
+    )
+    with pytest.raises(OSError, match="directory fsync"):
+        write_atomic(target, "new")
+
+    # os.replace already happened; the raised error means durability was not
+    # confirmed, not that the destination was rolled back.
+    assert target.read_text(encoding="utf-8") == "new"
