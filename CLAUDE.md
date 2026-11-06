@@ -89,7 +89,7 @@ so a mis-marked test fails fast instead of loading a model:
 | Workflow | Runs |
 |:--|:--|
 | `unit-tests.yml` | every PR and push to `main`: `.github/scripts/run_ci_tests.py` — `compileall` over `utils/` and `tools/`, the hygiene baseline (`test_suite_hygiene`, `test_chat_model_calls`, `test_no_shadowed_imports`), plus the tests for what the diff touched (`test_<stem>.py`, `RELATED_TESTS`, all of `tools/tests/unit/ttrpg/` for a `utils/ttrpg/` change) |
-| `ttrpg-tests.yml` | `tools/tests/unit/ttrpg/` when `utils/ttrpg/**` changes |
+| `ttrpg-tests.yml` | Full `tools/tests/unit/ttrpg/` suite when `utils/ttrpg/**`, `tools/tests/unit/ttrpg/**`, or the workflow file changes; also supports manual dispatch |
 | `records-audio-tests.yml` | `test_records.py` when `utils/audio/records.py` changes |
 
 A green check is therefore not a green suite: run the full no-external-services invocation
