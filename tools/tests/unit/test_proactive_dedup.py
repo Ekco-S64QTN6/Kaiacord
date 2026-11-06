@@ -173,3 +173,22 @@ def test_sent_broadcast_is_recorded_even_if_bot_state_save_fails(tmp_path, monke
     saved = json.loads(path.read_text(encoding="utf-8"))["history"]
     assert saved[-1]["summary"] == "this was delivered."
     assert saved[-1]["source"] == "mood_reflection"
+
+
+
+def test_opener_deduplication_ignores_punctuation_only_changes(tmp_path, monkeypatch):
+    engine, path = _engine(tmp_path, monkeypatch)
+    now = time.time()
+    path.write_text(json.dumps({"history": [{
+        "timestamp": now - 30,
+        "source": "conversation_followup",
+        "channel_id": 123,
+        "summary": "The station went quiet after the last train.",
+    }]}), encoding="utf-8")
+
+    # A period and an ellipsis produce the same lexical opening signature.
+    assert engine.has_recent_duplicate_opener(
+        "The station went quiet after the last train…",
+        channel_id=123,
+        now=now,
+    )
