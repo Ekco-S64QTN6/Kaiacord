@@ -20,6 +20,7 @@ except ImportError:
 
 from utils.infrastructure.logging.kaia_logger import log_info, log_error, log_warning, log_success, log_action, log_debug
 from utils.core.atomic_write import write_atomic
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 from utils.infrastructure.gpu.gpu_manager import voice_sampling
 
 # ── Style Artifact Sanitizer ──────────────────────────────────────────────
@@ -132,7 +133,8 @@ def _sanitize_repetitive_starts(text: str, max_ratio: float = 0.4) -> str:
 
 class DreamEngine:
     # Growth log path — append-only JSONL ledger for tracking character evolution
-    GROWTH_LOG_PATH = Path("memory") / "growth_log.jsonl"
+    # Optional path override for focused tests; otherwise resolved dynamically.
+    GROWTH_LOG_PATH = None
     # Rotation bounds for the growth log. The size gate keeps the common
     # append path to a single stat() call; the entry cap matches the
     # milestone rotation in message_processor so both agree on the tail.
@@ -168,33 +170,22 @@ class DreamEngine:
         as a permanent ledger of character evolution over time.
         """
         try:
-            event['ts'] = time.time()
-            self.GROWTH_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.GROWTH_LOG_PATH, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(event) + '\n')
-                f.flush()
-                try:
-                    os.fsync(f.fileno())
-                except OSError:
-                    pass
+            from utils.core.growth_log import append_growth_event
 
-            # Size-gated rotation, mirroring kaia_mood._log_snapshot. This is
-            # the log's main writer (dreams, beliefs, digests), so it has to
-            # rotate here — rotation attached to a rare milestone elsewhere lets
-            # the file grow unbounded in between.
-            try:
-                if self.GROWTH_LOG_PATH.stat().st_size > self.GROWTH_LOG_MAX_BYTES:
-                    with open(self.GROWTH_LOG_PATH, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()
-                    if len(lines) > self.GROWTH_LOG_MAX_ENTRIES:
-                        tmp_path = str(self.GROWTH_LOG_PATH) + ".tmp"
-                        with open(tmp_path, 'w', encoding='utf-8') as f:
-                            f.writelines(lines[-self.GROWTH_LOG_MAX_ENTRIES:])
-                        os.replace(tmp_path, str(self.GROWTH_LOG_PATH))
-            except Exception:
-                pass
+            append_growth_event(
+                event,
+                self._growth_log_path(),
+                max_bytes=self.GROWTH_LOG_MAX_BYTES,
+                max_entries=self.GROWTH_LOG_MAX_ENTRIES,
+            )
         except Exception as e:
             log_debug(f"Growth log write failed (non-fatal): {e}")
+
+    def _growth_log_path(self) -> Path:
+        """Resolve the production or pytest growth log, unless a test overrides it."""
+        if self.GROWTH_LOG_PATH is not None:
+            return Path(self.GROWTH_LOG_PATH)
+        return Path(telemetry_path("memory/growth_log.jsonl"))
 
     async def _log_growth_event_async(self, event: dict):
         """Append a growth event without blocking the event loop."""
@@ -726,8 +717,9 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             # Gather recent growth events to ground the identity shift in real changes
             growth_context = ""
             try:
-                if self.GROWTH_LOG_PATH.exists():
-                    text = await asyncio.to_thread(self.GROWTH_LOG_PATH.read_text, encoding='utf-8')
+                growth_log_path = self._growth_log_path()
+                if growth_log_path.exists():
+                    text = await asyncio.to_thread(growth_log_path.read_text, encoding='utf-8')
                     # The last few *changes*: most lines are observation seeds
                     # and relationship insights, so the last five lines usually
                     # held none of these and the prompt had nothing concrete.
