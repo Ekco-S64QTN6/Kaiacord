@@ -11,6 +11,7 @@ discharges her creative need.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Optional
@@ -56,3 +57,11 @@ def remember(kind: str, line: str, *, channel_id: Optional[int] = None,
             f.write(json.dumps(event) + "\n")
     except Exception as e:
         log_debug(f"[expression] growth log not updated: {e}")
+
+
+async def remember_async(kind: str, line: str, *, channel_id: Optional[int] = None,
+                         title: str = "", detail: Optional[dict] = None) -> None:
+    """Record a creation from an async caller without blocking its event loop."""
+    await asyncio.to_thread(
+        remember, kind, line, channel_id=channel_id, title=title, detail=detail
+    )
