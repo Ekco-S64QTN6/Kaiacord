@@ -29,7 +29,7 @@ Core utility modules used by Kaiacord.
 | `ingress.py` | Files staged documents from `knowledge_base/_ingress/` into the corpus |
 | `frontmatter.py` | The one writer for YAML frontmatter blocks. Every corpus writer that built one with an f-string eventually produced invalid YAML. |
 | `timezone_helper.py` | 4-clock Newsroom Wall timezone engine (12-hour AM/PM format, IANA safety) |
-| `background_tasks.py` | Integrated news refresh coordination, bounded transient retry, afterthoughts, dawn/presence loops, forum scheduling and source-checked observation-digest quotes |
+| `background_tasks.py` | Integrated news refresh coordination, bounded transient retry, afterthoughts, dawn/presence loops, forum scheduling, source-checked observation digests, and timeout/cancellation cleanup for maintenance subprocess trees |
 | `kaia_art.py` | Fractal flame renderer (CPU-only, NumPy/SciPy) |
 | `kaia_art_intent.py` | What she decides to make before a fractal is drawn |
 | `kaia_expression.py` | A set she played or a piece she made, remembered as something she did (marked `event`: a note in her prompt, not a turn of hers) |

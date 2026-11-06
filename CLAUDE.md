@@ -232,6 +232,12 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   already be visible. `test_no_corpus_write_bypasses_the_atomic_helper` enforces it now,
   because two grew back after that sweep — including the forum Off-Topic listing, rewritten on
   every scrape.
+- **Background subprocesses must have an owner and a cleanup path.** Scheduled maintenance
+  children start in their own process session. Bound `communicate()`, keep the pipe-reading task
+  shielded across timeout handling, terminate the process group, escalate to SIGKILL when needed,
+  and await the child before returning or propagating task cancellation. A timeout is not cleanup:
+  returning from a scheduler while its child keeps running creates overlapping jobs and orphaned
+  workers.
 - **Blocking work off the event loop.** File I/O, PIL, and CPU rendering must be wrapped in
   `asyncio.to_thread()`. This is not theoretical — vision image preparation was found running
   full-resolution PIL decode and base64 synchronously on the loop, stalling every other
