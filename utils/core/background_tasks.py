@@ -1940,25 +1940,105 @@ class CoreTaskManager:
     #: until the bot restarts.
     NEWS_SUBPROCESS_TIMEOUT = 1800
 
-    async def _communicate_or_kill(self, process, label: str):
-        try:
-            return await asyncio.wait_for(process.communicate(),
-                                          timeout=self.NEWS_SUBPROCESS_TIMEOUT)
-        except asyncio.TimeoutError:
-            log_error(f"{label} still running after {self.NEWS_SUBPROCESS_TIMEOUT}s; killing it.")
-            # Both scripts start in their own session, so the whole tree goes —
-            # a scraper's browser or a worker it spawned would otherwise
-            # outlive it and keep the pipes open.
+    async def _stop_process_tree(
+        self, process, label: str, *, communication_task=None,
+        terminate_grace: float = 5, kill_grace: float = 10,
+    ):
+        """Terminate a dedicated subprocess session and reap its child process."""
+        import signal as _signal
+
+        if communication_task is None:
+            communication_task = asyncio.create_task(process.communicate())
+
+        def signal_group(sig):
             try:
-                import signal as _signal
-                os.killpg(process.pid, _signal.SIGKILL)
+                os.killpg(process.pid, sig)
+                return
             except (ProcessLookupError, PermissionError, OSError):
-                process.kill()
-            # Bounded as well, in case something still holds the pipes.
+                # A missing process group or restricted platform falls back to
+                # the direct child. All managed maintenance jobs start sessions.
+                try:
+                    (process.terminate if sig == _signal.SIGTERM else process.kill)()
+                except ProcessLookupError:
+                    pass
+
+        signal_group(_signal.SIGTERM)
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(communication_task), timeout=terminate_grace
+            )
+        except asyncio.TimeoutError:
+            log_warning(f"{label} did not exit after SIGTERM; sending SIGKILL.")
+            signal_group(_signal.SIGKILL)
+
+        # Reap the direct child independently of pipe EOF. A descendant that
+        # inherited stdout/stderr can keep communicate() pending after the
+        # parent exits, so process.wait() must not depend on those pipe readers.
+        try:
+            await asyncio.wait_for(process.wait(), timeout=kill_grace)
+        except asyncio.TimeoutError:
+            log_error(f"{label} child did not exit after SIGKILL.")
+            return b"", b""
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(communication_task), timeout=kill_grace
+            )
+        except asyncio.TimeoutError:
+            log_error(f"{label} exited but its output pipes did not close.")
+            communication_task.cancel()
             try:
-                return await asyncio.wait_for(process.communicate(), timeout=10)
+                await communication_task
+            except asyncio.CancelledError:
+                pass
+            return b"", b""
+
+    async def _communicate_or_kill(
+        self, process, label: str, *, timeout: float | None = None,
+        terminate_grace: float = 5, kill_grace: float = 10,
+    ):
+        """Collect output, terminating and reaping the process tree on timeout or cancellation."""
+        timeout = self.NEWS_SUBPROCESS_TIMEOUT if timeout is None else timeout
+        communication_task = asyncio.create_task(process.communicate())
+        cleanup_task = None
+        try:
+            try:
+                # Shield the single communication task so timeout/cancellation
+                # does not destroy a partially completed stdout/stderr read.
+                return await asyncio.wait_for(
+                    asyncio.shield(communication_task), timeout=timeout
+                )
             except asyncio.TimeoutError:
-                return b"", b""
+                log_warning(f"{label} exceeded its {timeout:g}s time limit; terminating its process tree.")
+                cleanup_task = asyncio.create_task(
+                    self._stop_process_tree(
+                        process, label,
+                        communication_task=communication_task,
+                        terminate_grace=terminate_grace,
+                        kill_grace=kill_grace,
+                    )
+                )
+                return await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            # A task cancellation must not orphan its subprocess. Keep a strong
+            # reference to cleanup and shield it from the cancellation that
+            # caused this branch; propagate cancellation only after child reaping.
+            if cleanup_task is None:
+                cleanup_task = asyncio.create_task(
+                    self._stop_process_tree(
+                        process, label,
+                        communication_task=communication_task,
+                        terminate_grace=terminate_grace,
+                        kill_grace=kill_grace,
+                    )
+                )
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError:
+                # A second cancellation still cannot be allowed to orphan the
+                # child; await the retained cleanup task before propagating.
+                await cleanup_task
+            raise
 
     async def run_news_update(self):
         """Serialize scheduled and follow-up news refreshes."""
