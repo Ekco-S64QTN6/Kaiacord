@@ -12,8 +12,6 @@ async def _with_target_action_lock(target_uid: str, caller_uid: str, operation):
     Self-targeted commands acquire the single shared lock exactly once.
     """
     target_uid = str(target_uid)
-    if target_uid == str(caller_uid):
-        return await operation()
 
     from contextlib import AsyncExitStack
     from utils.ttrpg.session_manager import get_action_lock
