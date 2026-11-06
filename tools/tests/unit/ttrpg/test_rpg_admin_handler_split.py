@@ -73,3 +73,21 @@ def test_admin_give_reports_inventory_capacity_without_saving(monkeypatch):
     assert len(sent) == 1
     assert "inventory full" in sent[0].description
     assert f"{INVENTORY_LIMIT}/{INVENTORY_LIMIT} unique item types" in sent[0].description
+
+
+def test_self_target_admin_mutation_holds_the_single_user_lock(monkeypatch):
+    from utils.ttrpg import session_manager
+
+    monkeypatch.setattr(session_manager, "_action_locks", {})
+    monkeypatch.setattr(session_manager, "_chan_global_lock", asyncio.Lock())
+
+    async def run():
+        async def inspect_lock():
+            lock = await session_manager.get_action_lock("user:owner")
+            assert lock.locked()
+
+        await core._with_target_action_lock("owner", "owner", inspect_lock)
+        lock = await session_manager.get_action_lock("user:owner")
+        assert not lock.locked()
+
+    asyncio.run(run())
