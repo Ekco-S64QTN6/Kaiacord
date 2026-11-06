@@ -25,7 +25,7 @@ MAX_PDF_PARSE_TIMEOUT_SECONDS = 5
 MAX_CONCURRENT_PDF_PARSERS = 2
 MAX_PDF_PARSE_QUEUE_WAIT_SECONDS = 1
 _PDF_PARSE_SEMAPHORE = threading.BoundedSemaphore(MAX_CONCURRENT_PDF_PARSERS)
-# Entries older than the TTL are dropped once a cache grows past this.
+# Each per-enricher cache has a hard entry cap; expired entries are pruned first.
 CACHE_MAX_ENTRIES = 256
 # A quoted or linked message's embeds are kept up to this many characters:
 # a !help page is a few thousand, and the quote is context, not the subject.
@@ -545,9 +545,24 @@ class ContextEnricher:
         return bool(perms.view_channel and perms.read_message_history)
 
     def _prune(self, cache: dict, now: float) -> None:
-        if len(cache) > CACHE_MAX_ENTRIES:
-            for key in [k for k, (ts, _) in cache.items() if now - ts >= self._cache_ttl]:
+        """Remove expired entries, then evict the oldest until the hard cap holds."""
+        expired = [
+            key for key, (timestamp, _) in cache.items()
+            if now - timestamp >= self._cache_ttl
+        ]
+        for key in expired:
+            del cache[key]
+
+        overflow = len(cache) - CACHE_MAX_ENTRIES
+        if overflow > 0:
+            oldest = sorted(cache, key=lambda key: cache[key][0])[:overflow]
+            for key in oldest:
                 del cache[key]
+
+    def _cache_store(self, cache: dict, key, value, now: float) -> None:
+        """Insert one item and enforce the cache's TTL and hard entry bound."""
+        cache[key] = (now, value)
+        self._prune(cache, now)
 
     async def _resolve_single_link(self, channel_id: int, message_id: int,
                                    requester=None, guild_id: int = 0) -> str:
@@ -566,8 +581,7 @@ class ContextEnricher:
             if not channel:
                 try:
                     channel = await self.bot.fetch_channel(channel_id)
-                    self._prune(self._channel_cache, now)
-                    self._channel_cache[channel_id] = (now, channel)
+                    self._cache_store(self._channel_cache, channel_id, channel, now)
                 except Exception as e:
                     log_debug(f"Failed to fetch channel {channel_id}: {e}")
                     return ""
@@ -590,8 +604,7 @@ class ContextEnricher:
         try:
             linked_msg = await channel.fetch_message(message_id)
             if linked_msg:
-                self._prune(self._message_cache, now)
-                self._message_cache[message_id] = (now, linked_msg)
+                self._cache_store(self._message_cache, message_id, linked_msg, now)
                 author = linked_msg.author.display_name
                 return f"Message from {author} in #{channel.name}:\n{self._with_embeds(linked_msg.content, linked_msg)}"
         except Exception as e:
@@ -725,8 +738,7 @@ class ContextEnricher:
                         if len(parsed_text) > max_len:
                             parsed_text = parsed_text[:max_len] + "... [TRUNCATED]"
                         final_result = f"Source: {url}\n{parsed_text}"
-                        self._prune(self._url_cache, now)
-                        self._url_cache[url] = (now, final_result)
+                        self._cache_store(self._url_cache, url, final_result, now)
                         return final_result
 
                     if 'text/html' not in content_type and 'text/plain' not in content_type:
@@ -767,8 +779,7 @@ class ContextEnricher:
                         parsed_text = parsed_text[:max_len] + "... [TRUNCATED]"
                         
                     final_result = f"Source: {url}\n{parsed_text}"
-                    self._prune(self._url_cache, now)
-                    self._url_cache[url] = (now, final_result)
+                    self._cache_store(self._url_cache, url, final_result, now)
                     
                     return final_result
 
