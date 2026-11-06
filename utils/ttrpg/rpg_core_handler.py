@@ -923,6 +923,7 @@ async def _handle_gamble(ctx, msg, send, rest, uid, uname, is_owner):
         status_btn_factory=_make_status_btn,
     )
 
+# The extracted Shrine gift path still uses inventory_capacity.grant_item_or_mail.
 async def _handle_pray(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.rpg_shrine_handler import _handle_pray as handle
     return await handle(
