@@ -263,7 +263,7 @@ def inspiration(channel_id=None, *, recent_thoughts=None) -> str:
         from utils.infrastructure.system.bot_state import bot_state
         turns = [t for t in list(bot_state.channel_memory.get(channel_id, []))
                  if isinstance(t, dict) and t.get("role") == "user" and not t.get("event")]
-        said = [re.sub(r"^[^:\\n]{1,40}:\\s*", "", str(t.get("content", ""))).strip() for t in turns[-4:]]
+        said = [re.sub(r"^[^:\n]{1,40}:\s*", "", str(t.get("content", ""))).strip() for t in turns[-4:]]
         said = [x[:200] for x in said if len(x.split()) >= 3 and not x.startswith("!")]
         if said:
             options.append("what people here were just talking about: " + " / ".join(f'"{x}"' for x in said))
