@@ -145,6 +145,11 @@ def test_dashboard_sources_all_exist_or_are_creatable():
 
 # ── The live files ───────────────────────────────────────────────────
 
+def test_growth_ledger_is_a_dashboard_telemetry_source():
+    assert "memory/growth_log.jsonl" in DASHBOARD_SOURCES
+    assert telemetry_path("memory/growth_log.jsonl") != "memory/growth_log.jsonl"
+
+
 def test_this_run_did_not_touch_production_telemetry():
     """The whole point, asserted directly."""
     for src in DASHBOARD_SOURCES:
