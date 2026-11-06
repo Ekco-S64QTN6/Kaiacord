@@ -27,6 +27,7 @@ def test_recent_art_reads_her_pieces_from_the_growth_log(monkeypatch, tmp_path):
     from utils.core import kaia_art_intent as K
     log = tmp_path / "growth_log.jsonl"
     log.write_text("\n".join(json.dumps(r) for r in [
+        [],  # valid JSON, but not a growth-ledger event object
         {"type": "creation", "kind": "art", "title": "jitter", "summary": "[i made a piece called \"jitter\".]"},
         {"type": "creation", "kind": "music", "title": "a set"},
         {"type": "creation", "kind": "art", "title": "beacon", "summary": "[i made a piece called \"beacon\".]"},
@@ -49,3 +50,44 @@ def test_the_commentary_is_shown_the_piece():
     import base64, io
     shown = Image.open(io.BytesIO(base64.b64decode(user["images"][0])))
     assert max(shown.size) == 896
+
+
+
+def test_decide_offloads_art_history_reads_from_the_event_loop(monkeypatch):
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+    from utils.core import kaia_art_intent as K
+
+    loop_thread = threading.get_ident()
+    worker_threads = []
+    seen = {}
+
+    def read_monologue_tail():
+        worker_threads.append(threading.get_ident())
+        return ["a thought about a lighthouse"]
+
+    def read_recent_art():
+        worker_threads.append(threading.get_ident())
+        return [{"title": "earlier light"}]
+
+    async def ask(_ctx, _prompt, _mood, _image, about, before):
+        seen["about"] = about
+        seen["before"] = before
+        return None
+
+    monkeypatch.setattr(K, "_recent_monologue_thoughts", read_monologue_tail)
+    monkeypatch.setattr(K, "recent_art", read_recent_art)
+    monkeypatch.setattr(K, "_ask", ask)
+
+    intent = asyncio.run(K.decide(
+        "",
+        ctx=SimpleNamespace(ollama_client=object()),
+        channel_id=987654321,
+    ))
+
+    assert len(worker_threads) == 2
+    assert all(thread_id != loop_thread for thread_id in worker_threads)
+    assert "a thought about a lighthouse" in seen["about"]
+    assert seen["before"] == [{"title": "earlier light"}]
+    assert intent.about == seen["about"]

@@ -21,11 +21,11 @@ An attached image contributes its colours as a palette of its own.
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import re
 import time
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -218,6 +218,8 @@ def recent_art(n: int = 6) -> list[dict]:
                     r = json.loads(line)
                 except ValueError:
                     continue
+                if not isinstance(r, dict):
+                    continue
                 if r.get("type") == "creation" and r.get("kind") == "art":
                     rows.append({"title": str(r.get("title") or ""), "summary": str(r.get("summary") or "")})
         return rows[-n:]
@@ -225,11 +227,38 @@ def recent_art(n: int = 6) -> list[dict]:
         return []
 
 
-def inspiration(channel_id=None) -> str:
-    """Something of hers to make a piece about when nobody asked for anything:
-    what this channel was just talking about, or a thought she had recently.
-    With only a mood word to go on, every unprompted piece came out the same —
-    "jitter", seven times running."""
+def _recent_monologue_thoughts(limit: int = 12) -> list[str]:
+    """Read only the newest log records into memory and return recent thoughts."""
+    from collections import deque
+
+    try:
+        from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+        with open(telemetry_path("memory/monologue_log.jsonl"), encoding="utf-8") as handle:
+            lines = deque(handle, maxlen=limit)
+    except OSError:
+        return []
+
+    thoughts = []
+    now = time.time()
+    for line in lines:
+        try:
+            record = json.loads(line)
+            epoch = float(record.get("epoch", 0) or 0)
+        except (ValueError, TypeError, AttributeError):
+            continue
+        thought = record.get("thought") if isinstance(record, dict) else None
+        if thought and now - epoch < 2 * 86400:
+            thoughts.append(str(thought)[:240])
+    return thoughts
+
+
+def inspiration(channel_id=None, *, recent_thoughts=None) -> str:
+    """Something of hers to make a piece about when nobody asked for anything.
+
+    Channel memory is read in the caller's thread. Pass recent_thoughts when the
+    monologue log has already been read in a worker thread; omitting it keeps
+    this synchronous helper useful to scripts and tests.
+    """
     import random
     options = []
     try:
@@ -242,21 +271,12 @@ def inspiration(channel_id=None) -> str:
             options.append("what people here were just talking about: " + " / ".join(f'"{x}"' for x in said))
     except Exception:
         pass
-    try:
-        from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
-        lines = Path(telemetry_path("memory/monologue_log.jsonl")).read_text(encoding="utf-8").splitlines()[-12:]
-        thoughts = []
-        for line in lines:
-            try:
-                r = json.loads(line)
-            except ValueError:
-                continue
-            if r.get("thought") and time.time() - float(r.get("epoch", 0)) < 2 * 86400:
-                thoughts.append(str(r["thought"])[:240])
-        if thoughts:
-            options.append(f'a thought you had recently: "{random.choice(thoughts)}"')
-    except (OSError, ValueError):
-        pass
+
+    thoughts = recent_thoughts
+    if thoughts is None:
+        thoughts = _recent_monologue_thoughts()
+    if thoughts:
+        options.append(f'a thought you had recently: "{random.choice(thoughts)}"')
     return random.choice(options) if options else ""
 
 
@@ -348,10 +368,16 @@ async def decide(prompt: str, *, ctx=None, image_lut=None, channel_id=None) -> A
     base = merge(from_words(prompt), from_mood(m)) if prompt else from_mood(m)
     base.prompt = prompt or ""
 
-    about = "" if prompt else inspiration(channel_id)
+    if prompt:
+        about = ""
+    else:
+        recent_thoughts = await asyncio.to_thread(_recent_monologue_thoughts)
+        about = inspiration(channel_id, recent_thoughts=recent_thoughts)
+
     choice = None
     if ctx is not None and getattr(ctx, "ollama_client", None) is not None:
-        choice = await _ask(ctx, prompt, m, image_lut is not None, about, recent_art())
+        before = await asyncio.to_thread(recent_art)
+        choice = await _ask(ctx, prompt, m, image_lut is not None, about, before)
     intent = merge(choice, base)
     intent.prompt = prompt or ""
     intent.about = about
