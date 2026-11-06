@@ -27,6 +27,7 @@ def test_recent_art_reads_her_pieces_from_the_growth_log(monkeypatch, tmp_path):
     from utils.core import kaia_art_intent as K
     log = tmp_path / "growth_log.jsonl"
     log.write_text("\n".join(json.dumps(r) for r in [
+        [],  # valid JSON, but not a growth-ledger event object
         {"type": "creation", "kind": "art", "title": "jitter", "summary": "[i made a piece called \"jitter\".]"},
         {"type": "creation", "kind": "music", "title": "a set"},
         {"type": "creation", "kind": "art", "title": "beacon", "summary": "[i made a piece called \"beacon\".]"},
