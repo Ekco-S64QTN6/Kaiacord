@@ -145,7 +145,7 @@ def test_detailed_sheet_applies_gear_soft_cap_and_level_defense_cap(monkeypatch)
     # Raw gear DEF 14 is softened to 12; base 10 + DEX 0 + gear 12 = 22.
     assert "Gear +12" in breakdown
     assert "= 22 → cap 13" in breakdown
-    assert "DEF: **13** *(raw 22, capped)*" in combat
+    assert "**DEF:** **13** *(raw 22, capped)*" in combat
     assert "Level 1 cap: Lv×1.5+12 = 13 effective DEF" in breakdown
 
 
