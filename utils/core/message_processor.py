@@ -1711,19 +1711,15 @@ class MessageProcessor:
 
         if attachments_to_process:
             images = []
-            image_attachments = [
-                att for att in attachments_to_process
-                if any(
-                    str(getattr(att, "filename", "")).lower().endswith(ext)
-                    for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp")
-                )
-            ]
-            if len(image_attachments) > self.VISION_MAX_IMAGES:
+            image_attachments, skipped_images = self._select_vision_image_attachments(
+                attachments_to_process
+            )
+            if skipped_images:
                 log_warning(
                     f"Vision image count capped at {self.VISION_MAX_IMAGES}; "
-                    f"skipping {len(image_attachments) - self.VISION_MAX_IMAGES} extra image(s)."
+                    f"skipping {skipped_images} extra image(s)."
                 )
-            for att in image_attachments[:self.VISION_MAX_IMAGES]:
+            for att in image_attachments:
                 filename = getattr(att, 'filename', '').lower()
                 try:
                     is_gif = filename.endswith('.gif')
@@ -2995,6 +2991,19 @@ class MessageProcessor:
     VISION_MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
     VISION_MAX_SOURCE_PIXELS = 20_000_000
     VISION_MAX_REDIRECTS = 5
+
+    def _select_vision_image_attachments(self, attachments):
+        """Return the bounded image subset and the number of images skipped."""
+        suffixes = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+        candidates = [
+            attachment for attachment in attachments
+            if any(
+                str(getattr(attachment, "filename", "")).lower().endswith(ext)
+                for ext in suffixes
+            )
+        ]
+        selected = candidates[:self.VISION_MAX_IMAGES]
+        return selected, len(candidates) - len(selected)
 
     def _prepare_image_payload(self, data: bytes, is_gif: bool) -> str:
         """Decode, downscale and base64-encode an image. Runs in a worker thread.
