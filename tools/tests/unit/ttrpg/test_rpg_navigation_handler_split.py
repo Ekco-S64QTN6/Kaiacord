@@ -112,9 +112,14 @@ def test_public_look_handler_resolves_a_partial_multiword_target(monkeypatch):
     )
 
     sent = []
+
+    async def send(*, embed=None, view=None):
+        sent.append(embed)
+
+    msg = SimpleNamespace(channel=SimpleNamespace(send=send))
     asyncio.run(
         core._handle_look(
-            object(), _message(sent), None, "at offering", "42", "Ash", False
+            object(), msg, None, "at offering", "42", "Ash", False
         )
     )
 
