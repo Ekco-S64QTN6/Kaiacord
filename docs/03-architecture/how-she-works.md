@@ -79,6 +79,23 @@ an earlier view, *Down the rabbit hole* for something she read), and you choose 
 go to her Bluesky feed. A dream or a passing thought about someone can become how she opens a
 conversation with them — once a day at most, and only while they're around.
 
+### Broadcast deduplication and observation quotes
+
+Proactive openers, observation digests, and monologue broadcasts share a delivery-time
+duplicate guard. The duplicate check, Discord send, and successful-history write are serialized;
+queued posts are checked when they reach the send queue, and a failed send is not recorded.
+The history keeps at most 50 entries and compares within a one-hour window. Opener signatures
+use the first 16 lowercase lexical words, so punctuation-only differences share a signature.
+Exact signatures match; longer signatures can also match at a similarity ratio of 0.88 or higher.
+New entries are channel-scoped. Legacy entries without a channel ID are compared conservatively
+across channels.
+
+Observation digests may quote only wording found within one speaker's turn. Straight and curly
+single/double quotes are checked; an unmatched opening delimiter is invalid even when its
+trailing words happen to appear in the conversation. A rejected draft gets one quote-free
+corrective retry, and the replacement is checked again. A still-invalid or unusable replacement
+is neither stored nor broadcast.
+
 A consistency check flags a reply that concedes one of her strongest beliefs just because someone
 pushed back, and strips the capitulation before it is sent. Asked about space weather, launches or
 the ISS, she answers from the live feeds; asked for a favourite, from the books and music she has

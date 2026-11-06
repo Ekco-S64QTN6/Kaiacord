@@ -21,7 +21,7 @@ the bot does. This file said 2.6.4 until September 2026 — check `requirements.
 | Subsystem | Where | Summary |
 |:--|:--|:--|
 | **Kaia** | `utils/core/` | AI persona. Behavioural injections in `message_processor.py`, post-generation safety pipeline in `safety_pipeline.py` + `response_filter.py`, hybrid BM25 + vector RAG. |
-| **Aethelgard TTRPG** | `utils/ttrpg/` | Deterministic turn-based RPG, 77-floor mega-dungeon. |
+| **Aethelgard TTRPG** | `utils/ttrpg/` | Deterministic turn-based RPG, 77-floor mega-dungeon. `rpg_core_handler.py` is the command dispatcher and dependency-adapter layer; domain actions are split into dedicated `rpg_*_handler.py` modules. |
 | **Fractal art** | `utils/core/kaia_sheep.py` | Electric Sheep genomes rendered by flam3 (external, GPL); `kaia_art.py` is the NumPy fallback and the Mandelbrot renderer. |
 | **Music** | `utils/audio/` | Live-coded sets in a voice channel, driving Strudel in a real browser; `!music records` mixes the local library with a playable DJ booth. No LLM, no GPU — see [§7](#7-music-engine). |
 | **Social & forum** | `utils/social/` | Project 1999 forum client, moderation queue, Bluesky/X, each behind its own enable flag. |
@@ -217,7 +217,11 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   paths, never direct writes. Single-record loads verify the embedded `user_id` matches the
   requested filename owner; legacy records without an ID adopt the filename as the source of truth.
   A mismatch or non-object record fails closed before it can be read into gameplay or saved.
-  Character read-modify-write sequences use per-user async locks.
+  Character read-modify-write sequences use per-user async locks. Owner-only `!rpg give` and
+  `!rpg heal` are marked self-serialized so the dispatcher does not pre-hold only the caller
+  lock; their helper acquires the unique caller and target `user:<uid>` locks in sorted UID order.
+  A self-target takes that one lock once. Any new multi-character mutation must preserve this
+  global order and keep the complete reload/mutate/save operation inside the locks.
 - **Atomic writes everywhere**: `utils/core/atomic_write.write_atomic()`. Do not call
   `Path.write_text` on anything under `knowledge_base/` or `memory/`. The rule dates from a
   half-written registry that caused an outage, and it was being followed where people remembered
@@ -721,7 +725,10 @@ header. Rules that keep it safe, each with a test in `test_context_enricher_file
   are capped. A timeout, resource kill, unsupported platform or parser error returns no extracted
   text; never fall back to parsing an untrusted PDF in the bot process. Linux integration tests
   exercise real `RLIMIT_AS`, `RLIMIT_CPU` and timeout/reaping behavior in
-  `test_context_enricher_links.py`.
+  `test_context_enricher_links.py`. A process-wide bounded semaphore caps the bot at two
+  simultaneous PDF children; a queued extraction waits at most one second, then fails closed.
+  With the existing 256 MiB per-child address-space limit, the combined child address-space
+  ceiling is about 512 MiB per bot process, not a host-wide cap across multiple processes.
 - **"summarize this file" after the file** finds it on the replied-to message, or on the author's
   own last 5 messages within 15 minutes. Images are not handled here; they stay on the vision path.
 
@@ -1430,8 +1437,16 @@ observation digests and monologue broadcasts use
 send and history write are serialized; a message enters `proactive_topics.json` only after
 Discord accepts it. A post waiting in `unprompted._drain` keeps the same guard and is checked
 when it reaches the front of the queue, not when it is first enqueued. The history is bounded to
-50 entries, channel-aware and compared over one hour. Signatures use the first 16 lexical words
-across sentence boundaries, so abbreviations do not terminate the signature early.
+50 entries, channel-aware and compared over one hour. Signatures use the first 16 lowercase
+lexical words across sentence boundaries; punctuation is discarded, exact signatures match, and
+longer signatures fuzzy-match at 0.88 or higher. Legacy entries without a channel ID are compared
+conservatively across channels.
+
+**Observation-digest quotations must be grounded.** Every straight/curly single/double-quoted
+span must match text from one speaker turn. An unmatched opening delimiter is invalid even if
+the remaining words appear in the source. `_recover_unverified_digest()` gets one quote-free
+corrective generation and validates that replacement again; a digest still containing
+unsupported or unterminated quotes is rejected before persistence or broadcast.
 
 **An absence check-in is addressed to a person.** It goes out unlabelled and is never
 cross-posted, and it names them: `harden` strips a leading name from any reply, which sent "been quiet without you

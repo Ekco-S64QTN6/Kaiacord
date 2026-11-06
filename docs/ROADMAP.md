@@ -33,10 +33,20 @@ pull requests.
 
 | Item | What | Call |
 |:--|:--|:--|
-| **Split `rpg_core_handler.py`** | Moved world information, navigation, inventory/equipment, recovery (including inn rest), bank transactions, read-only reference commands, combat consumable use, Stone Hearth gambling, Shrine prayer/offering, scouting, level-five advancement, character creation, detailed sheet rendering, the status HUD, and owner-only item grants and character healing to dedicated handler modules. The core file is down to 396 lines; command routing and orchestration remain in core. | Yes, when next touched |
 | **More Spine creatures** | The 77 stair guardians now have explicit floor-scaled HP/ATK/DEF and milestone Resonance Ward progression; additional rare spawns per zone would add variety. | Content, optional |
 | **Shadowblade endgame damage** | The highest sustained damage per round (crit on 17 with the Voidstep Blade), offset by the Rogue's low HP. | Watch |
 | **Board games as real game state** | Tic-tac-toe with Python holding the board, about 2 h. | No — one game asked for in five months |
+
+## Completed since the previous review
+
+| Work | Outcome |
+|:--|:--|
+| **Aethelgard handler extraction** (PRs #221–#226) | Complete. World, navigation, inventory/equipment, recovery/rest, banking, reference, consumables, gambling, Shrine, scouting, advancement, character creation, detailed sheets, status, and owner-only admin commands have dedicated handlers. `rpg_core_handler.py` is the 396-line command dispatcher and compatibility/dependency-adapter layer; no handler-split item remains open. |
+| **Reciprocal owner-admin locking** (PR #236) | `!rpg give` and `!rpg heal` acquire caller and target action locks in sorted UID order; self-target actions acquire the one shared lock once. |
+| **PDF extraction isolation** (PR #237) | Existing per-worker resource ceilings now sit behind a process-wide two-worker semaphore; saturated requests wait at most one second and fail closed. |
+| **Observation digest quote validation** (PR #238) | Quotes must match one speaker turn; unmatched delimiters fail validation; a single quote-free retry is revalidated before a digest is stored or broadcast. |
+| **RPG interaction regression coverage** (PRs #239–#241) | Added status-selector ownership/duplicate/stale-state tests, rest-refusal tests, and detailed-sheet pet/DEF/other-player-view tests. |
+| **Proactive and handler cleanup** (PRs #242–#243) | Added punctuation-only opener-dedupe coverage and removed the unused duplicate `_names()` helper from the core adapter. |
 
 ## Declined, with the reason
 
