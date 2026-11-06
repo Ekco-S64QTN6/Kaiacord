@@ -86,11 +86,16 @@ async def _kill_and_reap(
 
     # Once the direct child is reaped, pipe EOF can still be held open by an
     # unexpected descendant. We do not need its output on failure paths.
-    if communication_task is not None and not communication_task.done():
-        communication_task.cancel()
+    if communication_task is not None:
+        if not communication_task.done():
+            communication_task.cancel()
         try:
             await communication_task
         except asyncio.CancelledError:
+            pass
+        except Exception:
+            # A failed pipe read is already a failed diagnostics result; the
+            # direct child has nevertheless been waited/reaped above.
             pass
 
 
