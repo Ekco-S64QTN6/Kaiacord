@@ -225,13 +225,14 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `enhancement.py` & `town_projects.py` | Endgame gil sinks: gear rework +1..+5, and pooled gil for the town walls |
 | `housing.py`, `farming.py`, `pets.py`, `alchemy.py` | Estate management, harvesting, companions, brewing |
 | `furniture.py`, `look_targets.py`, `pantheon.py` | The furniture catalog, `!rpg look at` targets per location, and the pantheon |
-| `rpg_core_handler.py` | `!rpg` command dispatcher and compatibility/dependency adapters; delegates extracted domain actions rather than owning those command implementations |
+| `rpg_core_handler.py` | Compatibility/dependency adapters and remaining orchestration; the public `!rpg` dispatcher is `utils/commands/rpg_handler.py` |
 | `rpg_world_handler.py`, `rpg_navigation_handler.py`, `rpg_inventory_handler.py`, `rpg_recovery_handler.py`, `rpg_bank_handler.py`, `rpg_reference_handler.py`, `rpg_consumable_handler.py`, `rpg_gamble_handler.py`, `rpg_shrine_handler.py`, `rpg_scout_handler.py`, `rpg_advancement_handler.py`, `rpg_character_creation_handler.py`, `rpg_sheet_handler.py`, `rpg_status_handler.py`, `rpg_combat_handler.py`, `rpg_housing_handler.py`, `rpg_shop_handler.py`, `rpg_social_handler.py` | Domain handlers grouped by world/navigation, inventory/equipment, recovery/rest, banking, reference, consumables, gambling, Shrine, scouting, advancement, character creation, sheets/status, combat, housing, shop, and social actions |
 | `rpg_admin_handler.py` | Owner-only `!rpg give` and `!rpg heal`; locks caller and target in sorted UID order, taking one lock for self-targets |
 | `calendar.py` | Seasons, dynamic weather, and 13 special calendar holidays |
 | `quest_registry.py` | 12 progressive quests (L1–L15) |
 | `npc_registry.py` & `loot_tables.py` | NPC dialogue definitions and tiered drop tables |
 | `world.py`, `world_state.py` | The map, and the shared world (weather, events) saved in `memory/ttrpg/world_state.json` |
-| `rpg_*_handler.py`, `rpg_views.py`, `rpg_ui.py`, `session_manager.py` | Command routing by area, the Discord views, and sessions |
+| `session_manager.py` | Per-session file locks plus per-player action locks; combat takes channel then user, owner admin mutations take caller/target locks in sorted UID order |
+| `rpg_views.py`, `rpg_ui.py` | Discord component views, stale-safe controls and RPG display helpers |
 | `dice_engine.py`, `progression.py`, `encounter_tables.py`, `forest_events.py`, `micro_events.py` | Rolls (`secrets`), levelling, encounters and events |
 | `rpg_prompt_builder.py`, `narration.py`, `broadcast.py` | What the model is given to narrate, and posting it |
