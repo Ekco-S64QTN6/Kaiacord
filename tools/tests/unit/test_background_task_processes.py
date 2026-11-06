@@ -19,6 +19,7 @@ class _FakeProcess:
         self.calls = 0
         self.returncode = None
         self.started = asyncio.Event()
+        self.signal_seen = asyncio.Event()
         self.signal_event = asyncio.Event()
         self.done = asyncio.Event()
         self.wait_calls = 0
@@ -26,6 +27,7 @@ class _FakeProcess:
 
     def receive_signal(self, sig):
         self.received_signals.append(sig)
+        self.signal_seen.set()
         self.signal_event.set()
 
     def terminate(self):
@@ -172,6 +174,46 @@ async def test_task_cancellation_stops_and_reaps_its_subprocess(monkeypatch):
     assert signals == [(process.pid, signal.SIGTERM)]
     assert process.returncode == -signal.SIGTERM
     assert process.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_repeated_cancellation_retains_the_cleanup_task_until_reaped(monkeypatch):
+    manager = _manager()
+    process = _FakeProcess(exit_on_term=False, exit_on_kill=True)
+    signals = _route_signals(monkeypatch, process)
+
+    task = asyncio.create_task(
+        manager._communicate_or_kill(
+            process,
+            "repeatedly cancelled child",
+            timeout=60,
+            terminate_grace=0.05,
+            kill_grace=0.1,
+        )
+    )
+    await asyncio.wait_for(process.started.wait(), timeout=1)
+    task.cancel()
+    await asyncio.wait_for(process.signal_seen.wait(), timeout=1)
+
+    # Cancel once while shielded cleanup is running, then again while the
+    # caller is waiting for that retained cleanup task.
+    task.cancel()
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    pending = manager._subprocess_cleanup_tasks
+    assert pending
+    cleanup_tasks = list(pending)
+    await asyncio.wait_for(asyncio.gather(*cleanup_tasks), timeout=1)
+
+    assert signals == [
+        (process.pid, signal.SIGTERM),
+        (process.pid, signal.SIGKILL),
+    ]
+    assert process.returncode == -signal.SIGKILL
+    assert not pending
 
 
 def test_every_background_subprocess_uses_a_dedicated_session():
