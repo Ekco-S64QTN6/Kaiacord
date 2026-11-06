@@ -1,9 +1,9 @@
 """One way to write a file that something else might be reading.
 
-Write to `.tmp`, then `os.replace()`. Required for everything under
-`knowledge_base/` and `memory/` (CLAUDE.md §4): an interrupted bare write raises
-nowhere and leaves a truncated document that is indexed on the next sweep,
-retrievable, and indistinguishable from a file that was simply short.
+Write to a same-directory temporary, fsync it, then `os.replace()` and fsync
+the parent directory. The file sync persists the new contents; the directory
+sync persists the rename itself across a host crash. Required for everything
+under `knowledge_base/` and `memory/` (CLAUDE.md §4).
 
 `os.replace` is atomic only within a filesystem, so the temporary is written
 beside its destination rather than in `/tmp`.
@@ -17,6 +17,16 @@ from pathlib import Path
 from typing import Union
 
 PathLike = Union[str, "os.PathLike[str]"]
+
+
+def fsync_directory(directory: PathLike) -> None:
+    """Persist directory-entry changes such as file creation and replacement."""
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(os.fspath(directory), flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def write_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
@@ -37,6 +47,7 @@ def write_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp, dest)
+        fsync_directory(dest.parent)
     except BaseException:
         try:
             tmp.unlink()
