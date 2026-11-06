@@ -65,6 +65,7 @@ def test_dream_engine_resolves_growth_log_through_telemetry_path(monkeypatch):
     engine = DreamEngine.__new__(DreamEngine)
     assert str(engine._growth_log_path()) == "memory/growth_log.probe.jsonl"
 
+
 def test_entry_count_only_rotation_matches_milestone_writer_policy(tmp_path):
     path = tmp_path / "memory" / "growth_log.jsonl"
     for i in range(5):
