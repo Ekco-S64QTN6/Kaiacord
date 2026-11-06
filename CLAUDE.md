@@ -345,11 +345,13 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   traced doesn't) before fixing either. A cache keyed by `id()` must drop its entry with the object
   (`weakref.finalize`), or it outlives it — and a recycled id serves the old value.
 - **An HTTP fetch of a URL a user supplied goes through `is_safe_url` and
-  `sanitizer.public_only_connector`** (the link enricher, `!download`). The connector resolves
-  at connect time and admits globally routable unicast only (`_is_public_ip`:
-  `is_global and not is_multicast`). The older test — not private, loopback, link-local, reserved —
-  passed CGNAT space (100.64.0.0/10) and multicast. Discord message links, `ptb.` and `canary.`
-  included, are resolved through the API by the enricher and never scraped.
+  `sanitizer.public_only_connector`** (the link enricher, `!download`, and inline vision image
+  fetches). The vision path disables automatic redirects, revalidates each target, uses the
+  connector at connect time, caps downloads to 10 MiB and source images to 20 megapixels, and
+  processes at most four images per turn. The connector admits globally routable unicast only
+  (`_is_public_ip`: `is_global and not is_multicast`). The older test — not private, loopback,
+  link-local, reserved — passed CGNAT space (100.64.0.0/10) and multicast. Discord message links,
+  `ptb.` and `canary.` included, are resolved through the API by the enricher and never scraped.
 - **`secrets` for security-relevant randomness** (combat rolls, loot, tokens). `random` is fine
   for flavour (dream shuffling, world-event variety).
 
