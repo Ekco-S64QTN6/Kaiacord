@@ -1,6 +1,6 @@
 # Roadmap
 
-What is open, and the call on each. Updated 5 November 2026.
+What is open, and the call on each. Updated 6 November 2026.
 
 Each item carries a decision: **Yes** (to build), **Watch** (measure before building), **Owner's
 call**, or **No** (researched and declined, with the reason). Closed work is in `git log` and the
@@ -33,10 +33,26 @@ pull requests.
 
 | Item | What | Call |
 |:--|:--|:--|
-| **Split `rpg_core_handler.py`** | Moved world information, navigation, inventory/equipment, recovery (including inn rest), bank transactions, read-only reference commands, combat consumable use, Stone Hearth gambling, Shrine prayer/offering, scouting, level-five advancement, character creation, detailed sheet rendering, the status HUD, and owner-only item grants and character healing to dedicated handler modules. The core file is down to 396 lines; command routing and orchestration remain in core. | Yes, when next touched |
 | **More Spine creatures** | The 77 stair guardians now have explicit floor-scaled HP/ATK/DEF and milestone Resonance Ward progression; additional rare spawns per zone would add variety. | Content, optional |
 | **Shadowblade endgame damage** | The highest sustained damage per round (crit on 17 with the Voidstep Blade), offset by the Rogue's low HP. | Watch |
 | **Board games as real game state** | Tic-tac-toe with Python holding the board, about 2 h. | No — one game asked for in five months |
+
+## Completed since 5 November 2026
+
+| Work | Result |
+|:--|:--|
+| **RPG combat and handler decomposition (#210–#226)** | Dungeon combat phases and the major `!rpg` command areas now have dedicated handler modules. `utils/commands/rpg_handler.py` remains the public command dispatcher; `utils/ttrpg/rpg_core_handler.py` retains compatibility adapters and remaining orchestration. Dedicated handlers cover world information, navigation, inventory/equipment, recovery and inn rest, bank transactions, reference commands, consumables, gambling, Shrine actions, scouting, advancement, character creation, detailed sheets, the status HUD, and owner-only administration. |
+| **Owner administration lock ordering (#227 / PR #236)** | `give` and `heal` acquire caller and target user locks in sorted UID order. The adapters own this two-user serialization, so the dispatcher does not pre-hold only the caller lock; self-target actions acquire one lock. |
+| **Chat-linked PDF worker limits (#228 / PR #237)** | PDF link extraction retains its per-worker memory, CPU, wall-time, input, page and text ceilings and now admits at most two parser workers process-wide. Waiting for a worker slot is bounded and fails closed. |
+| **Observation quote validation (#229 / PR #238)** | Unmatched quote delimiters are rejected even when the trailing words occur in the source conversation; the quote-free retry remains bounded and is revalidated. |
+| **RPG handler regression coverage (#230–#232 / PRs #239–#241)** | Added status-selector ownership/stale/duplicate-click tests, Stone Hearth refusal-path tests, and detailed-sheet pet/DEF-cap/other-player-view tests. |
+| **Automated opener deduplication (#233 / PR #242)** | Added an explicit punctuation-insensitive regression; signatures compare the first 16 normalized lexical words within the one-hour, channel-aware window. |
+| **Core adapter cleanup (#234 / PR #243)** | Removed the unused duplicate `_names()` helper and its now-unused `re` import from `rpg_core_handler.py`. |
+
+## Validation still blocked
+
+- **Live Discord Aethelgard smoke test (#180):** remains open pending an operator-approved run against the deployed bot, a designated test guild/channel, and a disposable character. CI cannot prove live gateway readiness, component delivery, permissions, or deployed recovery.
+- **Deployed Linux PDF validation (#206):** automated Linux worker resource-enforcement coverage is merged (#207–#208); production-host kernel, Python build, cgroup/container memory budget, and representative PDF evidence still need to be captured on the deployed host.
 
 ## Declined, with the reason
 
