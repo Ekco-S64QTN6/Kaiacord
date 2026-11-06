@@ -168,7 +168,7 @@ platform with its own prompt would sound like someone else.
 
 **Features**:
 - Deterministic game math handled entirely by Python; LLM handles narration only.
-- Per-user async locks protect character mutations during combat, item generation, and interactive views. The `rpg_core_handler.py` entry point is the command dispatcher and compatibility/dependency-adapter layer; domain actions live in dedicated `rpg_*_handler.py` modules.
+- Per-user async locks protect character mutations during combat, item generation, and interactive views. The public command dispatcher is `utils/commands/rpg_handler.py`; `utils/ttrpg/rpg_core_handler.py` is the compatibility/dependency-adapter and remaining orchestration layer. Domain actions live in dedicated `rpg_*_handler.py` modules.
 - Owner-only `!rpg give` and `!rpg heal` lock both caller and target character IDs in sorted UID order. Self-target actions acquire the shared lock only once, avoiding both reciprocal-target deadlocks and self-lock re-entry.
 - Full registry system (369 monsters with 44 bosses, 395 pieces of gear across 7 tiers plus 58 consumables, 248 fish species) integrated with procedural dungeon generation.
 - Endgame gil sinks: gear enhancement (+1..+5) and pooled town-wall projects (`enhancement.py`, `town_projects.py`).
