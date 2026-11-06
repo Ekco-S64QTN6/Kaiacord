@@ -104,3 +104,13 @@ def test_rpg_lock_registry_changes_select_metrics_regressions():
             for path in selector["select_tests"]([source])
         }
         assert "tools/tests/unit/test_async_lock_metrics.py" in selected
+
+
+
+def test_bot_state_changes_select_snapshot_and_persistence_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/infrastructure/system/bot_state.py"])
+    }
+    assert "tools/tests/unit/test_bot_state_save.py" in selected
