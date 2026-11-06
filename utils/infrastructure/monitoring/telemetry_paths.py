@@ -25,6 +25,7 @@ DASHBOARD_SOURCES = frozenset({
     "memory/generation_log.jsonl",
     "memory/security_dogtag_replay.jsonl",
     "memory/forum_moderation_log.jsonl",
+    "memory/growth_log.jsonl",
     "logs/kaiacord.log",
 })
 
