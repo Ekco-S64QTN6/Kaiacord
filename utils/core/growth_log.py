@@ -31,6 +31,7 @@ def append_growth_event(
 
     Writes are append-only in the common case. Once the byte threshold is
     exceeded, the newest `max_entries` complete lines are atomically retained.
+    Set `max_bytes=None` to check the entry cap on every append.
     """
     if max_entries < 1:
         raise ValueError("max_entries must be at least 1")
