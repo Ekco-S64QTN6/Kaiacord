@@ -79,7 +79,7 @@ Core utility modules used by Kaiacord.
 | `system/external_mention.py` | `process_external_mention`: forum, social and broadcast turns through the Discord pipeline |
 | `system/maintenance_tasks.py` | RAG maintenance and memory audit loops |
 | `system/self_healing.py`, `system/performance_optimizer.py` | A model call retried with fallback options; the slow-response warning |
-| `system/kaia_sysmon.py` | The data behind `!sysmon` |
+| `system/kaia_sysmon.py` | The data behind `!sysmon`; async utility commands have bounded timeouts and kill/reap cleanup on cancellation |
 | `system/gc_quiet.py` | `settle()`: one collection, then long-lived objects frozen out of gen-2 GC — after the indices load and before voice playback |
 | `circuit_breaker.py` | Stop calling a service that keeps failing, and try again later |
 | `logging/kaia_logger.py` | Structured logging |

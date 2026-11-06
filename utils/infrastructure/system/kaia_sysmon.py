@@ -46,8 +46,61 @@ def _run_cmd(cmd: list[str], timeout: int = 5) -> str:
         return ""
 
 
+_PENDING_PROCESS_REAPERS: set[asyncio.Task] = set()
+
+
+def _retain_process_reaper(task: asyncio.Task) -> None:
+    """Keep a slow wait task alive until asyncio has reaped its child."""
+    _PENDING_PROCESS_REAPERS.add(task)
+
+    def _finished(done: asyncio.Task) -> None:
+        _PENDING_PROCESS_REAPERS.discard(done)
+        if not done.cancelled():
+            # Retrieve a late exception so an abandoned timeout path cannot
+            # produce "Task exception was never retrieved" during shutdown.
+            done.exception()
+
+    task.add_done_callback(_finished)
+
+
+async def _kill_and_reap(
+    proc: asyncio.subprocess.Process,
+    communication_task: Optional[asyncio.Task] = None,
+    *,
+    wait_timeout: float = 2.0,
+) -> None:
+    """Kill a timed-out utility and await its exit without blocking the loop."""
+    if proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+    wait_task = asyncio.create_task(proc.wait())
+    try:
+        await asyncio.wait_for(asyncio.shield(wait_task), timeout=wait_timeout)
+    except asyncio.TimeoutError:
+        # SIGKILL can still take time when the kernel cannot schedule a process.
+        # Retain the waiter so asyncio can reap it if/when the child exits.
+        _retain_process_reaper(wait_task)
+
+    # Once the direct child is reaped, pipe EOF can still be held open by an
+    # unexpected descendant. We do not need its output on failure paths.
+    if communication_task is not None:
+        if not communication_task.done():
+            communication_task.cancel()
+        try:
+            await communication_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            # A failed pipe read is already a failed diagnostics result; the
+            # direct child has nevertheless been waited/reaped above.
+            pass
+
+
 async def _run_cmd_async(cmd: list[str], timeout: int = 5) -> str:
-    """Run a shell command async — never blocks the event loop."""
+    """Run a shell command asynchronously; kill and reap it on timeout/cancel."""
     try:
         proc = await asyncio.create_subprocess_exec(
             *_noninteractive(cmd),
@@ -55,14 +108,31 @@ async def _run_cmd_async(cmd: list[str], timeout: int = 5) -> str:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            return stdout.decode("utf-8", errors="replace").strip()
-        except asyncio.TimeoutError:
-            proc.kill()
-            return ""
     except Exception:
         return ""
+
+    communication_task = asyncio.create_task(proc.communicate())
+    try:
+        stdout, _ = await asyncio.wait_for(
+            asyncio.shield(communication_task), timeout=timeout
+        )
+        return stdout.decode("utf-8", errors="replace").strip()
+    except asyncio.TimeoutError:
+        await _kill_and_reap(proc, communication_task)
+        return ""
+    except asyncio.CancelledError:
+        cleanup_task = asyncio.create_task(
+            _kill_and_reap(proc, communication_task)
+        )
+        try:
+            await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            _retain_process_reaper(cleanup_task)
+        except Exception:
+            # Preserve cancellation semantics; cleanup errors must not turn a
+            # cancelled diagnostics request into an unrelated command failure.
+            pass
+        raise
 
 
 def _uptime_str() -> str:
