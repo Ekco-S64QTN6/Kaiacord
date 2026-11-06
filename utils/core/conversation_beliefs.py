@@ -198,7 +198,7 @@ async def nightly_review(ctx, log_growth=None) -> int:
             moved += 1
             log_info(f"🧠 Conversation moved a belief ({event['type']}): '{topic}'")
             if log_growth:
-                log_growth(event)
+                await asyncio.to_thread(log_growth, event)
         else:
             log_debug(f"Belief review kept '{topic}'.")
     await asyncio.to_thread(write_atomic, REVIEWED, json.dumps(reviewed, indent=1))
