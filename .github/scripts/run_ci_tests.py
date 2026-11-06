@@ -31,6 +31,9 @@ RELATED_TESTS = {
     ),
     "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py",),
     "utils/core/kaia_proactive.py": ("tools/tests/unit/test_proactive_dedup.py",),
+    "utils/infrastructure/system/kaia_sysmon.py": (
+        "tools/tests/unit/test_sysmon_subprocess_lifecycle.py",
+    ),
     "utils/infrastructure/system/bot_state.py": (
         "tools/tests/unit/test_bot_state_save.py",
         "tools/tests/unit/test_channel_memory_scaffolding.py",
