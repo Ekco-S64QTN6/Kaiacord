@@ -14,8 +14,17 @@ async def _with_target_action_lock(target_uid: str, caller_uid: str, operation):
     if target_uid == str(caller_uid):
         return await operation()
 
+    from contextlib import AsyncExitStack
     from utils.ttrpg.session_manager import get_action_lock
-    async with await get_action_lock(f"user:{target_uid}"):
+
+    # Admin commands mutate two character sheets. Acquire both identities in
+    # one global order; the dispatcher marks these handlers serialized so it
+    # does not pre-hold the caller lock and invert this ordering.
+    lock_ids = sorted({str(target_uid), str(caller_uid)})
+    locks = [await get_action_lock(f"user:{uid}") for uid in lock_ids]
+    async with AsyncExitStack() as stack:
+        for lock in locks:
+            await stack.enter_async_context(lock)
         return await operation()
 
 
