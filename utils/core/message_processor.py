@@ -1727,18 +1727,18 @@ class MessageProcessor:
                 filename = getattr(att, 'filename', '').lower()
                 try:
                     is_gif = filename.endswith('.gif')
-                        log_debug(f"Fetching image attachment for inline vision: {att.url}")
-                        b64 = await self._fetch_image_as_base64(att.url, is_gif=is_gif)
-                        if b64:
-                            images.append(b64)
-                        if is_gif:
-                            try:
-                                await ctx.message.channel.send("*(Viewing first frame of GIF)*")
-                            except Exception:
-                                pass
-                    except Exception as e:
-                        log_warning(f"Failed to fetch image {getattr(att, 'filename', 'unknown')} for inline vision: {e}")
-            
+                    log_debug(f"Fetching image attachment for inline vision: {att.url}")
+                    b64 = await self._fetch_image_as_base64(att.url, is_gif=is_gif)
+                    if b64:
+                        images.append(b64)
+                    if is_gif:
+                        try:
+                            await ctx.message.channel.send("*(Viewing first frame of GIF)*")
+                        except Exception:
+                            pass
+                except Exception as e:
+                    log_warning(f"Failed to fetch image {getattr(att, 'filename', 'unknown')} for inline vision: {e}")
+
             if images and messages and messages[-1].get("role") == "user":
                 messages[-1]["images"] = images
                 log_info(f"Attached {len(images)} images to user message for inline multimodal processing.")
