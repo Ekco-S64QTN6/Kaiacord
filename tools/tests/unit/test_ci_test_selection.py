@@ -56,3 +56,13 @@ def test_changed_ci_selector_itself_selects_its_regression_test():
         for path in selector["select_tests"]([".github/scripts/run_ci_tests.py"])
     }
     assert "tools/tests/unit/test_ci_test_selection.py" in selected
+
+
+
+def test_art_intent_changes_select_the_art_intent_regression_suite():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/core/kaia_art_intent.py"])
+    }
+    assert "tools/tests/unit/test_art_intent.py" in selected
