@@ -31,6 +31,7 @@ RELATED_TESTS = {
     ),
     "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py",),
     "utils/core/kaia_proactive.py": ("tools/tests/unit/test_proactive_dedup.py",),
+    "utils/core/kaia_art_intent.py": ("tools/tests/unit/test_art_intent.py",),
     "utils/core/background_tasks.py": (
         "tools/tests/unit/test_rag_refresh_callers.py",
         "tools/tests/unit/test_news_manager.py",
