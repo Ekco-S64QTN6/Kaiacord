@@ -166,5 +166,6 @@ def test_vision_attachment_processing_is_capped_at_four_images():
     import inspect
 
     source = inspect.getsource(MessageProcessor._generate_response_stage)
-    assert "attachments_to_process[:self.VISION_MAX_IMAGES]" in source
+    assert "image_attachments = [" in source
+    assert "for att in image_attachments[:self.VISION_MAX_IMAGES]" in source
     assert "VISION_MAX_IMAGES = 4" in inspect.getsource(MessageProcessor)
