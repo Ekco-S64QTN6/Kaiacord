@@ -34,6 +34,12 @@ RELATED_TESTS = {
     "utils/infrastructure/system/kaia_sysmon.py": (
         "tools/tests/unit/test_sysmon_subprocess_lifecycle.py",
     ),
+    "utils/ttrpg/rpg_social_handler.py": (
+        "tools/tests/unit/ttrpg/test_world_event_async_io.py",
+    ),
+    "utils/ttrpg/broadcast.py": (
+        "tools/tests/unit/ttrpg/test_world_event_async_io.py",
+    ),
     "utils/infrastructure/system/bot_state.py": (
         "tools/tests/unit/test_bot_state_save.py",
         "tools/tests/unit/test_channel_memory_scaffolding.py",
@@ -54,6 +60,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_monologue_observation.py",
         "tools/tests/unit/test_news_followup_retry.py",
         "tools/tests/unit/test_background_task_processes.py",
+        "tools/tests/unit/ttrpg/test_world_event_async_io.py",
     ),
     "utils/commands/news_handler.py": ("tools/tests/unit/test_command_boxes.py",),
     "tools/maintenance/scrape_tech_news.py": ("tools/tests/unit/test_news_manager.py",),
