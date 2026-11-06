@@ -59,7 +59,7 @@ not.
 ```bash
 venv/bin/python3 -m pytest -q                                            # whole suite; pytest.ini sets testpaths
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow and not network"   # no external services
-venv/bin/python3 -m pytest tools/tests/unit -q                           # just the fast ones
+venv/bin/python3 -m pytest tools/tests/unit -q -m "not ollama and not gpu and not slow and not network" # isolated unit tests
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py -q  # one file
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent   # one test
 venv/bin/python3 -c "from utils.core.message_processor import MessageProcessor"
