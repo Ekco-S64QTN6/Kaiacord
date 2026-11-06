@@ -1711,16 +1711,22 @@ class MessageProcessor:
 
         if attachments_to_process:
             images = []
-            if len(attachments_to_process) > self.VISION_MAX_IMAGES:
-                log_warning(
-                    f"Vision attachment count capped at {self.VISION_MAX_IMAGES}; "
-                    f"skipping {len(attachments_to_process) - self.VISION_MAX_IMAGES} extra image(s)."
+            image_attachments = [
+                att for att in attachments_to_process
+                if any(
+                    str(getattr(att, "filename", "")).lower().endswith(ext)
+                    for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp")
                 )
-            for att in attachments_to_process[:self.VISION_MAX_IMAGES]:
+            ]
+            if len(image_attachments) > self.VISION_MAX_IMAGES:
+                log_warning(
+                    f"Vision image count capped at {self.VISION_MAX_IMAGES}; "
+                    f"skipping {len(image_attachments) - self.VISION_MAX_IMAGES} extra image(s)."
+                )
+            for att in image_attachments[:self.VISION_MAX_IMAGES]:
                 filename = getattr(att, 'filename', '').lower()
-                if any(filename.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
-                    try:
-                        is_gif = filename.endswith('.gif')
+                try:
+                    is_gif = filename.endswith('.gif')
                         log_debug(f"Fetching image attachment for inline vision: {att.url}")
                         b64 = await self._fetch_image_as_base64(att.url, is_gif=is_gif)
                         if b64:
