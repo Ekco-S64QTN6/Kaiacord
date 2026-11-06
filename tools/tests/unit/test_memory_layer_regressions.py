@@ -348,10 +348,13 @@ def test_async_growth_log_callbacks_are_dispatched_to_worker_threads():
         calls = [
             node for node in ast.walk(tree)
             if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "log_growth"
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "to_thread"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "log_growth"
         ]
-        assert calls, f"{relative} no longer invokes its optional growth logger"
+        assert calls, f"{relative} no longer offloads its optional growth logger"
         parents = {
             id(child): parent
             for parent in ast.walk(tree)
@@ -359,11 +362,6 @@ def test_async_growth_log_callbacks_are_dispatched_to_worker_threads():
         }
         for call in calls:
             await_node = parents.get(id(call))
-            assert isinstance(await_node, ast.Await), (
-                f"{relative} growth logger must be awaited at line {call.lineno}"
+            assert isinstance(await_node, ast.Await) and await_node.value is call, (
+                f"{relative} worker-thread growth logger must be awaited at line {call.lineno}"
             )
-            worker_call = await_node.value
-            assert isinstance(worker_call, ast.Call)
-            assert isinstance(worker_call.func, ast.Attribute)
-            assert worker_call.func.attr == "to_thread"
-            assert worker_call.args and worker_call.args[0] is call.func
