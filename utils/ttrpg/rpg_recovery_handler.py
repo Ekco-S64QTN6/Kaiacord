@@ -180,3 +180,51 @@ async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner, *, load_c
 
 
 GAMBLE_DAILY_WIN_CAP = 100
+
+
+async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner, *, load_character, save_character, no_character_handler, status_view_factory):
+    sheet = await load_character(uid)
+    if not sheet: return await no_character_handler(msg)
+    
+    loc = sheet.get("location")
+    if loc != "stone_hearth":
+        return await msg.channel.send(embed=discord.Embed(description="You need to be at an inn to rest.\n`!rpg go stone_hearth`", color=0xcc4444))
+        
+    from utils.ttrpg.calendar import get_special_day
+    _special = get_special_day()
+    _hearthday = _special and _special.get("buff") == "hearthday_warmth"
+
+    cost = 0 if _hearthday else 5
+    innkeeper = "Mira"
+
+    if sheet.get("gil", 0) < cost:
+        return await msg.channel.send(embed=discord.Embed(description=f"{innkeeper} shakes her head. \"Beds aren't free.\"\nYou need {cost} gil. You have {sheet.get('gil', 0)}g.", color=0xcc4444))
+        
+    hp_cur = sheet["hp"]["current"]
+    hp_max = sheet["hp"]["max"]
+    
+    has_ale = "ale_warmth" in sheet.get("conditions", [])
+    if hp_cur >= hp_max and not has_ale:
+        return await msg.channel.send(embed=discord.Embed(description=f"**{sheet['character_name']}** is already at maximum health.\n{innkeeper} raises an eyebrow. *\"You're paying for a room you won't use?\"*", color=0x888888))
+
+    # Clear ale temp HP and condition BEFORE healing
+    if "ale_warmth" in sheet.get("conditions", []):
+        sheet["conditions"].remove("ale_warmth")
+        sheet["hp"]["max"] -= 3  # remove the temp bonus
+        sheet["hp"]["current"] = min(sheet["hp"]["current"], sheet["hp"]["max"])
+
+    healed = sheet["hp"]["max"] - sheet["hp"]["current"]
+    sheet["hp"]["current"] = sheet["hp"]["max"]
+    sheet["gil"] -= cost
+
+    sheet["inn_rest_pending"] = True
+
+    await save_character(sheet)
+    
+    _hearthday_msg = f"\n🍺 *{innkeeper}'s treat — rest is free today.*" if _hearthday else ""
+    inn_name = "the Stone Hearth"
+    view = status_view_factory(ctx, msg, uid, uname, is_owner)
+    await msg.channel.send(embed=discord.Embed(
+        description=f"🛏️ **{sheet['character_name']}** rests at {inn_name}. (-{cost} gil)\nHP restored: **+{healed}** (Full)\nRemaining gil: {sheet['gil']}g\n\n*You feel invigorated. (+1 Hunt tomorrow)*{_hearthday_msg}",
+        color=0x44aa44
+    ), view=view)
