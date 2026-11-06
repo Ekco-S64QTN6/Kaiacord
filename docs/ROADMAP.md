@@ -1,6 +1,6 @@
 # Roadmap
 
-What is open, and the call on each. Updated 5 November 2026.
+What is open, and the call on each. Updated 6 November 2026.
 
 Each item carries a decision: **Yes** (to build), **Watch** (measure before building), **Owner's
 call**, or **No** (researched and declined, with the reason). Closed work is in `git log` and the
