@@ -1,8 +1,6 @@
 from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import uuid as _uuid
-import os
-import json
 import discord
 
 from utils.commands.stale_view import StaleSafeView
@@ -23,7 +21,8 @@ from utils.ttrpg.broadcast import (
     broadcast_world_event as _broadcast_world_event,
     level_up_flavor as _level_up_flavor,
     rare_loot_flavor as _rare_loot_flavor,
-    _boss_approach_flavor
+    _boss_approach_flavor,
+    load_world_events,
 )
 
 # One shim for every button path: it carries embeds and views, and
@@ -70,7 +69,6 @@ async def _accept_quest_for_player(uid: str, quest: dict) -> tuple[bool, str | N
 
 async def _handle_bard_song(ctx, msg, send, rest, uid, uname, is_owner):
     """Request a song from the Bard — generates a ballad about recent Oakhaven events."""
-    import os, json
     from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager, gpu_memory_manager, GPUTaskPriority
 
     sheet = await load(uid)
@@ -80,14 +78,7 @@ async def _handle_bard_song(ctx, msg, send, rest, uid, uname, is_owner):
             color=0xcc4444
         ))
 
-    events_path = os.path.join("memory", "ttrpg", "world_events.json")
-    recent_events = []
-    if os.path.exists(events_path):
-        try:
-            with open(events_path, 'r', encoding='utf-8') as f:
-                recent_events = json.load(f)[-6:]
-        except Exception:
-            pass
+    recent_events = (await load_world_events())[-6:]
 
     from utils.ttrpg.character_manager import load_all_report
     scan = await load_all_report()
@@ -236,19 +227,12 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
     topic = ""
     if npc_key == "bard" or npc.get("role") == "bard":
         # Build candidates: recent events topic + static topics
-        import os, json
-        path = os.path.join("memory", "ttrpg", "world_events.json")
-        recent_events_topic = "An ancient tale of Aeridor's fall."
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                events = json.load(f)
-            if events:
-                recent = events[-5:]
-                recent_events_topic = "Recent Events: " + " | ".join(recent)
-            else:
-                recent_events_topic = "The world has been quiet lately."
-        except Exception:
-            pass
+        events = await load_world_events()
+        if events:
+            recent = events[-5:]
+            recent_events_topic = "Recent Events: " + " | ".join(recent)
+        else:
+            recent_events_topic = "The world has been quiet lately."
 
         candidates = [recent_events_topic]
         if "topics" in npc and npc["topics"]:
@@ -481,15 +465,7 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
 
 
 async def _handle_notices(ctx, msg, send, rest, uid, uname, is_owner):
-    import os
-    path = os.path.join("memory", "ttrpg", "world_events.json")
-    events = []
-    if os.path.exists(path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                events = json.load(f)
-        except Exception:
-            pass
+    events = await load_world_events()
             
     if not events:
         desc = "*The board is currently empty. Oakhaven is quiet.*"
