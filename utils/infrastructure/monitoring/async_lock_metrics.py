@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from typing import Any
 
 _guard = threading.Lock()
 _metrics: dict[str, dict[str, float | int]] = {}
