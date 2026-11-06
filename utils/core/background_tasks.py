@@ -590,12 +590,11 @@ class CoreTaskManager:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(root),
+                    start_new_session=True,
                 )
-                out, err = await asyncio.wait_for(proc.communicate(), timeout=3600)
-            except asyncio.TimeoutError:
-                log_warning("Metadata enrichment timed out after an hour; "
-                            "it is resumable, so the next pass continues.")
-                return
+                out, err = await self._communicate_or_kill(
+                    proc, "Metadata enrichment", timeout=3600
+                )
             except Exception as e:                       # noqa: BLE001
                 log_warning(f"Metadata enrichment failed to start: {e}")
                 return
@@ -672,12 +671,11 @@ class CoreTaskManager:
                     proc = await asyncio.create_subprocess_exec(
                         _sys.executable, str(path), *args,
                         stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE, cwd=str(root))
-                    out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    log_warning(f"Dream curation: {script} hit its time limit; "
-                                "it is resumable and continues next week.")
-                    return None
+                        stderr=asyncio.subprocess.PIPE, cwd=str(root),
+                        start_new_session=True)
+                    out, err = await self._communicate_or_kill(
+                        proc, f"Dream curation: {script}", timeout=timeout
+                    )
                 except Exception as e:                   # noqa: BLE001
                     log_warning(f"Dream curation: {script} failed to start: {e}")
                     return None
@@ -778,11 +776,11 @@ class CoreTaskManager:
                     proc = await asyncio.create_subprocess_exec(
                         _sys.executable, str(path), *args,
                         stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE, cwd=str(root))
-                    out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    log_warning(f"Corpus hygiene: {script} hit its time limit.")
-                    return None
+                        stderr=asyncio.subprocess.PIPE, cwd=str(root),
+                        start_new_session=True)
+                    out, err = await self._communicate_or_kill(
+                        proc, f"Corpus hygiene: {script}", timeout=timeout
+                    )
                 except Exception as e:                   # noqa: BLE001
                     log_warning(f"Corpus hygiene: {script} failed to start: {e}")
                     return None
