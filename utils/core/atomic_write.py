@@ -29,13 +29,35 @@ def fsync_directory(directory: PathLike) -> None:
         os.close(descriptor)
 
 
+def mkdir_durable(directory: PathLike) -> None:
+    """Create a directory tree and sync each parent that gains a new entry."""
+    target = Path(directory)
+    missing = []
+    current = target
+    while not current.exists():
+        missing.append(current)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+    for path in reversed(missing):
+        try:
+            path.mkdir()
+        except FileExistsError:
+            if not path.is_dir():
+                raise
+        else:
+            fsync_directory(path.parent)
+
+
 def write_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
     """Write `text` to `path` so a reader sees either the old file or the new one.
 
     Creates parent directories. Returns the path written.
     """
     dest = Path(path)
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    mkdir_durable(dest.parent)
     # A fixed `.tmp` suffix collides when two writers touch one file at once.
     # The pid separates processes and the thread id separates writer threads
     # inside one: with the pid alone, two threads shared a temporary, and the
