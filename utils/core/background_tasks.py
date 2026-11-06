@@ -590,12 +590,11 @@ class CoreTaskManager:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(root),
+                    start_new_session=True,
                 )
-                out, err = await asyncio.wait_for(proc.communicate(), timeout=3600)
-            except asyncio.TimeoutError:
-                log_warning("Metadata enrichment timed out after an hour; "
-                            "it is resumable, so the next pass continues.")
-                return
+                out, err = await self._communicate_or_kill(
+                    proc, "Metadata enrichment", timeout=3600
+                )
             except Exception as e:                       # noqa: BLE001
                 log_warning(f"Metadata enrichment failed to start: {e}")
                 return
@@ -672,12 +671,11 @@ class CoreTaskManager:
                     proc = await asyncio.create_subprocess_exec(
                         _sys.executable, str(path), *args,
                         stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE, cwd=str(root))
-                    out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    log_warning(f"Dream curation: {script} hit its time limit; "
-                                "it is resumable and continues next week.")
-                    return None
+                        stderr=asyncio.subprocess.PIPE, cwd=str(root),
+                        start_new_session=True)
+                    out, err = await self._communicate_or_kill(
+                        proc, f"Dream curation: {script}", timeout=timeout
+                    )
                 except Exception as e:                   # noqa: BLE001
                     log_warning(f"Dream curation: {script} failed to start: {e}")
                     return None
@@ -778,11 +776,11 @@ class CoreTaskManager:
                     proc = await asyncio.create_subprocess_exec(
                         _sys.executable, str(path), *args,
                         stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE, cwd=str(root))
-                    out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    log_warning(f"Corpus hygiene: {script} hit its time limit.")
-                    return None
+                        stderr=asyncio.subprocess.PIPE, cwd=str(root),
+                        start_new_session=True)
+                    out, err = await self._communicate_or_kill(
+                        proc, f"Corpus hygiene: {script}", timeout=timeout
+                    )
                 except Exception as e:                   # noqa: BLE001
                     log_warning(f"Corpus hygiene: {script} failed to start: {e}")
                     return None
@@ -1940,25 +1938,80 @@ class CoreTaskManager:
     #: until the bot restarts.
     NEWS_SUBPROCESS_TIMEOUT = 1800
 
-    async def _communicate_or_kill(self, process, label: str):
-        try:
-            return await asyncio.wait_for(process.communicate(),
-                                          timeout=self.NEWS_SUBPROCESS_TIMEOUT)
-        except asyncio.TimeoutError:
-            log_error(f"{label} still running after {self.NEWS_SUBPROCESS_TIMEOUT}s; killing it.")
-            # Both scripts start in their own session, so the whole tree goes —
-            # a scraper's browser or a worker it spawned would otherwise
-            # outlive it and keep the pipes open.
+    async def _stop_process_tree(
+        self, process, label: str, *, terminate_grace: float = 5,
+        kill_grace: float = 10,
+    ):
+        """Terminate a dedicated subprocess session and reap its child process."""
+        import signal as _signal
+
+        def signal_group(sig):
             try:
-                import signal as _signal
-                os.killpg(process.pid, _signal.SIGKILL)
+                os.killpg(process.pid, sig)
+                return
             except (ProcessLookupError, PermissionError, OSError):
-                process.kill()
-            # Bounded as well, in case something still holds the pipes.
+                # A missing process group or restricted platform falls back to
+                # the direct child. All managed maintenance jobs start sessions.
+                try:
+                    (process.terminate if sig == _signal.SIGTERM else process.kill)()
+                except ProcessLookupError:
+                    pass
+
+        signal_group(_signal.SIGTERM)
+        try:
+            return await asyncio.wait_for(
+                process.communicate(), timeout=terminate_grace
+            )
+        except asyncio.TimeoutError:
+            log_warning(f"{label} did not exit after SIGTERM; sending SIGKILL.")
+            signal_group(_signal.SIGKILL)
             try:
-                return await asyncio.wait_for(process.communicate(), timeout=10)
+                return await asyncio.wait_for(
+                    process.communicate(), timeout=kill_grace
+                )
             except asyncio.TimeoutError:
+                log_error(f"{label} could not be fully reaped after SIGKILL.")
                 return b"", b""
+
+    async def _communicate_or_kill(
+        self, process, label: str, *, timeout: float | None = None,
+        terminate_grace: float = 5, kill_grace: float = 10,
+    ):
+        """Collect output, terminating and reaping the process tree on timeout or cancellation."""
+        timeout = self.NEWS_SUBPROCESS_TIMEOUT if timeout is None else timeout
+        cleanup_task = None
+        try:
+            try:
+                return await asyncio.wait_for(
+                    process.communicate(), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                log_warning(f"{label} exceeded its {timeout:g}s time limit; terminating its process tree.")
+                cleanup_task = asyncio.create_task(
+                    self._stop_process_tree(
+                        process, label,
+                        terminate_grace=terminate_grace,
+                        kill_grace=kill_grace,
+                    )
+                )
+                return await asyncio.shield(cleanup_task)
+        except asyncio.CancelledError:
+            # A task cancellation must not orphan its subprocess. Keep a strong
+            # reference to cleanup and shield it from the cancellation that
+            # caused this branch; propagate cancellation after the child is reaped.
+            if cleanup_task is None:
+                cleanup_task = asyncio.create_task(
+                    self._stop_process_tree(
+                        process, label,
+                        terminate_grace=terminate_grace,
+                        kill_grace=kill_grace,
+                    )
+                )
+            try:
+                await asyncio.shield(cleanup_task)
+            except asyncio.CancelledError:
+                await cleanup_task
+            raise
 
     async def run_news_update(self):
         """Serialize scheduled and follow-up news refreshes."""
