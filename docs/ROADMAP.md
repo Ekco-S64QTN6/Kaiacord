@@ -58,6 +58,9 @@ pull requests.
 | **Context-enrichment cache hard bounds** (PR #261) | Channel, message, PDF URL, and HTML URL caches now expire stale entries and evict oldest live entries to enforce the 256-entry limit. |
 | **Art-intent event-loop I/O isolation** (PR #262) | Monologue and growth-ledger history reads run in worker threads; monologue parsing retains only the last 12 records. Added focused CI mapping for art-intent regressions. |
 | **Vision image fetch security** (PR #263) | Inline Discord and forum image fetches validate every URL/redirect, enforce public-only connection-time DNS, cap redirects, downloads, image count, and source pixels, and have focused SSRF/resource-bound regressions. |
+| **RPG lock-registry observability** (PR #264) | Owner-only `!sysmon` reports current and peak action/session/character lock counts, lock creation totals, contended acquisitions and maximum wait, without exposing user or channel IDs. Safe eviction remains measurement-gated. |
+| **BotState writer offload** (PR #265) | Live state is deep-snapshotted under its lock; JSON encoding and atomic disk replacement run on the ordered single-worker executor, keeping serialization off the event loop. |
+| **Maintenance subprocess lifecycle** (PR #266) | Metadata enrichment, dream curation and corpus hygiene now use bounded process-tree cleanup on timeout/cancellation, with SIGTERM→SIGKILL escalation, child reaping, and retained delayed reapers. |
 | **Dispatcher and test-guidance documentation** (PR #248) | Corrected public dispatcher versus compatibility-adapter ownership, aligned the default no-external-services pytest selection with the `network` marker, removed stale test counts, and clarified handler, PDF-ingestion, and CI boundaries. |
 | **RPG navigation name-matching regression** (PR #249) | Added whole-word/phrase-boundary coverage and verified that the public look adapter resolves a partial target name without matching embedded substrings. |
 
