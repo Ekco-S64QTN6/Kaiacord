@@ -129,3 +129,78 @@ def test_full_health_without_ale_does_not_charge_or_save(monkeypatch):
     (embed, view), = sent
     assert "already at maximum health" in embed.description
     assert view is None
+
+
+
+def test_rest_refuses_missing_character_without_saving_or_sending(monkeypatch):
+    load = AsyncMock(return_value=None)
+    save = AsyncMock()
+    no_character = AsyncMock()
+    monkeypatch.setattr(core, "load", load)
+    monkeypatch.setattr(core, "save", save)
+    monkeypatch.setattr(core, "no_character", no_character)
+    msg, sent = _message()
+
+    asyncio.run(core._handle_rest(None, msg, None, "", "42", "Ash", False))
+
+    load.assert_awaited_once_with("42")
+    no_character.assert_awaited_once_with(msg)
+    save.assert_not_awaited()
+    assert sent == []
+
+
+def test_rest_refuses_non_inn_location_without_mutating_character(monkeypatch):
+    sheet = {
+        "user_id": "42",
+        "character_name": "Ash",
+        "location": "oakhaven",
+        "gil": 20,
+        "hp": {"current": 4, "max": 10},
+        "conditions": ["blessed"],
+    }
+    before = copy.deepcopy(sheet)
+    load = AsyncMock(return_value=sheet)
+    save = AsyncMock()
+    no_character = AsyncMock()
+    monkeypatch.setattr(core, "load", load)
+    monkeypatch.setattr(core, "save", save)
+    monkeypatch.setattr(core, "no_character", no_character)
+    msg, sent = _message()
+
+    asyncio.run(core._handle_rest(None, msg, None, "", "42", "Ash", False))
+
+    save.assert_not_awaited()
+    no_character.assert_not_awaited()
+    assert sheet == before
+    (embed, view), = sent
+    assert "You need to be at an inn to rest." in embed.description
+    assert view is None
+
+
+def test_rest_refuses_insufficient_gil_without_mutating_character(monkeypatch):
+    sheet = {
+        "user_id": "42",
+        "character_name": "Ash",
+        "location": "stone_hearth",
+        "gil": 4,
+        "hp": {"current": 4, "max": 10},
+        "conditions": ["blessed"],
+    }
+    before = copy.deepcopy(sheet)
+    load = AsyncMock(return_value=sheet)
+    save = AsyncMock()
+    no_character = AsyncMock()
+    monkeypatch.setattr(core, "load", load)
+    monkeypatch.setattr(core, "save", save)
+    monkeypatch.setattr(core, "no_character", no_character)
+    monkeypatch.setattr("utils.ttrpg.calendar.get_special_day", lambda: None)
+    msg, sent = _message()
+
+    asyncio.run(core._handle_rest(None, msg, None, "", "42", "Ash", False))
+
+    save.assert_not_awaited()
+    no_character.assert_not_awaited()
+    assert sheet == before
+    (embed, view), = sent
+    assert "You need 5 gil. You have 4g." in embed.description
+    assert view is None
