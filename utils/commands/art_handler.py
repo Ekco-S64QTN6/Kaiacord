@@ -512,13 +512,13 @@ async def handle_art_command(ctx, msg, send_kaia_response):
     else:
         if params.get("type") == "sheep" and params.get("shown"):
             await _open_voting(posted, channel_id, params["shown"])
-        from utils.core.kaia_expression import remember
+        from utils.core.kaia_expression import remember_async
         asked = f' for "{intent.prompt}"' if intent is not None and intent.prompt else ""
-        remember("art", f'[i made a piece called "{title}"{asked}. {comment}]'.strip(),
-                 channel_id=channel_id, title=title,
-                 detail={"seed": params.get("seed"), "palette": params.get("palette"),
-                         "sheep": params.get("shown"),
-                         "requested_by": getattr(msg.author, "display_name", "")})
+        await remember_async("art", f'[i made a piece called "{title}"{asked}. {comment}]'.strip(),
+                             channel_id=channel_id, title=title,
+                             detail={"seed": params.get("seed"), "palette": params.get("palette"),
+                                     "sheep": params.get("shown"),
+                                     "requested_by": getattr(msg.author, "display_name", "")})
         log_debug(f"[art] posted '{title}'")
 
     if placeholder:

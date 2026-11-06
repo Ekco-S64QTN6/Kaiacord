@@ -259,24 +259,26 @@ class MusicSession:
             task.cancel()
         minutes = (time.time() - self.started_at) / 60
         log_action(f"[music] session ended after {minutes:.1f} min.")
-        self._remember(minutes)
+        await self._remember(minutes)
 
-    def _remember(self, minutes: float) -> None:
+    async def _remember(self, minutes: float) -> None:
         """So she knows she played, for whom, and for how long."""
         if minutes < 1:
             return
         try:
-            from utils.core.kaia_expression import remember
+            from utils.core.kaia_expression import remember_async
             who = sorted(self.listeners_seen - {self.requested_by})
             crowd = ", ".join([self.requested_by] + who[:5]) if self.requested_by else ", ".join(who[:6])
             took = f" and took {self.requests} request{'s' if self.requests != 1 else ''}" if self.requests else ""
-            remember("music",
-                     f"[i played a {self.genre} set in {self.channel_name} for {minutes:.0f} minutes"
-                     f"{' — ' + crowd + ' listened' if crowd else ''}{took}.]",
-                     channel_id=getattr(self.text_channel, "id", None),
-                     title=f"a {self.genre} set",
-                     detail={"genre": self.genre, "minutes": round(minutes, 1),
-                             "listeners": sorted(self.listeners_seen), "requests": self.requests})
+            await remember_async(
+                "music",
+                f"[i played a {self.genre} set in {self.channel_name} for {minutes:.0f} minutes"
+                f"{' — ' + crowd + ' listened' if crowd else ''}{took}.]",
+                channel_id=getattr(self.text_channel, "id", None),
+                title=f"a {self.genre} set",
+                detail={"genre": self.genre, "minutes": round(minutes, 1),
+                        "listeners": sorted(self.listeners_seen), "requests": self.requests},
+            )
         except Exception as exc:
             log_debug(f"[music] set not remembered: {exc}")
 

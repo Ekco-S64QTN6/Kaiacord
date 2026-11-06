@@ -2352,24 +2352,26 @@ class RecordsSession:
                 f"frames.") if vs else ""
         log_action(f"[records] set ended after {minutes:.1f} min, {len(self.names)} records; "
                    + ("; ".join(details) if details else "no late frames or buffer underruns") + "." + tail)
-        self._remember(minutes)
+        await self._remember(minutes)
 
-    def _remember(self, minutes: float) -> None:
+    async def _remember(self, minutes: float) -> None:
         if minutes < 1 or not self.names:
             return
         try:
-            from utils.core.kaia_expression import remember
+            from utils.core.kaia_expression import remember_async
             crowd = sorted(self.listeners_seen - {self.requested_by})
             who = ", ".join(([self.requested_by] if self.requested_by else []) + crowd[:5])
             some = ", ".join(self.names[:3]) + ("…" if len(self.names) > 3 else "")
-            remember("music",
-                     f"[i played records in {self.channel_name} for {minutes:.0f} minutes — "
-                     f"{len(self.names)} of them, starting with {some}"
-                     f"{'; ' + who + ' listened' if who else ''}.]",
-                     channel_id=getattr(self.text_channel, "id", None),
-                     title="a records set",
-                     detail={"kind": "records", "minutes": round(minutes, 1), "records": self.names,
-                             "listeners": sorted(self.listeners_seen)})
+            await remember_async(
+                "music",
+                f"[i played records in {self.channel_name} for {minutes:.0f} minutes — "
+                f"{len(self.names)} of them, starting with {some}"
+                f"{'; ' + who + ' listened' if who else ''}.]",
+                channel_id=getattr(self.text_channel, "id", None),
+                title="a records set",
+                detail={"kind": "records", "minutes": round(minutes, 1), "records": self.names,
+                        "listeners": sorted(self.listeners_seen)},
+            )
         except Exception as e:
             log_debug(f"[records] set not remembered: {e}")
 

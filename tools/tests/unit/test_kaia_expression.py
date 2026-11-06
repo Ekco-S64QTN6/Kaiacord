@@ -153,3 +153,61 @@ def test_what_she_makes_reaches_her_history_and_growth_log(tmp_path, monkeypatch
     assert bs.bot_state.channel_memory[7][-1]["content"] == '[i made a piece called "salt light".]'
     event = json.loads(log.read_text().splitlines()[-1])
     assert (event["type"], event["kind"], event["title"]) == ("creation", "art", "salt light")
+
+
+def test_async_creation_reminder_runs_off_event_loop_thread(tmp_path, monkeypatch):
+    import asyncio
+    import threading
+    from collections import deque
+    from utils.core import kaia_expression, kaia_desires
+    from utils.infrastructure.system import bot_state as bs
+
+    log = tmp_path / "growth.jsonl"
+    monkeypatch.setattr(kaia_expression, "telemetry_path", lambda p: str(log))
+    monkeypatch.setattr(bs.bot_state, "channel_memory", {7: deque(maxlen=10)})
+    monkeypatch.setattr(kaia_desires.desire_engine, "observe_creation", lambda: None)
+
+    loop_thread = threading.get_ident()
+    worker_threads = []
+    original = kaia_expression.remember
+
+    def tracked_remember(*args, **kwargs):
+        worker_threads.append(threading.get_ident())
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(kaia_expression, "remember", tracked_remember)
+    asyncio.run(kaia_expression.remember_async(
+        "art", '[i made a piece called "worker-thread test".]',
+        channel_id=7, title="worker-thread test",
+    ))
+
+    assert worker_threads and worker_threads[0] != loop_thread
+    assert bs.bot_state.channel_memory[7][-1]["content"] == '[i made a piece called "worker-thread test".]'
+    event = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    assert (event["type"], event["kind"], event["title"]) == (
+        "creation", "art", "worker-thread test"
+    )
+
+
+def test_async_creation_callers_await_the_worker_thread_entry_point():
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    expected = {
+        "utils/commands/art_handler.py": "remember_async",
+        "utils/audio/strudel_session.py": "_remember",
+        "utils/audio/records.py": "_remember",
+    }
+    for relative, name in expected.items():
+        tree = ast.parse((root / relative).read_text(encoding="utf-8"))
+        awaits = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Await)
+            and isinstance(node.value, ast.Call)
+            and (
+                (isinstance(node.value.func, ast.Name) and node.value.func.id == name)
+                or (isinstance(node.value.func, ast.Attribute) and node.value.func.attr == name)
+            )
+        ]
+        assert awaits, f"{relative} must await {name}"
