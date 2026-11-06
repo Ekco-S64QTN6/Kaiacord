@@ -1980,7 +1980,15 @@ class CoreTaskManager:
             if pending is None:
                 pending = self._subprocess_cleanup_tasks = set()
             pending.add(communication_task)
-            communication_task.add_done_callback(pending.discard)
+
+            def _finish_reaper(task):
+                pending.discard(task)
+                if not task.cancelled():
+                    error = task.exception()
+                    if error is not None:
+                        log_error(f"{label} delayed reaper failed: {error}")
+
+            communication_task.add_done_callback(_finish_reaper)
             return b"", b""
 
         try:
