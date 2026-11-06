@@ -173,3 +173,24 @@ def test_sent_broadcast_is_recorded_even_if_bot_state_save_fails(tmp_path, monke
     saved = json.loads(path.read_text(encoding="utf-8"))["history"]
     assert saved[-1]["summary"] == "this was delivered."
     assert saved[-1]["source"] == "mood_reflection"
+
+
+
+def test_opener_punctuation_variants_share_the_same_dedupe_signature(tmp_path, monkeypatch):
+    from utils.core.kaia_proactive import _opener_signature
+
+    engine, path = _engine(tmp_path, monkeypatch)
+    now = time.time()
+    previous = "The sky is turning an odd shade of green, and the birds have gone quiet…"
+    candidate = "The sky is turning an odd shade of green, and the birds have gone quiet."
+
+    assert _opener_signature(previous) == _opener_signature(candidate)
+    path.write_text(json.dumps({"history": [{
+        "timestamp": now - 15,
+        "source": "conversation_followup",
+        "channel_id": 123,
+        "summary": previous,
+    }]}), encoding="utf-8")
+
+    assert engine.has_recent_duplicate_opener(candidate, channel_id=123, now=now)
+    assert not engine.has_recent_duplicate_opener(candidate, channel_id=456, now=now)
