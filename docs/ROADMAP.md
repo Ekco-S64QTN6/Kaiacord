@@ -28,6 +28,7 @@ pull requests.
 | **Speaker inversion** | Once, she credited someone else with her own theory. One case; no mechanical cause found. |
 | **Invented facts about real works** | Invented song titles and word definitions, defended when corrected. No guard; a fix needs a source to check against. |
 | **Scanner carrier lockout** | After a full-minute non-speech hold the scanner ignores ±75 kHz, doubling up to 4 h. With several constant carriers, about 1 MHz can be out of view for hours. |
+| **RPG lock-table retention** | `session_manager._action_locks`, `session_manager._chan_locks`, and `character_manager._user_locks` retain one `asyncio.Lock` per encountered user/channel ID; no idle-entry pruning is present. Measure lifetime peak counts and contention before designing safe eviction that cannot replace a held lock or one with waiters. |
 
 ## Aethelgard
 
@@ -51,6 +52,7 @@ pull requests.
 | **Dream growth-log event-loop isolation** (PR #255) | Dream identity, relationship, self-model, and belief updates now write growth events in worker threads; nightly belief and self-claim callbacks do the same. |
 | **Creation-event I/O isolation** (PR #256) | Art posts and music-session shutdowns now record creation events in worker threads; the synchronous API remains available to synchronous callers. |
 | **Growth-ledger writer coordination** (PR #257) | Dream, creation, and interaction-milestone writers share one interprocess lock for append and rotation, preventing concurrent writers from losing events; growth-log paths are telemetry-isolated in tests. |
+| **Crash-durable atomic replacement** (PR #258) | Atomic writes sync the temporary file, replace the destination, then sync the parent directory; newly created parent directories are synced too. Growth-ledger file-sync failures now surface instead of being silently ignored. |
 | **Dispatcher and test-guidance documentation** (PR #248) | Corrected public dispatcher versus compatibility-adapter ownership, aligned the default no-external-services pytest selection with the `network` marker, removed stale test counts, and clarified handler, PDF-ingestion, and CI boundaries. |
 | **RPG navigation name-matching regression** (PR #249) | Added whole-word/phrase-boundary coverage and verified that the public look adapter resolves a partial target name without matching embedded substrings. |
 
