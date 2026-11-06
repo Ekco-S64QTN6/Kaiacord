@@ -489,3 +489,36 @@ def test_pdf_parse_concurrency_is_globally_bounded(monkeypatch):
     assert peak == ce.MAX_CONCURRENT_PDF_PARSERS
     assert peak <= 2
     assert active == 0
+
+
+
+def test_context_cache_removes_expired_entries_even_below_the_hard_cap():
+    enricher = ContextEnricher(MagicMock())
+    now = 10_000.0
+    enricher._url_cache = {
+        "expired": (now - enricher._cache_ttl - 1, "old result"),
+        "fresh": (now - 1, "current result"),
+    }
+
+    enricher._prune(enricher._url_cache, now)
+
+    assert enricher._url_cache == {"fresh": (now - 1, "current result")}
+
+
+def test_context_cache_store_enforces_hard_cap_by_evicting_oldest_entries():
+    enricher = ContextEnricher(MagicMock())
+    cache = {}
+    total = ce.CACHE_MAX_ENTRIES + 20
+    base_time = 10_000.0
+
+    for index in range(total):
+        timestamp = base_time + index / 1000
+        enricher._cache_store(cache, f"key-{index}", index, timestamp)
+
+    assert len(cache) == ce.CACHE_MAX_ENTRIES
+    assert set(cache) == {
+        f"key-{index}"
+        for index in range(total - ce.CACHE_MAX_ENTRIES, total)
+    }
+    assert all(base_time <= timestamp < base_time + enricher._cache_ttl
+               for timestamp, _value in cache.values())
