@@ -73,3 +73,50 @@ def test_admin_give_reports_inventory_capacity_without_saving(monkeypatch):
     assert len(sent) == 1
     assert "inventory full" in sent[0].description
     assert f"{INVENTORY_LIMIT}/{INVENTORY_LIMIT} unique item types" in sent[0].description
+
+
+def test_two_opposite_admin_targets_do_not_deadlock(monkeypatch):
+    """Both owners must acquire the same per-user locks in the same order."""
+    from utils.ttrpg import session_manager
+
+    monkeypatch.setattr(session_manager, "_action_locks", {})
+    monkeypatch.setattr(session_manager, "_chan_global_lock", asyncio.Lock())
+
+    async def run():
+        completed = []
+
+        async def operation(label):
+            await asyncio.sleep(0)
+            completed.append(label)
+
+        await asyncio.wait_for(asyncio.gather(
+            core._with_target_action_lock(
+                "owner-b", "owner-a", lambda: operation("owner-a -> owner-b")
+            ),
+            core._with_target_action_lock(
+                "owner-a", "owner-b", lambda: operation("owner-b -> owner-a")
+            ),
+        ), timeout=0.5)
+        assert sorted(completed) == ["owner-a -> owner-b", "owner-b -> owner-a"]
+
+    assert core._handle_give._serialized is True
+    assert core._handle_heal._serialized is True
+    asyncio.run(run())
+
+
+def test_self_target_admin_mutation_holds_the_single_user_lock(monkeypatch):
+    from utils.ttrpg import session_manager
+
+    monkeypatch.setattr(session_manager, "_action_locks", {})
+    monkeypatch.setattr(session_manager, "_chan_global_lock", asyncio.Lock())
+
+    async def run():
+        async def inspect_lock():
+            lock = await session_manager.get_action_lock("user:owner")
+            assert lock.locked()
+
+        await core._with_target_action_lock("owner", "owner", inspect_lock)
+        lock = await session_manager.get_action_lock("user:owner")
+        assert not lock.locked()
+
+    asyncio.run(run())

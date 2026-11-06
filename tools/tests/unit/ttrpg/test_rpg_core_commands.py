@@ -85,7 +85,7 @@ def test_admin_give_strips_mentioned_recipient_before_item_lookup(monkeypatch):
     assert saved and "tonic" in sent[0].description
 
 
-def test_admin_mutations_hold_target_lock_but_do_not_reacquire_self_lock(monkeypatch):
+def test_admin_mutations_hold_caller_and_target_locks_including_self(monkeypatch):
     from utils.ttrpg.session_manager import get_action_lock
 
     target = {"user_id": "99", "character_name": "Target", "inventory": [],
@@ -98,8 +98,11 @@ def test_admin_mutations_hold_target_lock_but_do_not_reacquire_self_lock(monkeyp
         return target if str(uid) == "99" else caller
 
     async def save(sheet):
-        lock = await get_action_lock(f"user:{sheet['user_id']}")
-        lock_observations.append((sheet["user_id"], lock.locked()))
+        sheet_lock = await get_action_lock(f"user:{sheet['user_id']}")
+        caller_lock = await get_action_lock("user:42")
+        lock_observations.append(
+            (sheet["user_id"], sheet_lock.locked(), caller_lock.locked())
+        )
 
     async def channel_send(*args, **kwargs):
         return None
@@ -110,18 +113,15 @@ def test_admin_mutations_hold_target_lock_but_do_not_reacquire_self_lock(monkeyp
                                channel=types.SimpleNamespace(send=channel_send))
 
     async def go():
-        target_lock = await get_action_lock("user:99")
         await cor._handle_give(_ctx(), msg, None, "<@99> tonic", "42", "Admin", True)
-        assert lock_observations[-1] == ("99", True)
+        assert lock_observations[-1] == ("99", True, True)
 
-        caller_lock = await get_action_lock("user:42")
-        async with caller_lock:
-            self_msg = types.SimpleNamespace(mentions=[], channel=types.SimpleNamespace(send=channel_send))
-            await asyncio.wait_for(
-                cor._handle_heal(_ctx(), self_msg, None, "", "42", "Admin", True),
-                timeout=2
-            )
-        assert lock_observations[-1] == ("42", True)
+        self_msg = types.SimpleNamespace(mentions=[], channel=types.SimpleNamespace(send=channel_send))
+        await asyncio.wait_for(
+            cor._handle_heal(_ctx(), self_msg, None, "", "42", "Admin", True),
+            timeout=2
+        )
+        assert lock_observations[-1] == ("42", True, True)
 
     asyncio.run(go())
     assert target["inventory"] == ["tonic"]
