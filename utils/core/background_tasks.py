@@ -2200,7 +2200,7 @@ class CoreTaskManager:
 
     @staticmethod
     def _quoted_spans(text: str) -> list:
-        """Return paired quoted spans, including short and single-quoted text.
+        """Return quote spans with an explicit flag for unmatched delimiters.
 
         Apostrophes between word characters are treated as punctuation inside a
         quote, not as quote delimiters (for example, 'I don't know').
@@ -2233,13 +2233,15 @@ class CoreTaskManager:
                             continue
                     span = text[index + 1:end]
                     if span.strip():
-                        spans.append(span)
+                        spans.append((span, True))
                     index = end + 1
                     break
                 end += 1
             else:
-                # An unmatched opening quote is not enough to infer a span.
-                index += 1
+                # Keep the malformed tail visible to validation. It must fail
+                # even if those words happen to occur in the source conversation.
+                spans.append((text[index + 1:], False))
+                break
         return spans
 
     @classmethod
@@ -2264,7 +2266,11 @@ class CoreTaskManager:
                 said_turns.append(normalized)
 
         unverified = []
-        for quote in cls._quoted_spans(str(digest)):
+        for quote, terminated in cls._quoted_spans(str(digest)):
+            if not terminated:
+                # A malformed quote is invalid regardless of source matching.
+                unverified.append(quote.strip() or "[unterminated quote]")
+                continue
             normalized = norm(quote).strip(" .,!?:;")
             if normalized and not any(normalized in turn for turn in said_turns):
                 unverified.append(quote)
