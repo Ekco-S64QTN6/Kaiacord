@@ -218,6 +218,8 @@ def recent_art(n: int = 6) -> list[dict]:
                     r = json.loads(line)
                 except ValueError:
                     continue
+                if not isinstance(r, dict):
+                    continue
                 if r.get("type") == "creation" and r.get("kind") == "art":
                     rows.append({"title": str(r.get("title") or ""), "summary": str(r.get("summary") or "")})
         return rows[-n:]
