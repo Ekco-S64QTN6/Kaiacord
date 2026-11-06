@@ -128,3 +128,11 @@ node's metadata (path, offsets, timestamps, scores) is excluded from the vector.
 - **Vector search** scores every top-k query — filtered ones included — from a cached, normalised
   matrix of the store's embeddings, rebuilt when the store changes. llama_index's own path built
   that array per query in one GIL-holding call, which stuttered any music playing.
+
+
+## PDF path boundary
+
+The process-isolated parser and two-worker semaphore described in the intelligence-layer
+documentation apply to PDFs fetched from a chat link by `context_enricher.py`. They do not
+describe the separate knowledge-base ingestion path: corpus PDFs pass through the staged RAG
+ingestion and indexing pipeline, with its own reader, eligibility and persistence rules.
