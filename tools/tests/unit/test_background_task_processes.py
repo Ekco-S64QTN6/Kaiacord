@@ -21,6 +21,7 @@ class _FakeProcess:
         self.started = asyncio.Event()
         self.signal_event = asyncio.Event()
         self.done = asyncio.Event()
+        self.wait_calls = 0
         self.received_signals = []
 
     def receive_signal(self, sig):
@@ -50,6 +51,7 @@ class _FakeProcess:
                 return b"kill-reaped", b""
 
     async def wait(self):
+        self.wait_calls += 1
         await self.done.wait()
         return self.returncode
 
@@ -90,6 +92,27 @@ async def test_timeout_terminates_then_kills_and_reaps_the_process_group(monkeyp
     ]
     assert process.returncode == -signal.SIGKILL
     assert process.calls == 1
+    assert process.wait_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_timeout_keeps_output_when_sigterm_is_enough(monkeypatch):
+    manager = _manager()
+    process = _FakeProcess(exit_on_term=True)
+    signals = _route_signals(monkeypatch, process)
+
+    out, err = await manager._communicate_or_kill(
+        process,
+        "gracefully stopped maintenance child",
+        timeout=0.01,
+        terminate_grace=0.1,
+        kill_grace=0.1,
+    )
+
+    assert (out, err) == (b"term-reaped", b"")
+    assert signals == [(process.pid, signal.SIGTERM)]
+    assert process.returncode == -signal.SIGTERM
+    assert process.wait_calls == 0
 
 
 @pytest.mark.asyncio
