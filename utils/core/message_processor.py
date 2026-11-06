@@ -3109,7 +3109,7 @@ class MessageProcessor:
             log_warning("Timeout fetching image for inline vision.")
             return ""
         except Exception as e:
-            log_error(f"Error fetching image: {e}")
+            log_error(f"Error fetching image: {type(e).__name__}")
             return ""
 
     def _update_identity_cache(self):
