@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping, Union
 
-from utils.core.atomic_write import fsync_directory, write_atomic
+from utils.core.atomic_write import fsync_directory, mkdir_durable, write_atomic
 
 PathLike = Union[str, os.PathLike[str]]
 
@@ -39,7 +39,7 @@ def append_growth_event(
         raise ValueError("max_bytes must be at least 1")
 
     destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    mkdir_durable(destination.parent)
     lock_path = destination.with_name(f".{destination.name}.lock")
     payload = dict(event)
     payload.setdefault("ts", time.time())
