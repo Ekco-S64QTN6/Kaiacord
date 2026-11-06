@@ -39,7 +39,6 @@ def _save_watchdog_prompt(ctx, response_text: str, reasons: list) -> None:
     }, indent=1, ensure_ascii=False))
     for old in sorted(folder.glob("*.json"))[:-WATCHDOG_PROMPTS_KEEP]:
         old.unlink(missing_ok=True)
-_growth_log_lock = threading.Lock()
 _gen_log_lock = threading.Lock()
 
 
@@ -2839,34 +2838,22 @@ class MessageProcessor:
                             milestones = {10, 25, 50, 100, 250, 500}
                             if count in milestones:
                                 from pathlib import Path
-                                growth_log = Path("memory") / "growth_log.jsonl"
-                                growth_log.parent.mkdir(parents=True, exist_ok=True)
-                                milestone_entry = json.dumps({
+                                growth_log = Path(telemetry_path("memory/growth_log.jsonl"))
+                                milestone_entry = {
                                     "ts": time.time(),
                                     "type": "relationship_milestone",
                                     "user": ctx.author_name,
                                     "milestone": count,
                                     "note": f"{count} exchanges with {ctx.author_name}"
-                                })
-                                def _write_and_rotate_growth_log():
-                                    with _growth_log_lock:
-                                        with open(growth_log, 'a', encoding='utf-8') as gl:
-                                            gl.write(milestone_entry + '\n')
-                                            gl.flush()
-                                            try:
-                                                os.fsync(gl.fileno())
-                                            except OSError:
-                                                pass
-                                        # Rotate: keep last 2000 entries (atomic)
-                                        try:
-                                            with open(growth_log, 'r', encoding='utf-8') as gl:
-                                                lines = gl.readlines()
-                                            if len(lines) > 2000:
-                                                from utils.core.atomic_write import write_atomic
-                                                write_atomic(growth_log, "".join(lines[-2000:]))
-                                        except Exception:
-                                            pass
-                                await asyncio.to_thread(_write_and_rotate_growth_log)
+                                }
+                                from utils.core.growth_log import append_growth_event
+                                await asyncio.to_thread(
+                                    append_growth_event,
+                                    milestone_entry,
+                                    growth_log,
+                                    max_bytes=600_000,
+                                    max_entries=2_000,
+                                )
                                 log_info(f"Growth milestone: {count} interactions with {ctx.author_name}")
 
                         # 2. Significant Exchange Detector
