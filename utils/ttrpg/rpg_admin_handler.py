@@ -5,17 +5,26 @@ import discord
 
 
 async def _with_target_action_lock(target_uid: str, caller_uid: str, operation):
-    """Serialize an admin mutation with the target player, not just the admin.
+    """Serialize an admin mutation across both caller and target identities.
 
-    The dispatcher already holds the caller's lock. Skip reacquiring it for
-    self-targeted admin commands because the action locks are not re-entrant.
+    The dispatcher marks these commands as self-serialized so the caller and
+    target locks are always acquired together in a deterministic UID order.
+    Self-targeted commands acquire the single shared lock exactly once.
     """
     target_uid = str(target_uid)
     if target_uid == str(caller_uid):
         return await operation()
 
+    from contextlib import AsyncExitStack
     from utils.ttrpg.session_manager import get_action_lock
-    async with await get_action_lock(f"user:{target_uid}"):
+
+    # Acquire both identities in one global order. This prevents two owners
+    # targeting one another from forming a caller->target lock cycle.
+    lock_ids = sorted({str(target_uid), str(caller_uid)})
+    locks = [await get_action_lock(f"user:{uid}") for uid in lock_ids]
+    async with AsyncExitStack() as stack:
+        for lock in locks:
+            await stack.enter_async_context(lock)
         return await operation()
 
 

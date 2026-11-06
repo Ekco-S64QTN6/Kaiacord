@@ -378,6 +378,12 @@ async def _handle_heal(ctx, msg, send, rest, uid, uname, is_owner):
     )
 
 
+# Both caller and target locks are acquired together by the admin helper.
+# Do not let the dispatcher pre-acquire only the caller lock.
+_handle_give._serialized = True
+_handle_heal._serialized = True
+
+
 async def _handle_leaderboard(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.rpg_reference_handler import _handle_leaderboard as handle
     return await handle(
