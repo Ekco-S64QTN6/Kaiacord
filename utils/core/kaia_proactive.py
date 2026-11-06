@@ -565,7 +565,7 @@ class ProactiveEngine:
     def _get_dream_echo(self) -> Optional[Tuple[str, str]]:
         """Pull a recent growth event (any type) for dream-inspired musing."""
         try:
-            growth_path = Path("memory") / "growth_log.jsonl"
+            growth_path = Path(telemetry_path("memory/growth_log.jsonl"))
             if not growth_path.exists():
                 return None
 
