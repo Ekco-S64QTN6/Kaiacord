@@ -70,7 +70,7 @@ Core utility modules used by Kaiacord.
 | Module | Purpose |
 |--------|---------|
 | `system/app_context.py` | **AppContext**: Central container for system singletons and dependencies |
-| `system/bot_state.py` | Persistent state, beliefs (100-cap), and user dossiers |
+| `system/bot_state.py` | Persistent state; snapshots live containers on the caller thread, then serializes and atomically writes the detached snapshot on its single worker |
 | `system/yaml_config.py` | Hierarchical configuration management |
 | `system/messaging.py` | Discord message utilities and chunking guard ($\le 1990$ chars) |
 | `system/rate_limiter.py` | Per-user interaction rate limiting |
@@ -92,6 +92,7 @@ Core utility modules used by Kaiacord.
 | `monitoring/watchdog.py` | Event loop health monitor |
 | `monitoring/stats_tracker.py` | Thread-safe forum and pipeline statistics counter |
 | `monitoring/stats_poller.py` | Background poller for hardware and cognitive telemetry (helpers in `stats_helpers.py`) |
+| `monitoring/async_lock_metrics.py` | Process-local lock-registry size, lifetime peak, and contention measurements for RPG `!sysmon` |
 | `monitoring/mem_probe.py` | The 15-minute memory audit: RSS, a heap trim and what it returned, optional tracemalloc growth sites |
 
 ## GPU & System (`utils/infrastructure/gpu/`)

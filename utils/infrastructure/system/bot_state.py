@@ -157,19 +157,12 @@ class BotState:
             log_warning(f"Failed to load bot state: {e}\n{traceback.format_exc()}")
 
     def save(self):
-        """Save bot state to JSON file (thread-safe)"""
+        """Snapshot live state here; serialize and write the detached snapshot off-loop."""
         try:
             with self._lock:
-                # Ensure directory exists if one is specified
-                dirname = os.path.dirname(self.state_file)
-                if dirname:
-                    os.makedirs(dirname, exist_ok=True)
-
-                
-                # Snapshot assembly itself iterates live channel maps/deques, so
-                # it must be covered by the same retry as JSON serialization.
-                # A concurrent update can raise RuntimeError in a comprehension
-                # before json.dumps() is ever reached.
+                # Copying live maps/deques must remain on the caller thread and
+                # under the state lock. Serializing the detached snapshot is safe
+                # on the single writer thread and avoids JSON work on Discord's loop.
                 for attempt in range(20):
                     try:
                         state = {
@@ -181,10 +174,6 @@ class BotState:
                             'recent_ingestions': copy.deepcopy(self.recent_ingestions),
                             'last_dream_date': self.last_dream_date,
                             'kaia_engagement': self.kaia_engagement,
-                            # Persisted so engagement decay survives a restart. Held
-                            # only in memory this is re-stamped to boot time on every
-                            # launch, `hours_idle` is always ~0, and the decay gate below
-                            # can never open — engagement then only ratchets up.
                             'last_interaction_time': self.last_interaction_time,
                             'kaia_coherence': self.kaia_coherence,
                             'kaia_dream_freshness': self.kaia_dream_freshness,
@@ -194,32 +183,43 @@ class BotState:
                             'forum_reply_times': copy.deepcopy(self.forum_reply_times),
                             'relationships': copy.deepcopy(self.relationships),
                             'pending_afterthoughts': copy.deepcopy(self.pending_afterthoughts),
-                            'channel_last_activity': {str(k): v for k, v in self.channel_last_activity.items()},
+                            'channel_last_activity': {
+                                str(k): v for k, v in self.channel_last_activity.items()
+                            },
                             'unprompted_last_sent': self.unprompted_last_sent,
                             'unprompted_count': self.unprompted_count,
                             'unprompted_date': self.unprompted_date,
-                            'unprompted_sources': copy.deepcopy({k: dict(v) for k, v in self.unprompted_sources.items()}),
-                            # boot_complete is TRANSIENT - do not save to disk
-                            # Explicitly cast int keys to str for JSON serialisation (JSON keys must be strings).
-                            'channel_memory': copy.deepcopy({str(k): list(v) for k, v in self.channel_memory.items()}),
-                            'saved_at': time.time()
+                            'unprompted_sources': copy.deepcopy({
+                                k: dict(v) for k, v in self.unprompted_sources.items()
+                            }),
+                            # boot_complete is TRANSIENT - do not save to disk.
+                            'channel_memory': copy.deepcopy({
+                                str(k): list(v) for k, v in self.channel_memory.items()
+                            }),
+                            'saved_at': time.time(),
                         }
-                        payload = json.dumps(state, indent=2)
                         break
                     except RuntimeError:
                         if attempt == 19:
                             raise
                         time.sleep(0)
 
-            # Only the disk write goes to the background thread. One worker, so
-            # writes land in the order save() was called.
-            self._executor.submit(self._persist_to_disk, payload)
+                # Enqueue while holding _lock so concurrent callers cannot
+                # submit snapshots in the reverse order from their snapshot order.
+                # The executor has one worker, so serialization and writes remain FIFO.
+                self._executor.submit(self._persist_to_disk, state)
         except Exception as e:
             log_warning(f"Failed to initiate bot state save: {e}")
 
-    def _persist_to_disk(self, payload: str):
-        """Write an already-serialised snapshot, atomically, on the writer thread."""
+    @staticmethod
+    def _serialize_snapshot(state: dict) -> str:
+        """Serialize a detached snapshot; never pass live BotState containers here."""
+        return json.dumps(state, indent=2)
+
+    def _persist_to_disk(self, state: dict):
+        """Serialize and atomically write a detached snapshot on the writer thread."""
         try:
+            payload = self._serialize_snapshot(state)
             from utils.core.atomic_write import write_atomic
             with self._write_lock:
                 write_atomic(self.state_file, payload)

@@ -240,9 +240,10 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   goes through `beliefs_store.update()`; `anchors.json` and `memory/relationships/` hold a
   module lock around load-change-save. Each was being rewritten from two threads (the dream
   engine and a chat turn), and whichever read first put its stale copy back last. Snapshot
-  before handing anything to a writer thread: `BotState.save()` serialises on the caller's
-  thread, because `json.dump` over live dicts on the writer raised mid-iteration and dropped
-  the save. `write_atomic` names its temporary per process *and* thread for the same reason.
+  live maps/deques on the caller's thread under the state lock, then hand only the detached
+  snapshot to the single BotState writer thread. It performs JSON serialization and the atomic
+  disk write there, keeping the event loop free without letting the writer iterate live state.
+  `write_atomic` names its temporary per process *and* thread for the same reason.
 - **Background RPG character mutations use the same per-player action lock as commands and views.**
   Discover IDs with `character_manager.load_all()` if needed, but never carry those detached
   snapshots into a save. Use `_mutate_player_sheet(uid, mutation)`: it acquires
