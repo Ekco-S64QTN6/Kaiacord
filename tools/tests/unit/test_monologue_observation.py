@@ -716,3 +716,16 @@ def test_successful_cross_source_broadcasts_share_the_configured_dedupe_window(
     assert first is True
     assert second is False
     assert len(sent) == 1
+
+
+
+def test_unterminated_quote_is_not_accepted_as_unvalidated_text():
+    from utils.core.background_tasks import CoreTaskManager as M
+
+    # The words after the opening delimiter were genuinely spoken, but an
+    # unclosed quote is malformed and must not bypass quote-format validation.
+    conversation = "Ekco: the system is safe"
+    assert M._unverified_quotes(
+        'He said "the system is safe', conversation
+    ) == ["the system is safe"]
+    assert M._unverified_quotes('He said "', conversation) == ["[unterminated quote]"]
