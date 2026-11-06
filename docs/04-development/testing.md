@@ -138,3 +138,25 @@ the directories it writes to.
 ```bash
 venv/bin/python3 tools/maintenance/health_check.py
 ```
+
+
+## GitHub Actions workflows
+
+The repository has two relevant unit-test workflows:
+
+- **General unit tests** (`.github/workflows/unit-tests.yml`) run on every pull request and
+  every push to `main`. The workflow compiles `utils/` and `tools/`, then runs the baseline
+  hygiene/model-call/import checks plus tests selected from changed paths by
+  `.github/scripts/run_ci_tests.py`. The selector excludes tests marked `ollama`, `gpu`,
+  `slow`, or `network`.
+- **RPG unit tests** (`.github/workflows/ttrpg-tests.yml`) run on pull requests and pushes to
+  `main` that change `utils/ttrpg/**`, `tools/tests/unit/ttrpg/**`, or the workflow itself.
+  This workflow runs the full `tools/tests/unit/ttrpg` directory and also supports manual
+  `workflow_dispatch`.
+
+For changes under `utils/ttrpg/`, the general selector also adds the full RPG test directory,
+so RPG code changes should receive both workflows. Non-TTRPG changes do not automatically
+trigger the RPG-specific workflow. Review the `Focused test files:` list printed by
+`run_ci_tests.py`: a green workflow is meaningful only when its test selection covers the
+changed behavior. Check conclusions against the exact PR head SHA; after merging, verify the
+applicable `main` push workflows separately.

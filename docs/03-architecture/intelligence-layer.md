@@ -83,6 +83,15 @@ say" must measure `sanitizer.user_authored_text()` rather than
 `sanitized_content`, or a one-word caption on a link looks like a two-hundred-word
 message.
 
+**PDF links are parsed in a disposable child process.** The response is capped at 2 MB;
+the worker enforces a 256 MiB address-space limit, a 3-second CPU limit, a 5-second wall
+timeout, a 20-page limit, and a 16,000-character text budget. A process-wide
+`threading.BoundedSemaphore` allows at most two PDF workers at once; a caller waits no more
+than one second for a slot, then extraction fails closed. The resulting approximate combined
+child address-space ceiling is 512 MiB **per bot process**, not host-wide across multiple bot
+processes. Parser errors, timeouts, unsupported resource-limit platforms, and saturated queues
+return no PDF text; untrusted PDFs are never parsed in the bot process.
+
 ### 4 · Generation and salvage (`message_processor.py`)
 
 `_generate_with_retries` runs up to `generation_max_retry_attempts` passes

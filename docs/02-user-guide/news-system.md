@@ -76,6 +76,13 @@ stored as single news items with their source and details, so `!news technology`
 even when the grounded global brief could not be generated. The two feeds are separate: a
 successful tech scrape does not mean the global brief succeeded.
 
+The scheduler emits its **integrated refresh completed** success log only when the
+grounded global-brief updater exits successfully, the independent technology aggregator
+succeeds, and the RAG refresh completes successfully (when a RAG instance is configured).
+Otherwise it emits a partial-refresh warning naming the unavailable feed or queued RAG retry.
+A successful tech scrape never upgrades a failed grounded global brief into an overall success.
+
+
 ## 9. Dependencies
 - **google-genai**: New Google GenAI SDK with grounding support
 - **ollama**: For local summarization with gemma3:12b
