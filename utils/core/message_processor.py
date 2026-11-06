@@ -2851,7 +2851,7 @@ class MessageProcessor:
                                     append_growth_event,
                                     milestone_entry,
                                     growth_log,
-                                    max_bytes=600_000,
+                                    max_bytes=None,
                                     max_entries=2_000,
                                 )
                                 log_info(f"Growth milestone: {count} interactions with {ctx.author_name}")
