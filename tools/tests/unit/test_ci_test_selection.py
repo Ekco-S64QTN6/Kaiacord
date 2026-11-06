@@ -124,3 +124,13 @@ def test_background_task_changes_select_subprocess_lifecycle_regressions():
         for path in selector["select_tests"](["utils/core/background_tasks.py"])
     }
     assert "tools/tests/unit/test_background_task_processes.py" in selected
+
+
+
+def test_sysmon_changes_select_utility_process_reaping_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/infrastructure/system/kaia_sysmon.py"])
+    }
+    assert "tools/tests/unit/test_sysmon_subprocess_lifecycle.py" in selected
