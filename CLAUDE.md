@@ -58,7 +58,7 @@ not.
 
 ```bash
 venv/bin/python3 -m pytest -q                                            # whole suite; pytest.ini sets testpaths
-venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow"   # no external services
+venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow and not network"   # no external services
 venv/bin/python3 -m pytest tools/tests/unit -q                           # just the fast ones
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py -q  # one file
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent   # one test
@@ -71,13 +71,10 @@ number has been stale in three files at once — CLAUDE.md, README and CONTRIBUT
 different one. Run it and read the tail; what matters is that nothing *failed*, not that the count
 matches a doc.
 
-The no-external-services invocation is the default because only **2** of ~3,200 tests need Ollama
-or a GPU (checked 23 Oct 2026 — take the figure from `--collect-only -m "ollama or gpu"`, not
-here). The rest of what it deselects is the ~54 marked `slow`. Two such tests were once unmarked
-until September 2026 and ran on every "no external services" invocation, embedding through the
-bot's own live Ollama — Ollama's journal (`journalctl -u ollama`) is where that showed up. A test
-that touches the daemon is marked `ollama`, whatever else it does. The full `pytest -q` additionally
-loads `gemma3:12b`, which evicts the production model from VRAM.
+The no-external-services invocation is the default. It excludes `ollama`, `gpu`, `slow` and
+`network` tests; do not record a fixed count because the suite changes as coverage grows. A test
+that touches the Ollama daemon, even only to embed, is marked `ollama`. The full `pytest -q`
+additionally loads `gemma3:12b`, which evicts the production model from VRAM.
 
 Markers are declared in `pytest.ini` under `--strict-markers`, so a typo'd marker is an error
 rather than a silently ignored one: `slow`, `gpu`, `ollama`, `network`, `integration`.
@@ -93,7 +90,7 @@ so a mis-marked test fails fast instead of loading a model:
 | Workflow | Runs |
 |:--|:--|
 | `unit-tests.yml` | every PR and push to `main`: `.github/scripts/run_ci_tests.py` — `compileall` over `utils/` and `tools/`, the hygiene baseline (`test_suite_hygiene`, `test_chat_model_calls`, `test_no_shadowed_imports`), plus the tests for what the diff touched (`test_<stem>.py`, `RELATED_TESTS`, all of `tools/tests/unit/ttrpg/` for a `utils/ttrpg/` change) |
-| `ttrpg-tests.yml` | `tools/tests/unit/ttrpg/` when `utils/ttrpg/**` changes |
+| `ttrpg-tests.yml` | Full `tools/tests/unit/ttrpg/` suite when `utils/ttrpg/**`, `tools/tests/unit/ttrpg/**` or the workflow file changes |
 | `records-audio-tests.yml` | `test_records.py` when `utils/audio/records.py` changes |
 
 A green check is therefore not a green suite: run the full no-external-services invocation
@@ -246,6 +243,11 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `session_manager.get_action_lock("user:<uid>")`, reloads the current character, applies a
   synchronous mutation, and saves only when changed. The character manager's own file lock
   protects one read or one write at a time; it does not make a read-modify-write atomic.
+- **Owner RPG admin mutations acquire both user locks in one order.** The `!rpg give` and
+  `!rpg heal` adapters are self-serialized. Their helper acquires the unique caller and target
+  `user:<uid>` locks in sorted UID order and holds them across target load/mutate/save. The
+  dispatcher must not pre-acquire only the caller lock; two owners targeting each other would
+  deadlock. A self-target acquires its one user lock exactly once.
 - **Global character rankings require a complete scan.** The Wealthy title is never awarded
   from a partial character population or malformed Gil/bank balance. Reuse the shared
   character_manager scan report and withhold the cached winner if any record is unreadable.
@@ -715,12 +717,14 @@ header. Rules that keep it safe, each with a test in `test_context_enricher_file
   inside the text (`[USER_MESSAGE]` …) are defused.
 - **What cannot be read says so.** A PDF, archive, binary, or oversized file arrives as
   `Contents unknown: …` — a fact, not an instruction, so she has nothing to guess from.
-- **A linked PDF is parsed out of process.** Ordinary chat-link extraction runs pypdf in an
-  isolated child with the address-space and CPU ceilings from `MAX_PDF_PARSE_MEMORY_BYTES` /
-  `MAX_PDF_PARSE_CPU_SECONDS`, plus `MAX_PDF_PARSE_TIMEOUT_SECONDS`. Raw bytes, pages and text
-  are capped. A timeout, resource kill, unsupported platform or parser error returns no extracted
-  text; never fall back to parsing an untrusted PDF in the bot process. Linux integration tests
-  exercise real `RLIMIT_AS`, `RLIMIT_CPU` and timeout/reaping behavior in
+- **A linked PDF is parsed out of process and globally bounded.** Ordinary chat-link extraction
+  runs pypdf in an isolated child with a 256 MiB address-space ceiling, 3 CPU-second limit and
+  5-second wall timeout. The input is capped at 2 MB, extraction at 20 pages / 16,000 characters.
+  A process-wide bounded semaphore admits at most `MAX_CONCURRENT_PDF_PARSERS = 2` children at
+  once; acquisition waits at most `MAX_PDF_PARSE_QUEUE_WAIT_SECONDS = 1` second before failing
+  closed. A timeout, resource kill, unsupported platform, busy queue or parser error returns no
+  extracted text; never fall back to parsing an untrusted PDF in the bot process. Linux integration
+  tests exercise real `RLIMIT_AS`, `RLIMIT_CPU` and timeout/reaping behavior in
   `test_context_enricher_links.py`.
 - **"summarize this file" after the file** finds it on the replied-to message, or on the author's
   own last 5 messages within 15 minutes. Images are not handled here; they stay on the vision path.
@@ -1430,8 +1434,9 @@ observation digests and monologue broadcasts use
 send and history write are serialized; a message enters `proactive_topics.json` only after
 Discord accepts it. A post waiting in `unprompted._drain` keeps the same guard and is checked
 when it reaches the front of the queue, not when it is first enqueued. The history is bounded to
-50 entries, channel-aware and compared over one hour. Signatures use the first 16 lexical words
-across sentence boundaries, so abbreviations do not terminate the signature early.
+50 entries, channel-aware and compared over one hour. Signatures strip punctuation and use the
+first 16 lexical words across sentence boundaries, so punctuation variants collide and
+abbreviations do not terminate the signature early.
 
 **An absence check-in is addressed to a person.** It goes out unlabelled and is never
 cross-posted, and it names them: `harden` strips a leading name from any reply, which sent "been quiet without you
