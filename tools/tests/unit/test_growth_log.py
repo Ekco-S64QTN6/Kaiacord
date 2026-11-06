@@ -90,6 +90,9 @@ def test_new_growth_log_entry_fsyncs_its_parent_directory(tmp_path, monkeypatch)
 
 def test_growth_log_file_fsync_failure_is_not_reported_as_success(tmp_path, monkeypatch):
     path = tmp_path / "memory" / "growth_log.jsonl"
+    # Keep directory-creation fsync out of this fault injection: the failure
+    # under test is specifically the sync of the newly appended file.
+    path.parent.mkdir()
 
     def fail_fsync(_fd):
         raise OSError("simulated growth-log fsync failure")
