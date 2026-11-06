@@ -13,6 +13,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Any, List, Dict
+from urllib.parse import urljoin
 
 current_channel_id_var = contextvars.ContextVar("current_channel_id", default=None)
 
@@ -55,7 +56,9 @@ from utils.commands.memory_handler import handle_memory_command
 from utils.commands.profile_handler import handle_profile_query
 from utils.commands.registry import dispatch_command
 from utils.infrastructure.system.messaging import send_kaia_response
-from utils.core.sanitizer import sanitize_prompt, pointed_at
+from utils.core.sanitizer import (
+    sanitize_prompt, pointed_at, is_safe_url, public_only_connector, read_capped,
+)
 
 # Constants
 
@@ -1708,23 +1711,30 @@ class MessageProcessor:
 
         if attachments_to_process:
             images = []
-            for att in attachments_to_process:
+            image_attachments, skipped_images = self._select_vision_image_attachments(
+                attachments_to_process
+            )
+            if skipped_images:
+                log_warning(
+                    f"Vision image count capped at {self.VISION_MAX_IMAGES}; "
+                    f"skipping {skipped_images} extra image(s)."
+                )
+            for att in image_attachments:
                 filename = getattr(att, 'filename', '').lower()
-                if any(filename.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']):
-                    try:
-                        is_gif = filename.endswith('.gif')
-                        log_debug(f"Fetching image attachment for inline vision: {att.url}")
-                        b64 = await self._fetch_image_as_base64(att.url, is_gif=is_gif)
-                        if b64:
-                            images.append(b64)
-                        if is_gif:
-                            try:
-                                await ctx.message.channel.send("*(Viewing first frame of GIF)*")
-                            except Exception:
-                                pass
-                    except Exception as e:
-                        log_warning(f"Failed to fetch image {getattr(att, 'filename', 'unknown')} for inline vision: {e}")
-            
+                try:
+                    is_gif = filename.endswith('.gif')
+                    log_debug(f"Fetching image attachment for inline vision: {att.url}")
+                    b64 = await self._fetch_image_as_base64(att.url, is_gif=is_gif)
+                    if b64:
+                        images.append(b64)
+                    if is_gif:
+                        try:
+                            await ctx.message.channel.send("*(Viewing first frame of GIF)*")
+                        except Exception:
+                            pass
+                except Exception as e:
+                    log_warning(f"Failed to fetch image {getattr(att, 'filename', 'unknown')} for inline vision: {e}")
+
             if images and messages and messages[-1].get("role") == "user":
                 messages[-1]["images"] = images
                 log_info(f"Attached {len(images)} images to user message for inline multimodal processing.")
@@ -2977,6 +2987,23 @@ class MessageProcessor:
     # gemma3's vision encoder operates at 896x896. Sending anything larger costs transfer
     # bandwidth and CPU decode time without giving the model more to see.
     VISION_MAX_EDGE = 896
+    VISION_MAX_IMAGES = 4
+    VISION_MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
+    VISION_MAX_SOURCE_PIXELS = 20_000_000
+    VISION_MAX_REDIRECTS = 5
+
+    def _select_vision_image_attachments(self, attachments):
+        """Return the bounded image subset and the number of images skipped."""
+        suffixes = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+        candidates = [
+            attachment for attachment in attachments
+            if any(
+                str(getattr(attachment, "filename", "")).lower().endswith(ext)
+                for ext in suffixes
+            )
+        ]
+        selected = candidates[:self.VISION_MAX_IMAGES]
+        return selected, len(candidates) - len(selected)
 
     def _prepare_image_payload(self, data: bytes, is_gif: bool) -> str:
         """Decode, downscale and base64-encode an image. Runs in a worker thread.
@@ -2988,6 +3015,10 @@ class MessageProcessor:
             import io as _io
 
             with Image.open(_io.BytesIO(data)) as img:
+                if img.width * img.height > self.VISION_MAX_SOURCE_PIXELS:
+                    log_warning("Image dimensions exceed the vision pixel budget; skipping attachment.")
+                    return ""
+
                 if is_gif:
                     img.seek(0)  # first frame only
                     log_info("GIF detected — extracted first frame for vision processing.")
@@ -3021,31 +3052,75 @@ class MessageProcessor:
             return ""
 
     async def _fetch_image_as_base64(self, url: str, is_gif: bool = False) -> str:
-        """Fetch an image from a URL and return as a base64 string for inline multimodal vision."""
+        """Fetch a bounded public image for inline multimodal vision."""
         timeout_seconds = self.config.url_fetch_timeout
         try:
-            async with asyncio.timeout(timeout_seconds + 2.0): # Outer safety
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout_seconds)) as session:
-                    async with session.get(url) as resp:
-                        if resp.status == 200:
-                            data = await resp.read()
+            # User-supplied image links include forum post URLs. Check literals
+            # and DNS before opening a session; the connector checks the actual
+            # addresses again when each socket is opened.
+            if not await asyncio.to_thread(is_safe_url, url):
+                log_warning("Blocked a non-public image URL from the vision path.")
+                return ""
 
-                            # Downscale to VISION_MAX_EDGE, and do the whole
-                            # decode/encode/base64 in a thread. gemma3's vision
-                            # encoder works at 896x896 and downscales anything
-                            # larger anyway, so a full-resolution phone photo is
-                            # ~49 MB of base64 for no added detail — and run on
-                            # the event loop it stalls every other coroutine.
-                            return await asyncio.to_thread(self._prepare_image_payload, data, is_gif)
-                        else:
-                            log_warning(f"Failed to fetch image: Status {resp.status} for {url}")
+            async with asyncio.timeout(timeout_seconds + 2.0):
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=timeout_seconds),
+                    connector=public_only_connector(),
+                ) as session:
+                    current_url = url
+                    response = None
+                    for redirect_count in range(self.VISION_MAX_REDIRECTS + 1):
+                        resp = await session.get(current_url, allow_redirects=False)
+                        if resp.status in (301, 302, 303, 307, 308):
+                            location = resp.headers.get("Location")
+                            resp.release()
+                            if not location:
+                                log_warning("Image URL redirect had no Location header.")
+                                return ""
+                            if redirect_count >= self.VISION_MAX_REDIRECTS:
+                                log_warning("Image URL exceeded the redirect limit.")
+                                return ""
+                            target = urljoin(current_url, location)
+                            if not await asyncio.to_thread(is_safe_url, target):
+                                log_warning("Blocked an image redirect to a non-public URL.")
+                                return ""
+                            current_url = target
+                            continue
+                        response = resp
+                        break
+
+                    if response is None:
+                        return ""
+
+                    async with response as resp:
+                        if resp.status != 200:
+                            log_warning(f"Failed to fetch image: Status {resp.status}")
                             return ""
+
+                        content_type = resp.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+                        if not (content_type.startswith("image/") or content_type == "application/octet-stream"):
+                            log_warning("Image URL did not return an image content type.")
+                            return ""
+
+                        # Read one byte beyond the maximum so a truncated body
+                        # cannot be mistaken for a complete image.
+                        data = await read_capped(resp, self.VISION_MAX_DOWNLOAD_BYTES + 1)
+                        if len(data) > self.VISION_MAX_DOWNLOAD_BYTES:
+                            log_warning("Image response exceeded the vision download limit.")
+                            return ""
+                        if not data:
+                            return ""
+
+                        # Downscale and encode away from the event loop. Reject
+                        # extreme source dimensions before RGB conversion.
+                        return await asyncio.to_thread(self._prepare_image_payload, data, is_gif)
         except asyncio.TimeoutError:
-            log_warning(f"Timeout fetching image from {url}")
+            log_warning("Timeout fetching image for inline vision.")
             return ""
         except Exception as e:
-            log_error(f"Error fetching image: {e}")
+            log_error(f"Error fetching image: {type(e).__name__}")
             return ""
+
     def _update_identity_cache(self):
         """Read and parse self-model, constitution, and identity stream from disk."""
         self._identity_cache = {"self_model": "", "constitution": "", "identity_stream": ""}

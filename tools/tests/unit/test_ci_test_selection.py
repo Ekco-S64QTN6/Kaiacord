@@ -78,3 +78,12 @@ def test_every_behavior_mapping_targets_an_existing_test_file():
         if not (ROOT / test_path).is_file()
     })
     assert missing == []
+
+
+def test_message_processor_changes_select_vision_fetch_security_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/core/message_processor.py"])
+    }
+    assert "tools/tests/unit/test_vision_fetch_security.py" in selected
