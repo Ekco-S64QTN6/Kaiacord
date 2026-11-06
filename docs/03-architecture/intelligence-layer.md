@@ -152,3 +152,14 @@ suffixed `.test`, so fixtures are never mistaken for production incidents.
 - [`rag-system.md`](rag-system.md) — indices and what is excluded from them
 - [`gpu-management.md`](gpu-management.md) — VRAM budget and task priorities
 - `CLAUDE.md` §5–6 — the cognitive pipeline contract and the call-path table
+
+
+## Chat-linked PDF resource limits
+
+A PDF fetched from a chat URL is not parsed inside the Discord bot process. `context_enricher.py`
+passes it to an isolated pypdf child after a 2 MB input cap. The child is limited to 256 MiB
+address space, 3 CPU seconds and a 5-second wall timeout; extraction is capped at 20 pages and
+16,000 characters. A process-wide bounded semaphore admits at most two parser children at once.
+Acquiring a slot waits at most one second, then fails closed. Child failures and unsupported
+resource-limit environments return no extracted text rather than falling back to in-process
+parsing. This is the chat-link enrichment path, not corpus indexing.
