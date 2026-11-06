@@ -3,8 +3,6 @@ import discord
 
 
 async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner, *, load_character, create_character, roll_fn, class_registry):
-    
-
     existing = await load_character(uid)
     if existing:
         return await msg.channel.send(embed=discord.Embed(
