@@ -4149,22 +4149,18 @@ async def run_caravan_arrival(bot_ctx, channel):
 
 async def run_bard_performance(bot_ctx, channel):
     """Noon event: Caelindra performs an LLM-generated ballad about recent world events."""
-    import discord, os, json, asyncio
+    import discord, asyncio
     import uuid as _uuid
     from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_info
     from utils.infrastructure.system.yaml_config import config
     from utils.ttrpg.character_manager import load_all
-    from utils.ttrpg.broadcast import log_world_event as _log_world_event
+    from utils.ttrpg.broadcast import (
+        load_world_events,
+        log_world_event as _log_world_event,
+    )
 
-    # Load recent world events for song material
-    events_path = os.path.join("memory", "ttrpg", "world_events.json")
-    recent_events = []
-    if os.path.exists(events_path):
-        try:
-            with open(events_path, 'r', encoding='utf-8') as f:
-                recent_events = json.load(f)[-6:]
-        except Exception:
-            pass
+    # Load recent world events for song material without blocking the event loop.
+    recent_events = (await load_world_events())[-6:]
 
     # Top adventurers for name-drops
     all_sheets = await load_all()
