@@ -2,6 +2,7 @@
 import asyncio
 import copy
 from unittest.mock import AsyncMock
+from types import SimpleNamespace
 
 from utils.ttrpg import rpg_core_handler as core
 from utils.ttrpg import rpg_recovery_handler as recovery
@@ -13,7 +14,7 @@ def _message():
     async def send(*, embed=None, view=None):
         sent.append((embed, view))
 
-    return type("Msg", (), {"channel": type("Channel", (), {"send": send})()})(), sent
+    return SimpleNamespace(channel=SimpleNamespace(send=send)), sent
 
 
 def test_core_rest_adapter_forwards_persistence_and_view_dependencies(monkeypatch):
