@@ -33,7 +33,7 @@ pull requests.
 
 | Item | What | Call |
 |:--|:--|:--|
-| **Split `rpg_core_handler.py`** | Moved world information, navigation, inventory/equipment, recovery (including inn rest), bank transactions, read-only reference commands, combat consumable use, Stone Hearth gambling, Shrine prayer/offering, scouting, level-five advancement, character creation, detailed sheet rendering, and the status HUD to dedicated handler modules. The core file is down to 460 lines; admin mutations and remaining command orchestration remain for further cohesive splits. | Yes, when next touched |
+| **Split `rpg_core_handler.py`** | Moved world information, navigation, inventory/equipment, recovery (including inn rest), bank transactions, read-only reference commands, combat consumable use, Stone Hearth gambling, Shrine prayer/offering, scouting, level-five advancement, character creation, detailed sheet rendering, the status HUD, and owner-only item grants and character healing to dedicated handler modules. The core file is down to 396 lines; command routing and orchestration remain in core. | Yes, when next touched |
 | **More Spine creatures** | The 77 stair guardians now have explicit floor-scaled HP/ATK/DEF and milestone Resonance Ward progression; additional rare spawns per zone would add variety. | Content, optional |
 | **Shadowblade endgame damage** | The highest sustained damage per round (crit on 17 with the Voidstep Blade), offset by the Rogue's low HP. | Watch |
 | **Board games as real game state** | Tic-tac-toe with Python holding the board, about 2 h. | No — one game asked for in five months |
