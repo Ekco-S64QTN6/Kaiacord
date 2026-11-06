@@ -31,6 +31,12 @@ RELATED_TESTS = {
     ),
     "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py",),
     "utils/core/kaia_proactive.py": ("tools/tests/unit/test_proactive_dedup.py",),
+    "utils/infrastructure/system/bot_state.py": (
+        "tools/tests/unit/test_bot_state_save.py",
+        "tools/tests/unit/test_channel_memory_scaffolding.py",
+        "tools/tests/unit/test_dm_privacy.py",
+        "tools/tests/unit/test_monologue_observation.py",
+    ),
     "utils/core/kaia_art_intent.py": ("tools/tests/unit/test_art_intent.py",),
     "utils/infrastructure/monitoring/async_lock_metrics.py": ("tools/tests/unit/test_async_lock_metrics.py",),
     "utils/ttrpg/session_manager.py": (
