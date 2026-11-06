@@ -47,6 +47,7 @@ pull requests.
 | **Observation digest quote validation** (PR #238) | Quotes must match one speaker turn; unmatched delimiters fail validation; a single quote-free retry is revalidated before a digest is stored or broadcast. |
 | **RPG interaction regression coverage** (PRs #239–#241) | Added status-selector ownership/duplicate/stale-state tests, rest-refusal tests, and detailed-sheet pet/DEF/other-player-view tests. |
 | **Proactive and handler cleanup** (PRs #242–#243) | Added punctuation-only opener-dedupe coverage, including same-channel suppression and cross-channel isolation, and removed the unused duplicate `_names()` helper from the core adapter. |
+| **Dream continuity I/O isolation** (PR #254) | Continuity reads and updates now run in worker threads from async dream flows; updates retain atomic replacement through the shared write helper. |
 | **Dispatcher and test-guidance documentation** (PR #248) | Corrected public dispatcher versus compatibility-adapter ownership, aligned the default no-external-services pytest selection with the `network` marker, removed stale test counts, and clarified handler, PDF-ingestion, and CI boundaries. |
 | **RPG navigation name-matching regression** (PR #249) | Added whole-word/phrase-boundary coverage and verified that the public look adapter resolves a partial target name without matching embedded substrings. |
 

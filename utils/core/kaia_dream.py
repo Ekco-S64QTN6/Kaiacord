@@ -263,7 +263,7 @@ class DreamEngine:
         current_date = datetime.now().strftime('%B %Y')
 
         # Load existing continuity for context
-        continuity_context = self._load_continuity()
+        continuity_context = await self._load_continuity()
         continuity_block = ""
         if continuity_context:
             # Sanitize continuity input to prevent style drift feedback loops
@@ -464,8 +464,8 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         except Exception as e:
             log_error(f"Failed to save dream history: {e}")
 
-    def _load_continuity(self) -> str:
-        """Load the rolling continuity summary. Returns empty string if not yet created."""
+    def _load_continuity_sync(self) -> str:
+        """Load the rolling continuity summary. Call from a worker thread."""
         try:
             if self.continuity_file.exists():
                 return self.continuity_file.read_text(encoding='utf-8').strip()
@@ -473,13 +473,19 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             log_warning(f"Could not load continuity file: {e}")
         return ""
 
-    def _update_continuity(self, new_reflection: str, source_label: str):
+    async def _load_continuity(self) -> str:
+        """Load continuity without blocking the event loop."""
+        return await asyncio.to_thread(self._load_continuity_sync)
+
+    def _update_continuity_sync(self, new_reflection: str, source_label: str):
+        """Append a continuity entry. Call from a worker thread."""
+
         """Append a new summary entry to the continuity file.
         
         Keeps approximately the last 500 words by trimming from the top when it grows too long.
         """
         try:
-            existing = self._load_continuity()
+            existing = self._load_continuity_sync()
             timestamp = datetime.now().strftime('%Y-%m-%d')
             clean_reflection = _sanitize_style_artifacts(new_reflection)
             new_entry = f"\n\n---\n**{timestamp} — {source_label}**\n{clean_reflection[:400].strip()}"
@@ -496,11 +502,15 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     combined = combined[-max_chars:].strip()
 
             self.continuity_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = self.continuity_file.with_suffix('.tmp')
-            tmp_path.write_text(combined, encoding='utf-8')
-            os.replace(tmp_path, self.continuity_file)
+            write_atomic(self.continuity_file, combined)
         except Exception as e:
             log_warning(f"Could not update continuity file: {e}")
+
+    async def _update_continuity(self, new_reflection: str, source_label: str):
+        """Update continuity without blocking the event loop."""
+        await asyncio.to_thread(
+            self._update_continuity_sync, new_reflection, source_label
+        )
 
     async def nightly_dream_processing(self, persona_content: str):
         """Perform the nightly dream generation cycle"""
@@ -674,7 +684,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                     log_success(f"Generated in-depth dream: {dream_filename}")
 
                     # Update the continuity thread with a brief summary of what was just dreamed
-                    self._update_continuity(
+                    await self._update_continuity(
                         new_reflection=reflection[:400],
                         source_label=display_path
                     )
@@ -705,7 +715,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
         captures how Kaia's perspective is shifting over time.
         """
         try:
-            recent = self._load_continuity()[-1000:]
+            recent = (await self._load_continuity())[-1000:]
             if not recent:
                 return
 
@@ -886,7 +896,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             # Process identity shift (feeds into identity_stream)
             identity_shift = insights.get('identity_shift')
             if identity_shift and isinstance(identity_shift, str):
-                self._update_continuity(
+                await self._update_continuity(
                     new_reflection=identity_shift,
                     source_label=f"Dream Insight ({source_path})"
                 )
@@ -1441,7 +1451,7 @@ TODAY'S CONVERSATIONS:
             
             reflection_text = _sanitize_repetitive_starts(response['message']['content'].strip())
             if reflection_text:
-                self._update_continuity(new_reflection=reflection_text, source_label="Evening Reflection")
+                await self._update_continuity(new_reflection=reflection_text, source_label="Evening Reflection")
                 log_success("Evening reflection completed and added to continuity.")
         except Exception as e:
             log_error(f"Evening reflection failed: {type(e).__name__}: {e}")

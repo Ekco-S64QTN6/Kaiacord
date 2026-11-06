@@ -226,3 +226,80 @@ def test_resolve_user_id_is_strict(monkeypatch, name, expected_hit):
     import utils.infrastructure.system.bot_state as bs
     monkeypatch.setattr(bs, "bot_state", FakeState)
     assert (rm.resolve_user_id(name) is not None) is expected_hit
+
+
+# ── Dream continuity filesystem isolation ─────────────────────────────
+
+def test_dream_continuity_load_runs_off_event_loop_thread(tmp_path):
+    import asyncio
+    import threading
+    from utils.core.kaia_dream import DreamEngine
+
+    engine = DreamEngine.__new__(DreamEngine)
+    engine.continuity_file = tmp_path / "private" / "kaia_continuity.md"
+    engine.continuity_file.parent.mkdir(parents=True)
+    engine.continuity_file.write_text("recent reflection", encoding="utf-8")
+
+    event_loop_thread = threading.get_ident()
+    worker_threads = []
+    original = engine._load_continuity_sync
+
+    def tracked_load():
+        worker_threads.append(threading.get_ident())
+        return original()
+
+    engine._load_continuity_sync = tracked_load
+    assert asyncio.run(engine._load_continuity()) == "recent reflection"
+    assert worker_threads and worker_threads[0] != event_loop_thread
+
+
+def test_dream_continuity_update_runs_off_event_loop_thread_and_is_atomic(tmp_path):
+    import asyncio
+    import threading
+    from utils.core.kaia_dream import DreamEngine
+
+    engine = DreamEngine.__new__(DreamEngine)
+    engine.continuity_file = tmp_path / "private" / "kaia_continuity.md"
+
+    event_loop_thread = threading.get_ident()
+    worker_threads = []
+    original = engine._update_continuity_sync
+
+    def tracked_update(new_reflection, source_label):
+        worker_threads.append(threading.get_ident())
+        return original(new_reflection, source_label)
+
+    engine._update_continuity_sync = tracked_update
+    asyncio.run(engine._update_continuity("a new thought", "source.md"))
+
+    assert worker_threads and worker_threads[0] != event_loop_thread
+    saved = engine.continuity_file.read_text(encoding="utf-8")
+    assert "a new thought" in saved
+    assert "source.md" in saved
+    assert not list(engine.continuity_file.parent.glob(".*.tmp"))
+
+
+def test_dream_continuity_async_callers_await_the_io_helpers():
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    source = (root / "utils/core/kaia_dream.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    parents = {
+        id(child): parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr not in {"_load_continuity", "_update_continuity"}:
+            continue
+        if not isinstance(node.func.value, ast.Name) or node.func.value.id != "self":
+            continue
+        parent = parents.get(id(node))
+        assert isinstance(parent, ast.Await) and parent.value is node, (
+            f"{node.func.attr} must be awaited at line {node.lineno}"
+        )
