@@ -59,7 +59,9 @@ def _patch_scout_world(monkeypatch, *, weather=None, home_bonuses=None, watchtow
     monkeypatch.setattr(calendar, "get_season", lambda: "spring")
     monkeypatch.setattr(calendar, "SEASONAL_MONSTERS", {})
     monkeypatch.setattr(
-        housing, "load_housing_async", AsyncMock(return_value=None)
+        housing,
+        "load_housing_async",
+        AsyncMock(return_value={"fixture": True} if home_bonuses else None),
     )
     monkeypatch.setattr(
         furniture, "get_home_bonuses", lambda _housing: home_bonuses or {}
