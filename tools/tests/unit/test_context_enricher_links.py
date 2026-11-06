@@ -445,3 +445,47 @@ def test_pdf_worker_wall_timeout_kills_and_reaps_the_child(monkeypatch, tmp_path
 
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+
+
+
+def test_pdf_parse_concurrency_is_globally_bounded(monkeypatch):
+    """Concurrent messages may start at most two isolated parser workers."""
+    import asyncio
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        ce, "_PDF_PARSE_SEMAPHORE",
+        threading.BoundedSemaphore(ce.MAX_CONCURRENT_PDF_PARSERS),
+    )
+    active = 0
+    peak = 0
+    counter_lock = threading.Lock()
+
+    def slow_parser(*_args, **_kwargs):
+        nonlocal active, peak
+        with counter_lock:
+            active += 1
+            peak = max(peak, active)
+        try:
+            time.sleep(0.08)
+            return SimpleNamespace(returncode=0, stdout=b"parsed")
+        finally:
+            with counter_lock:
+                active -= 1
+
+    monkeypatch.setattr(ce.subprocess, "run", slow_parser)
+
+    async def parse_burst():
+        return await asyncio.gather(*(
+            asyncio.to_thread(ce._extract_pdf_text, b"%PDF-1.4\nfixture")
+            for _ in range(8)
+        ))
+
+    results = asyncio.run(parse_burst())
+
+    assert results == ["parsed"] * 8
+    assert peak == ce.MAX_CONCURRENT_PDF_PARSERS
+    assert peak <= 2
+    assert active == 0

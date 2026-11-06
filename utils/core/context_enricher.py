@@ -2,6 +2,7 @@ import re
 import asyncio
 import subprocess
 import sys
+import threading
 import discord
 import aiohttp
 from urllib.parse import urlparse
@@ -19,6 +20,11 @@ MAX_PDF_TEXT_CHARS = 16_000
 MAX_PDF_PARSE_MEMORY_BYTES = 256 * 1024 * 1024
 MAX_PDF_PARSE_CPU_SECONDS = 3
 MAX_PDF_PARSE_TIMEOUT_SECONDS = 5
+# Two isolated workers cap parser memory at roughly 512 MiB total.
+# A queued message waits at most one second before PDF extraction fails closed.
+MAX_CONCURRENT_PDF_PARSERS = 2
+MAX_PDF_PARSE_QUEUE_WAIT_SECONDS = 1
+_PDF_PARSE_SEMAPHORE = threading.BoundedSemaphore(MAX_CONCURRENT_PDF_PARSERS)
 # Entries older than the TTL are dropped once a cache grows past this.
 CACHE_MAX_ENTRIES = 256
 # A quoted or linked message's embeds are kept up to this many characters:
@@ -135,20 +141,26 @@ def _extract_pdf_text(raw_bytes: bytes) -> str:
     """
     if not raw_bytes.startswith(b"%PDF-") or len(raw_bytes) > MAX_PAGE_BYTES:
         return ""
+    if not _PDF_PARSE_SEMAPHORE.acquire(timeout=MAX_PDF_PARSE_QUEUE_WAIT_SECONDS):
+        log_debug("PDF extraction skipped: all parser workers are busy.")
+        return ""
     try:
-        completed = subprocess.run(
-            [sys.executable, "-I", "-c", _PDF_WORKER_SCRIPT],
-            input=raw_bytes,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=MAX_PDF_PARSE_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    if completed.returncode != 0:
-        return ""
-    return completed.stdout.decode("utf-8", errors="replace").strip()[:MAX_PDF_TEXT_CHARS + 64]
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-I", "-c", _PDF_WORKER_SCRIPT],
+                input=raw_bytes,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=MAX_PDF_PARSE_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        if completed.returncode != 0:
+            return ""
+        return completed.stdout.decode("utf-8", errors="replace").strip()[:MAX_PDF_TEXT_CHARS + 64]
+    finally:
+        _PDF_PARSE_SEMAPHORE.release()
 
 
 def _human_size(size: int) -> str:
