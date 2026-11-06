@@ -60,16 +60,13 @@ RELATED_TESTS = {
         "tools/tests/unit/test_context_enricher_links.py",
         "tools/tests/unit/test_enrich_process_lifecycle.py",
     ),
-    "utils/core/message_processor.py": ("tools/tests/unit/test_channel_memory_scaffolding.py",
-                                        "tools/tests/unit/test_reactions_and_logging.py",
-                                        "tools/tests/unit/test_code_blocks.py",
-                                        "tools/tests/unit/test_speaker_heuristics.py",
-                                        "tools/tests/unit/test_dm_privacy.py"),
-    "utils/core/sanitizer.py": (
-        "tools/tests/unit/test_context_enricher_files.py",
-        "tools/tests/unit/test_sanitize_cap.py",
+    "utils/core/message_processor.py": (
         "tools/tests/unit/test_channel_memory_scaffolding.py",
         "tools/tests/unit/test_reactions_and_logging.py",
+        "tools/tests/unit/test_code_blocks.py",
+        "tools/tests/unit/test_speaker_heuristics.py",
+        "tools/tests/unit/test_dm_privacy.py",
+        "tools/tests/unit/test_vision_fetch_security.py",
     ),
     "utils/news/kaia_news.py": (
         "tools/tests/unit/test_news_manager.py",
