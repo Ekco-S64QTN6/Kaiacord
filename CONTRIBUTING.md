@@ -31,7 +31,7 @@ otherwise, and why the failure surfaces hours later somewhere unrelated.
 ## Validating
 
 ```bash
-# The default invocation — no Ollama, no GPU
+# The default invocation — excludes Ollama, GPU, slow and network tests
 venv/bin/python3 -m pytest -q -m "not ollama and not gpu and not slow and not network"
 # Test counts change as coverage grows; use the result from your own run.
 
