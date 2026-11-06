@@ -1938,6 +1938,22 @@ class CoreTaskManager:
     #: until the bot restarts.
     NEWS_SUBPROCESS_TIMEOUT = 1800
 
+    def _retain_subprocess_task(self, task, label: str) -> None:
+        """Keep a cleanup/reaper task alive and retrieve any eventual exception."""
+        pending = getattr(self, "_subprocess_cleanup_tasks", None)
+        if pending is None:
+            pending = self._subprocess_cleanup_tasks = set()
+        pending.add(task)
+
+        def _finished(completed):
+            pending.discard(completed)
+            if not completed.cancelled():
+                error = completed.exception()
+                if error is not None:
+                    log_error(f"{label} subprocess cleanup task failed: {error}")
+
+        task.add_done_callback(_finished)
+
     async def _stop_process_tree(
         self, process, label: str, *, communication_task=None,
         terminate_grace: float = 5, kill_grace: float = 10,
@@ -1976,19 +1992,7 @@ class CoreTaskManager:
             await asyncio.wait_for(process.wait(), timeout=kill_grace)
         except asyncio.TimeoutError:
             log_error(f"{label} child did not exit after SIGKILL; retaining its reaper task.")
-            pending = getattr(self, "_subprocess_cleanup_tasks", None)
-            if pending is None:
-                pending = self._subprocess_cleanup_tasks = set()
-            pending.add(communication_task)
-
-            def _finish_reaper(task):
-                pending.discard(task)
-                if not task.cancelled():
-                    error = task.exception()
-                    if error is not None:
-                        log_error(f"{label} delayed reaper failed: {error}")
-
-            communication_task.add_done_callback(_finish_reaper)
+            self._retain_subprocess_task(communication_task, label)
             return b"", b""
 
         try:
@@ -2029,6 +2033,7 @@ class CoreTaskManager:
                         kill_grace=kill_grace,
                     )
                 )
+                self._retain_subprocess_task(cleanup_task, label)
                 return await asyncio.shield(cleanup_task)
         except asyncio.CancelledError:
             # A task cancellation must not orphan its subprocess. Keep a strong
@@ -2043,6 +2048,7 @@ class CoreTaskManager:
                         kill_grace=kill_grace,
                     )
                 )
+                self._retain_subprocess_task(cleanup_task, label)
             try:
                 await asyncio.shield(cleanup_task)
             except asyncio.CancelledError:
