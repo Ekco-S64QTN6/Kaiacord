@@ -134,3 +134,19 @@ def test_sysmon_changes_select_utility_process_reaping_regressions():
         for path in selector["select_tests"](["utils/infrastructure/system/kaia_sysmon.py"])
     }
     assert "tools/tests/unit/test_sysmon_subprocess_lifecycle.py" in selected
+
+
+
+def test_rpg_world_event_reader_changes_select_async_io_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    related_sources = (
+        "utils/ttrpg/rpg_social_handler.py",
+        "utils/ttrpg/broadcast.py",
+        "utils/core/background_tasks.py",
+    )
+    for source in related_sources:
+        selected = {
+            path.relative_to(ROOT).as_posix()
+            for path in selector["select_tests"]([source])
+        }
+        assert "tools/tests/unit/ttrpg/test_world_event_async_io.py" in selected

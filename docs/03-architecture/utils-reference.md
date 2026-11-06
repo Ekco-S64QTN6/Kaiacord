@@ -236,4 +236,4 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `session_manager.py` | Per-session file locks plus per-player action locks; combat takes channel then user, owner admin mutations take caller/target locks in sorted UID order |
 | `rpg_views.py`, `rpg_ui.py` | Discord component views, stale-safe controls and RPG display helpers |
 | `dice_engine.py`, `progression.py`, `encounter_tables.py`, `forest_events.py`, `micro_events.py` | Rolls (`secrets`), levelling, encounters and events |
-| `rpg_prompt_builder.py`, `narration.py`, `broadcast.py` | What the model is given to narrate, and posting it |
+| `rpg_prompt_builder.py`, `narration.py`, `broadcast.py` | What the model is given to narrate; validated world-event log with worker-thread async reads/writes, and Discord broadcasts |
