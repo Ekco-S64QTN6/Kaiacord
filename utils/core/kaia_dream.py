@@ -196,6 +196,10 @@ class DreamEngine:
         except Exception as e:
             log_debug(f"Growth log write failed (non-fatal): {e}")
 
+    async def _log_growth_event_async(self, event: dict):
+        """Append a growth event without blocking the event loop."""
+        await asyncio.to_thread(self._log_growth_event, event)
+
     async def _compute_emotional_salience(self, file_path: Path) -> float:
         """Compute the emotional salience of a file to weight dream triage.
         
@@ -814,7 +818,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                 log_success("Identity stream updated.")
 
                 # Log identity shift to growth arc
-                self._log_growth_event({
+                await self._log_growth_event_async({
                     "type": "identity_shift",
                     "content": identity_text[:300]
                 })
@@ -891,7 +895,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             # Process belief update (Item 9)
             belief = insights.get('belief_update')
             if belief and isinstance(belief, dict) and belief.get('topic'):
-                self._update_beliefs(belief)
+                await asyncio.to_thread(self._update_beliefs, belief)
 
             # Process identity shift (feeds into identity_stream)
             identity_shift = insights.get('identity_shift')
@@ -939,7 +943,7 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
                         save_event(rel_user_id, event)
 
                         # Log to growth arc
-                        self._log_growth_event({
+                        await self._log_growth_event_async({
                             "type": "relationship_insight",
                             "user": rel_insight['user_name'],
                             "summary": rel_insight.get('summary', '')[:200]
@@ -1354,7 +1358,7 @@ STRICT RULES:
             log_success(f"Self-model auto-regenerated ({len(result)} chars).")
 
             # Log to growth arc
-            self._log_growth_event({
+            await self._log_growth_event_async({
                 "type": "self_model_regenerated",
                 "chars": len(result),
                 "method": "auto"
