@@ -14,13 +14,15 @@ she does not narrate her development at every turn.
 import json
 import math
 import os
+
+from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 import re
 import threading
 import time
 from datetime import datetime
 from typing import Dict, List, Optional
 
-GROWTH_LOG = os.path.join("memory", "growth_log.jsonl")
+GROWTH_LOG = telemetry_path(os.path.join("memory", "growth_log.jsonl"))
 MIN_SHARED = 2
 COOLDOWN_SECONDS = 6 * 3600
 #: A word in more than this share of shifts is too common to identify one.
