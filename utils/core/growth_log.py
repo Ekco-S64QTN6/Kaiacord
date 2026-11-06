@@ -24,7 +24,7 @@ def append_growth_event(
     event: Mapping[str, Any],
     path: PathLike,
     *,
-    max_bytes: int = 600_000,
+    max_bytes: int | None = 600_000,
     max_entries: int = 2_000,
 ) -> Path:
     """Append one JSONL event and rotate under the same interprocess lock.
@@ -34,7 +34,7 @@ def append_growth_event(
     """
     if max_entries < 1:
         raise ValueError("max_entries must be at least 1")
-    if max_bytes < 1:
+    if max_bytes is not None and max_bytes < 1:
         raise ValueError("max_bytes must be at least 1")
 
     destination = Path(path)
@@ -58,7 +58,7 @@ def append_growth_event(
             # Rotation is best-effort, as it was for the previous writers.
             # The append is already durable even if compaction cannot run.
             try:
-                if destination.stat().st_size > max_bytes:
+                if max_bytes is None or destination.stat().st_size > max_bytes:
                     with open(destination, "r", encoding="utf-8") as growth_file:
                         lines = growth_file.readlines()
                     if len(lines) > max_entries:
