@@ -162,13 +162,24 @@ def test_extreme_source_dimensions_are_rejected_before_rgb_conversion(monkeypatc
     assert converted == []
 
 
-def test_vision_attachment_processing_is_capped_at_four_images():
-    import inspect
+def test_vision_attachment_selection_caps_images_not_other_files():
+    processor = _processor()
+    attachments = [
+        SimpleNamespace(filename="notes.pdf"),
+        SimpleNamespace(filename="first.png"),
+        SimpleNamespace(filename="second.jpg"),
+        SimpleNamespace(filename="third.gif"),
+        SimpleNamespace(filename="fourth.webp"),
+        SimpleNamespace(filename="fifth.jpeg"),
+        SimpleNamespace(filename="readme.txt"),
+    ]
 
-    source = inspect.getsource(MessageProcessor._generate_response_stage)
-    assert "image_attachments = [" in source
-    assert "for att in image_attachments[:self.VISION_MAX_IMAGES]" in source
-    assert "VISION_MAX_IMAGES = 4" in inspect.getsource(MessageProcessor)
+    selected, skipped = processor._select_vision_image_attachments(attachments)
+
+    assert [item.filename for item in selected] == [
+        "first.png", "second.jpg", "third.gif", "fourth.webp"
+    ]
+    assert skipped == 1
 
 
 
