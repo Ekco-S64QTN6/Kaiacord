@@ -204,3 +204,23 @@ def test_atomic_replace_reports_parent_directory_sync_failure(tmp_path, monkeypa
     # os.replace already happened; the raised error means durability was not
     # confirmed, not that the destination was rolled back.
     assert target.read_text(encoding="utf-8") == "new"
+
+
+
+def test_atomic_write_syncs_each_parent_when_creating_nested_directories(tmp_path, monkeypatch):
+    """A new file's parent chain must exist durably after a successful write."""
+    import utils.core.atomic_write as atomic_write_module
+
+    synced = []
+    real_fsync_directory = atomic_write_module.fsync_directory
+
+    def observe(directory):
+        synced.append(Path(directory))
+        real_fsync_directory(directory)
+
+    monkeypatch.setattr(atomic_write_module, "fsync_directory", observe)
+    target = tmp_path / "first" / "second" / "state.json"
+    write_atomic(target, "durable")
+
+    assert target.read_text(encoding="utf-8") == "durable"
+    assert synced == [tmp_path, tmp_path / "first", tmp_path / "first" / "second"]
