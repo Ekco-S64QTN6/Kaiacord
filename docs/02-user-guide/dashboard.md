@@ -79,7 +79,7 @@ Runs a background loop fetching system diagnostics. Specifically, a 30-second th
 - `memory/stats.json` (persisted forum stats)
 
 ### Stats Tracker: `utils/infrastructure/monitoring/stats_tracker.py`
-Provides thread-safe atomic helpers (`StatsTracker.increment_forum_draft()`, etc.) to count forum actions.
+Provides thread-safe atomic helpers (`StatsTracker.increment_forum_drafts()`, etc.) to count forum actions.
 
 ## The DJ booth
 

@@ -88,7 +88,7 @@ clip, the message) and check it. [Testing](docs/04-development/testing.md) has t
 | | |
 |:--|:--|
 | **Using it** | [Installation](docs/01-getting-started/installation.md) · [Quick start](docs/01-getting-started/quick-start.md) · [Commands](docs/02-user-guide/commands.md) · [Configuration](docs/02-user-guide/configuration.md) · [Persona](docs/02-user-guide/persona.md) · [News](docs/02-user-guide/news-system.md) · [Social](docs/02-user-guide/social-media.md) · [Forum](docs/02-user-guide/forum-integration.md) · [Dashboard](docs/02-user-guide/dashboard.md) |
-| **How it works** | [How Kaia works](docs/03-architecture/how-she-works.md) · [Architecture](docs/03-architecture/overview.md) · [Retrieval](docs/03-architecture/rag-system.md) · [Intelligence layer](docs/03-architecture/intelligence-layer.md) · [GPU](docs/03-architecture/gpu-management.md) · [`utils/`](docs/03-architecture/utils-reference.md) |
+| **How it works** | [How Kaia works](docs/03-architecture/how-she-works.md) · [Architecture](docs/03-architecture/overview.md) · [Retrieval](docs/03-architecture/rag-system.md) · [Intelligence layer](docs/03-architecture/intelligence-layer.md) · [GPU](docs/03-architecture/gpu-management.md) · [Records & booth](docs/03-architecture/records-and-booth.md) · [Radio](docs/03-architecture/radio.md) · [`utils/`](docs/03-architecture/utils-reference.md) |
 | **Aethelgard** | [System](docs/ttrpg/aethelgard_system.md) · [Lore](docs/ttrpg/aethelgard_lore_bible.md) |
 | **Working on it** | [Contributing](CONTRIBUTING.md) · [Testing](docs/04-development/testing.md) · [Maintenance](docs/05-maintenance/procedures.md) · [Troubleshooting](docs/06-troubleshooting/common-issues.md) · [Roadmap](docs/ROADMAP.md) |
 
