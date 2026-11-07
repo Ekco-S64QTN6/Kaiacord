@@ -1467,7 +1467,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 color=0x27ae60
             )
             _raid_embed.set_footer(text=f"+{xp_gain} XP · +{gil_gain} Gil")
-            await _broadcast_world_event(ctx, _raid_embed)
+            await _broadcast_world_event(ctx, _raid_embed, skip_channel=msg.channel)
 
         if loot_lines:
             loot_msg = "\n🎁 **Looted:**\n" + "\n".join(loot_lines)
@@ -2209,6 +2209,28 @@ async def _announce_rare_kill(ctx, msg, sheet, monster, location, grant=None):
         await _announce_rare_find(ctx, msg, sheet, location, {"lore_grant": grant})
 
 
+async def _announce_cache_raid(ctx, msg, sheet, resulting_mult):
+    """Everyone pays the blockade's prices, so everyone hears when a raid lowers or ends them."""
+    who = sheet.get("character_name", "An adventurer")
+    if resulting_mult <= 1.0:
+        await _log_world_event(f"⚔️ **Blockade Broken:** {who} raided the last bandit cache. Prices are back to normal.")
+        embed = discord.Embed(
+            title="⚔️ Trade Road Liberated!",
+            description=f"*{who} raided the last of the bandits' supply caches. The blockade has broken, and shop prices are restored.*",
+            color=0x27ae60,
+        )
+    else:
+        markup = int(round((resulting_mult - 1.0) * 100))
+        await _log_world_event(f"🗡️ **Bandit Cache Raided:** {who} cut the blockade markup to {markup}%.")
+        embed = discord.Embed(
+            title="🗡️ Bandit Cache Raided",
+            description=(f"*{who} slipped into the bandit camp and raided a supply cache.* "
+                         f"The blockade markup on shop prices is down to **{markup}%**."),
+            color=0xe67e22,
+        )
+    await _broadcast_world_event(ctx, embed, skip_channel=msg.channel)
+
+
 def _place_name(location: str) -> str:
     from utils.ttrpg.world import LOCATION_DATA
     return LOCATION_DATA.get(location, {}).get("name") or location.replace("_", " ").title()
@@ -2615,6 +2637,7 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
             description=desc,
             color=0x2ecc71
         ))
+        await _announce_cache_raid(ctx, msg, sheet, resulting_mult)
     else:
         # Detected!
         dmg = secrets.randbelow(6) + 5  # 5-10 dmg

@@ -3,6 +3,8 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from utils.ttrpg import combat_engine as ce
 from utils.ttrpg import forest_events
 from utils.ttrpg import rpg_combat_handler as rch
@@ -102,3 +104,30 @@ def test_aeridorian_attunement_answers_only_in_the_ruins():
         return " ".join(res["exchanges"])
     assert "Aeridorian Attunement" in log("aeridor_ruins")
     assert "Aeridorian Attunement" not in log("trade_road")
+
+
+# ─── The Bandit Blockade: everyone pays its prices, so everyone hears ────────
+
+@pytest.mark.parametrize("markup,title", [(1.25, "🗡️ Bandit Cache Raided"), (1.05, "⚔️ Trade Road Liberated!")])
+def test_robbing_the_bandit_cache_is_announced(monkeypatch, markup, title):
+    from utils.ttrpg import world_state
+    state = {"blockade_active": True, "shop_price_mult": markup}
+    sheet = _sheet(location="trade_road", hp={"current": 30, "max": 30})
+
+    async def fake_mutate(mutator, current_sheet):
+        ok, payload = mutator(current_sheet, state)
+        return payload
+
+    monkeypatch.setattr(rch, "load", AsyncMock(return_value=sheet))
+    monkeypatch.setattr(rch, "_recover_pending_combat_outcomes", AsyncMock())
+    monkeypatch.setattr(world_state, "load_world_state", lambda: dict(state))
+    monkeypatch.setattr(world_state, "mutate_world_state", fake_mutate)
+    broadcast, logged = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(rch, "_broadcast_world_event", broadcast)
+    monkeypatch.setattr(rch, "_log_world_event", logged)
+    ctx, msg = _event_ctx()
+    with patch.object(rch.secrets, "randbelow", return_value=19):    # a 20: the stealth check passes
+        asyncio.run(rch._handle_rob_bandits(ctx, msg, None, "", "1", "tess", False))
+    assert broadcast.await_args.args[1].title == title
+    assert broadcast.await_args.kwargs["skip_channel"] is msg.channel
+    assert state["blockade_active"] is (title != "⚔️ Trade Road Liberated!")
