@@ -1069,7 +1069,13 @@ class BotSpeakFilter:
     # that was deleted.
     # Object pronouns too: "thank you for correcting" stranded "me again, cecily."
     # Only the ones that cannot open a clause; "it" and "her" can.
-    _DANGLING_TAIL = re.compile(r"^(?:to|that|about|for|on|in|with|of|me|us|him|them)\b", re.IGNORECASE)
+    # A participle too: "the question is insightful, probing at the core of my
+    # learning process." excised to "probing at the core …", a modifier of the
+    # subject that went with the praise (3 Nov). "nothing"/"something" and
+    # "during" end in -ing and are not participles.
+    _DANGLING_TAIL = re.compile(
+        r"^(?:to|that|about|for|on|in|with|of|me|us|him|them"
+        r"|(?!(?:no|some|any|every)thing\b|during\b)[a-z]{2,}ing)\b", re.IGNORECASE)
     _MODIFIER_OPENER = re.compile(
         r"^(?:particularly|especially|specifically|notably|mainly|primarily|including|"
         r"such\s+as|namely)\b", re.IGNORECASE)

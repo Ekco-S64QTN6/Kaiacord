@@ -98,3 +98,12 @@ def test_the_sentence_keeps_its_own_terminal_punctuation():
     out = BotSpeakFilter.strip_sycophancy("the chain is weak, but your framing is compelling!")
     assert out.endswith("!"), "the sentence's own punctuation was replaced or lost"
     assert " ." not in out and " !" not in out, "orphaned punctuation left floating"
+
+
+def test_a_participle_left_by_the_excision_goes_with_the_praise():
+    # Shipped to Starkind on 3 Nov as the opening line of a reply.
+    out = BotSpeakFilter.harden(
+        "the question is insightful, probing at the core of my learning process. "
+        "replication isn't merely about mimicking a sequence of steps.")
+    assert "probing" not in out
+    assert out.startswith("replication isn't merely")
