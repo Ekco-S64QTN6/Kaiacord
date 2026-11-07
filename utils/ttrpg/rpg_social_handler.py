@@ -651,7 +651,11 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
         run_aeridorian_tremor, run_tonberry_procession, run_spine_storm,
         run_caravan_arrival, run_bard_performance,
         run_construct_breach, run_caravan_ambush, run_market_glut,
-        run_whisperwood_bloom, run_shrine_vigil, run_missing_persons
+        run_whisperwood_bloom, run_shrine_vigil, run_missing_persons,
+        run_ironclad_envoys, run_silverstream_blackwater, run_hooded_figures_vigil,
+        run_caelindras_lost_verse, run_watchtower_silence, run_silvani_antidote_run,
+        run_iron_magpies_heist, run_boundary_shift, run_sealed_wax_jar,
+        run_elaras_private_ritual,
     )
 
     EVENTS = {
@@ -673,6 +677,17 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
         "bloom":      run_whisperwood_bloom,
         "vigil":      run_shrine_vigil,
         "missing":    run_missing_persons,
+        # The keys the system manual's noon-event table gives these.
+        "ironclad_envoys":         run_ironclad_envoys,
+        "silverstream_blackwater": run_silverstream_blackwater,
+        "hooded_figures_vigil":    run_hooded_figures_vigil,
+        "caelindras_lost_verse":   run_caelindras_lost_verse,
+        "watchtower_silence":      run_watchtower_silence,
+        "silvani_antidote_run":    run_silvani_antidote_run,
+        "iron_magpies_heist":      run_iron_magpies_heist,
+        "boundary_shift":          run_boundary_shift,
+        "sealed_wax_jar":          run_sealed_wax_jar,
+        "elaras_private_ritual":   run_elaras_private_ritual,
         "random":     None,
     }
 
