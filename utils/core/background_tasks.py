@@ -2299,8 +2299,11 @@ class CoreTaskManager:
     def _quoted_spans(text: str) -> list:
         """Return quote spans with an explicit flag for unmatched delimiters.
 
-        Apostrophes between word characters are treated as punctuation inside a
-        quote, not as quote delimiters (for example, 'I don't know').
+        Double quotes (straight or curly) are always delimiters, and an
+        unclosed one is reported unterminated. A single quote is a delimiter
+        only where it can open a quote — at the start, or after a space or an
+        opening bracket, with a letter after it — and only when it closes;
+        otherwise it is an apostrophe: "players' scores", "'90s", "don't".
         """
         pairs = {'"': '"', "“": "”", "‘": "’", "'": "'"}
         is_word = lambda char: char.isalnum() or char == "_"
@@ -2312,22 +2315,23 @@ class CoreTaskManager:
             if closing is None:
                 index += 1
                 continue
-
-            # Do not mistake an apostrophe in an unquoted contraction or
-            # possessive for the beginning of a single-quoted span.
-            if opening in ("'", "‘") and index > 0 and index + 1 < len(text):
-                if is_word(text[index - 1]) and is_word(text[index + 1]):
+            single = opening in ("'", "‘")
+            if single:
+                before = text[index - 1] if index else " "
+                after = text[index + 1] if index + 1 < len(text) else " "
+                if not (before.isspace() or before in "([{—-") or not after.isalpha():
                     index += 1
                     continue
 
             end = index + 1
             while end < len(text):
                 if text[end] == closing:
-                    # Apostrophes inside a quoted contraction are not its end.
-                    if closing in ("'", "’") and end > 0 and end + 1 < len(text):
-                        if is_word(text[end - 1]) and is_word(text[end + 1]):
-                            end += 1
-                            continue
+                    nxt = text[end + 1] if end + 1 < len(text) else " "
+                    # An apostrophe inside or at the end of a word is not the
+                    # close: "'don't panic'", "'the players' scores'".
+                    if single and (is_word(nxt) or (is_word(text[end - 1]) and nxt == "s")):
+                        end += 1
+                        continue
                     span = text[index + 1:end]
                     if span.strip():
                         spans.append((span, True))
@@ -2335,6 +2339,10 @@ class CoreTaskManager:
                     break
                 end += 1
             else:
+                if single:
+                    # No close: it was an apostrophe after all.
+                    index += 1
+                    continue
                 # Keep the malformed tail visible to validation. It must fail
                 # even if those words happen to occur in the source conversation.
                 spans.append((text[index + 1:], False))

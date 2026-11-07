@@ -149,19 +149,7 @@ async def recover_all_pending_housing_transactions() -> int:
         return recovered
 
 
-async def commit_character_resource(
-    sheet: dict,
-    resource_state: dict,
-    *,
-    resource_kind: str,
-    action: str,
-    character_lock_held: bool = False,
-) -> None:
-    """Durably commit a character sheet and one secondary RPG resource snapshot.
-
-    The write-ahead journal is durable before either JSON file is changed.
-    Supported resource kinds are housing, dungeon and spine_dungeon.
-    """
+def _validate_resource_commit(sheet: dict, resource_state: dict, resource_kind: str, action: str) -> str:
     if not isinstance(sheet, dict) or not isinstance(resource_state, dict):
         raise ValueError("multi-file transactions require dictionary snapshots")
     uid = str(sheet.get("user_id") or "")
@@ -173,37 +161,92 @@ async def commit_character_resource(
         raise ValueError("character and housing snapshots must have the same user_id")
     if not action:
         raise ValueError("multi-file transaction requires an action name")
+    return uid
 
+
+async def _commit_resource_locked(
+    uid: str, sheet: dict, resource_state: dict, *, resource_kind: str, action: str,
+    character_lock_held: bool,
+) -> None:
+    """Journal and commit one transaction. The caller holds _transaction_lock."""
+    pending = _read_journal(uid)
+    if pending:
+        await _replay_record_locked(
+            uid, pending, character_lock_held=character_lock_held
+        )
+
+    import time
+    record = {
+        "version": 1,
+        "transaction_id": f"{uid}:{time.time_ns()}",
+        "user_id": uid,
+        "action": str(action),
+        "resource_kind": resource_kind,
+        "character_sheet": copy.deepcopy(sheet),
+        "resource_state": copy.deepcopy(resource_state),
+    }
+    _write_journal(uid, record)
+
+    if character_lock_held:
+        # The caller is character_manager.load itself, before returning its
+        # sheet. Bypass the non-reentrant async manager lock, but retain its
+        # thread-safe atomic file writer.
+        from utils.ttrpg.character_manager import _save_sync
+        await asyncio.to_thread(_save_sync, copy.deepcopy(sheet))
+    else:
+        from utils.ttrpg.character_manager import save as save_character
+        await save_character(copy.deepcopy(sheet))
+    await _save_resource_snapshot(uid, resource_kind, resource_state)
+    _clear_journal(uid)
+
+
+async def commit_character_resource(
+    sheet: dict,
+    resource_state: dict,
+    *,
+    resource_kind: str,
+    action: str,
+) -> None:
+    """Durably commit a character sheet and one secondary RPG resource snapshot.
+
+    The write-ahead journal is durable before either JSON file is changed.
+    Supported resource kinds are housing, dungeon and spine_dungeon.
+
+    Lock order is always this module's _transaction_lock, then the player's
+    character-manager lock (taken by save()). character_manager.load() follows
+    the same order, so it commits through commit_character_housing_locked().
+    """
+    uid = _validate_resource_commit(sheet, resource_state, resource_kind, action)
     async with _transaction_lock:
-        pending = _read_journal(uid)
-        if pending:
-            await _replay_record_locked(
-                uid, pending, character_lock_held=character_lock_held
-            )
+        await _commit_resource_locked(
+            uid, sheet, resource_state, resource_kind=resource_kind,
+            action=action, character_lock_held=False,
+        )
 
-        import time
-        record = {
-            "version": 1,
-            "transaction_id": f"{uid}:{time.time_ns()}",
-            "user_id": uid,
-            "action": str(action),
-            "resource_kind": resource_kind,
-            "character_sheet": copy.deepcopy(sheet),
-            "resource_state": copy.deepcopy(resource_state),
-        }
-        _write_journal(uid, record)
 
-        if character_lock_held:
-            # The caller is character_manager.load itself, before returning its
-            # sheet. Bypass the non-reentrant async manager lock, but retain its
-            # thread-safe atomic file writer.
-            from utils.ttrpg.character_manager import _save_sync
-            await asyncio.to_thread(_save_sync, copy.deepcopy(sheet))
-        else:
-            from utils.ttrpg.character_manager import save as save_character
-            await save_character(copy.deepcopy(sheet))
-        await _save_resource_snapshot(uid, resource_kind, resource_state)
-        _clear_journal(uid)
+def transaction_lock() -> asyncio.Lock:
+    """The lock every character + resource transaction takes first."""
+    return _transaction_lock
+
+
+async def recover_pending_housing_transaction_locked(user_id: str) -> bool:
+    """recover_pending_housing_transaction() for a caller already holding the lock."""
+    uid = str(user_id)
+    record = _read_journal(uid)
+    if not record:
+        return False
+    await _replay_record_locked(uid, record)
+    return True
+
+
+async def commit_character_housing_locked(sheet: dict, housing: dict, *, action: str) -> None:
+    """Commit from inside character_manager.load(): the caller holds
+    _transaction_lock and then the player's character lock, in that order."""
+    uid = _validate_resource_commit(sheet, housing, "housing", action)
+    await _commit_resource_locked(
+        uid, sheet, housing, resource_kind="housing", action=action,
+        character_lock_held=True,
+    )
 
 
 async def commit_character_housing(
@@ -211,7 +254,6 @@ async def commit_character_housing(
     housing: dict,
     *,
     action: str,
-    character_lock_held: bool = False,
 ) -> None:
     """Convenience wrapper for a character sheet + housing transaction."""
     await commit_character_resource(
@@ -219,7 +261,6 @@ async def commit_character_housing(
         housing,
         resource_kind="housing",
         action=action,
-        character_lock_held=character_lock_held,
     )
 
 

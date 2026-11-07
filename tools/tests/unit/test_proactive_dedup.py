@@ -212,3 +212,23 @@ def test_punctuation_variant_dedup_remains_channel_scoped(tmp_path, monkeypatch)
 
     assert engine.has_recent_duplicate_opener(candidate, channel_id=123, now=now)
     assert not engine.has_recent_duplicate_opener(candidate, channel_id=456, now=now)
+
+
+def test_monologue_and_observation_posts_do_not_count_toward_opener_diversity(tmp_path, monkeypatch):
+    """Only openers fill the diversity window; other sources' posts share the
+    log for duplicate checks alone."""
+    from utils.core.kaia_proactive import _is_broadcast_only
+
+    engine, _ = _engine(tmp_path, monkeypatch)
+    now = time.time()
+    engine.record_broadcast_sent("a monologue thought", 1, "monologue", now=now)
+    engine.record_broadcast_sent("an observation", 1, "observation", now=now)
+    history = engine._load_diversity_log()
+    assert all(_is_broadcast_only(h) for h in history)
+
+    # A legacy entry written before the marker is recognised by its source.
+    assert _is_broadcast_only({"source": "monologue"})
+    assert not _is_broadcast_only({"source": "belief_musing"})
+
+    openers = [h for h in history if not _is_broadcast_only(h)]
+    assert engine._is_source_allowed("belief_musing", openers)

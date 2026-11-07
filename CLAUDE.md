@@ -88,13 +88,15 @@ so a mis-marked test fails fast instead of loading a model:
 
 | Workflow | Runs |
 |:--|:--|
-| `unit-tests.yml` | every PR and push to `main`: `.github/scripts/run_ci_tests.py` — `compileall` over `utils/` and `tools/`, the hygiene baseline (`test_suite_hygiene`, `test_chat_model_calls`, `test_no_shadowed_imports`), plus the tests for what the diff touched (`test_<stem>.py`, `RELATED_TESTS`, all of `tools/tests/unit/ttrpg/` for a `utils/ttrpg/` change) |
+| `unit-tests.yml` | every PR and push to `main`: `.github/scripts/run_ci_tests.py` — `compileall` over `utils/` and `tools/`, the hygiene baseline (`test_suite_hygiene`, `test_chat_model_calls`, `test_no_shadowed_imports`), plus the tests for what the diff touched (`test_<stem>.py`, every test file that imports the changed module — skipped for one imported by more than `MAX_IMPORTERS` — `RELATED_TESTS`, all of `tools/tests/unit/ttrpg/` for a `utils/ttrpg/` change) |
 | `ttrpg-tests.yml` | Full `tools/tests/unit/ttrpg/` suite when `utils/ttrpg/**`, `tools/tests/unit/ttrpg/**`, or the workflow file changes; also supports manual dispatch |
 | `records-audio-tests.yml` | `test_records.py` when `utils/audio/records.py` changes |
 
 A green check is therefore not a green suite: run the full no-external-services invocation
-locally before merging anything wider than one module. A module whose tests are named by
-behaviour rather than by file needs an entry in `RELATED_TESTS`, or CI runs none of them. CI
+locally before merging anything wider than one module. Tests named by behaviour are found by
+what they import; a test that reaches a module only indirectly still needs a `RELATED_TESTS`
+entry. Until 6 Nov only the file name was matched, and three `kaia_rag_query` tests failed on main
+for a week with every check green. CI
 installs `pytest` and `pytest-asyncio` itself; neither is in `requirements.txt`.
 
 > [!NOTE]
@@ -174,8 +176,8 @@ exec(open('utils/ttrpg/equipment_registry.py').read())
 print('gear', sum(len(d) for d in (WEAPONS,ARMOR,HEADGEAR,BOOTS,ACCESSORIES)), '+ consumables', len(CONSUMABLES))"
 ```
 
-Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**, 248 fish (`len(FISH)`),
-12 quests, 10 classes.
+Verified 2026-11-06: **369 monsters**, **395 gear + 58 consumables = 453 items**, 248 fish (`len(FISH)`),
+13 quests (`len(QUESTS)`), 5 base classes with 10 advanced ones.
 
 ---
 
@@ -278,6 +280,12 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   completed-quest marker, and `check_level_up()` before the single character save. The completion
   marker and level/stat-choice milestones must be durable in the same save as the rewards; never
   save quest rewards and completion first and then save the level-up separately.
+- **RPG lock order: the housing transaction lock, then a player's sheet lock** (`character_manager.load()`
+  and `commit_character_resource()` both). `save()` takes the sheet lock, so a commit holding the
+  transaction lock and a `load()` holding the sheet lock while it committed the daily housing reset
+  deadlocked each other — and then every `load()` in the game, since each one takes the transaction lock
+  (`test_character_load_lock_order.py`). Never take the transaction lock while holding a sheet lock;
+  `load()` commits through `commit_character_housing_locked()`.
 - **RPG multi-file writes use the resource's recovery journal.** Character + housing, dungeon or
   Spine snapshots go through `housing_transactions.commit_character_resource()`; character +
   shared pond/town updates go through `world_state.mutate_world_state()`; combat rewards and
@@ -360,6 +368,14 @@ Verified 2026-10-23: **369 monsters**, **395 gear + 58 consumables = 453 items**
   (`_is_public_ip`: `is_global and not is_multicast`). The older test — not private, loopback,
   link-local, reserved — passed CGNAT space (100.64.0.0/10) and multicast. Discord message links,
   `ptb.` and `canary.` included, are resolved through the API by the enricher and never scraped.
+- **Shutdown has a real upper bound and still saves what matters.** `AsyncTaskRegistry.cancel_all(timeout)`
+  uses `asyncio.wait(..., timeout=...)`, not `wait_for(gather(...))`: a task that catches `CancelledError`
+  made `wait_for` wait past its timeout. Voice and radio stop first, as tracked tasks sharing one
+  `timeouts.shutdown_task_cancel_seconds` budget (the dashboard force-exits ~18 s after asking the bot to stop).
+  One that overruns is cancelled and shutdown carries on: none of them touch the index, Ollama or the GPU, and
+  `scanner.shutdown()` waits up to 80 s for a last transcription. A *background* task still running after the
+  registry's deadline does hold back the resource teardown (index save, model unload, AppContext), since it
+  may be using them. `force_clear()` is emergency-only.
 - **`secrets` for security-relevant randomness** (combat rolls, loot, tokens). `random` is fine
   for flavour (dream shuffling, world-event variety).
 
@@ -456,13 +472,16 @@ sycophantic prose.
 
 ### The prompt's first tokens
 
-**Nothing in the persona may change from turn to turn** (`prompt_prefix.py`). Replies reused 0 tokens of their 16,000:
-the time was substituted 1,231 tokens in, and gemma3's sliding-window attention can only resume from a context checkpoint,
-which llama-server writes at the end of a prompt. The time is in the metadata block now, and a request that is the persona
-alone leaves a checkpoint later prompts pick up from: 13.7 s of prompt processing fell to 10.2 s on a 14,936-token prompt,
-and it holds across other calls. `[TOKEN_DEBUG]` logs `prompt_s`; about 0.9 ms a token means nothing was reused, and a turn
-like that sets off another warm-up. Check it in the journal: `restored context checkpoint` on chat turns, not `forcing full
-prompt re-processing`.
+**Nothing in the persona may change from turn to turn** (`prompt_prefix.py`). The time was substituted
+1,231 tokens in, so no reply could reuse the prefix; it is in the metadata block now. gemma3's sliding-window
+attention can only resume from a context checkpoint, which llama-server writes at the end of a prompt, so a
+request that is the persona alone (the warm-up) leaves one later prompts can pick up from. **In production
+that does not hold** (6 Nov): 254 of 258 turns over 6,000 tokens ran cold (median 0.82 ms a token against the
+0.75 `COLD_S_PER_TOKEN` line), and the journal since 4 Nov has 433 `forcing full prompt re-processing` against
+87 `restored context checkpoint` — about one restored turn per warm-up (105 logged), each warm-up a ~10k-token
+background prefill that queues ahead of the next chat turn. The single-prompt measurement (13.7 s → 10.2 s)
+was real; across real traffic the cache rolls over. Roadmap item; measure before keeping or dropping it.
+`[TOKEN_DEBUG]` logs `prompt_s`.
 
 ### Repeat penalty
 
@@ -840,224 +859,24 @@ answered in her voice. Every decision reads her *state*; none of it calls a mode
 (play it, measure it) covers the sound. When a set ends, `kaia_expression.remember` writes it
 into the channel's history and the growth log, so she knows she played and for whom.
 
-**`!music records` mixes the local library** (`utils/audio/library.py`, `records.py`,
-`beatgrid.py`). The crate is a `dj_catalog.json` of BPM, Camelot key and genre written *outside* the
-repo. The next record is plain Python (key step, tempo within 6% counting half/double time, genre,
-nothing recent, a steady opening preferred), levelled to a common LUFS (`gain_db`), and
-mixed in NumPy inside the audio source — so §7's "no model, no VRAM" holds. Rules, each learned from
-a mix that sounded wrong:
+**`!music records` mixes the local library; the full reference is
+[`docs/03-architecture/records-and-booth.md`](docs/03-architecture/records-and-booth.md) — read it before
+touching `records.py`, `beatgrid.py`, `setlist.py`, `library.py`, the mix judge or the booth.** The rules
+that are easy to break:
 
-- **Stretch with rubberband, not `atempo`.** `atempo` puts every onset ~20 ms early (measured on
-  click tracks); rubberband is within 1 ms. The atempo fallback is compensated (`stretch_latency`).
-  A key shift keeps formants and uses the quality pitch path, and both channels are processed together
-  (`stretch_filter`): a semitone up without it chipmunked the vocal (Der Kommissar, 24 Oct). Measured on
-  a click track, neither moves an onset.
-- **The bar is counted, never guessed from accents.** Accents on a log-energy onset curve barely
-  differ, and the guess put the incoming bar on beat 2, 3 or 4 — kicks on kicks, claps on the wrong
-  beats. Bar one is a record's first strong beat; `grid_at` counts beats from it and keeps the bar
-  only when the count comes out whole (`bar_known`).
-- **Beats are counted on tracked ticks, not extrapolated.** The onset grid is one line — a bpm and a
-  downbeat — and 15–30 s from where it was measured it sat 70–490 ms off the record's real beats:
-  half of the October blends put two kicks apart. `tools/maintenance/beat_ticks.py` runs Essentia's
-  beat tracker (system Python; the venv has no Essentia) and caches every beat in
-  `memory/records/ticks/`; `beatgrid.ensure_ticks` runs it for a record not yet seen, off the voice
-  thread. A plan puts the drop on the outgoing's tick and the incoming's bar on its own counted tick
-  (`Grid.counted`), and the stretch comes from a least-squares line through all the ticks
-  (`Grid.local_beat`) — the tracker's ticks are quantised to its ~11.6 ms hop, and a median of their
-  spacings snapped the tempo up to 1% out. The onset grid still decides steadiness and bar one. Do not
-  move ticks onto "the kick" by 50–150 Hz energy: an off-beat bassline rises in the same band (one
-  record's rise peaked 182 ms before the beat over the record, 43 ms after it in one minute of it).
-  Judge a mix the same way: render both decks paired by the mixer's own read counter, not by a second
-  beat tracker or that band's energy.
-- **A blend takes its time and is staged per band** (`gains`): 64 beats by default; the booth offers
-  32 / 64 / 256. The incoming comes in with its highs over one `ramp` and its mids held at `MID_HOLD`
-  (−14 dB) while the outgoing plays on whole, vocal and all — the *ride*, both up and locked. On the
-  halfway bar the basslines hand over equal-power across `BASS_SWAP_BEATS` (two bars, at most a quarter of the
-  blend; one beat was a switch Ekco heard as "way too jerky", 31 Oct) and the mids hand over in `MID_HANDOFF_BEATS` (a bar)
-  centred on it, so the
-  outgoing's vocal phrase finishes and the incoming's starts on the one; then the outgoing's highs go.
-  Until 24 Oct both records' mids sat at 55% through the middle: two vocals stacked, and the outgoing's
-  was cut mid-phrase at the swap. A ramp is a quarter of a
-  short blend and an eighth of a long one, so EPIC (256) rides for a minute; the ride is the point of
-  a long blend, not the bridge to the next record. A blend must leave the incoming `IN_LEFT_S` to play
-  alone, and a cue set at the booth is honoured whoever lined the record up. It starts on an 8-bar phrase at the end of a record (4
-  for a skip), counted from bar one (`Grid.bar0`), and is fitted before the outgoing's last strong
-  beat (`last_strong_beat`), not the end of the file: blending into a fade swaps the bass to nothing.
-  Two full records sum through a soft limiter.
-- **Two beats play together only when they are measured to lock** (`mixcheck`). The ticks put the bars
-  together to within tens of ms — the tracker sits 22 ms early on one record and 38 ms late on another,
-  and moves between sections — so a plan is only a proposal. Every planned blend is laid out on the
-  played timeline exactly as the mixer will play it and measured bar by bar through the whole overlap on
-  each record's kick envelope: locked if most bars agree on one lag inside `LOCK_S`; moved by that lag if
-  they agree on a larger one (a 109 ms flam, fixed). The search reaches a quarter beat only, so an
-  off-beat bassline can never be chosen as the alignment. The kick envelope is low-band power smoothed
-  below the bass's own frequencies (zero-phase) before it is differentiated: per 2 ms hop without that it
-  followed each cycle of a 50 Hz kick, and every alignment measured on it was ripple. Three rules, each
-  from a measurement:
-  - **Only bars where both records have a kick can flam on it** (`NO_KICK`: under 0.4 of the record's own
-    kick level is no kick). Hibernation's last 30 bars are pads at a third of its kick level, and the
-    judge "measured" lags there out to the ±125 ms edge of its search and refused every pair. But a bar
-    with no shared kick still has **claps and hats** (2–5 kHz, `hits_envelope`), and those clashed in 38
-    of 58 such bars on real locks: where no kick holds them, the hits must agree (`HITS_CLASH`).
-  - **A short overlap must agree in more of its bars** (`needed`: all of 4, 6 of 8). A blend is searched
-    for in dozens of places, and a random lag lands inside `AGREE_S` about one time in twelve.
-  - **Search before giving up** (`setlist.find_blend`): the planned spot, the incoming cued at another
-    phrase (bar 0/8/16/32), the outgoing mixed out up to five 8-bar phrases earlier (a skip: up to three
-    4-bar phrases later), then 32 and 16 beats. The planner gives it `SEARCH_S`.
-  Check a judge change on click tracks *and* on real pairs in the band you did not measure: a lock is
-  only as good as what plays in the bars the judge left out. It cannot always tell a kick from a heavy
-  rolling bassline on the beat; that needs ears.
-- **Nothing locks: an echo-out, never a bare cut** (`as_echo`, `echo_tail`). Her own pick that locks
-  nowhere is swapped for one that does (`RecordsSession._alternatives`: its measured partners, then
-  records in stretch of the tempo, those with partners of their own first, `ALTERNATIVE_S`); a record
-  loaded at the booth or asked for (`Next.source` "hand"/"request") is never swapped — so anything that
-  rebuilds a `Next` uses `dataclasses.replace` (`_cued` rebuilt it field by field, dropped the source,
-  and a booth load whose cue had been moved was swapped for her pick). A NEXT or ▶ pressed while a crate
-  pick is still being read (`RecordsSession.loading`) waits for it (`after_load`). A NEXT pressed while a
-  skip is already planned leaves it alone: each press used to plan it again from now, a phrase later,
-  and rerun the search (six presses in nine seconds pushed one echo 8 s on). A booth load or a request
-  is searched only from its start or a phrase in (`setlist.HAND_CUES`); scrubbed 32 bars in, Urgent came
-  in a minute into the song. What still locks
-  nowhere goes out on the bar with its last beat (mids and highs) repeating, `ECHO_FEEDBACK` quieter
-  each beat, under the incoming's bar one. On 9 Oct, 40 of 71 planned transitions were cuts — 36 of
-  them pairs the graph had never measured (skips and hand loads), which nothing tried to rescue.
-- **She picks partners that blend long** (`setlist.blend_rank`). An edge records the longest blend that
-  locked: 31% of locking pairs lock only for 16 beats (~7.5 s at 128 bpm: highs, bass swap and outgoing
-  inside two bars — a swap, not a blend). Nothing preferred the long ones, and a third of the hour sets'
-  transitions were 16-beat ("mixes into the next song super quick", 31 Oct). The blend's length is
-  *added* to the key and genre rank (64 beats 0, 32 1, 16 3), in the sets and in `_partner`: ranked
-  ahead of key instead, compatible key steps fell from 88% to 72%; added, 81%, with 16-beat steps
-  34% → 3% and 64-beat 41% → 82%. After changing it, `records_graph.py --sets-only --apply`.
-- **She picks partners that lock** (`setlist`). `memory/records/graph.json` holds every tempo-compatible
-  pair measured with `find_blend` at the outgoing's end; it is extended, never rebuilt — a new or changed
-  record costs its own pairs (a file only retagged keeps them: `library.audio_signature` hashes the
-  audio, not the ID3 block). The measuring runs in a niced separate process
-  (`tools/maintenance/records_graph.py`, cross-process lock), never in the bot: it is numpy-heavy and in
-  the bot's process it held the GIL against the voice thread. A change to how pairs are judged bumps
-  `METHOD`, which re-measures everything. When the graph has nothing from the record on air, `_choose`
-  measures candidates against its end itself (`_measured_pick`) — the way back into the sets after a
-  record with no partners, which is how one cut used to lead to the next.
-- **Sets run about an hour** (`make_sets`): depth-first walks through the graph until `SET_TARGET_S` of
-  played time (record lengths less each transition's overlap), dropped under `SET_MIN_S`; no song twice
-  (`library.same_song`: the title without its version, by an artist they share — "Bad Blood" by two
-  artists is two songs); held to one genre family (`FAMILIES`) where the graph allows; whole mixes over
-  `MAX_SET_RECORD_S` left out; a record in at most `MAX_USES` sets; starts spread over families and
-  tempo bands. Rotated per session (`set_rotation.json`) — the booth's SETS tab lists them, marks the one
-  playing and the one the rotation starts next, and ▶ PLAY follows a set from there (`play_set`: its
-  first unplayed record is the next pick; a plan not yet begun is called off and the pick in flight
-  dropped by generation). `records_graph.py --md FILE` writes the listing.
-- **The renderer works from one snapshot per frame.** A skip, a load or a cue from the booth calls a
-  plan off on another thread; a frame that read the plan before it and the incoming deck after it raised
-  `'NoneType' object has no attribute 'slot'`, and discord.py stopped the set. `read()` takes plan,
-  incoming and start frame once, and `_advance` re-checks them under the lock.
-- **The bass swap lands on the incoming's bassline** (`beatgrid.bass_entry`: sub-bass per bar from bar
-  one, snapped to a 4-bar phrase). Intros hold the bassline back 8–48 bars; when it comes in later than
-  the swap's bar, the incoming starts that many bars into its intro, so the swap never hands the low end
-  to a kick alone. A cue set at the booth is never moved for it.
-- **Key sync** (`library.key_sync`, `music.records_key_sync`): an incoming that clashes with the key
-  on air (`Deck.key`, after any earlier sync) and fits a semitone up or down is shifted by rubberband's
-  `pitch`, and stays shifted. Rubberband only — atempo cannot move a key.
-- **The set's tempo moves** (`music.records_tempo_glide`): 16 bars after a record takes over, it eases
-  back toward its own tempo, `GLIDE_STEP` (0.5%) every 8 bars. Not a time-varying stretch: the record
-  on air is respliced on a bar onto a fresh decoder at the next ratio (sample-aligned, run in unheard
-  for a second, crossfaded over one 20 ms frame), so every `Deck` keeps one constant ratio and plans,
-  grids and the booth need no piecewise maths. A glide step never happens while a blend is planned or
-  being planned, or a deck is played by hand.
-- **Levels are LUFS** (`gain_db`: EBU R128 integrated, to `TARGET_LUFS`). A record is raised only as
-  far as its true peak allows (+2 dB into the limiter) and lowered as far as needed — many masters peak
-  over 0 dBTP, and capping cuts by peak made the spread worse than mean volume did.
-- **Kaia rides the mixer** (`kaia_hands`, `music.records_kaia_hands`, the booth's HANDS): multipliers on
-  the automix, locked to bars and scaled by her energy — both records -1.5 dB in a ride (gain staging),
-  the hats traded gently every 8 bars in a long ride (never the mids: they carry the vocals), the old
-  record's air eased back a little into the swap; alone, a small EQ gesture into the end of a 16-bar
-  phrase at most every second phrase (every eighth when calm), let go over the first bar of the next.
-  Which gesture is a hash of record and phrase, never random. Until 24 Oct she killed the bass for the
-  beat before every swap and gestured into every phrase, snapping back on the one — Ekco: "first five
-  minutes with a mixer". Subtle is the rule: a move she makes every time is a habit, not a move.
-- **Blend only two steady beats.** Both records' beats tracked (`Grid.tracked`, the Essentia ticks): any
-  beat whose ticks run straight is proposed, whatever its onset contrast or bar count — breakbeats included.
-  A record not yet ticked falls back to the onset grid: contrast under `BLEND_CONTRAST` (3.5;
-  four-on-the-floor measures ≥ 4.2 where it is mixed, rock, breaks and sparse intros 1.8–3.3) or an
-  uncounted bar goes out as an echo ("beat not steady enough", most often a fresh hand load). Steadiness
-  only proposes a blend; `mixcheck` decides it. The journal's `contrast`/`bar_known` are the onset grid's,
-  so a tracked blend there with contrast 1.5 is not a bypass.
-- **Check a change on click tracks** through the real `CrossfadeSource` (the incoming first kick must
-  land on the planned bar, kicks within a few ms) — a beat detector on real music is not a reliable
-  judge of another beat detector.
-- **Nothing slow on the voice thread — not even the mix.** `CrossfadeSource.read()` (band filters,
-  gain curves, NumPy) runs on a renderer worker; discord.py reads `BufferedRecordsSource`, which only
-  dequeues a finished 20 ms frame and returns silence on an empty queue — it never waits for the mixer,
-  logs or touches disk (late reads are counted in memory and reported at set end, `[records] set ended`:
-  gaps over `LATE_S`, the shorter ones over `JITTER_S`, and the buffer's low-water mark). Opus is told the
-  stream is music (`OPUS_SIGNAL`): on "auto" it switched coding mode on quiet bars. A deck whose decoder is behind plays
-  silence — on time, so no meter saw it; `DECKS_STARVED` counts those frames (the booth's `starved`, the
-  set summary), and a set waits for its first record to have `FIRST_DECK_FRAMES` decoded before playing. The queue is `music.records_audio_buffer_frames` (15 frames ≈ 300 ms, clamped 3–50): every
-  booth control and Kaia's hands are heard that much later, so keep it small. The incoming ffmpeg is
-  started and buffered by the planner thread. `records-audio-tests.yml` runs `test_records.py` in CI on
-  any change to `records.py`.
-
-**The DJ booth** (`dj_dashboard.py`, `assets/dj/index.html`) shows only the mixer's own state —
-the decks `CrossfadeSource` holds, their grids, the plan, the band gains applied this frame and the
-levels produced — streamed at 20 Hz from 127.0.0.1, with waveforms computed by ffmpeg off the voice
-thread. Its controls are real: `records.Controls` (trim, three-band EQ, faders, crossfader, master)
-multiplies the automix, and `paused` holds the record on air in place. The free deck works like a
-CDJ: a crate click loads it now (`RecordsSession.load` → `CrossfadeSource.load`, which calls off a
-blend not yet started and pulls that channel's fader down); dragging its overview, jog or lane moves
-its cue (snapped to a bar); ▶ starts it at the on-air tempo with its cue on the same beat of the bar
-(`play_hand`); the faders mix, and it takes over after `HANDOVER_S` of the on-air record silent.
-NEXT with a deck playing by hand is Kaia finishing the mix (`finish`, a plan of kind `out`). The button has
-one name; the line under it (`#skiphint`) says what pressing it does now — five rotating labels did not. PHONES
-plays a deck's file in the booth window only (`/audio/<id>`), never on air. Kaia raises a hand-loaded
-fader when *her* blend into it starts, not when she plans it — a planned blend is called off by ▶.
-A cue set on the record already in her plan (she plans a record's end minutes ahead) calls that plan
-off and replans from the cue; it used to be refused, and the jog snapped back to the start. A knob's
-pointer is what is *applied* — the hand's setting times the automix and her hands — so her moves turn
-it; the hand's own setting is the yellow dot, and a deck not sounding shows the hand's setting. Her own
-multipliers are streamed apart from the automix (`hands_now`), and a knob she is holding turns pink — a ring,
-an arc from where it would be without her, and a dB badge — or she visibly does nothing (the page has a
-`.kaia` grid class; a knob marked with it collapsed the mixer column).
-**FX** (header pill, remembered per browser, off under reduced motion) is a stage built only from the stream: a
-floor and horizon on the beat of the record on air, level bars from the applied bands, a reticle zooming onto
-each knob Kaia's hand is on with sparks the way she turns it, an aura and combo that build through locked blends
-(LOCKED on a measured blend, BASS SWAP, PERFECT BLEND when one finishes), ECHO OUT in purple on an echo-out (it
-neither adds to the combo nor breaks it), and red — vignette, glitch, shake, combo broken — on a late voice frame.
-The floor is one of five scenes (mountains, pyramids, city, ocean, tunnel) travelling toward the horizon at the
-beat, picked at load and crossfaded to another on each new record. The mixer's meters are drawn every animation
-frame from per-frame levels streamed with the frame counter, mapped to the page's clock (METERS +N ms trims it).
-`!music records` and `!music booth` use a booth window already open (`dj_dashboard.viewers`), and the window
-stays on its idle screen after `!music stop`.
-Nothing in it is decorative state of its own: if the mix did not do it, the screen does not show it. It builds over a set: a heat that eases toward 1 − e^(−combo/5) — the combo being the set's own trailing
-run of blends, rebuilt from its history when the page opens — brightens and speeds the floor, lengthens the bars and
-sparks, adds embers off the floor on the beat (from a few blends in), a horizon ring and a colour drift (past half);
-a clash breaks the combo and the heat falls faster than it rose. **KAIA ON THE DECKS** is her running feed: the
-session's `chatter` (`dj_voice`: why the next record — key move, measured bars — the plan and any nudge, an echo-out or a swapped pick
-and why, set progress, a hand load), plus the page's timeline lines (blend under way, bass swap, her hands, a
-stutter). Templated from real decisions; the music engine still calls no model. The panel itself is Kaia's
-codec avatar (the shared engine in `assets/kaia-avatar/`, served at `/kaia/`, see §7 KAIA//RX): the line under her
-is the codec subtitle she lip-syncs, the feed and the arousal/energy/valence bars sit behind its LOG toggle, the
-readings drive her face (`setOffsets`: valence the smile, arousal eyes and brows, energy the data flow), her
-pulse follows the on-air tempo (`setBehavior`), she looks toward the deck a blend brings in, and the FX stage's
-PERFECT BLEND and red moments reach her through `window.KaiaBooth.react`. Write-up of the change:
-`docs/reports/investigations/2026-10-10-kaia-avatar-rx-and-booth.md` (local, git-ignored). The page draws at 30 fps from
-cached canvas sizes (`ResizeObserver`): a `getBoundingClientRect` per canvas per frame after DOM writes forced a
-layout each and was over half the booth's CPU.
-Knobs drag with pointer capture, never pointer lock (the browser announced "press Esc" on every turn),
-and neither page can be zoomed: a pinch cut the mixer in half. No grid column may be widened by its
-contents (`min-width: 0`, long labels ellipsised).
-Check a change by driving it headless against a real session (Playwright: click, drag, screenshot),
-not by reading the HTML.
-
-**Both dashboards open as desktop windows where they can play sound** (`utils/infrastructure/system/app_window.py`): a GTK
-window around a WebKitGTK view, run by the *system* Python (it has `gi`; the venv does not), its own
-title and window class, no browser around it. Chrome's app mode is the fallback where WebKitGTK is
-missing. WebKit's DMA-BUF renderer is off (`WEBKIT_DISABLE_DMABUF_RENDERER`): on this NVIDIA driver
-under Wayland it closed the window at once with a protocol error. WebKitGTK plays every sound through a
-GStreamer audio sink from `gst-plugins-good`; without it the window opened and played nothing (the
-receiver's monitor, the booth's PHONES), so `available()` also requires `autoaudiosink` and a browser is
-used otherwise. **On Ekco's machine `gst-plugins-good` is not installed (31 Oct), so both dashboards open in
-the browser fallback.** The booth's fallback (`dj_dashboard._browser`) tries Chromium, then Brave, then
-Google Chrome: Chrome came first, and a Chrome flatpak with wrappers in `~/.local/bin` was opened in place
-of the system Chromium Ekco uses. The monitor plays through Web Audio and falls back to an endless WAV (`/monitor.wav`).
+- **No model, no VRAM.** The next record is plain Python and the mix is NumPy inside the audio source.
+- **Nothing slow on the voice thread — not even the mix.** `CrossfadeSource.read()` runs on a renderer
+  worker; discord.py reads `BufferedRecordsSource`, which only dequeues finished 20 ms frames and never
+  waits, logs or touches disk. The pair graph is measured in a niced separate process
+  (`tools/maintenance/records_graph.py`), never in the bot.
+- **Two beats play together only when `mixcheck` measures them locking**; otherwise an echo-out, never a
+  bare cut. Anything that rebuilds a `Next` uses `dataclasses.replace` (its `source` decides whether a pick
+  may be swapped).
+- **Stretch with rubberband, not `atempo`**; key shifts keep formants. Levels are LUFS, raised only as far
+  as true peak allows.
+- **Check a mix change on click tracks through the real `CrossfadeSource`**, and a booth change by driving
+  it headless (Playwright) against a real session — not by reading the HTML.
+- **The booth shows only the mixer's own state.** If the mix did not do it, the screen does not show it.
 
 Records, a live set and the radio share one voice connection: whichever starts stops the others
 without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the channel it was
@@ -1105,242 +924,22 @@ fill whatever she left open. The renderer still draws the geometry from the seed
 intent must draw exactly what the seed always drew (`test_an_unsteered_seed_renders_what_it_always_did`).
 The piece is remembered the same way a set is.
 
-**Radio is a guest on other people's servers.** `utils/radio/` reads eam.watch's and Priyom's
-undocumented JSON endpoints. Poll at most every `radio.poll_hours` (default 6 — Ekco's call: it
-is a novelty, not a live feed), one request at a time, with the identifying User-Agent in
-`utils/radio/fetch.py`, through `public_only_connector`. A response in an unexpected shape raises
-`FeedError` and the command says so; it must never become an empty list, which reads as "no
-traffic". EAMs and number-station groups are encrypted: nothing Kaia says may claim to decode
-one. Research: `docs/reports/investigations/2026-09-24-shortwave-feasibility.md`.
+**Radio is receive-only and a guest on other people's servers; the full reference is
+[`docs/03-architecture/radio.md`](docs/03-architecture/radio.md) — read it before touching `utils/radio/`,
+KAIA//RX or the avatar engine.** The rules that are easy to break:
 
-An unsquelched recording that came back in pieces is one broadcast (`watch.stitch`): a KiwiSDR reconnect starts a new file, and one E11 was five posts. Squelched files stay separate, each is a transmission.
-
-A number-station recording is kept only for a keyed tone (`watch.keyed_tone`: prominent within the
-recording's own passband, and switching on and off) or speech. Measured against the whole speech
-band, CW mode's narrow filter made pure static look tonal, and a steady carrier passed as a tone.
-
-Kaia also **listens** (`utils/radio/watch.py`): scheduled, squelched recordings from public
-KiwiSDRs via `kiwirecorder` (fetched into `assets/kiwiclient/` by
-`tools/maintenance/fetch_radio_assets.py`, never vendored — no licence file, GPL parts), CPU-only
-faster-whisper `large-v3` on band-passed audio, and `phonetic.parse`, which merges the readbacks
-and writes `?` where they disagree. Rules: pick receivers with a free slot and no time limit, hold
-a slot only while a job or `!radio` needs it, one listen at a time. A scheduled listen is marked
-done only when it completed (`watch._run_scheduled`; `run_job` returns `None` for "could not run":
-no kiwiclient, no free receiver, every receiver failed) — marked at launch, a busy receiver
-directory cost the whole day's slot for that station. **Radio history lives in
-`memory/radio/`, never in `knowledge_base/`** — it is noise to retrieval. Accuracy is measured
-against eam.watch's human copies (`watch.cross_check`), not claimed. Small and medium Whisper
-models, raw audio and the VAD filter all hallucinated on HF audio; don't "optimise" to them
-without re-running that comparison.
-
-**The local scanner** (`utils/radio/scanner.py`, `waterfall.py`, `ledger.py`, `dongle.py`) drives an
-RTL-SDR attached to the bot. During `radio.local.hours` it hops the voice bands (a pass every ~3 s),
-holds on anything standing 10 dB over its own rolling floor (16 dB is taken on first sight), records
-it, and classifies it — voice, data, carrier or noise — into `memory/radio/local_ledger.sqlite3`.
-`radio.local.nets` pins it to one channel for a net's window. Rules, each from something that broke:
-
-- **Test coverage with the simulated dongle, not by reading the plan.** `test_local_scanner.py` runs
-  the real `Watcher` against FM transmissions on a simulated clock. The fixed hop plan it replaced
-  caught 2 of 7: slice centres sat on repeater outputs (147.000, 445.000), 80 kHz between slices and
-  whole bands were never visited, and a 30 s cooldown ignored every reply. `waterfall.hop_plan`
-  tiles each band and moves centres off the seeded and configured channels; keep `COOLDOWN_S` short.
-- **The band notebook is regenerated after every watch** (`tools/maintenance/band_notebook.py`, into
-  git-ignored `docs/reports/reference/local_band_notebook.md`). It identifies what it can from the
-  clips that exist (AFSK tones for packet, a spoken or Morse ID), re-checks voice transcripts against
-  today's filter, and keeps the "My notes" section as written. Data bursts keep no clip any more, so
-  a data channel first heard now is described by its cadence alone.
-- **A transmission stands over its slice, not just over its floor.** Triggers and holds subtract the
-  slice's median rise: a household noise source lifted whole slices 10+ dB, and the watch held a
-  minute of hiss on frequency after frequency, deaf meanwhile, because the floor adapts only through
-  visits and holds block visits.
-- **Carrier is measured against a fixed hiss level.** An FM discriminator reads phase, so an empty
-  channel demodulates to the same hiss at any input level (`waterfall.HISS_DB`, pinned by a test); a
-  frame 6 dB under it has a carrier. A recording's own tail is not a reference: a hold cut off at
-  its limit has none. Measure a catch over `carried_audio` — its tail and gaps are hiss, which has
-  the digital shape and filed followed voice as data.
-- **Voice is followed; hiss is not kept.** After an over that `waterfall.voice_like` passes, `_hold`
-  stays on the channel and records each reply into the same catch until `FOLLOW_IDLE_S` of quiet
-  (`FOLLOW_MAX_S` at most). `voice_like` wants the voice band swinging under a carrier that quiets
-  the hiss 10 dB and holds steady: a weak carrier fading in and out swings too, and was followed for
-  five minutes. A reply with no carrier under it ends the follow. A hold that runs the whole minute
-  is still followed if it is speech — a linked repeater keeps its transmitter up through a
-  conversation. A catch with under 0.1 s of carrier is ledgered as `noise`: not transcribed, not
-  clipped, not a channel; a channel configured `mode: digital` is exempt.
-- **Packet radio is told by its tones, not its shape.** APRS is Bell 202 AFSK — in-band audio,
-  which the digital-shape measure cannot see — so a night's 166 bursts on 144.390 went in as
-  carriers and each spent a transcription. `waterfall.is_packet` (the 1200/2200 Hz pair in ≥ 45% of
-  ≥ 10 carrier frames; off-air packets 52–62%, hiss 0%, voice at most 36%, a Morse ID too short)
-  files them as `data` before Whisper is asked. The band notebook uses the same measure.
-- **Only what is worth hearing keeps a clip:** voice, a net, a Morse ID, a reply too short to call voice
-  (`scanner.short_reply`: "Yes, sir."; not a sign-off Whisper invents, not the prompt read back), and a
-  speech-like carrier Whisper was *not asked* about. Asked and hearing nothing, it is not speech: the 900 MHz
-  hoppers and 462.275's telemetry pass `voice_like`, and were kept and highlighted as "sounded like speech".
-  A Morse ID (`scanner.morse_id`) is kept once per channel per six hours; 145.690's node sends one every few
-  minutes. Clips rotate at 300, so a junk clip pushes out a real one.
-- **Speech is transcribed out of its own allowance.** A catch `voice_like` passes spends `SPEECH_PER_NIGHT`
-  (400); everything else spends `TRANSCRIBE_PER_NIGHT` (60), which finds a channel's first words. One shared 60
-  ran out about 01:30 every night and the rest of the night's dispatch — 50–90 calls — went in as carriers.
-  A transcription costs 2–10 s of CPU in int8 (`transcribe.COMPUTE_TYPE`). float32 read dispatch slightly better
-  (29 of 37 street names against 27) but held ~6 GB all night — busy dispatch never lets the 15-minute idle unload
-  fire — and that RAM matters more than the street names (Ekco, 1 Nov).
-- **Dispatch street names are put right against a local street list** (`streets.correct`, via `scanner.fix_streets`;
-  ham bands are not touched). The list is a deployment fact: `tools/maintenance/fetch_street_names.py "<area>"
-  --write` builds git-ignored `memory/radio/streets.json` from OpenStreetMap; without it nothing changes. A name
-  the list lacks, right before its type, becomes the one street of that type it sounds like ("Cockroach Hill
-  Road" → Cockrell Hill Road ×8). Rules, each from reading every change over 659 real transcripts: never an
-  English word, a direction or a type word ("Avenue" → Avon, "First" → Vista); sound skeleton ≥ 0.8, mean of
-  sound and spelling ≥ 0.79; the same syllable count ("Condo" → Coronado, "Levar" → Lear are refused); no
-  spacing-only fix; lowercase comma-broken spans left alone. A known tail ("Hill") only blocks a fix of a
-  different length. Single-word fixes need nltk's word list; a standalone without it fixes phrases only.
-  `ledger_repair.py --streets` applies it to transcripts already logged.
-- **A catch is filed where its carrier is** (`waterfall.carrier_freq`): the centroid of the power summed
-  while the hold was keyed, not the trigger's smoothed peak rounded to 2.5 kHz, which a voice's deviation moves
-  by kilohertz. Nearly every busy channel had a "shadow" row 6.25 kHz up (Dallas dispatch: 354 voice catches on
-  460.575, 257 on 460.58125). Measured 31 Oct: 858 key-ups on both UHF spans at 293 Hz all sat within 470 Hz of
-  the busier row. Cooldowns stay keyed on the trigger frequency; a tuned channel is filed where it was tuned.
-  The dongle reads ~+2 ppm (NOAA 162.400/162.550, 460.575): under a kilohertz, so `radio.local.ppm` can stay 0.
-  `tools/maintenance/ledger_repair.py` (dry run unless `--apply`) folds split rows and re-judges kept carrier
-  clips after a change to either rule.
-- **Listeners hear a transmission, never the sweep.** Nothing is sent while hopping (a tick per hop
-  played as pops), and a hold reaches the monitor and a listen-along through `waterfall.Squelch`: open
-  only where a carrier ran `OPEN_S` (0.4 s), output delayed by that much so the over is heard from its
-  first syllable. Every one of 57 kept voice clips opens it within 4 s.
-- **A pulse train is let go.** 463.71875 sends a 0.2 s burst every 1.5 s; each burst reset the hold's
-  silence count, so it held the watch the whole minute and was reported as something keying up. A hold
-  whose squelch has not opened in `PULSED_DECIDE_S` (4 s) is released and its own channel left alone
-  for 5 minutes, doubling on return; channels configured `mode: digital` are exempt.
-- **RF without an FM carrier is locked out the same way.** A hold with under `STATIC_CARRIER_S` (0.1 s)
-  of carrier — the noise classification's own threshold (`scanner.STATIC_BELOW_S` is it) — got the
-  plain 3 s cooldown and came back every pass: 464.9625 750 times in ten nights, the 902–928 MHz hoppers
-  2,252 times in a month with no voice or data. It now takes the pulse train's lockout.
-
-**KiwiSDR receivers are judged by what they sent us, not by the directory.** `kiwi.py` keeps
-`memory/radio/kiwi_health.json`, fed by every `record`, `smeter` and live stream: digital silence on an
-unsquelched recording benches that receiver on that frequency for 14 days (the two best north-eastern
-receivers muted 4625 kHz for API clients from Oct 2026 while their S-meter read the buzz); a refusal,
-early stop or empty S-meter benches the host for 6 h, doubling; `choose()` skips benched receivers and
-ranks one that has worked before 6 dB up. A squelched recording with no openings is a quiet band, not a
-mute, and is not judged.
-- **A constant carrier is locked out, and the lockout grows.** A full-minute hold that is not speech
-  locks ±75 kHz (drifting carriers wandered 55–130 kHz and cost a minute a step) for 30 minutes,
-  doubling on each return to 4 h. That reach is a trade-off: roadmap R5d.
-- **A wedged read ends the watcher, never the handle.** `rtlsdr_read_sync` cannot be cancelled. If a
-  `Stream` reader does not stop within 10 s, `close()` returns False, the dongle is marked so
-  `Dongle.close` makes no further C call on it, and the watcher raises `StreamCloseTimeout` and
-  exits; process teardown releases the device. Retuning or closing under an in-flight read raced
-  native I/O.
-- **Each listen-along has its own queue** (`scanner._along_audio`, per guild, bounded, oldest chunk
-  dropped when full). One shared queue made two listeners split the stream between them.
-- **Every process that holds the dongle dies with the bot.** The bot exits by `os._exit`, which skips
-  multiprocessing's cleanup; an orphaned watcher kept the dongle through two restarts. `child_main`
-  and `rtl.open_stream` arm `PR_SET_PDEATHSIG`.
-
-- **The watcher runs in a forked child with fds 1 and 2 on /dev/null.** librtlsdr prints its tuner
-  chatter from C straight to fd 2, beneath Python's logging, and destroyed the curses dashboard.
-  Fork, not spawn: spawn re-imports `Kaiacord.py`, which imports the whole bot.
-- **librtlsdr through ctypes, not pyrtlsdr.** pyrtlsdr 0.4/0.5 need `rtlsdr_set_dithering`, which the
-  distribution's librtlsdr 2.0.3 does not export.
-- **KAIA//RX** (`rx_dashboard.py`, `rx_scope.py`, `assets/rx/`) draws what the watcher measures and
-  nothing else: the child sends each slice's spectrum (smoothed over two bins, every 2nd bin, so zooming
-  in separates channels; the trigger keeps its 12.5 kHz smoothing) and each pass's lockouts
-  on a third queue, `put_nowait` so a missing reader drops frames instead of blocking the sweep, and
-  `rx_scope` lays slices into per-band panoramas relative to each slice's median. On one channel (a
-  hold, a tune, a net) the child sends every bin, ~25 frames a second, and `rx_scope` keeps that slice
-  as the TUNED span (the last of `bands`), which the page switches to: the receiver's own 2.4 MHz, full
-  width, a waterfall row per frame. A click tunes the
-  running watch in place (see *A tune is a command* below), and a tuned channel is held, recorded and
-  classified exactly as the scan would. Only an idle dongle starts a watch for a tune; those starts are one at a
-  time (`_restart`; a request mid-restart only marks it to look again, so a burst of clicks ends on the last),
-  every watch registers its stop in `_stops` and a restart stops them all, and a stopping watch frees the
-  dongle before it finishes its last transcription. ▶ SCAN (`scanner.start_scan`) runs the sweep outside the
-  nightly hours for as long as asked and only while a page is open (`DASH_GONE_S`): the page's stream
-  calls `seen_by_dashboard`. `!scanner dash` opens it; nothing opens it at night unasked. The top
-  row has a fixed height and Kaia's line is clamped: a row sized by its text grew a line and
-  squeezed the waterfall every few seconds.
-  Each band's panorama is `span / COL_HZ` columns (the ~2.3 kHz the watcher sends while hopping,
-  capped at `MAX_COLS`): a fixed 2048 squeezed 20 MHz of 70 cm into ~10 kHz a column and zoomed to
-  blocks. **Band waterfalls advance once a pass and only then**; a hold scrolls the TUNED span. A hold
-  used to push band rows five times a second, so the band picture lurched between paces, and the page
-  flipped between band and span views — it blinked. Each pass also lays every band side by side, low to
-  high, into one overview row (`OV_COLS`, max-pooled so a carrier survives): while sweeping, the page's
-  dial shows that whole picture with Kaia's needle gliding across it, and on a channel it eases into
-  the TUNED span (FOLLOW KAIA; a zoom or drag hands the view to you). Zoomed inside one band it draws
-  that band's own panorama. Waterfalls are WebGL2 ring textures (`Falls` in the page), which WebKitGTK
-  runs. Kaia herself is the shared codec avatar in `assets/kaia-avatar/` (served at `/kaia/`; the
-  same engine as Kaia's and Kaiagotchi's dashboards — keep the copies identical (Kaiagotchi's is
-  `kaiagotchi/ui/web/static/js/kaia/`; change the engine in both, byte for byte), put states in the
-  page via `KaiaAnimator.registerMood`). Both pages mount her with `portrait: "random"` — the next of
-  `KaiaCodec.PORTRAITS` in a shuffled rotation, every one once before any repeats, a new shuffle never
-  opening on the last (`KaiaCodec.randomPortrait`; it was "any but the last", which Ekco saw as the same
-  face every launch; `test_kaia_avatar_portraits.py` runs the real file under Node) — and every
-  launch (`open_window`, i.e. each `!music records` and `!scanner dash`) bumps `launch` in the page's
-  stream; an open page reloads when it changes, because the window is usually reused, not reopened. `tools/maintenance/rx_preview.py` runs the real `Watcher`
-  against a simulated sky in real time and serves the page — use it to look at a change, not the bot.
-  Write-up: `docs/reports/investigations/2026-10-10-kaia-avatar-rx-and-booth.md` (local, git-ignored).
-  `!scanner history` lists voice and data and folds bare carriers into one line; every catch is in
-  the page's LOG tab.
-  SQL OPEN (`scanner.set_squelch_open`, a shared flag the child reads) plays a tuned channel continuously,
-  hiss and all; AUTO plays only what keys up — and a sweep is silent either way, which read as "does
-  nothing" on a quiet morning.
-  Spectrograms (`spectrogram.py`) are rendered once beside a clip and pruned with it.
-- **A tune is a command, never a restart.** The running child takes `{"op": "tune" | "scan" | "gain" | "habits" |
-  "marks"}` on its `control` queue (`Watcher._poll`, checked between hops and every read of a hold);
-  `scanner.tune_now` / `untune_now` send it from the HTTP thread, and the supervisor in `_watch` sends what nets,
-  expiring tunes and the hours ask for. A channel inside the current span only moves the demodulator (`IN_SPAN_HZ`).
-  Measured on the dongle: scan→tuned 104 ms, in span 34 ms, another band 180 ms — the restart it replaced waited out
-  the hold, refork and reopened the dongle.
-- **Listening reads through a `Stream`.** `rtlsdr_read_sync` buffers nothing between calls (and ctypes drops the GIL
-  inside it), so processing between inline reads was samples lost: a tuned channel kept 78% of its audio and every
-  hold's clip had the same holes. A tuned channel and a hold stream; hopping reads inline after each retune.
-- **Demodulate with state.** `Decimator` is overlap-save `resample_poly`: called per chunk it zero-padded every edge
-  (a click per read) and slipped on reads not a multiple of 50 samples. Chunked output equals one-shot output.
-- **A tuned channel plays through `LiveSquelch`** (open on the second carried frame, no look-ahead): 127 ms from
-  key-up to audio, where the scan's `Squelch` holds `OPEN_S` back to keep beacons out of a sweep (613 ms).
-- **Habitual data is noted, not held** (`ledger.habitual`, `Watcher._habit_holds`): a channel heard 30+ times in a
-  week, never with a voice, brief — 39 of them cost ~28% of the night in holds. Its bursts are ledgered as `seen`
-  (no audio; hits and hours still count; never a "catch"); one longer than its usual longest, and every tenth, is
-  held. Never a configured channel or a priority bookmark. A rejected peak's skirts are the same signal: skip
-  them, or each burst is held 7.5 kHz off.
-- **A hold records the rest of its slice** (`_sides`, two at a time): the dongle sees 1.92 MHz while it waits for a
-  reply. With the confirm read (`_visit`: a hot bin is re-read at once, not a pass later) and habits, two simulated
-  busy nights caught 102 of 179 overs against 88, losing less of each start (median 0.42 / 0.91 s against
-  0.69 / 1.18). What still limits it is the follow: up to FOLLOW_IDLE_S on one slice per conversation.
-- **Bookmarks are a person's** (`bookmarks.py`, `memory/radio/bookmarks.json`): `priority` lowers the gate there,
-  `ignore` removes it — nothing else ignores a channel on anyone's behalf. Gqrx's `bookmarks.csv` imports (yours win)
-  and exports. `interest.py` ranks catches (words, new or rare channels, unusual hours, urgent words) and sorts
-  channels into talk / data / timer (`ledger.period_of`) / carrier; it labels and orders, it hides nothing.
-- **The span streams** (`/span`, binary, a row the moment the watcher makes it): 8192 bins (293 Hz), Blackman-Harris,
-  DC removed, 30 rows/s, quantized in the child on `waterfall.DISPLAY_*` (−10…+50 dB). `tools/maintenance/rx_preview.py
-  --real` serves the page on the real dongle without the bot — only while the bot's scanner is idle.
-- **One dongle.** `rtl.DEVICE` is held by the watch; a live listen sets `rtl.YIELD` and the watch
-  gives it up within a hop. A process outside the bot (a hand-run survey) holds the device where
-  `rtl.DEVICE` cannot see it, and the bot's watch then fails "busy" and backs off 15 minutes — stop
-  any such run before a configured net or the nightly hours. Local repeaters and nets are
-  deployment facts and live in config, never in code or tracked docs.
-- **Whisper hears the carried audio, with the band's vocabulary.** `_transcribe` hands it `speech_audio`
-  (carried runs, padded, 0.3 s apart), not the squelch tail, and an `initial_prompt` by band: dispatch
-  words and the APCO alphabet, or ham terms (`prompt_for`). Keep the prompts word lists. Example
-  sentences were copied into transcripts ("Westview 38" became "11, rescue 38"; a cross street nobody
-  said appeared), and the dispatch list rewrote a ham conversation. Measured on 52 real clips old
-  against new and every changed one read. `looks_like_speech` drops repeated filler ("Thank you.
-  Thank you") but lets an address read twice through.
-- **Transcription on FM static hallucinates.** Auto-detected language on a bare carrier produced a
-  Norwegian subtitle credit three times in an hour. The scanner transcribes in English through
-  `transcribe.transcribe_speech`, which keeps only segments Whisper scores as speech. Human repeater
-  voice has not yet been measured against the 90% bar; NOAA scored 100% on every sentence present in
-  the NWS text. The passes live in one place, `scanner.hear` (classify and `ledger_repair.py` both call
-  it): strict, then plain for a speech-like catch, then — only if both heard nothing — any language
-  without the prompt, counted only at `ANY_LANGUAGE_MIN_WORDS` (6). Forced English returned nothing for
-  the Spanish conversations on 462.150/463.825; a short invention ("I don't know." on a 927 MHz hopper)
-  stays out.
-- **The Quansheng UV-K5** (`tools/maintenance/uvk5.py`) is a handheld, not an SDR: it demodulates one
-  channel inside the radio and sends no IQ, so it cannot feed the scanner or KAIA//RX. The tool is
-  read-only — find the cable, firmware version, EEPROM backup (calibration at 0x1E00–0x1FFF; take one
-  before any flash), bootloader version — and nothing in the bot uses it. A K-plug programming cable
-  carries no audio; listening needs an audio path (an AIOC, or a 3.5 mm cable into a USB sound card).
-  **Kaia never transmits** — Ekco's decision; any PTT line an audio interface offers stays unused.
-- **discord.py needs a real file for FFmpeg's stderr.** `subprocess.DEVNULL` is an int; it fails
-  `.fileno()` and gets piped through a thread that crashes on `.write()` every play.
+- **Kaia never transmits** (Ekco's decision); any PTT line an interface offers stays unused.
+- Poll eam.watch and Priyom at most every `radio.poll_hours`, one request at a time, with the identifying
+  User-Agent in `utils/radio/fetch.py`, through `public_only_connector`. An unexpected shape raises
+  `FeedError`; it never becomes an empty list ("no traffic"). Nothing may claim to decode an EAM.
+- **Radio history lives in `memory/radio/`, never in `knowledge_base/`.** Local repeaters and nets are
+  deployment facts in config, never in code or tracked docs.
+- Whisper `large-v3` on CPU in int8, English, `transcribe_speech` passes only. Smaller models, raw audio
+  and the VAD filter all hallucinated on HF/FM audio; don't switch without re-running the comparison.
+- **The scanner's watcher runs in a forked child** (fds 1/2 on /dev/null, `PR_SET_PDEATHSIG`), drives
+  librtlsdr through ctypes, and holds the one dongle. A wedged read ends the watcher, never the handle.
+- Test scanner coverage with the simulated dongle (`test_local_scanner.py`), and look at a KAIA//RX
+  change with `tools/maintenance/rx_preview.py`, not the bot.
 
 **Nothing that can wait runs under the music** (`utils/audio/voice_busy.py`). The voice thread needs a frame
 every 20 ms and anything in this process holding the GIL makes it late; a records set started into the dream
@@ -1517,6 +1116,11 @@ feature has one code path whether it is clicked or typed.
   lines with real user text in them, timestamped today. Export `KAIACORD_LOG_FILE` before any
   ad-hoc run that touches a logging code path. If you forget, segment by timestamp and delete
   your own burst; the file is a record someone reads back as evidence.
+- **No test reaches live teardown.** An autouse fixture in `tools/tests/conftest.py` replaces
+  `OllamaGPUManager.unload_all_models`, `force_clear_gpu` and `kill_orphaned_runners` with recorders, and
+  a test that calls one fails the run like a live write. Two shutdown tests called the real
+  `async_shutdown()` and were harmless only because it used to return early; when it stopped doing that,
+  a `pytest` run unloaded the live model and killed the shell it ran in (6 Nov).
 - **Everything a test writes must be redirected, and four things needed it.** `telemetry_paths`
   holds all four: `telemetry_path()` for `memory/*.jsonl`, `corpus_dir()` for
   `knowledge_base/`, the logger's own split, and `persist_dir()` for `memory/rag_storage`. The
@@ -1911,19 +1515,6 @@ Two accounting rules that are easy to get wrong:
 
 ## 11. Working Practice
 
-### Async task shutdown
-
-`AsyncTaskRegistry.cancel_all(timeout)` must have a real upper bound. Use
-`asyncio.wait(..., timeout=...)`, not `wait_for(gather(...))`: a task may catch
-`CancelledError` and continue cleanup, causing `wait_for` to wait beyond its timeout.
-Tasks still pending after the deadline stay in the registry until their done callbacks
-remove them. The voice/radio prelude has one shared deadline too: each graceful stop runs
-as a tracked task, and a stop that outlives that budget makes shutdown preserve RAG, Ollama,
-AppContext, executor and GPU resources for the dashboard's bounded emergency exit. The
-registry is not torn down while a prelude operation is still running, and clean shutdown
-is not reported. `force_clear()` remains an explicitly emergency-only escape hatch.
-
-
 **Measure before optimising.** Numbers from this codebase that changed decisions:
 
 - `harden()` costs ~1 ms against ~14,900 ms of inference — filter micro-optimisation is noise.
@@ -2098,6 +1689,8 @@ it here.
 | Testing | `docs/04-development/testing.md`, `tools/tests/README.md` |
 | TTRPG spec | `docs/ttrpg/aethelgard_system.md` — **read before touching combat** |
 | TTRPG balance | `docs/ttrpg/aethelgard_system.md` (Balance targets) · open work: `docs/ROADMAP.md` |
+| Records & DJ booth | `docs/03-architecture/records-and-booth.md` — **read before touching the mixer or booth** |
+| Radio, scanner, KAIA//RX | `docs/03-architecture/radio.md` — **read before touching `utils/radio/`** |
 | Corpus layout | `knowledge_base/README.md` — **read before adding a folder** ([§10](#10-knowledge-base)) |
 | Shell tooling | `scripts/README.md` — what `kaia-tools.sh` exposes |
 | Contributing | `CONTRIBUTING.md` — human-facing PR workflow |

@@ -67,7 +67,7 @@ def _patch_character_load(monkeypatch, sheet, home):
     async def get_test_lock(_uid):
         return asyncio.Lock()
 
-    async def commit(sheet_snapshot, home_snapshot, *, action, character_lock_held=False):
+    async def commit(sheet_snapshot, home_snapshot, *, action, character_lock_held=True):
         commits.append({
             "sheet": copy.deepcopy(sheet_snapshot),
             "home": copy.deepcopy(home_snapshot),
@@ -76,11 +76,11 @@ def _patch_character_load(monkeypatch, sheet, home):
         })
 
     monkeypatch.setattr(world_state, "recover_pending_world_state_transaction", no_world_recovery)
-    monkeypatch.setattr(housing_transactions, "recover_pending_housing_transaction", no_housing_recovery)
+    monkeypatch.setattr(housing_transactions, "recover_pending_housing_transaction_locked", no_housing_recovery)
     monkeypatch.setattr(character_manager, "get_user_lock", get_test_lock)
     monkeypatch.setattr(character_manager, "_load_sync", lambda _uid: copy.deepcopy(sheet))
     monkeypatch.setattr(housing, "load_housing", lambda _uid: copy.deepcopy(home))
-    monkeypatch.setattr(housing_transactions, "commit_character_housing", commit)
+    monkeypatch.setattr(housing_transactions, "commit_character_housing_locked", commit)
     monkeypatch.setattr(
         character_manager,
         "_save_sync",
@@ -202,7 +202,7 @@ def test_repeated_character_load_does_not_repeat_daily_mognet_delivery(monkeypat
     async def get_test_lock(_uid):
         return asyncio.Lock()
 
-    async def commit(sheet_snapshot, home_snapshot, *, action, character_lock_held=False):
+    async def commit(sheet_snapshot, home_snapshot, *, action, character_lock_held=True):
         commits.append(action)
         persisted_sheet.clear()
         persisted_sheet.update(copy.deepcopy(sheet_snapshot))
@@ -210,13 +210,13 @@ def test_repeated_character_load_does_not_repeat_daily_mognet_delivery(monkeypat
         persisted_home.update(copy.deepcopy(home_snapshot))
 
     monkeypatch.setattr(world_state, "recover_pending_world_state_transaction", no_world_recovery)
-    monkeypatch.setattr(housing_transactions, "recover_pending_housing_transaction", no_housing_recovery)
+    monkeypatch.setattr(housing_transactions, "recover_pending_housing_transaction_locked", no_housing_recovery)
     monkeypatch.setattr(character_manager, "get_user_lock", get_test_lock)
     monkeypatch.setattr(
         character_manager, "_load_sync", lambda _uid: copy.deepcopy(persisted_sheet)
     )
     monkeypatch.setattr(housing, "load_housing", lambda _uid: copy.deepcopy(persisted_home))
-    monkeypatch.setattr(housing_transactions, "commit_character_housing", commit)
+    monkeypatch.setattr(housing_transactions, "commit_character_housing_locked", commit)
     monkeypatch.setattr(
         character_manager, "_save_sync",
         lambda current: (persisted_sheet.clear(), persisted_sheet.update(copy.deepcopy(current))),

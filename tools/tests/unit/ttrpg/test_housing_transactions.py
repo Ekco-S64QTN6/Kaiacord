@@ -236,9 +236,13 @@ def test_daily_reset_commit_can_save_while_character_manager_lock_is_held(
         lambda current: sync_writes.append(copy.deepcopy(current)),
     )
 
-    asyncio.run(housing_transactions.commit_character_housing(
-        sheet, home, action="daily_mognet_delivery", character_lock_held=True
-    ))
+    async def commit_from_load():
+        async with housing_transactions.transaction_lock():
+            await housing_transactions.commit_character_housing_locked(
+                sheet, home, action="daily_mognet_delivery"
+            )
+
+    asyncio.run(commit_from_load())
 
     # This path intentionally uses _save_sync rather than re-entering the
     # character manager's non-reentrant per-user asyncio lock.

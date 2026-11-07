@@ -24,6 +24,47 @@ if live_write_guard:
     live_write_guard.install()
 
 
+import pytest
+
+#: Shutdown steps that act on the live machine: the model in VRAM and this
+#: host's Ollama runners. A test reaching one is recorded like a live write.
+_LIVE_TEARDOWN = (
+    ("utils.infrastructure.gpu.clear_gpu_memory", None, "kill_orphaned_runners"),
+    ("utils.infrastructure.gpu.clear_gpu_memory", None, "force_clear_gpu"),
+    ("utils.infrastructure.gpu.gpu_manager", "OllamaGPUManager", "unload_all_models"),
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_teardown(monkeypatch, request):
+    """Replace live teardown with a recorder for every test."""
+    if not live_write_guard:
+        yield
+        return
+    import importlib
+    for module_name, owner, attr in _LIVE_TEARDOWN:
+        try:
+            target = importlib.import_module(module_name)
+        except Exception:
+            continue
+        if owner:
+            target = getattr(target, owner, None)
+            if target is None:
+                continue
+
+        def _refuse(*_a, _name=f"{module_name}.{owner + '.' if owner else ''}{attr}", **_k):
+            live_write_guard.offences[f"<live teardown> {_name}"] = request.node.nodeid
+            return None
+
+        if attr == "unload_all_models":
+            async def _refuse_async(*a, _r=_refuse, **k):
+                return _r(*a, **k)
+            monkeypatch.setattr(target, attr, staticmethod(_refuse_async), raising=False)
+        else:
+            monkeypatch.setattr(target, attr, _refuse, raising=False)
+    yield
+
+
 def pytest_runtest_logstart(nodeid, location):
     if live_write_guard:
         live_write_guard.current_test = nodeid

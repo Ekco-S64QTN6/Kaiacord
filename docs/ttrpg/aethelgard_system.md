@@ -559,8 +559,9 @@ NPC dialogue is LLM-generated using `build_npc_prompt()` with context: season, t
 | The Waking Metal | Elara | 11 | Kill iron_golem, talk elara | 2500 XP, 800 Gil, void_band |
 | The Darkening | Guard | 13 | Kill shadow_lich, talk guard | 3500 XP, 1500 Gil, mox_pearl |
 | The Last Guardian | Elara | 15 | Complete dungeon, talk elara | 5000 XP, 5000 Gil, the_end |
+| What Sings Below | Hooded figure (Stone Hearth) | 15 | Look at the Aeridor crystals, kill the Crystal Dragon (Ironvein Deep floor 33), talk hooded figure | 6000 XP, 2000 Gil, aeridor_shard |
 
-*Note: This is the complete list of 12 quests in the database. The two Grimstone quests were given by Pell and Valdric, who are not NPCs anyone can talk to; since 26 Sept they are offered by the traveling merchant and the Watchtower guard, and a test holds every quest to a real NPC.*
+*Note: This is the complete list of 13 quests in the database (`quest_registry.QUESTS`). The two Grimstone quests were given by Pell and Valdric, who are not NPCs anyone can talk to; since 26 Sept they are offered by the traveling merchant and the Watchtower guard, and a test holds every quest to a real NPC.*
 
 ---
 
@@ -706,12 +707,11 @@ Each open outing, daily accumulator, and untold report is bound to the player ID
 The daily digest is posted to **#aethelgard** (`discord.rpg_channel`) so players can follow what everyone did that day; its totals combine the day's fights, XP, Gil, loot, events, and other outing notes. The final report is first persisted in `memory/ttrpg/outings/untold/`; if generation or delivery fails, or the bot restarts mid-report, that same daily digest is retried at boot. The prompt retains creature descriptions, how fights felt (close calls, clean wins, lucky strikes), the latest HP, sensory detail, and Kaia's lowercase GM voice.
 
 Prompt builders in `rpg_prompt_builder.py`:
-- `build_combat_prompt()` — Hunt/dungeon combat narration
-- `build_outing_summary_prompt()` — one paragraph for a whole trip out
-- `build_action_prompt()` — Skill check narration
+- `build_look_prompt()` — description of a location on `!rpg look`
+- `build_rumor_prompt()` — a tavern rumor
 - `build_npc_prompt()` — NPC dialogue (with CHA context)
 - `build_event_prompt()` — Admin-triggered world events
-- `build_levelup_prompt()` — Level-up flavor text
+- `build_outing_summary_prompt()` — one paragraph for a whole trip out (fights are not narrated one by one; see CLAUDE.md §4)
 
 All LLM calls are GPU-guarded via `gpu_memory_manager.run_with_gpu_guard()` and wrapped in try/except — narration is always best-effort, game state is never dependent on LLM success.
 
