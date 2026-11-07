@@ -2168,6 +2168,28 @@ def _apply_forest_event_mechanics(sheet, result):
     return item_delivery, leveled_up, new_level, blackout
 
 
+def _place_name(location: str) -> str:
+    from utils.ttrpg.world import LOCATION_DATA
+    return LOCATION_DATA.get(location, {}).get("name") or location.replace("_", " ").title()
+
+
+async def _announce_missing_person_found(ctx, msg, sheet, location, result):
+    """Town news for a rescue: the notice went up in #aethelgard, so the ending goes there too."""
+    name = result.get("missing_person") or "the missing villager"
+    who = sheet.get("character_name", "An adventurer")
+    await _log_world_event(f"📋 **Found:** {who} brought {name} home from {_place_name(location)}.")
+    embed = discord.Embed(
+        title="📋 Missing Person Found",
+        description=(
+            f"**{who}** found **{name}** in **{_place_name(location)}** and brought them home safe.\n\n"
+            "*Elder Elara has taken down the notice. The family is already arguing about who left the gate open.*"
+        ),
+        color=0x2ecc71,
+    )
+    embed.set_footer(text="+100 XP · +100 Gil · +10 Reputation")
+    await _broadcast_world_event(ctx, embed, skip_channel=msg.channel)
+
+
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=None, is_owner=False):
     """Apply a forest event's mechanical effects; its story joins the trip's (outing.py)."""
     event_location = sheet.get("location", "whisperwood_edge")
@@ -2180,6 +2202,7 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
             if name is None:
                 return False, None
             current_sheet["reputation"] = current_sheet.get("reputation", 0) + 10
+            result["missing_person"] = name
             result["outcome"] = (
                 f"You found {name} safe and escorted them back. +100 XP, +100 Gil, +10 Reputation."
             )
@@ -2196,6 +2219,7 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
             # into the normal monster hunt.
             return False
         item_delivery, leveled_up, new_level, blackout = mechanics
+        await _announce_missing_person_found(ctx, msg, sheet, event_location, result)
     else:
         item_delivery, leveled_up, new_level, blackout = _apply_forest_event_mechanics(sheet, result)
         await save(sheet)
