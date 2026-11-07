@@ -150,3 +150,12 @@ def test_rpg_world_event_reader_changes_select_async_io_regressions():
             for path in selector["select_tests"]([source])
         }
         assert "tools/tests/unit/ttrpg/test_world_event_async_io.py" in selected
+
+
+def test_a_module_change_selects_tests_that_import_it_under_any_name():
+    """kaia_rag_query's behaviour-named tests were never selected, and three of
+    them failed on main unnoticed."""
+    selector = runpy.run_path(str(SELECTOR))
+    selected = {p.as_posix() for p in selector["select_tests"](["utils/core/kaia_rag_query.py"])}
+    for name in ("test_news_and_short_queries.py", "test_tier1_features.py"):
+        assert any(s.endswith("tools/tests/unit/" + name) for s in selected), name

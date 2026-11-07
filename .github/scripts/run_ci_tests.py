@@ -7,6 +7,7 @@ add the repository's cheap static invariants, and compile production Python.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -201,8 +202,40 @@ def select_tests(paths: list[str]) -> list[Path]:
         stem = Path(rel).stem
         direct = [p for name, p in available.items() if Path(name).name == f"test_{stem}.py"]
         selected.update(direct)
+        selected.update(importing_tests(rel, available))
 
     return sorted(selected)
+
+
+#: A module imported by more test files than this (yaml_config, the logger) is
+#: left to its explicit mappings: running every importer would be the suite.
+MAX_IMPORTERS = 40
+
+
+def importing_tests(rel: str, available: dict) -> list[Path]:
+    """Test files that import the changed module by name.
+
+    Tests named for a behaviour rather than a file were reachable only through
+    RELATED_TESTS, and a missing entry meant CI ran none of them: three
+    kaia_rag_query tests failed on main for a week this way.
+    """
+    if not rel.endswith(".py"):
+        return []
+    dotted = rel[:-3].replace("/", ".")
+    package, _, stem = dotted.rpartition(".")
+    patterns = [re.compile(rf"\b{re.escape(dotted)}\b")]
+    if package:
+        patterns.append(re.compile(
+            rf"from\s+{re.escape(package)}\s+import\s+(?:\([^)]*|[^\n]*)\b{re.escape(stem)}\b"))
+    hits = []
+    for path in available.values():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if any(p.search(text) for p in patterns):
+            hits.append(path)
+    return hits if len(hits) <= MAX_IMPORTERS else []
 
 
 def main() -> int:
