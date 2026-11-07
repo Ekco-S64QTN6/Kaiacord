@@ -657,6 +657,7 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
         run_iron_magpies_heist, run_boundary_shift, run_sealed_wax_jar,
         run_elaras_private_ritual,
     )
+    from utils.ttrpg import noon_events
 
     EVENTS = {
         "raid":       run_village_raid,
@@ -688,6 +689,14 @@ async def _handle_event(ctx, msg, send, rest, uid, uname, is_owner):
         "boundary_shift":          run_boundary_shift,
         "sealed_wax_jar":          run_sealed_wax_jar,
         "elaras_private_ritual":   run_elaras_private_ritual,
+        "starfall":   noon_events.run_starfall,
+        "scholar":    noon_events.run_wandering_scholar,
+        "archivist":  noon_events.run_wandering_scholar,
+        "migration":  noon_events.run_gilded_migration,
+        "gilded":     noon_events.run_gilded_migration,
+        "eclipse":    noon_events.run_hollow_sun,
+        "hollow_sun": noon_events.run_hollow_sun,
+        "ghost_caravan": noon_events.run_ghost_caravan,
         "random":     None,
     }
 

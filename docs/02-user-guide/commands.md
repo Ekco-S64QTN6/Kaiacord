@@ -86,6 +86,7 @@ Opens the Aethelgard TTRPG interface — a full persistent RPG with turn-based c
 Key subcommands:
 - `!rpg new <Name> <Race> <Class>` — Create a character (Warrior/Ranger/Mage/Rogue/Cleric)
 - `!rpg sheet` — View character sheet
+- `!rpg lore` — The Lore Codex: pages of history found in rare events and on rare creatures (`!rpg lore <n>` reads one)
 - `!rpg hunt` — Hunt for monsters in current region
 - `!rpg go <place>` — Travel (`!rpg map` for the world map)
 - `!rpg dungeon enter` — Enter a dungeon or Spine of the World floor

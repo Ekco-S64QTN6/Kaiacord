@@ -25,14 +25,18 @@ utils/ttrpg/
 ├── dungeon.py                     ← Procedural 5×5 maze gen, room types, boss pools, map render
 ├── encounter_tables.py            ← Per-location monster encounter weights and event chances
 ├── equipment_registry.py          ← WEAPONS, ARMOR, CONSUMABLES, HEADGEAR, BOOTS, ACCESSORIES
-├── forest_events.py               ← 21 forest event handlers (Sylvan Sprites, Tonberry, etc.)
+├── forest_events.py               ← Forest event handlers and the dispatcher (Sylvan Sprites, Tonberry, etc.)
+├── forest_events_rare.py          ← Lore, rare, night-only and legendary forest events
+├── lore.py                        ← The Lore Codex: pages, sets, set rewards, `!rpg lore`
 ├── look_targets.py                ← Hardcoded "look at <thing>" flavor text per location
 ├── loot_tables.py                 ← Tier-aware loot drops from monsters and dungeon chests
 ├── micro_events.py                ← Overworld traveling events, weather discoveries, and streak rewards
 ├── monster_registry.py            ← Full bestiary: 369 monsters across 7 tiers (44 boss-tier)
+├── noon_events.py                 ← Noon events that drive rare content (Starfall, Archivist, Migration, Hollow Sun, Ghost Caravan)
 ├── npc_registry.py                ← NPC definitions: Elara, Hemlock, Mira, Guard, Maren, Bard
 ├── progression.py                 ← XP thresholds, level-up, daily hunt reset, condition expiry
 ├── quest_registry.py              ← Quest definitions and lookup helpers
+├── rare_spawns.py                 ← Rare monster variants (Gilded, Elder, Pale, Whispering, Resonant)
 ├── rpg_prompt_builder.py          ← Ground-truth blocks injected into Kaia's LLM prompts
 ├── rpg_ui.py                      ← Shared UI components (buttons, selects)
 ├── session_manager.py             ← Multi-player session tracking
@@ -244,7 +248,7 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | Whisperwood Deep | 15% | 4+ |
 | Aeridor Ruins | 10% | 7+ |
 
-### Forest Events (31 total)
+### Forest Events (44 total: 31 common, 10 rare or lore, 3 legendary)
 
 | Event | Key Mechanic |
 |:--|:--|
@@ -279,6 +283,55 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | 👂 The Silent Chorus | INT check DC 9 → scaled XP reward |
 | 🍯 Sap-Slicked Roots | Gather Honey Sap + XP (30% slip/HP loss) |
 | 🦇 The Uninvited Guest | WIS check DC 12 → Wisp Ward + 30 Gil OR -6 HP |
+| 🧭 The Cartographer's Cairn | Wayfarer's Notes page, +15 XP (25 Gil once the set is complete) |
+| ✉️ The Fallen Courier | Aeridor Codex page, +20 XP (40 Gil once complete) |
+| 🎵 The Songstone | WIS DC 11 → Songs of the Silvani page + 20 XP, OR -4 HP |
+| 🏮 The Lantern Shrine | Leave 10 Gil → Tonberry Ledger page + 20 XP (nothing taken if you have under 10) |
+| 🪞 The Mirror Pool | 50%: Mirror Resolve (+2 DMG next fight) + 25 XP, OR -6 HP + 20 XP |
+| 🎪 The Stall That Wasn't There | A gem: Pearl 60% / Opal 30% / Black Pearl 10%, +10 XP |
+| 🐦‍⬛ Seven Crows | First time: an Oddities page and *Lucky*; +15 XP |
+| 👴 Old Man Hemlock? | A Hi-Potion, +20 XP; first time an Oddities page |
+| 🌠 A Fallen Star | **Night only** (any time during Starfall): Aeridor Crystal Shard, +30 XP, Oddities page; announced in #aethelgard |
+| 🌑 The Quiet Hunter | **Night only**, Deep: DEX DC 12 → Shadow Step + 25 XP, OR -8 HP |
+| 🚪 The Door in the Oak | **Legendary**: full HP, a hunt returned, +50 XP, Oddities page; announced |
+| 🪨 The Tablet That Knew Your Name | **Legendary**: +77 XP, +77 Gil, Oddities page; announced |
+| 🦌 The Gilded Stag | **Legendary**: a Diamond, +100 XP; announced |
+
+### Rare Encounters
+
+- **Legendary events** are rolled before the location table: 1 in 120 forest events
+  (`forest_events_rare.LEGENDARY_ONE_IN`), only where each one lives (the Door: Edge and Deep;
+  the Tablet: Ruins and Deep; the Stag: Edge, Deep and Trade Road).
+- **Night-only events** (Fallen Star, Quiet Hunter) roll between 18:00 and 06:00. Starfall lets
+  the Fallen Star fall by day too, at three times its weight; the Archivist doubles the four lore events.
+- **Rare variants:** 1 overworld spawn in 40 (`rare_spawns.RARE_ONE_IN`; 1 in 10 during the
+  Gilded Migration or the Hollow Sun) is a variant of the creature rolled. It keeps its key (quest
+  kills still count) and its ATK; quest-boosted spawns and bosses never are one.
+
+| Variant | Where / when | HP | XP | Gil | Its own drop |
+|:--|:--|:--|:--|:--|:--|
+| 🪙 Gilded | anywhere | ×1.3 | ×2 | ×5 | a gem: Opal 50% / Black Pearl 30% / Star Ruby 15% / Diamond 5% |
+| 🌳 Elder | anywhere | ×1.6 | ×3 | ×2 | a gear drop rolled one tier up |
+| 🌫️ Pale | night only | ×1.4 | ×2.5 | ×2 | a lore page from any set |
+| 🍃 Whispering | Whisperwood Edge/Deep | ×1.4 | ×2.5 | ×2 | a Songs of the Silvani page |
+| 💎 Resonant | Aeridor Ruins | ×1.4 | ×2.5 | ×2.5 | an Aeridor Codex page |
+
+A lore variant whose set is already complete carries a gem instead. Each kill is announced in
+#aethelgard ("✨ Rare Hunt").
+
+### The Lore Codex
+
+`!rpg lore` lists every page (`???` for one not yet found); `!rpg lore <n>` reads one. Pages live on
+the sheet (`lore_pages`); a set completed for the first time pays once (`lore_sets_done`) and is
+announced in #aethelgard.
+
+| Set | Pages | Found in | Completion reward |
+|:--|:--|:--|:--|
+| 💎 The Aeridor Codex | 6 | Fallen Courier, Resonant variants, Pale variants | 300 Gil, 250 XP, Star Ruby |
+| 🍃 Songs of the Silvani | 4 | Songstone, Whispering variants, Pale variants | 200 Gil, 200 XP, Moonwater |
+| 🏮 The Tonberry Ledger | 3 | Lantern Shrine, Pale variants | 250 Gil, 150 XP, Black Pearl |
+| 🧭 Wayfarer's Notes | 3 | Cartographer's Cairn, Pale variants | 150 Gil, 150 XP, Opal |
+| 🌀 Oddities & Rumours | 5 | Seven Crows, Old Man Hemlock?, Fallen Star, the Door, the Tablet | 500 Gil, 300 XP, Blue Diamond |
 
 ---
 
@@ -516,9 +569,11 @@ All temporary conditions are cleared on daily reset (midnight). Only `Blessed` a
 | Resonance Link | Veiled Elder (Mage) | +2 to INT checks |
 | Shadow Step | Veiled Elder (Rogue) | +2 to DEX checks |
 | Divine Clarity | Veiled Elder (Cleric) | +2 to WIS checks |
-| Tree Memory | Whisper in Bark | -2 damage from natural sources |
-| Wisp Ward | Twin Wisps (ignored both) | Light protective ward |
-| Aeridorian Attunement | Strange Statue | +1 ATK in ruins |
+| Tree Memory | Whisper in Bark | -2 damage from natural creatures (not undead or constructs) for one fight |
+| Wisp Ward | Twin Wisps (ignored both), Uninvited Guest | +1 DEF for one fight |
+| Aeridorian Attunement | Strange Statue | +1 ATK in the Aeridor Ruins until the daily reset |
+| Mirror Resolve | Mirror Pool | +2 damage for one fight |
+| Lucky | Seven Crows, Lucky Charm | +1 to hit on the next attack |
 
 ---
 
@@ -590,7 +645,7 @@ Overworld activities change dynamically based on time of day (Day is 6 AM to 6 P
 
 At 12:00 PM (Noon) daily, a random dynamic world event is selected from the active event pool and triggered in `#aethelgard` (with temporal effects persisting until the next noon event).
 
-### Active Noon Event Pool (28 total)
+### Active Noon Event Pool (33 total)
 
 | Event | Code Key | Type / Impact | Description |
 |:--|:--|:--|:--|
@@ -611,7 +666,7 @@ At 12:00 PM (Noon) daily, a random dynamic world event is selected from the acti
 | 📋 Market Glut / Shortage | `market` | Economy Mod | 50% chance for Market Glut (all shop prices -20% until the next noon event) or 50% chance for Bandit Blockade (prices +25% until the next noon event). |
 | 🌸 Whisperwood Bloom | `bloom` | Spawn Mod | Pollen bloom increases all Whisperwood edge/deep forest event chances by +15% until the next noon event. |
 | 🕯️ Shrine Vigil | `vigil` | Buff Window | Enhanced blessing window at Oakhaven Shrine (grants +5 HP and Blessed) until the next noon event. |
-| 📋 Missing Person Notice | `missing` | World Quest | Distress notice posted for a random villager. Players must hunt/scout in a target zone to find and escort them back. |
+| 📋 Missing Person Notice | `missing` | World Quest | Distress notice posted for a random villager. Players must hunt/scout in a target zone to find and escort them back; the rescue is announced in `#aethelgard`. |
 | ⚙️ Ironclad Guild Envoys | `ironclad_envoys` | Economy Mod | Guild envoys buy up local supplies, inflating Hemlock's and Caravan prices by 15% until the next noon event. |
 | 🌊 The Silverstream Runs Black | `silverstream_blackwater` | Environment | Murky runoff taints Tricklebrook Pond headwaters; fishing is temporarily disabled/dangerous until the next noon event. |
 | 🌘 The Hooded Figure's Vigil | `hooded_figures_vigil` | Buff | Stranger at the hearth casts an eerie shadow; patrons present at Stone Hearth receive the Veiled Watched buff. |
@@ -622,6 +677,11 @@ At 12:00 PM (Noon) daily, a random dynamic world event is selected from the acti
 | 🍃 Whisperwood Boundary Shift | `boundary_shift` | Mechanics Mod | Border stakes shifted; Whisperwood Edge solo hunts shift up by 1 tier (increased difficulty/loot) until the next noon event. |
 | 🫙 The Sealed Wax Jar | `sealed_wax_jar` | Shop Special | Hemlock opens a wax jar, offering Lucky Charms at a special discount (20 Gil) until the next noon event. |
 | 🌙 Elara's Private Ritual | `elaras_private_ritual` | XP / Lore | Oakhaven residents witness Elara performing a shrine ritual, granting +10 XP. |
+| 🌠 Starfall | `starfall` | Rare Mod | Fallen Star events by day as well as night, at three times their weight, until the next noon event. |
+| 📚 The Wandering Archivist | `scholar` / `archivist` | Lore Mod | Archivist Venn arrives; the four lore events are twice as likely until the next noon event. |
+| 🪙 The Gilded Migration | `migration` / `gilded` | Rare Mod | Rare variants 1 in 10 instead of 1 in 40 until the next noon event. |
+| 🕯️ The Ghost Caravan | `ghost_caravan` | Spawn Mod | More undead, and forest events +10% everywhere, until the next noon event. |
+| 🌑 The Hollow Sun | `eclipse` / `hollow_sun` | Mechanics Mod | Half the weight of the others. Monsters a tier stronger, more undead, rare variants 1 in 10, until the next noon event. |
 
 ---
 

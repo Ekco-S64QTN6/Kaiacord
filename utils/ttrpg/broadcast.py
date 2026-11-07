@@ -70,11 +70,17 @@ async def log_world_event(event_text):
 
     await asyncio.to_thread(functools.partial(_sync_log, event_text))
 
-async def broadcast_world_event(ctx, embed: discord.Embed):
-    """Post a notable event embed to the main #aethelgard broadcast channel."""
+async def broadcast_world_event(ctx, embed: discord.Embed, *, skip_channel=None):
+    """Post a notable event embed to the main #aethelgard broadcast channel.
+
+    ``skip_channel`` is where the player already saw it: a card played in
+    #aethelgard itself is not posted there twice.
+    """
     try:
         channel_name = config.get('discord.rpg_channel', 'aethelgard').lower()
         channel = discord.utils.get(ctx.bot.get_all_channels(), name=channel_name)
+        if channel and skip_channel is not None and getattr(skip_channel, "id", None) == channel.id:
+            return
         if channel:
             await channel.send(embed=embed)
     except Exception as e:

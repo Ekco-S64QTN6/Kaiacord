@@ -1104,6 +1104,12 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         monster_instance["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
         monster_instance["aggro_uid"] = str(uid)  # personal instance
         monster_instance["origin_location"] = loc
+        if not quest_location_override:
+            from utils.ttrpg import rare_spawns
+            from utils.ttrpg.world_state import load_world_state as _load_ws
+            _variant = rare_spawns.roll_variant(loc, monster_instance, _load_ws())
+            if _variant:
+                rare_spawns.apply_variant(monster_instance, _variant)
         
         s["monsters"].append(monster_instance)
         spawned_names.append(f"**{monster_instance['name']}**")
@@ -1129,6 +1135,11 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
     else:
         title = f"⚔️ Encounter: {primary_monster.get('name', 'Enemy')} {tier_icon}"
         description = f"{warn}*{monster_desc}*"
+    rare_here = [m for m in s["monsters"][-len(spawned_names):] if m.get("rare_variant")]
+    if rare_here:
+        from utils.ttrpg.rare_spawns import VARIANTS
+        v = VARIANTS[rare_here[0]["rare_variant"]]
+        description = f"{v['emoji']} **A rare sighting: {rare_here[0]['name']}!**\n" + description
 
     embed = discord.Embed(
         title=title,
@@ -1313,6 +1324,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
         
     
     xp_gain, gil_gain, level_up_msg, loot_msg, streak_msg = 0, 0, "", "", ""
+    rare_grant = None
     loot_lines = []
     clear_blockade = bool(
         res["monster_defeated"]
@@ -1433,6 +1445,16 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             else:
                 loot_lines.append(f"🎒 **[Inventory Full]** Left behind: {cons_display}")
 
+        # A rare variant's own drop (rare_spawns.py), on the sheet before the commit.
+        rare_grant = None
+        if monster.get("rare_variant"):
+            from utils.ttrpg import rare_spawns
+            rare_lines, rare_grant = rare_spawns.kill_rewards(sheet, monster)
+            loot_lines.extend(rare_lines)
+            if rare_grant:
+                from utils.ttrpg.lore import describe_grant
+                loot_lines.append(describe_grant(rare_grant))
+
         # Blockade Raid Victory is replayed from the pending combat outcome
         # together with the character reward and encounter removal.
         if clear_blockade:
@@ -1445,7 +1467,7 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 color=0x27ae60
             )
             _raid_embed.set_footer(text=f"+{xp_gain} XP · +{gil_gain} Gil")
-            await _broadcast_world_event(ctx, _raid_embed)
+            await _broadcast_world_event(ctx, _raid_embed, skip_channel=msg.channel)
 
         if loot_lines:
             loot_msg = "\n🎁 **Looted:**\n" + "\n".join(loot_lines)
@@ -1578,6 +1600,8 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             save_sheet=save,
             persist_encounter=_persist_overworld_session,
         )
+        if res["monster_defeated"] and monster.get("rare_variant"):
+            await _announce_rare_kill(ctx, msg, sheet, monster, loc, rare_grant)
         if not res["player_alive"]:
             await _announce_overworld_blackout(
                 ctx, sheet, monster.get("name", "Something"), blackout
@@ -2139,7 +2163,7 @@ def _apply_forest_event_mechanics(sheet, result):
         sheet["hp"]["current"] = min(sheet["hp"]["current"] + heal_amt, sheet["hp"]["max"])
 
     sheet["xp"] = sheet.get("xp", 0) + result["xp"]
-    sheet["gil"] = sheet.get("gil", 0) + result["gil"]
+    sheet["gil"] = max(0, sheet.get("gil", 0) + result["gil"])
     if result["hp_change"] != 0:
         sheet["hp"]["current"] = max(0, min(
             sheet["hp"]["current"] + result["hp_change"],
@@ -2160,12 +2184,97 @@ def _apply_forest_event_mechanics(sheet, result):
         item_delivery = grant_item_or_mail(
             sheet, result["item_add"], f"{result.get('title', 'Forest event')} reward"
         )
+    if result.get("lore_add"):
+        from utils.ttrpg.lore import grant_page
+        # The grant rides on the result so the card can show it; a completed
+        # set pays onto the sheet here, before the level check.
+        result["lore_grant"] = grant_page(sheet, result["lore_add"])
 
     leveled_up, new_level = check_level_up(sheet)
     blackout = None
     if sheet["hp"]["current"] <= 0:
         blackout = _apply_overworld_blackout(sheet)
     return item_delivery, leveled_up, new_level, blackout
+
+
+async def _announce_rare_kill(ctx, msg, sheet, monster, location, grant=None):
+    who = sheet.get("character_name", "An adventurer")
+    await _log_world_event(f"✨ **{who}** brought down a **{monster.get('name', 'rare creature')}** in {_place_name(location)}.")
+    await _broadcast_world_event(ctx, discord.Embed(
+        title="✨ Rare Hunt",
+        description=f"**{who}** brought down a **{monster.get('name', 'rare creature')}** in **{_place_name(location)}**.",
+        color=0xd4a843,
+    ), skip_channel=msg.channel)
+    if grant and grant.get("set_done"):
+        await _announce_rare_find(ctx, msg, sheet, location, {"lore_grant": grant})
+
+
+async def _announce_cache_raid(ctx, msg, sheet, resulting_mult):
+    """Everyone pays the blockade's prices, so everyone hears when a raid lowers or ends them."""
+    who = sheet.get("character_name", "An adventurer")
+    if resulting_mult <= 1.0:
+        await _log_world_event(f"⚔️ **Blockade Broken:** {who} raided the last bandit cache. Prices are back to normal.")
+        embed = discord.Embed(
+            title="⚔️ Trade Road Liberated!",
+            description=f"*{who} raided the last of the bandits' supply caches. The blockade has broken, and shop prices are restored.*",
+            color=0x27ae60,
+        )
+    else:
+        markup = int(round((resulting_mult - 1.0) * 100))
+        await _log_world_event(f"🗡️ **Bandit Cache Raided:** {who} cut the blockade markup to {markup}%.")
+        embed = discord.Embed(
+            title="🗡️ Bandit Cache Raided",
+            description=(f"*{who} slipped into the bandit camp and raided a supply cache.* "
+                         f"The blockade markup on shop prices is down to **{markup}%**."),
+            color=0xe67e22,
+        )
+    await _broadcast_world_event(ctx, embed, skip_channel=msg.channel)
+
+
+def _place_name(location: str) -> str:
+    from utils.ttrpg.world import LOCATION_DATA
+    return LOCATION_DATA.get(location, {}).get("name") or location.replace("_", " ").title()
+
+
+async def _announce_missing_person_found(ctx, msg, sheet, location, result):
+    """Town news for a rescue: the notice went up in #aethelgard, so the ending goes there too."""
+    name = result.get("missing_person") or "the missing villager"
+    who = sheet.get("character_name", "An adventurer")
+    await _log_world_event(f"📋 **Found:** {who} brought {name} home from {_place_name(location)}.")
+    embed = discord.Embed(
+        title="📋 Missing Person Found",
+        description=(
+            f"**{who}** found **{name}** in **{_place_name(location)}** and brought them home safe.\n\n"
+            "*Elder Elara has taken down the notice. The family is already arguing about who left the gate open.*"
+        ),
+        color=0x2ecc71,
+    )
+    embed.set_footer(text="+100 XP · +100 Gil · +10 Reputation")
+    await _broadcast_world_event(ctx, embed, skip_channel=msg.channel)
+
+
+async def _announce_rare_find(ctx, msg, sheet, location, result):
+    """A legendary event, a fallen star, or a completed lore set is town news."""
+    who = sheet.get("character_name", "An adventurer")
+    grant = result.get("lore_grant") or {}
+    if result.get("broadcast"):
+        await _log_world_event(f"✨ **{who}** — {result.get('title', 'something strange')} in {_place_name(location)}.")
+        embed = discord.Embed(
+            title=f"✨ {result.get('title', 'A strange sight')}",
+            description=f"**{who}** in **{_place_name(location)}**:\n*{result.get('outcome', '')}*",
+            color=0xb388ff,
+        )
+        embed.set_footer(text="Rare sighting")
+        await _broadcast_world_event(ctx, embed, skip_channel=msg.channel)
+    if grant.get("set_done"):
+        from utils.ttrpg.lore import LORE_SETS
+        set_title, emoji, *_ = LORE_SETS[grant["set_done"]]
+        await _log_world_event(f"{emoji} **{who}** completed *{set_title}*.")
+        await _broadcast_world_event(ctx, discord.Embed(
+            title=f"{emoji} {set_title} — Complete",
+            description=f"**{who}** has gathered every page of *{set_title}*.",
+            color=0xd4a843,
+        ), skip_channel=msg.channel)
 
 
 async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=None, is_owner=False):
@@ -2180,6 +2289,7 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
             if name is None:
                 return False, None
             current_sheet["reputation"] = current_sheet.get("reputation", 0) + 10
+            result["missing_person"] = name
             result["outcome"] = (
                 f"You found {name} safe and escorted them back. +100 XP, +100 Gil, +10 Reputation."
             )
@@ -2196,6 +2306,7 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
             # into the normal monster hunt.
             return False
         item_delivery, leveled_up, new_level, blackout = mechanics
+        await _announce_missing_person_found(ctx, msg, sheet, event_location, result)
     else:
         item_delivery, leveled_up, new_level, blackout = _apply_forest_event_mechanics(sheet, result)
         await save(sheet)
@@ -2222,7 +2333,7 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
     if result["xp"]:
         body_lines.append(f"+{result['xp']} XP ({sheet['xp']}/{xp_next})")
     if result["gil"]:
-        body_lines.append(f"+{result['gil']} Gil  (total: {sheet['gil']}g)")
+        body_lines.append(f"{result['gil']:+d} Gil  (total: {sheet['gil']}g)")
     if result["hp_change"] > 0:
         body_lines.append(f"+{result['hp_change']} HP  ({sheet['hp']['current']}/{sheet['hp']['max']})")
     if result["hp_change"] < 0:
@@ -2236,6 +2347,10 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
             f"📬 **{result['item_add'].replace('_', ' ').title()}** was sent to Moogle Mail "
             "because your inventory is full."
         )
+    grant = result.get("lore_grant")
+    if grant:
+        from utils.ttrpg.lore import describe_grant
+        body_lines.append(describe_grant(grant))
     if blackout:
         body_lines.append(
             "\n🚨 **You blacked out.** Townspeople dragged you back to the Shrine "
@@ -2250,6 +2365,7 @@ async def _apply_and_narrate_event(ctx, msg, send, sheet, result, uname, *, uid=
     )
 
     await msg.channel.send(embed=embed)
+    await _announce_rare_find(ctx, msg, sheet, event_location, result)
 
     if leveled_up:
         await _log_world_event(f"**{sheet['character_name']}** reached Level {new_level} during a world event.")
@@ -2521,6 +2637,7 @@ async def _handle_rob_bandits(ctx, msg, send, rest, uid, uname, is_owner):
             description=desc,
             color=0x2ecc71
         ))
+        await _announce_cache_raid(ctx, msg, sheet, resulting_mult)
     else:
         # Detected!
         dmg = secrets.randbelow(6) + 5  # 5-10 dmg

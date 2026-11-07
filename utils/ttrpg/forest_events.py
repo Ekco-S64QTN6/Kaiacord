@@ -5,6 +5,7 @@ def resolve_event(event_key: str, sheet: dict) -> dict:
     """
     Resolve a forest event. Returns a result dict.
     """
+    from utils.ttrpg import forest_events_rare as _rare
     handlers = {
         "sylvan_sprites":    _sylvan_sprites,
         "moogle_sighting":   _moogle_sighting,
@@ -38,6 +39,20 @@ def resolve_event(event_key: str, sheet: dict) -> dict:
         "silent_chorus":     _silent_chorus,
         "sap_slicked_roots": _sap_slicked_roots,
         "uninvited_guest":   _uninvited_guest,
+        # Lore, rare, night-only and legendary events (forest_events_rare.py)
+        "cartographers_cairn": _rare.cartographers_cairn,
+        "fallen_courier":    _rare.fallen_courier,
+        "songstone":         _rare.songstone,
+        "lantern_shrine":    _rare.lantern_shrine,
+        "mirror_pool":       _rare.mirror_pool,
+        "wandering_stall":   _rare.wandering_stall,
+        "seven_crows":       _rare.seven_crows,
+        "the_other_hemlock": _rare.the_other_hemlock,
+        "fallen_star":       _rare.fallen_star,
+        "quiet_hunter":      _rare.quiet_hunter,
+        "door_in_the_oak":   _rare.door_in_the_oak,
+        "the_tablet":        _rare.the_tablet,
+        "gilded_stag":       _rare.gilded_stag,
     }
     handler = handlers.get(event_key, _sylvan_sprites)
     return handler(sheet)

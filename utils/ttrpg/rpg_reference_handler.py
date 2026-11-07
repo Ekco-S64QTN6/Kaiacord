@@ -13,6 +13,18 @@ async def _handle_roll(ctx, msg, send, rest, uid, uname, is_owner):
     except Exception:
         await msg.channel.send(embed=discord.Embed(description="Invalid syntax", color=0xcc4444))
 
+async def _handle_lore(ctx, msg, send, rest, uid, uname, is_owner):
+    """!rpg lore [n] — the Lore Codex: every page found, or one page read aloud."""
+    from utils.ttrpg.character_manager import load
+    from utils.ttrpg.lore import codex_text
+    sheet = await load(uid)
+    if not sheet:
+        return await msg.channel.send(embed=discord.Embed(
+            description="No character yet. `!rpg new <name> <race> <class>`", color=0xcc4444))
+    title, body = codex_text(sheet, rest)
+    await msg.channel.send(embed=discord.Embed(title=title, description=body, color=0xc8a86b))
+
+
 async def _handle_bestiary(ctx, msg, send, rest, uid, uname, is_owner):
     if not is_owner: return
     from utils.ttrpg.monster_registry import format_bestiary
@@ -101,6 +113,7 @@ async def _handle_rpg_help(ctx, msg, send, rest, uid, uname, is_owner):
         "`!rpg equip <item>`\n"
         "`!rpg use <item>` — use a supported consumable\n"
         "Retired Eye Drops / Trap Kit cannot be used; sell existing copies.\n"
+        "`!rpg lore` — pages of history you've found\n"
         "`!rpg leaderboard`"
     ), inline=True)
 

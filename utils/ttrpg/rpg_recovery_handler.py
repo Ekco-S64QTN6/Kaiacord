@@ -88,7 +88,7 @@ async def _handle_purify(ctx, msg, send, rest, uid, uname, is_owner, *, load_cha
         title="🌊 Waters Cleansed — Tricklebrook Pond",
         description=f"*{sheet['character_name']} neutralized the dark sludge at Tricklebrook Pond! Fishing waters are restored.*",
         color=0x2ecc71
-    ))
+    ), skip_channel=msg.channel)
 
 
 async def _handle_drink(ctx, msg, send, rest, uid, uname, is_owner, *, load_character, save_character, make_status_view, hunts_remaining_fn, get_max_hunts_fn):

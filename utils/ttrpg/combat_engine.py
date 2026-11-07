@@ -30,6 +30,10 @@ ONE_FIGHT_BUFFS = {
     "golden_tongue":    (0, 0, 0),   # + gil on the kill, paid by the handler
     "divine_word":      (0, 3, 0),   # + 5 HP when the fight ends, below
     "world_speak":      (0, 0, 2),
+    # Forest-event blessings.
+    "wisp_ward":        (0, 0, 1),
+    "tree_memory":      (0, 0, 0),   # -2 damage from natural creatures, below
+    "mirror_resolve":   (0, 2, 0),
 }
 BUFF_LABELS = {
     "battle_focus": "⚔️ Battle Focus", "forest_sight": "🏹 Forest Sight",
@@ -40,7 +44,20 @@ BUFF_LABELS = {
     "arcane_surge": "🔮 Arcane Surge", "predator_eye": "🎯 Predator's Eye", "roots_aura": "🌳 Roots Aura",
     "void_step": "🌑 Void Step", "golden_tongue": "🪙 Golden Tongue", "divine_word": "📜 Divine Word",
     "world_speak": "🌍 World Speak",
+    "wisp_ward": "🕯️ Wisp Ward", "tree_memory": "🌳 Tree Memory", "mirror_resolve": "🪞 Mirror Resolve",
 }
+
+# Lasts until the daily reset, not one fight: the Strange Statue's +1 ATK, in the ruins only.
+ATTUNEMENT_LOCATIONS = {"aeridor_ruins"}
+
+_CONSTRUCT = re.compile(
+    r"\b(golem|construct|clockwork|automat\w*|sentinel|machin\w*|gear|brass|iron\s+\w+|"
+    r"crystal\s+guardian|warframe)\b", re.I)
+
+
+def is_natural(monster: dict) -> bool:
+    """A creature of the forest: not undead, not a construct."""
+    return not _is_undead(monster) and not _CONSTRUCT.search(str(monster.get("name", "")))
 
 HEAVY_ARMOR_WORDS = ("mail", "plate", "cuirass")
 
@@ -267,6 +284,9 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
         oracle_dmg_bonus += 3
     if active_buffs:
         status_logs.append("*" + ", ".join(BUFF_LABELS.get(c, c) for c in active_buffs) + " — still with you.*")
+    if "aeridorian_attunement" in conditions and sheet.get("location") in ATTUNEMENT_LOCATIONS:
+        oracle_atk_bonus += 1
+        status_logs.append("💠 *Aeridorian Attunement: the ruins answer your strikes (+1 ATK).*")
 
     attack_mod = (
         atk_mod + weapon_atk + acc_atk + adv_flat_atk + bless_bonus + streak_bonus +
@@ -496,6 +516,8 @@ def _resolve_combat(sheet: dict, monster: dict, atk_mod_global: int = 0, def_mod
                 sheet, 0, False, False, monster_damage, monster, False
             )
             md_reduction = adv_mods["monster_damage_reduction"]
+            if "tree_memory" in active_buffs and is_natural(monster):
+                md_reduction += 2
             if md_reduction:
                 monster_damage = max(0, monster_damage - md_reduction)
             if adv_mods["extra_log"]:

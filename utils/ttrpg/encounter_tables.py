@@ -177,6 +177,9 @@ EVENTS = {
         ("blue_flame_echo",    4), ("strangers_coin",     6),
         ("moved_boundary",     5), ("early_bloom",        6),
         ("sap_slicked_roots",  8),
+        ("cartographers_cairn", 3), ("songstone",         2),
+        ("wandering_stall",    1), ("seven_crows",        1),
+        ("the_other_hemlock",  1), ("fallen_star",        2),
     ],
     "whisperwood_deep": [
         ("injured_silvani",   15), ("old_man_riddle",    10),
@@ -190,6 +193,9 @@ EVENTS = {
         ("blue_flame_echo",    4), ("watching_silvani",   5),
         ("early_bloom",        4), ("unclaimed_lantern",  5),
         ("uninvited_guest",    3),
+        ("songstone",          4), ("fallen_courier",     3),
+        ("lantern_shrine",     3), ("mirror_pool",        2),
+        ("fallen_star",        2), ("quiet_hunter",       3),
     ],
     "aeridor_ruins": [
         ("aeridor_fragment",  20), ("crystal_resonance", 18),
@@ -198,6 +204,8 @@ EVENTS = {
         ("echo_of_aeridor",   10), ("strange_statue",     8),
         ("blue_flame_echo",    6), ("unclaimed_lantern",  5),
         ("silent_chorus",      6), ("uninvited_guest",    4),
+        ("fallen_courier",     4), ("lantern_shrine",     3),
+        ("fallen_star",        2),
     ],
     "trade_road": [
         ("gilded_mushroom",   16), ("old_man_riddle",    14),
@@ -206,6 +214,9 @@ EVENTS = {
         ("lost_merchant",     12), ("abandoned_camp",    10),
         ("strangers_coin",     7), ("wagon_tracks",      6),
         ("sap_slicked_roots",  8),
+        ("cartographers_cairn", 5), ("wandering_stall",   2),
+        ("seven_crows",        1), ("the_other_hemlock",  1),
+        ("fallen_star",        2),
     ],
 }
 
@@ -220,7 +231,12 @@ def random_event(location: str) -> str:
         if secrets.randbelow(10) < 4:
             return "missing_persons_found"
 
-    table = EVENTS.get(location, EVENTS["whisperwood_edge"])
+    from utils.ttrpg import forest_events_rare as rare
+    legendary = rare.roll_legendary(location, wstate)
+    if legendary:
+        return legendary
+    # Night-only events, and the noon events that boost the rare ones.
+    table = rare.adjust_table(EVENTS.get(location, EVENTS["whisperwood_edge"]), wstate)
     total = sum(w for _, w in table)
     r = secrets.randbelow(total)
     cum = 0

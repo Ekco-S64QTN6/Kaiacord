@@ -1407,6 +1407,7 @@ class CoreTaskManager:
                 channel = discord.utils.get(self.ctx.bot.get_all_channels(), name=rpg_channel_name)
                 if channel:
                     import secrets
+                    from utils.ttrpg import noon_events
                     EVENT_POOL = [
                         (run_village_raid,        10),
                         (run_oracle_speaks,       10),
@@ -1436,6 +1437,12 @@ class CoreTaskManager:
                         (run_boundary_shift,      10),
                         (run_sealed_wax_jar,      10),
                         (run_elaras_private_ritual, 10),
+                        # utils/ttrpg/noon_events.py: the rare-content drivers
+                        (noon_events.run_starfall,          10),
+                        (noon_events.run_wandering_scholar, 10),
+                        (noon_events.run_gilded_migration,  10),
+                        (noon_events.run_ghost_caravan,     10),
+                        (noon_events.run_hollow_sun,         5),
                     ]
                     total_w = sum(w for _, w in EVENT_POOL)
                     r_val = secrets.randbelow(total_w)
