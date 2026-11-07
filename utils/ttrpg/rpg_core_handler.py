@@ -335,6 +335,11 @@ async def _handle_roll(ctx, msg, send, rest, uid, uname, is_owner):
     return await handle(ctx, msg, send, rest, uid, uname, is_owner)
 
 
+async def _handle_lore(ctx, msg, send, rest, uid, uname, is_owner):
+    from utils.ttrpg.rpg_reference_handler import _handle_lore as handle
+    return await handle(ctx, msg, send, rest, uid, uname, is_owner)
+
+
 async def _handle_bestiary(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.rpg_reference_handler import _handle_bestiary as handle
     return await handle(ctx, msg, send, rest, uid, uname, is_owner)

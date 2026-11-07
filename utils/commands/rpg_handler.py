@@ -75,6 +75,8 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
         "equip":     cor._handle_equip,
         "roll":      cor._handle_roll,
         "bestiary":  cor._handle_bestiary,
+        "lore":      cor._handle_lore,
+        "codex":     cor._handle_lore,
         "help":      cor._handle_rpg_help,
         "xp":        cor._handle_xp,
         "give":      cor._handle_give,
