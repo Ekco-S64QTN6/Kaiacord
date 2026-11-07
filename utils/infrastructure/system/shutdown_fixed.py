@@ -25,6 +25,10 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_
 warnings.filterwarnings("ignore", message="resource_tracker:.*semaphore", category=UserWarning)
 
 
+#: Registry names of the voice/radio teardown steps.
+_PRELUDE_TASK_PREFIX = "shutdown_component_"
+
+
 async def _bounded_shutdown_component(awaitable, label: str, deadline: float, registry=None) -> bool:
     """Run a teardown operation without allowing it to overrun the shared deadline.
 
@@ -37,7 +41,7 @@ async def _bounded_shutdown_component(awaitable, label: str, deadline: float, re
         registry = task_registry
 
     task = asyncio.create_task(awaitable, name=f"shutdown:{label}")
-    registry.register(f"shutdown_component_{label}", task)
+    registry.register(f"{_PRELUDE_TASK_PREFIX}{label}", task)
     timeout = max(0.0, deadline - asyncio.get_running_loop().time())
     try:
         _done, pending = await asyncio.wait({task}, timeout=timeout)
@@ -49,17 +53,17 @@ async def _bounded_shutdown_component(awaitable, label: str, deadline: float, re
         task.cancel()
         log_error(
             f"  ❌ Shutdown step '{label}' exceeded the shared voice/radio "
-            f"cleanup deadline ({timeout:.1f}s); preserving resources."
+            f"cleanup deadline ({timeout:.1f}s); cancelled, continuing shutdown."
         )
         return False
 
     try:
         task.result()
     except asyncio.CancelledError:
-        log_error(f"  ❌ Shutdown step '{label}' was cancelled before completion; preserving resources.")
+        log_error(f"  ❌ Shutdown step '{label}' was cancelled before completion.")
         return False
     except Exception as exc:
-        log_error(f"  ❌ Shutdown step '{label}' failed: {exc}; preserving resources.")
+        log_error(f"  ❌ Shutdown step '{label}' failed: {exc}.")
         return False
     return True
 
@@ -152,8 +156,11 @@ class CleanShutdown:
 
         # 0. Stop voice/radio operations before cancelling the background registry.
         # Graceful Discord disconnects should complete where possible, but all four
-        # operations share one configured budget. If one hangs, preserve resources
-        # and let the dashboard's bounded emergency exit end the process.
+        # share one configured budget: the dashboard force-exits about 18 s after
+        # it asks the bot to stop. A step that overruns is cancelled and shutdown
+        # carries on — none of these touch the RAG index, Ollama or the GPU, so
+        # giving up on them must not cost the index save and the model unload
+        # below. The scanner's forked watcher dies with the process (PDEATHSIG).
         prelude_deadline = asyncio.get_running_loop().time() + _shutdown_prelude_timeout()
 
         try:
@@ -161,40 +168,32 @@ class CleanShutdown:
             sessions = active_sessions()
             if sessions:
                 log_info(f"  🔄 Leaving {len(sessions)} voice channel(s)...")
-                if not await _bounded_shutdown_component(stop_all(), "music", prelude_deadline):
-                    return
-                log_info("  ✅ Voice channels released")
+                if await _bounded_shutdown_component(stop_all(), "music", prelude_deadline):
+                    log_info("  ✅ Voice channels released")
         except ImportError:
             pass                      # audio engine not installed
         except Exception as e:
-            log_error(f"  ❌ Could not stop music safely: {e}; preserving resources.")
-            return
+            log_error(f"  ❌ Could not stop music: {e}; continuing shutdown.")
 
         try:
             from utils.audio.records import stop_all as records_stop_all
-            if not await _bounded_shutdown_component(records_stop_all(), "records", prelude_deadline):
-                return
+            await _bounded_shutdown_component(records_stop_all(), "records", prelude_deadline)
         except Exception as e:
-            log_error(f"  ❌ Could not stop records safely: {e}; preserving resources.")
-            return
+            log_error(f"  ❌ Could not stop records: {e}; continuing shutdown.")
 
         try:
             from utils.radio.live import active as radio_active, stop_all as radio_stop_all
             if radio_active():
-                if not await _bounded_shutdown_component(radio_stop_all(), "radio-live", prelude_deadline):
-                    return
-                log_info("  ✅ Live radio stopped")
+                if await _bounded_shutdown_component(radio_stop_all(), "radio-live", prelude_deadline):
+                    log_info("  ✅ Live radio stopped")
         except Exception as e:
-            log_error(f"  ❌ Could not stop live radio safely: {e}; preserving resources.")
-            return
+            log_error(f"  ❌ Could not stop live radio: {e}; continuing shutdown.")
 
         try:
             from utils.radio import scanner
-            if not await _bounded_shutdown_component(scanner.shutdown(), "radio-scanner", prelude_deadline):
-                return
+            await _bounded_shutdown_component(scanner.shutdown(), "radio-scanner", prelude_deadline)
         except Exception as e:
-            log_error(f"  ❌ Could not stop the radio scanner safely: {e}; preserving resources.")
-            return
+            log_error(f"  ❌ Could not stop the radio scanner: {e}; continuing shutdown.")
 
         # 1. Cancel all registered tasks via registry (STOP EVERYTHING FIRST).
         # A task may suppress CancelledError and outlive the configured deadline.
@@ -206,7 +205,12 @@ class CleanShutdown:
 
             timeout = config.shutdown_task_cancel_timeout
             cancelled = await task_registry.cancel_all(timeout=timeout)
-            remaining = task_registry.get_pending_count()
+            # A voice/radio step that overran is voice-only: it holds nothing the
+            # teardown below closes, so it does not hold the teardown back.
+            remaining = task_registry.get_pending_count() - sum(
+                1 for name, task in task_registry.get_all_tasks().items()
+                if not task.done() and name.startswith(_PRELUDE_TASK_PREFIX)
+            )
             if remaining:
                 tasks_stopped = False
                 log_error(
