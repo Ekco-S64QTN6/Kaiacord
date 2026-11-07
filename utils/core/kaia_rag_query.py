@@ -227,12 +227,16 @@ class RAGQueryMixin:
             for entry in getattr(self, "indexed_files", {}).values():
                 if node_id in entry.get("stale_nodes", []):
                     return True
+        indices = getattr(self, "indices", {}) or {}
+        if not indices:
+            # No store is loaded to be authoritative over this candidate.
+            return False
         # BM25/vector retrieval may hold a detached pre-marker copy. Re-read
         # the stored node by ID. In this app's SimpleVectorStore all live nodes
         # also exist in the docstore; a vector-only ID is an orphan from a
         # partial insert/delete and must never reach a prompt.
         found_in_docstore = False
-        for index in getattr(self, "indices", {}).values():
+        for index in indices.values():
             try:
                 docstore = index.storage_context.docstore
                 if not docstore.document_exists(node_id):
