@@ -64,6 +64,15 @@ def _opener_signature(message: str) -> str:
     return " ".join(words[:16])
 
 
+#: Sources that share the diversity log for duplicate checks but are not openers.
+_BROADCAST_ONLY_SOURCES = frozenset({"monologue", "observation"})
+
+
+def _is_broadcast_only(entry: dict) -> bool:
+    """A logged post that is not a proactive opener (marked, or written before the marker)."""
+    return bool(entry.get("broadcast_only")) or entry.get("source") in _BROADCAST_ONLY_SOURCES
+
+
 def _opener_signatures_match(left: str, right: str) -> bool:
     """Exact-match short signatures; fuzzy-match substantive opening phrases."""
     if not left or not right:
@@ -989,7 +998,10 @@ class ProactiveEngine:
         if not candidates:
             return None
 
-        history = self._load_diversity_log()
+        # Source diversity is about her openers only. The same log also holds
+        # monologue and observation posts, for cross-source duplicate checks;
+        # counted here, they pushed the openers out of the 10-entry window.
+        history = [h for h in self._load_diversity_log() if not _is_broadcast_only(h)]
 
         # Filter candidates by diversity constraints
         allowed = [
@@ -1479,9 +1491,13 @@ class ProactiveEngine:
 
     def record_broadcast_sent(
         self, message: str, channel_id: int, source: str,
-        now: Optional[float] = None, content_id: str = "",
+        now: Optional[float] = None, content_id: str = "", proactive: bool = False,
     ) -> None:
-        """Record a successfully delivered automated broadcast for cross-source dedupe."""
+        """Record a successfully delivered automated broadcast for cross-source dedupe.
+
+        Only proactive openers count toward source diversity; anything else is
+        marked broadcast_only so source selection leaves it out.
+        """
         try:
             entry = {
                 "timestamp": time.time() if now is None else float(now),
@@ -1489,6 +1505,8 @@ class ProactiveEngine:
                 "channel_id": channel_id,
                 "summary": message or "",
             }
+            if not proactive:
+                entry["broadcast_only"] = True
             if content_id:
                 entry["content_id"] = content_id
             history = self._load_diversity_log()
@@ -1534,4 +1552,5 @@ class ProactiveEngine:
             source,
             now=now,
             content_id=content_id,
+            proactive=True,
         )
