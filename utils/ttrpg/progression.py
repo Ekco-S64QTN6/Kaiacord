@@ -4,11 +4,15 @@ XP thresholds and level-up logic. All deterministic.
 
 
 
+# Set from measured XP a day at each level (tools/simulation/progression_sim.py
+# --policy hunt): a daily hunter takes about a day a level at first and twelve
+# for the last, about three months to the cap. The old table took 2-3 weeks
+# each for levels 5, 6 and 9, and its 8→9 step was larger than 9→10.
 XP_THRESHOLDS = {
-    1:  0,      2:  300,    3:  900,    4:  2700,
-    5:  5000,   6:  11000,  7:  19000,  8:  28000,
-    9:  48000,  10: 64000,  11: 85000,  12: 112000,
-    13: 148000, 14: 195000, 15: 256000,
+    1:  0,      2:  200,    3:  500,    4:  900,
+    5:  1400,   6:  2500,   7:  4500,   8:  8500,
+    9:  16000,  10: 25000,  11: 38000,  12: 57000,
+    13: 92000,  14: 136000, 15: 193000,
 }
 
 # Increased HP per level — characters need to survive dungeon bosses
@@ -122,7 +126,7 @@ def check_level_up(sheet: dict) -> tuple[bool, int]:
     if final_level >= 15:
         final_level = 15
         sheet["level"] = 15
-        cap_xp = XP_THRESHOLDS.get(15, 256000) + 1
+        cap_xp = XP_THRESHOLDS[max(XP_THRESHOLDS)] + 1
         if sheet["xp"] > cap_xp:
             sheet["xp"] = cap_xp
 

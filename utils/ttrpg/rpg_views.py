@@ -7,6 +7,7 @@ import traceback
 import discord
 
 from utils.commands.stale_view import StaleSafeView
+from utils.ttrpg import turn_buttons
 import secrets
 from utils.infrastructure.logging.kaia_logger import log_debug, log_error
 from utils.infrastructure.system.yaml_config import config
@@ -63,6 +64,12 @@ def _lazy(module: str, name: str):
         return getattr(importlib.import_module(module), name)
 
     async def call(*args, **kwargs):
+        # A button runs a handler as a turn of its own: what it sends last
+        # gets the buttons to carry on (turn_buttons).
+        if len(args) == 7 and not turn_buttons.in_turn():
+            ctx, msg, _send, _rest, uid, uname, is_owner = args
+            async with turn_buttons.turn(ctx, msg, uid, uname, is_owner):
+                return await target()(*args, **kwargs)
         return await target()(*args, **kwargs)
     call.__name__ = name
     call.target = target
@@ -345,7 +352,10 @@ class _InteractionChannel:
         self.name = getattr(self._real, 'name', '')
 
     async def send(self, content=None, **kwargs):
-        return await self._interaction.followup.send(content, **kwargs)
+        kwargs.setdefault("wait", True)          # the message, so its turn can add buttons
+        message = await self._interaction.followup.send(content, **kwargs)
+        turn_buttons.record(message, kwargs)
+        return message
 
     @property
     def typing(self):
@@ -385,15 +395,18 @@ def _make_interaction_send(interaction: discord.Interaction):
     send(channel, text) instead of msg.channel.send(embed=...).
     """
     async def _send(channel, text=None, use_code_block=None, **kwargs):
+        kwargs.setdefault("wait", True)
         if text is not None and str(text).strip():
             if use_code_block is None:
                 use_code_block = "```" not in str(text)
             if use_code_block:
-                await interaction.followup.send(f"```\n{str(text).strip()}\n```", **kwargs)
+                message = await interaction.followup.send(f"```\n{str(text).strip()}\n```", **kwargs)
             else:
-                await interaction.followup.send(str(text).strip(), **kwargs)
+                message = await interaction.followup.send(str(text).strip(), **kwargs)
         else:
-            await interaction.followup.send(**kwargs)
+            message = await interaction.followup.send(**kwargs)
+        turn_buttons.record(message, kwargs)
+        return message
     return _send
 
 
@@ -868,6 +881,15 @@ def _make_status_btn(ctx, uid, uname, is_owner, row=None):
     return btn
 
 
+def _wearable(item: dict, sheet) -> bool:
+    """Whether this character's class can equip the piece. The shop lists
+    only those: Hemlock's two tiers are more than two menus hold."""
+    classes = item.get("classes")
+    if not classes or not sheet:
+        return True
+    return sheet.get("class") in classes or sheet.get("advanced_class") in classes
+
+
 async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
     """Return a View with categorized Buy (gear / consumable) and Sell select menus."""
     from utils.ttrpg.shop import find_item
@@ -919,7 +941,8 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
         if item["category"] == "consumable":
             consumable_items.append(item_key)
         elif item["category"] in ("weapon", "armor", "head", "boots", "accessory"):
-            gear_items.append(item_key)
+            if _wearable(item, sheet):
+                gear_items.append(item_key)
 
     current_row = 0
 
@@ -1557,7 +1580,10 @@ class DungeonView(StaleSafeView):
             else:
                 from utils.ttrpg.dungeon import clear_dungeon
                 await clear_dungeon(self._uid)
-            await interaction.followup.send("You have left the dungeon and returned to the entrance.")
+            await interaction.followup.send(
+                "You have left the dungeon and returned to the entrance.",
+                view=await turn_buttons.buttons_for(self._ctx, interaction, self._uid, self._uname, self._is_owner),
+            )
             # Leaving ends the trip; Kaia tells it once (utils/ttrpg/outing.py).
             from utils.ttrpg import outing
             sheet = await load(self._uid)
@@ -2628,33 +2654,8 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 if is_boss:
                     monster = _scale_boss_to_level(monster, state.get("player_level", sheet.get("level", 1)))
                 else:
-                    # Scale regular mobs slightly by difficulty
-                    diff = state.get("difficulty", 1)
-                    scale = 1.0 + (diff - 1) * 0.15
-                    monster["hp"] = max(5, int(monster["hp"] * scale))
-                    monster["attack"] = max(1, int(monster["attack"] * scale))
-                    monster["defense"] = max(1, int(monster["defense"] * scale))
-                    # Cap non-boss monsters to prevent absurd stats.
-                    # Targets ~50-55% hit rate against a well-geared player at
-                    # the recommended level for that difficulty tier.
-                    if is_spine:
-                        # Spine: progressive floor-based caps so deeper floors
-                        # feel meaningfully harder than early floors.
-                        floor_num = state.get("floor_num", 1)
-                        mob_hp_cap = 80 + (floor_num * 3)     # F1: 83, F40: 200, F77: 311
-                        mob_atk_cap = 12 + (floor_num // 5)   # F1: 12, F40: 20, F77: 27
-                    else:
-                        MOB_HP_CAPS = {1: 35, 2: 60, 3: 90, 4: 130, 5: 180}
-                        MOB_ATK_CAPS = {1: 10, 2: 14, 3: 18, 4: 20, 5: 22}
-                        mob_hp_cap = MOB_HP_CAPS.get(diff, 180)
-                        mob_atk_cap = MOB_ATK_CAPS.get(diff, 22)
-                    # Also enforce a level-based ATK hard cap
-                    # (same formula as overworld: DEF_cap - 10)
-                    _plvl = state.get("player_level", sheet.get("level", 1))
-                    _level_atk_cap = int(_plvl * 1.5 + 2)
-                    mob_atk_cap = min(mob_atk_cap, _level_atk_cap)
-                    monster["hp"] = min(monster["hp"], mob_hp_cap)
-                    monster["attack"] = min(monster["attack"], mob_atk_cap)
+                    from utils.ttrpg.dungeon import scale_dungeon_mob
+                    monster = scale_dungeon_mob(monster, state, state.get("player_level", sheet.get("level", 1)))
                 scaled_hp = monster["hp"] if isinstance(monster["hp"], int) else monster["hp"]
                 monster["hp"] = {"current": scaled_hp, "max": scaled_hp}
                 monster["key"] = monster_key

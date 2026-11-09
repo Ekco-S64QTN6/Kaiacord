@@ -201,6 +201,12 @@ Verified 2026-11-06: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `dungeon.boss_level_multiplier()`, followed by the existing per-level caps. Do not casually
   rewrite the boss ATK cap table: its level-10 entry is intentionally non-monotonic and currently
   does not bind for registry bosses.
+- **Measure a balance change by playing it.** `tools/simulation/progression_sim.py` plays 25
+  characters from level 1 to 15 through the real combat engine, loot tables and prices, and prints
+  days per level, retreats, deaths and gil by source; run it before and after and compare by level
+  (`docs/ttrpg/aethelgard_system.md`, *Power curve*). Monster scaling lives in
+  `encounter_tables.scale_overworld_monster` and `dungeon.scale_dungeon_mob`, which the simulator
+  calls too: scaling done inline at a call site is scaling it cannot see.
 - **Spine stair guardians are floor-scaled encounter instances.** Build them with
   `spine_dungeon.scale_stair_guardian()`; do not mutate `monster_registry.MONSTERS`. Keep the
   floor HP/ATK/DEF curve and milestone Resonance Ward in sync with
@@ -1111,6 +1117,13 @@ passed the limit: the send failed, nothing recorded the attempt, and the next sc
 same reply. A button that later edits such a message changes only the status line
 (`kaia_forum.draft_review_embed`), and an edit that runs before bookkeeping must not be able to
 throw past it — Reject's did, and the rejected reply came back.
+
+**Every `!rpg` turn ends on a card with buttons** (`utils/ttrpg/turn_buttons.py`). A typed
+command or a button press is one turn; what it sends through `msg.channel.send` or `send` is
+recorded, and if its last card has no view, the turn's earlier buttons move down to it or the
+buttons for where the player is (the fight, Hunt Again + Status in the wild, Status in town) are
+added. A forest event's card used to arrive bare. A button that calls a handler directly goes
+through `turn_buttons.run`; a card a view sends itself takes `turn_buttons.buttons_for`.
 
 `!help`, `!nightshift` and `!scanner` are button panels (`discord.ui.View`). `!help` is a landing page with a button per section that swaps the page in place; owner-only commands are only in its Admin section, and what a press shows is decided by the presser's ownership, not the invoker's. A button runs the same handler
 the typed command does, with a message-shaped stand-in for the click (`nightshift._Click`), so a

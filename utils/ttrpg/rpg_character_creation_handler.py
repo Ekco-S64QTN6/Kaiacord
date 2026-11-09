@@ -2,6 +2,30 @@
 import discord
 
 
+STATS_ORDER = ("str", "dex", "con", "int", "wis", "cha")
+
+
+def assign_rolls(rolls: list, class_info: dict) -> list:
+    """Six rolls in stat order, the best on the class's main stat and the next on CON.
+
+    Rolled straight down the sheet, a Mage could start with INT 8 and a
+    7 HP body: a coin-flip loss against the first goblin. The other four
+    stats keep the order they were rolled in."""
+    primary = class_info.get("primary")
+    if primary not in STATS_ORDER:
+        return list(rolls)
+    ranked = sorted(range(len(rolls)), key=lambda i: rolls[i][0], reverse=True)
+    out = [None] * len(rolls)
+    targets = [STATS_ORDER.index(primary)] + ([STATS_ORDER.index("con")] if primary != "con" else [])
+    for target, idx in zip(targets, ranked):
+        out[target] = rolls[idx]
+    rest = [rolls[i] for i in range(len(rolls)) if i not in ranked[:len(targets)]]
+    for slot in range(len(out)):
+        if out[slot] is None:
+            out[slot] = rest.pop(0)
+    return out
+
+
 async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner, *, load_character, create_character, roll_fn, class_registry):
     existing = await load_character(uid)
     if existing:
@@ -47,15 +71,17 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner, *, load_charac
     bonus_dict = RACE_BONUSES.get(race, {})
     
     stats_order = ["str", "dex", "con", "int", "wis", "cha"]
+    rolls = []
+    for _ in stats_order:
+        dice = sorted(roll_fn("d6")[0] for _ in range(4))[1:]  # drop lowest
+        rolls.append((sum(dice), dice))
     rolled_stats = {}
     roll_log = []
-    for stat in stats_order:
-        dice = [roll_fn("d6")[0] for _ in range(4)]
-        base = sum(sorted(dice)[1:])  # drop lowest
+    for stat, (base, dice) in zip(stats_order, assign_rolls(rolls, class_registry.get(class_name, {}))):
         bonus = bonus_dict.get(stat, 0)
         rolled_stats[stat] = base + bonus
         bonus_str = f" (+{bonus} race)" if bonus else ""
-        roll_log.append(f"{stat.upper()}: {sorted(dice)[1:]} = {base}{bonus_str} -> {rolled_stats[stat]}")
+        roll_log.append(f"{stat.upper()}: {dice} = {base}{bonus_str} -> {rolled_stats[stat]}")
     
     sheet = await create_character(uid, uname, char_name, race, class_name, rolled_stats)
     

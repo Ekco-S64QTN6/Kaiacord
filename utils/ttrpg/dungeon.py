@@ -858,6 +858,66 @@ async def clear_dungeon(user_id: str):
 
 # ── Scale boss to level (called by rpg_handler) ───────────────────────────────
 
+#: Ordinary dungeon mobs, by difficulty: the most HP and ATK they reach.
+MOB_HP_CAPS = {1: 35, 2: 60, 3: 90, 4: 130, 5: 180}
+MOB_ATK_CAPS = {1: 10, 2: 14, 3: 18, 4: 20, 5: 22}
+#: A mob's HP against the player's level, as a share of the overworld cap. A
+#: dungeon is ten or more fights between shrines, so a little over a hunt's.
+DUNGEON_LEVEL_HP_SHARE = 1.15
+SPINE_LEVEL_HP_SHARE = 1.3
+
+
+def spine_scaling_difficulty(floor_num: int) -> int:
+    """The difficulty step a Spine floor's mobs are scaled by: 2 on floors
+    1-19 rising to 5 from floor 60. The Spine is entered from the ruins at
+    level 7, and every floor scaled as difficulty 5 (+60% DEF) put a floor-1
+    rat out of a level-7 player's reach: three in four runs ended in retreat."""
+    return min(5, 2 + max(1, int(floor_num)) // 20)
+
+
+def dungeon_difficulty(player_level: int, location: str) -> int:
+    """A procedural dungeon's difficulty for this level and place, 1-4.
+
+    Steps at levels 5, 8 and 11: a level after the zones open (the deep woods
+    at 4, the ruins at 7), so a new zone and a harder dungeon never arrive on
+    the same level-up."""
+    bonus = LOCATION_DIFFICULTY_BONUS.get(location, 0)
+    return max(1, min(4, (int(player_level) - 2) // 3 + 1 + bonus))
+
+
+def scale_dungeon_mob(monster: dict, state: dict, player_level: int) -> dict:
+    """An ordinary (not boss) dungeon or Spine mob, scaled and capped.
+
+    Difficulty adds 15% a step; then the difficulty's caps (the Spine's grow
+    with the floor) and the player's level bound it. Difficulty steps every
+    three levels, and before the level bound the first level of each step met
+    the step's full cap: a level-4 player fought 60-HP mobs at about four
+    damage a round, and one in three dungeon runs ended in a retreat.
+    """
+    from utils.ttrpg.encounter_tables import overworld_hp_cap
+    m = dict(monster)
+    diff = state.get("difficulty", 1)
+    if state.get("is_spine"):
+        diff = spine_scaling_difficulty(state.get("floor_num", 1))
+    scale = 1.0 + (diff - 1) * 0.15
+    m["hp"] = max(5, int(m["hp"] * scale))
+    m["attack"] = max(1, int(m["attack"] * scale))
+    m["defense"] = max(1, int(m["defense"] * scale))
+    level_cap = overworld_hp_cap(player_level)
+    if state.get("is_spine"):
+        floor_num = state.get("floor_num", 1)
+        hp_cap = min(80 + floor_num * 3, int(level_cap * SPINE_LEVEL_HP_SHARE))   # F1: 83 ... F77: 311
+        atk_cap = 12 + floor_num // 5                                             # F1: 12 ... F77: 27
+    else:
+        hp_cap = min(MOB_HP_CAPS.get(diff, 180), int(level_cap * DUNGEON_LEVEL_HP_SHARE))
+        atk_cap = MOB_ATK_CAPS.get(diff, 22)
+    # The overworld's ATK bound too: the player's DEF cap less ten.
+    atk_cap = min(atk_cap, int(player_level * 1.5 + 2))
+    m["hp"] = min(m["hp"], hp_cap)
+    m["attack"] = min(m["attack"], atk_cap)
+    return m
+
+
 def boss_level_multiplier(player_level: int) -> float:
     """Linearly interpolate the documented 0.45x (L1) to 1.0x (L15) boss curve."""
     level = max(1, min(15, int(player_level)))

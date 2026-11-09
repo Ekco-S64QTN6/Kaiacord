@@ -333,6 +333,17 @@ async def save(sheet: Dict[str, Any]) -> None:
     async with lock:
         await asyncio.to_thread(_write_sync, user_id, text)
 
+def starting_hp(class_name: str, stats: Dict[str, int]) -> int:
+    """Level 1 HP: twice the class's hit die, plus the CON modifier.
+
+    One hit die (a Mage's 7 HP) was two goblin hits; a level-1 fight cost
+    over half of it and four in ten ended in a blackout
+    (tools/simulation/progression_sim.py)."""
+    from utils.ttrpg.dice_engine import CLASSES
+    con_mod = (stats["con"] - 10) // 2
+    return max(2, CLASSES[class_name]["hp_die"] * 2 + con_mod)
+
+
 async def create(user_id: str, user_name: str, character_name: str,
            race: str, class_name: str, stats: Dict[str, int]) -> Dict[str, Any]:
     """Create a new character sheet with rolled/assigned stats."""
@@ -352,9 +363,7 @@ def _create_sync(user_id: str, user_name: str, character_name: str,
     if class_name not in CLASSES:
         raise ValueError(f"Unknown class: {class_name}")
     
-    con_mod = (stats["con"] - 10) // 2
-    hp_die = CLASSES[class_name]["hp_die"]
-    max_hp = max(2, hp_die + con_mod + 1)  # Level 1 HP = hp_die + CON mod + level
+    max_hp = starting_hp(class_name, stats)
     
     import datetime
     sheet = {

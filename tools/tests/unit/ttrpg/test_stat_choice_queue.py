@@ -1,12 +1,12 @@
 """Every RPG stat-growth milestone grants one independently consumable choice."""
-from utils.ttrpg.progression import check_level_up, consume_stat_choice
+from utils.ttrpg.progression import XP_THRESHOLDS, check_level_up, consume_stat_choice
 
 
 def test_multi_level_xp_gain_queues_all_stat_choice_milestones():
     sheet = {
         "class": "Warrior",
         "level": 3,
-        "xp": 148000,  # cross levels 4, 8 and 12 in a single progression pass
+        "xp": XP_THRESHOLDS[13],  # cross levels 4, 8 and 12 in a single progression pass
         "stats": {"con": 10},
         "hp": {"current": 30, "max": 30},
     }

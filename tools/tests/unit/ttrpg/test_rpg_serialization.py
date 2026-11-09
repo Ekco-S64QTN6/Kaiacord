@@ -457,7 +457,7 @@ def test_stale_first_home_button_cannot_charge_twice_or_reset_estate(monkeypatch
     from utils.ttrpg import character_manager
 
     sheets = {"42": {"user_id": "42", "character_name": "P", "location": "housing_district",
-                    "gil": 500, "hp": {"current": 20, "max": 20}}}
+                    "gil": H.HOUSING_TIERS["hut"]["cost"] + 500, "hp": {"current": 20, "max": 20}}}
     homes = {}
 
     async def load_sheet(uid):
@@ -510,7 +510,7 @@ def test_stale_first_home_button_cannot_charge_twice_or_reset_estate(monkeypatch
         return second
 
     second = asyncio.run(go())
-    assert sheets["42"]["gil"] == 500 - H.HOUSING_TIERS["hut"]["cost"]
+    assert sheets["42"]["gil"] == 500
     assert homes["42"]["furniture"] == ["weapon_rack"]
     assert homes["42"]["house_name"] == "The Kept Estate"
     second.response.send_message.assert_awaited_once()

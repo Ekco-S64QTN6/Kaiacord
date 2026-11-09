@@ -428,7 +428,27 @@ HEMLOCK_STOCK_ARMOR   = ['leather_armor', 'mages_robe', 'bronze_armor', 'fur_clo
 HEMLOCK_STOCK_HEADGEAR = ['iron_helm', 'scouts_hood', 'mages_cap', 'bronze_helm', 'soldiers_cap', 'ranger_hat', 'shadow_cap', 'ember_cowl', 'novice_hood']
 HEMLOCK_STOCK_BOOTS    = ['worn_boots', 'heavy_boots', 'trackers_boots', 'soft_slippers', 'bronze_sabatons']
 HEMLOCK_STOCK_ACCESSORIES = ['copper_ring', 'warriors_bracer', 'scouts_bracer', 'scholars_bracelet']
-HEMLOCK_STOCK_CONSUMABLES = ['healing_herb', 'bandage', 'tonic', 'torch']
+HEMLOCK_STOCK_CONSUMABLES = ['healing_herb', 'bandage', 'tonic', 'potion_standard', 'torch']
+
+
+def buyable_keys(registry: dict, tiers) -> list:
+    """Keys of the pieces of these tiers a merchant can sell (not drop-only),
+    one per item: an alias names the same dict as its canonical key."""
+    seen, keys = set(), []
+    for key, item in registry.items():
+        if item.get("tier") in tiers and not item.get("droppable_only") and id(item) not in seen:
+            seen.add(id(item))
+            keys.append(key)
+    return keys
+
+
+# Hemlock carries tier 2 as well as tier 1. With tier 1 alone, gil bought
+# nothing from about level 3 until a house: tier 2 came from the caravan, one
+# piece a visit, and the caravan is one noon event in thirty-three.
+for _stock, _reg in ((HEMLOCK_STOCK_WEAPONS, WEAPONS), (HEMLOCK_STOCK_ARMOR, ARMOR),
+                     (HEMLOCK_STOCK_HEADGEAR, HEADGEAR), (HEMLOCK_STOCK_BOOTS, BOOTS),
+                     (HEMLOCK_STOCK_ACCESSORIES, ACCESSORIES)):
+    _stock.extend(k for k in buyable_keys(_reg, (2,)) if k not in _stock)
 
 
 
@@ -517,16 +537,14 @@ def get_equipment(key: str) -> dict | None:
 
 def get_caravan_stock():
     """
-    Returns Tier 2 and Tier 3 purchasable (non-droppable) items for the Caravan.
-    Items with droppable_only=True must be looted from monsters.
+    Returns the Tier 3 purchasable (non-droppable) items for the Caravan;
+    Hemlock sells Tier 2. Items with droppable_only=True must be looted.
     """
     gear_keys = []
     consumable_keys = []
     for reg in (WEAPONS, ARMOR, HEADGEAR, BOOTS, ACCESSORIES):
-        for k, v in reg.items():
-            if v.get("tier") in (2, 3) and not v.get("droppable_only"):
-                gear_keys.append(k)
-    consumable_keys = ["potion_standard", "lightstone"]
+        gear_keys.extend(buyable_keys(reg, (3,)))
+    consumable_keys = ["potion_standard", "hi_potion", "lightstone"]
     return gear_keys, consumable_keys
 
 

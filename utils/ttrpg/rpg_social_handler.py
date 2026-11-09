@@ -2,6 +2,7 @@ from utils.ttrpg.narration import finish_cleanly
 import asyncio
 import uuid as _uuid
 import discord
+from utils.ttrpg import turn_buttons
 
 from utils.commands.stale_view import StaleSafeView
 import secrets
@@ -445,7 +446,8 @@ async def _handle_talk(ctx, msg, send, rest, uid, uname, is_owner):
                                 description=f"**{quest['name']}**\n\n*{quest['description']}*\n\n"
                                             f"**Reward:** {quest['rewards'].get('xp',0)} XP · "
                                             f"{quest['rewards'].get('gil',0)} Gil",
-                                color=0x2ecc71))
+                                color=0x2ecc71),
+                                view=await turn_buttons.buttons_for(ctx, interaction, uid, uname, is_owner))
                         btn.callback = _accept
                         view.add_item(btn)
 
@@ -527,7 +529,7 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
                 await interaction.response.defer()
                 fake_msg = _InteractionMsg(interaction)
                 send_fn = _make_interaction_send(interaction)
-                await _handle_abandon(ctx, fake_msg, send_fn, active[0], uid, uname, is_owner)
+                await turn_buttons.run(_handle_abandon, ctx, fake_msg, send_fn, active[0], uid, uname, is_owner)
             abandon_btn.callback = _abandon_single
             view.add_item(abandon_btn)
         else:
@@ -540,7 +542,7 @@ async def _handle_quests(ctx, msg, send, rest, uid, uname, is_owner):
                 await interaction.response.defer()
                 fake_msg = _InteractionMsg(interaction)
                 send_fn = _make_interaction_send(interaction)
-                await _handle_abandon(ctx, fake_msg, send_fn, select.values[0], uid, uname, is_owner)
+                await turn_buttons.run(_handle_abandon, ctx, fake_msg, send_fn, select.values[0], uid, uname, is_owner)
             select.callback = _abandon_select
             view.add_item(select)
         

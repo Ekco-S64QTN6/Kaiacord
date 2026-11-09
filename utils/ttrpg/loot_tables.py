@@ -346,6 +346,24 @@ def get_consumable_loot(tier: str) -> Optional[str]:
 
 
 # ── Backward-compatible wrapper ──────────────────────────────────────────────
+#: The chance that a kill rolls on the gear and the consumable tables at all.
+#: The tables alone dropped gear on 74% (trivial) to 100% (deadly) of kills,
+#: and selling it was three quarters of every character's income: a level-15
+#: hunter made 6,700 gil a day with nothing left to buy. Chests, shrines and
+#: rare variants call the tables directly and are not gated.
+KILL_GEAR_CHANCE = 0.35
+KILL_CONSUMABLE_CHANCE = 0.5
+#: An ordinary dungeon mob, which has no hunt cost of its own.
+DUNGEON_GEAR_CHANCE = 0.3
+
+
+def roll_kill_drops(tier: str, gear_chance: float = KILL_GEAR_CHANCE) -> tuple[Optional[str], Optional[str]]:
+    """(gear, consumable) from one kill; either may be None."""
+    gear = get_gear_loot(tier) if secrets.randbelow(1000) < int(gear_chance * 1000) else None
+    cons = get_consumable_loot(tier) if secrets.randbelow(1000) < int(KILL_CONSUMABLE_CHANCE * 1000) else None
+    return gear, cons
+
+
 def get_loot(tier: str) -> Optional[str]:
     """Legacy wrapper — returns a gear item. Use get_gear_loot / get_consumable_loot instead."""
     return get_gear_loot(tier)
