@@ -1703,16 +1703,16 @@ class MessageProcessor:
         messages = self._construct_messages(ctx, optimized)
         
         # 2.5 Inline Vision Processing (native multimodal)
-        attachments_to_process = []
-        if hasattr(ctx.message, 'attachments') and ctx.message.attachments:
-            attachments_to_process = list(ctx.message.attachments)
-        elif hasattr(ctx.message, 'reference') and ctx.message.reference:
+        # Uploads and pictures shared as links (a CDN link, a .jpg, a GIF embed).
+        from utils.core.image_links import vision_sources
+        attachments_to_process = vision_sources(ctx.message)
+        if not attachments_to_process and getattr(ctx.message, 'reference', None):
             try:
                 ref_msg = getattr(ctx.message.reference, 'resolved', None)
                 if not ref_msg and hasattr(ctx.message.channel, 'fetch_message'):
                     ref_msg = await ctx.message.channel.fetch_message(ctx.message.reference.message_id)
-                if ref_msg and hasattr(ref_msg, 'attachments') and ref_msg.attachments:
-                    attachments_to_process = list(ref_msg.attachments)
+                if ref_msg:
+                    attachments_to_process = vision_sources(ref_msg)
             except Exception as e:
                 log_debug(f"Could not resolve replied-to message attachments: {e}")
 
@@ -1722,8 +1722,8 @@ class MessageProcessor:
             if _visual_intent:
                 try:
                     async for prev_msg in ctx.message.channel.history(limit=5, before=ctx.message):
-                        if str(getattr(prev_msg.author, 'id', '')) == str(ctx.author_id) and getattr(prev_msg, 'attachments', None):
-                            attachments_to_process = list(prev_msg.attachments)
+                        if str(getattr(prev_msg.author, 'id', '')) == str(ctx.author_id) and vision_sources(prev_msg):
+                            attachments_to_process = vision_sources(prev_msg)
                             log_info(f"Found {len(attachments_to_process)} attachments from user's recent message {prev_msg.id} for visual query.")
                             break
                 except Exception as e:
@@ -1766,6 +1766,9 @@ class MessageProcessor:
                     _plat = str(getattr(ctx.message, "platform", "discord") or "discord")
                     _origin = ("Someone posted an image in this forum thread"
                                if _plat == "vbulletin"
+                               else "The user shared an image by link; it may be a screenshot, "
+                                    "meme or photo from anywhere"
+                               if all(getattr(a, "linked", False) for a in image_attachments)
                                else "The user attached an image from their physical environment")
                     messages[0]["content"] += (
                         f"\n\n[VISUAL GROUNDING: {_origin}. "
@@ -1836,9 +1839,13 @@ class MessageProcessor:
         # the turn.
         try:
             from utils.core.sanitizer import user_authored_text
-            _atts = getattr(ctx.message, "attachments", None) or []
-            _words = len(user_authored_text(ctx.sanitized_content).split())
-            if _atts and _words < 4 and len(optimized_history) > 4:
+            from utils.core.image_links import vision_sources, image_link_urls
+            _attachments = vision_sources(ctx.message)   # uploads and linked pictures
+            _own = user_authored_text(ctx.sanitized_content)
+            for _u in image_link_urls(_own):
+                _own = _own.replace(_u, " ")
+            _words = len(_own.split())
+            if _attachments and _words < 4 and len(optimized_history) > 4:
                 log_info(f"Image with {_words}-word caption: trimming history "
                          f"{len(optimized_history)} -> 4 turns to stop another "
                          f"speaker's context dominating the reply.")
@@ -3042,6 +3049,8 @@ class MessageProcessor:
     VISION_MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024
     VISION_MAX_SOURCE_PIXELS = 20_000_000
     VISION_MAX_REDIRECTS = 5
+    VISION_USER_AGENT = ("Kaiacord/1.0 (self-hosted Discord bot; fetches an image a user shared; "
+                         "github.com/Ekco-S64QTN6/Kaiacord)")
 
     @staticmethod
     def _unseen_images_note(attempted: int, loaded: int) -> str:
@@ -3145,6 +3154,8 @@ class MessageProcessor:
                 async with aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(total=timeout_seconds),
                     connector=public_only_connector(),
+                    # Image hosts (Wikimedia among them) refuse an anonymous client.
+                    headers={"User-Agent": self.VISION_USER_AGENT},
                 ) as session:
                     current_url = url
                     response = None

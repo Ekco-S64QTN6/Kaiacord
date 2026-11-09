@@ -723,8 +723,10 @@ as `[TOKEN_DEBUG]`, which is where to look if reply truncation reappears; the fi
 
 Images go inline to `gemma3:12b` as base64 on the `user` message. Three things about that path:
 
-- **It keys off `ctx.message.attachments` and nothing else.** Any platform that wants Kaia to see
-  a picture has to populate that list. The forum did not, so `MockMessage.attachments` was always
+- **It keys off `ctx.message.attachments`, plus on Discord the pictures a message links**
+  (`image_links.vision_sources`: a URL whose path ends in an image extension, an `image`/`gifv`
+  embed's still). The link scraper skips those URLs, which it used to report as a page that
+  "wouldn't load". Any other platform that wants Kaia to see a picture has to populate the list. The forum did not, so `MockMessage.attachments` was always
   empty and she answered image posts blind — a photograph in thread 443378 drew *"those symbols
   again? what are you trying to do?"*. `MockAttachment` supplies the `.filename`/`.url` the branch
   reads, and guesses an extension for `attachment.php?attachmentid=…`, which has none and would
@@ -1479,7 +1481,7 @@ anchor written as a report of a source ("The author is struck by…") is not kep
 A full belief store keeps what she just thought (`beliefs_store.evict_weakest`): a new belief starts at
 `NEW_BELIEF_CONFIDENCE` and every older one scores higher, so the weakest was always the one just written. From 23 Oct
 each new belief evicted itself and "New Belief Formed" was logged anyway. For `PROTECT_NEW_S` a belief is not up for
-eviction; after that one she reached only once fades unless she recalls it or reaches it again. At most `PROBATION_SLOTS`
+eviction; after that one she reached only once fades unless she recalls it or reaches it again. At most `PROBATION_SLOTS` (20)
 are inside that week: with every new belief protected and nine formed a night, the only ones left to evict were her
 oldest and most recalled (64 of 100 lost, 2–9 Nov), so past the slots a new belief displaces the weakest new one.
 

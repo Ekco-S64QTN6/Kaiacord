@@ -34,7 +34,7 @@ PROTECT_NEW_S = 7 * 86400
 #: about nine a night, and with every new belief protected the only ones left to
 #: evict were her oldest and most recalled. A settled belief makes room only when
 #: a new one lasts its week, by being recalled or reached again.
-PROBATION_SLOTS = 40
+PROBATION_SLOTS = 20
 
 
 def retention_score(belief: dict, now: float) -> float:
