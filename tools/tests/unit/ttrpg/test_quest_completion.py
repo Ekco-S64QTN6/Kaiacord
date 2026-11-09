@@ -1,4 +1,5 @@
 """Quest completion must settle payout and progression in one sheet mutation."""
+from utils.ttrpg.progression import XP_THRESHOLDS
 from utils.ttrpg.quest_completion import apply_quest_completion
 
 
@@ -25,7 +26,7 @@ def test_quest_completion_applies_multi_level_progression_before_save():
         "id": "deep_hunt",
         "name": "The Deep Hunt",
         "rewards": {
-            "xp": 148000,
+            "xp": XP_THRESHOLDS[13],
             "gil": 75,
             "item": "potion_standard",
             "recipe": "potion_minor",
@@ -39,7 +40,7 @@ def test_quest_completion_applies_multi_level_progression_before_save():
     assert result["new_level"] == 13
     assert sheet["level"] == 13
     assert sheet["_stat_choice_levels_pending"] == [4, 8, 12]
-    assert sheet["xp"] == 148000
+    assert sheet["xp"] == XP_THRESHOLDS[13]
     assert sheet["gil"] == 100
     assert "deep_hunt" not in sheet["active_quests"]
     assert sheet["completed_quests"] == ["deep_hunt"]

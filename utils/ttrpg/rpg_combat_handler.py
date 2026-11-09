@@ -251,8 +251,8 @@ def _roll_dungeon_loot(sheet: dict, state: dict, tier: str, is_boss: bool) -> st
     """Roll and grant a dungeon kill's drops; returns the loot line for the embed.
 
     Boss: a guaranteed gear drop (up to six rolls to find one), a 40% second,
-    a consumable, and 25 gil if all of that came up empty. Normal: 40% gear and
-    a consumable. Drops are granted in that order, each against the bag as the
+    a consumable, and 25 gil if all of that came up empty. Normal: the kill
+    drop chances (loot_tables.roll_kill_drops) with DUNGEON_GEAR_CHANCE. Drops are granted in that order, each against the bag as the
     previous one left it."""
     from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
 
@@ -278,9 +278,11 @@ def _roll_dungeon_loot(sheet: dict, state: dict, tier: str, is_boss: bool) -> st
         sheet["gil"] = sheet.get("gil", 0) + bonus_gil
         state["gil_gained"] = state.get("gil_gained", 0) + bonus_gil
         return f"\n💰 No material loot, but the corpse yields **{bonus_gil} gil**."
-    if secrets.randbelow(10) < 4 and (gear := get_gear_loot(tier)):
+    from utils.ttrpg.loot_tables import DUNGEON_GEAR_CHANCE, roll_kill_drops
+    gear, cons = roll_kill_drops(tier, DUNGEON_GEAR_CHANCE)
+    if gear:
         lines.append(_grant_drop(sheet, state, gear, "⚔️"))
-    if (cons := get_consumable_loot(tier)):
+    if cons:
         lines.append(_grant_drop(sheet, state, cons, "🧪"))
     return ("\n🎁 " + ", ".join(lines)) if lines else ""
 
@@ -827,9 +829,8 @@ async def _handle_dungeon(ctx, msg, send, rest, uid, uname, is_owner):
         if not has_lightstone and has_torch:
             sheet["inventory"].remove("torch")
         sheet["hunts_today"] = sheet.get("hunts_today", 0) + ENTRY_HUNTS
-        from utils.ttrpg.dungeon import LOCATION_DIFFICULTY_BONUS
-        loc_diff_bonus = LOCATION_DIFFICULTY_BONUS.get(loc, 0)
-        difficulty = max(1, min(4, (sheet["level"] - 1) // 3 + 1 + loc_diff_bonus))
+        from utils.ttrpg.dungeon import dungeon_difficulty
+        difficulty = dungeon_difficulty(sheet["level"], loc)
         dungeon = generate_dungeon(difficulty, player_level=sheet["level"], location=loc)
         from utils.ttrpg.housing_transactions import commit_character_dungeon
         await commit_character_dungeon(sheet, dungeon, action="dungeon_entry")
@@ -1083,24 +1084,9 @@ async def _handle_hunt(ctx, msg, send, rest, uid, uname, is_owner):
         m_data = get_monster(m_key)
         if not m_data: continue
         
-        monster_instance = m_data.copy()
+        from utils.ttrpg.encounter_tables import scale_overworld_monster
+        monster_instance = scale_overworld_monster(m_data, sheet.get("level", 1), dist_mult)
         monster_instance["key"] = m_key
-        # Apply distance difficulty scaling
-        scaled_hp = int(monster_instance["hp"] * dist_mult)
-        monster_instance["hp"] = {"current": scaled_hp, "max": scaled_hp}
-        # ATK scales with diminishing returns to prevent impossible-to-dodge hits
-        # at high dist_mult values (e.g. Spine at 1.75x).  HP stays linear.
-        import math
-        atk_mult = min(1.35, 1.0 + math.log(dist_mult) / math.log(2)) if dist_mult > 1.0 else dist_mult
-        monster_instance["attack"] = int(monster_instance.get("attack", 0) * atk_mult)
-        monster_instance["defense"] = max(1, int(monster_instance.get("defense", 0) * atk_mult))
-        # Hard cap: overworld ATK must not exceed what gives ~50-55% hit rate
-        # against the player's DEF cap (level*1.5+12).  Needed because boss-tier
-        # monsters (exdeath_ff5 ATK 32, tarrasque ATK 35) appear in overworld
-        # encounter tables and their base ATK already exceeds reasonable values.
-        _player_level = sheet.get("level", 1)
-        _overworld_atk_cap = int(_player_level * 1.5 + 2)   # DEF_cap - 10
-        monster_instance["attack"] = min(monster_instance["attack"], _overworld_atk_cap)
         monster_instance["id"] = f"{m_key}_{_uuid.uuid4().hex[:4]}"
         monster_instance["aggro_uid"] = str(uid)  # personal instance
         monster_instance["origin_location"] = loc
@@ -1411,11 +1397,11 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
             streak_msg = f"  🔥 Streak: {streak} (+{streak_bonus_gil}g)"
             
         # Loot mechanics — dual roll: gear + consumable
-        from utils.ttrpg.loot_tables import get_gear_loot, get_consumable_loot
+        from utils.ttrpg.loot_tables import roll_kill_drops
         loot_lines = []
+        gear_drop, consumable_drop = roll_kill_drops(monster.get("tier", "medium"))
 
         # Gear roll
-        gear_drop = get_gear_loot(monster.get("tier", "medium"))
         from utils.ttrpg.inventory_capacity import grant_item
         if gear_drop:
             from utils.ttrpg.shop import find_item as _find_loot
@@ -1427,7 +1413,6 @@ async def _handle_attack(ctx, msg, send, rest, uid, uname, is_owner):
                 loot_lines.append(f"🎒 **[Inventory Full]** Left behind: {gear_display}")
 
         # Consumable roll
-        consumable_drop = get_consumable_loot(monster.get("tier", "medium"))
         if consumable_drop:
             from utils.ttrpg.shop import find_item as _find_cons
             cons_info = _find_cons(consumable_drop)

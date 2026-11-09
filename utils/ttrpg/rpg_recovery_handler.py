@@ -182,6 +182,12 @@ async def _handle_fountain(ctx, msg, send, rest, uid, uname, is_owner, *, load_c
 GAMBLE_DAILY_WIN_CAP = 100
 
 
+def rest_cost(sheet: dict) -> int:
+    """A night at the Stone Hearth: 5 gil at level 1, 2 more a level (33 at 15).
+    A flat 5 was nothing past the first days."""
+    return 5 + 2 * (max(1, int(sheet.get("level", 1))) - 1)
+
+
 async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner, *, load_character, save_character, no_character_handler, status_view_factory):
     sheet = await load_character(uid)
     if not sheet: return await no_character_handler(msg)
@@ -194,7 +200,7 @@ async def _handle_rest(ctx, msg, send, rest, uid, uname, is_owner, *, load_chara
     _special = get_special_day()
     _hearthday = _special and _special.get("buff") == "hearthday_warmth"
 
-    cost = 0 if _hearthday else 5
+    cost = 0 if _hearthday else rest_cost(sheet)
     innkeeper = "Mira"
 
     if sheet.get("gil", 0) < cost:

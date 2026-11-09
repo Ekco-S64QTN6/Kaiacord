@@ -260,10 +260,12 @@ def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: 
 
 def get_sell_price(item_value: int, reputation: int = 0, cha_mod: int = 0) -> int:
     """Calculates the actual sell price of an item based on reputation and CHA."""
-    sell_mult = 0.25 # BASE NERF
-    if reputation >= 100: sell_mult = 0.45  # 25% base + 20% bonus
-    elif reputation >= 50:  sell_mult = 0.35  # 25% base + 10% bonus
-    elif reputation < -20:  sell_mult = 0.15  # 10% penalty
+    # A fifth of value. Selling drops was three quarters of all income (see
+    # loot_tables.KILL_GEAR_CHANCE); reputation adds a little, never doubles it.
+    sell_mult = 0.20
+    if reputation >= 100: sell_mult = 0.30
+    elif reputation >= 50:  sell_mult = 0.25
+    elif reputation < -20:  sell_mult = 0.12
     
     cha_bonus = min(0.10, max(0.0, cha_mod * 0.02))
     sell_mult += cha_bonus

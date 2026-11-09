@@ -121,7 +121,7 @@ RPG_HELP_FIELDS = (
         "`!rpg raid` — assault the barricade\n"
         "`!rpg rob` — steal from their cache")),
     ("🍺 Stone Hearth", (
-        "`!rpg rest` — full heal (5g)\n"
+        "`!rpg rest` — full heal (5g, +2g a level)\n"
         "`!rpg drink` — +3 temp HP (2g)\n"
         "`!rpg gamble` — dice (10g)\n"
         "`!rpg rumor` — gossip\n"

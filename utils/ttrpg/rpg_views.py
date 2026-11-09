@@ -881,6 +881,15 @@ def _make_status_btn(ctx, uid, uname, is_owner, row=None):
     return btn
 
 
+def _wearable(item: dict, sheet) -> bool:
+    """Whether this character's class can equip the piece. The shop lists
+    only those: Hemlock's two tiers are more than two menus hold."""
+    classes = item.get("classes")
+    if not classes or not sheet:
+        return True
+    return sheet.get("class") in classes or sheet.get("advanced_class") in classes
+
+
 async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
     """Return a View with categorized Buy (gear / consumable) and Sell select menus."""
     from utils.ttrpg.shop import find_item
@@ -932,7 +941,8 @@ async def _make_shop_view(ctx, msg, uid, uname, is_owner, items, sheet=None):
         if item["category"] == "consumable":
             consumable_items.append(item_key)
         elif item["category"] in ("weapon", "armor", "head", "boots", "accessory"):
-            gear_items.append(item_key)
+            if _wearable(item, sheet):
+                gear_items.append(item_key)
 
     current_row = 0
 
@@ -2644,33 +2654,8 @@ async def _dungeon_move(ctx_obj, interaction, uid, uname, is_owner, direction):
                 if is_boss:
                     monster = _scale_boss_to_level(monster, state.get("player_level", sheet.get("level", 1)))
                 else:
-                    # Scale regular mobs slightly by difficulty
-                    diff = state.get("difficulty", 1)
-                    scale = 1.0 + (diff - 1) * 0.15
-                    monster["hp"] = max(5, int(monster["hp"] * scale))
-                    monster["attack"] = max(1, int(monster["attack"] * scale))
-                    monster["defense"] = max(1, int(monster["defense"] * scale))
-                    # Cap non-boss monsters to prevent absurd stats.
-                    # Targets ~50-55% hit rate against a well-geared player at
-                    # the recommended level for that difficulty tier.
-                    if is_spine:
-                        # Spine: progressive floor-based caps so deeper floors
-                        # feel meaningfully harder than early floors.
-                        floor_num = state.get("floor_num", 1)
-                        mob_hp_cap = 80 + (floor_num * 3)     # F1: 83, F40: 200, F77: 311
-                        mob_atk_cap = 12 + (floor_num // 5)   # F1: 12, F40: 20, F77: 27
-                    else:
-                        MOB_HP_CAPS = {1: 35, 2: 60, 3: 90, 4: 130, 5: 180}
-                        MOB_ATK_CAPS = {1: 10, 2: 14, 3: 18, 4: 20, 5: 22}
-                        mob_hp_cap = MOB_HP_CAPS.get(diff, 180)
-                        mob_atk_cap = MOB_ATK_CAPS.get(diff, 22)
-                    # Also enforce a level-based ATK hard cap
-                    # (same formula as overworld: DEF_cap - 10)
-                    _plvl = state.get("player_level", sheet.get("level", 1))
-                    _level_atk_cap = int(_plvl * 1.5 + 2)
-                    mob_atk_cap = min(mob_atk_cap, _level_atk_cap)
-                    monster["hp"] = min(monster["hp"], mob_hp_cap)
-                    monster["attack"] = min(monster["attack"], mob_atk_cap)
+                    from utils.ttrpg.dungeon import scale_dungeon_mob
+                    monster = scale_dungeon_mob(monster, state, state.get("player_level", sheet.get("level", 1)))
                 scaled_hp = monster["hp"] if isinstance(monster["hp"], int) else monster["hp"]
                 monster["hp"] = {"current": scaled_hp, "max": scaled_hp}
                 monster["key"] = monster_key

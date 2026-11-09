@@ -1,5 +1,5 @@
 # ⚔️ Aethelgard — System Reference & Player Manual
-*Build 0.4.0 · April 25, 2026 — Endgame Expansion & Balance*
+*Build 0.5.0 · November 9, 2026 — Progression & Economy Pass*
 
 > *"Oakhaven was built on the bones of Aeridor. Everything here is built on something older."*
 
@@ -93,7 +93,11 @@ The game runs in:
 !rpg new <Name> <Race> <Class>
 ```
 
-Stats rolled with 4d6 drop lowest, six times. Type `!rpg` to open the HUD.
+Stats rolled with 4d6 drop lowest, six times. The best roll goes to the class's attack stat and the
+next best to CON; the other four keep the order they were rolled in
+(`rpg_character_creation_handler.assign_rolls`). Level-1 HP is **twice the class hit die plus the CON
+modifier** (`character_manager.starting_hp`): a Warrior with CON 14 starts on 22, a Mage on 14. Type
+`!rpg` to open the HUD.
 
 ### Races
 
@@ -183,8 +187,8 @@ All navigation is button-driven. Players use the HUD buttons or `!rpg go <locati
 | Location | Key Services |
 |:--|:--|
 | **Oakhaven** | Look, map, calendar, weather, notices, quests, deliver, `donate` (town walls) |
-| **Stone Hearth** | Rest (5g), drink (+3 temp HP, 2g), gamble (10g; net winnings capped at 100g a day), rumor, talk NPCs |
-| **Hemlock's Store** | Shop (only what he stocks), buy, sell, `enhance` (+1 to +5), inventory, talk |
+| **Stone Hearth** | Rest (5g at level 1, +2g a level: 33g at 15), drink (+3 temp HP, 2g), gamble (10g; net winnings capped at 100g a day), rumor, talk NPCs |
+| **Hemlock's Store** | Shop: Tier 1 and Tier 2 gear (the menu lists what your class can wear), bandages, herbs, tonics, standard potions, torches. Buy, sell (a fifth of value; 25% at 50 reputation, 30% at 100), `enhance` (+1 to +5), inventory, talk |
 | **Shrine** | Pray (Blessed), offer Gil→XP, fountain (full heal 1/day), look flame/altar |
 | **Watchtower** | Scout (1/day), talk guard |
 | **Maren's Hut** | Brew alchemy recipes, talk Maren |
@@ -194,7 +198,7 @@ All navigation is button-driven. Players use the HUD buttons or `!rpg go <locati
 | **Grimstone (Lore-only)** | Unimplemented overworld location |
 | **The Rusty Pick (Lore-only)** | Unimplemented inn (Lore-only) |
 | **Pell's Depot (Lore-only)** | Unimplemented store (Lore-only) |
-| **Caravan** | Only present during certain noon events. |
+| **Caravan** | Only present during certain noon events. Tier 3 gear (one piece a visit), standard and hi-potions, lightstones. |
 | **Hunting zones** | Hunt (1 of 5 daily hunts), look |
 
 ---
@@ -206,7 +210,8 @@ Fully automatic. Player never touches dice.
 **Attack:** `d20 + class_attack_mod + weapon_bonus vs monster_DEF`
 **Damage:** `weapon_die + class_attack_mod`
 **Player DEF:** `10 + DEX_mod + effective_gear_def` (Max `Level * 1.5 + 12`). Gear DEF is soft-capped: `min(10, raw_gear_def) + max(0, raw_gear_def - 10) // 2`.
-**Monster ATK:** Uses actual monster ATK stat. Overworld scaling uses logarithmic dampening (max 1.35x based on distance).
+**Monster ATK:** Uses actual monster ATK stat. Overworld scaling uses logarithmic dampening (max 1.35x based on distance), then a cap of `level * 1.5 + 2`.
+**Overworld monster HP:** zone distance × base HP, capped at `14 + 7 * level` (`encounter_tables.overworld_hp_cap`). Above the easy tier every tier shares one HP range (75–100 base), so without the cap a level-4 player met 92-HP mediums.
 **Crit (nat 20):** Damage dice doubled
 **Fumble (nat 1):** Auto-miss
 
@@ -247,6 +252,26 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | Trade Road | 18% | 2+ |
 | Whisperwood Deep | 15% | 4+ |
 | Aeridor Ruins | 10% | 7+ |
+
+**What a hunt can meet** depends on the player's level, filtered from the zone's table
+(`encounter_tables.TIER_WINDOWS`). One bound moves at a time, and never on a level where a zone opens:
+
+| Level | Tiers |
+|:--|:--|
+| 1–4 | trivial – easy |
+| 5 | trivial – medium |
+| 6–7 | easy – medium |
+| 8–9 | easy – hard |
+| 10 | medium – hard |
+| 11–12 | medium – deadly |
+| 13 | hard – deadly |
+| 14–15 | hard – boss |
+
+At night a quarter of hunts shift up a tier.
+
+**Drops.** A kill rolls the gear table 35% of the time and the consumable table half the time
+(`loot_tables.roll_kill_drops`); an ordinary dungeon mob rolls gear 30% of the time. The tables alone
+dropped gear on 74–100% of kills, and selling it was three quarters of all income.
 
 ### Forest Events (44 total: 31 common, 10 rare or lore, 3 legendary)
 
@@ -352,7 +377,9 @@ CHA modifier = `(CHA - 10) // 2` (standard TTRPG formula).
 Procedurally generated 5×5 grid, 9-12 rooms. Entered via button at hunting locations.
 
 ### The Spine of the World
-A massive 77-floor mega-dungeon — the Ironvein Deep — entered with `!rpg dungeon` from the Aeridor Ruins (Grimstone, the town once planned in front of it, was cut in May 2026). Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses. It features checkpoint lifts every 5 floors (a stop unlocks when the player reaches that floor: beating floor N's stair guardian opens N + 1) and progressive floor-based monster scaling (e.g. `mob_hp_cap = 80 + floor_num * 3` and `mob_atk_cap = 12 + floor_num // 5`).
+A massive 77-floor mega-dungeon — the Ironvein Deep — entered with `!rpg dungeon` from the Aeridor Ruins (Grimstone, the town once planned in front of it, was cut in May 2026). Unlike procedural dungeons, the Spine features a fixed, hand-crafted 24x24 layout with intricate floor connectivity, static encounters, dynamic hallway traps, and unique bosses. It features checkpoint lifts every 5 floors (a stop unlocks when the player reaches that floor: beating floor N's stair guardian opens N + 1) and progressive floor-based monster scaling (`mob_hp_cap = 80 + floor_num * 3` and `mob_atk_cap = 12 + floor_num // 5`; mobs are scaled as difficulty 2 on floors 1–19, 3 from 20, 4 from 40, 5 from 60, `dungeon.spine_scaling_difficulty`). Every mob, procedural or Spine, is also bounded by the player's level: HP at 1.15× (1.3× in the Spine) the overworld cap, ATK at `level * 1.5 + 2` (`dungeon.scale_dungeon_mob`).
+
+A procedural dungeon's difficulty is 1 to level 4, 2 from 5, 3 from 8, 4 from 11 (`dungeon.dungeon_difficulty`): a level after each zone opens, so a new zone and a harder dungeon never arrive together.
 
 ### Stair Guardian Progression
 
@@ -456,7 +483,7 @@ Retired consumables: **Eye Drops** and **Trap Kit** are no longer sold, craftabl
 
 ## Endgame Gil Sinks
 
-Most characters reach level 15 with far more gil than anything costs; two sinks stay worth paying for.
+Two sinks stay worth paying for at the cap.
 
 - **Hemlock's rework** (`!rpg enhance [slot]`, `utils/ttrpg/enhancement.py`): equipped gear goes
   +1 to +5. Each level costs half the item's value (at least 1,000g) times the level being bought —
@@ -519,7 +546,7 @@ session changes.
 
 ## Housing System
 
-Players can purchase a home in the **Housing District** (`!rpg go housing_district`) for an initial 50k Gil (Hut). Upgrading unlocks more options. Access your home menu using `!rpg home`.
+Players can purchase a home in the **Housing District** (`!rpg go housing_district`): a Hut for 1,000 Gil, then a Cottage (5,000), a Longhouse (15,000) and the Keep (40,000). Upgrading unlocks more options. Access your home menu using `!rpg home`.
 
 ### Farming
 Grow crops in your farming plots. Seeds are bought from Hemlock or found. Crops grow over time/interactions, yielding items and cooking ingredients.
@@ -705,26 +732,42 @@ Defensive gear DEF ranges: Armor max 8, Headgear max 3, Boots max 3, Accessories
 
 ### Power curve
 
-```
-Level  Player ATK (avg)  Player DEF (avg)  Monster HP (tier)        Monster Hit%     Verdict
-1-3    +1 to +3          11-13             6-20 (triv/easy)         50-60%           Balanced — 2-4 rounds
-4-6    +4 to +6          14-17             20-100 (medium)          45-55%           Balanced — gear matters
-7-9    +7 to +9          18-20             40-200 (hard/deadly)     50-60%           Well-tuned — DEF cap helps
-10-12  +8 to +10         20-22             80-300 (boss/deadly)     50-60%           Well-tuned — log scaling active
-13-15  +10 to +12        22-25             280-480 (boss)           50-65%           Challenging — T7 gear is rare
-```
+Measured, not estimated: `tools/simulation/progression_sim.py --policy hunt --lives 5 --days 150`
+(25 characters, five classes, six hunts a day, the real combat engine and loot tables, potions
+bought and drunk, a retreat when a fight goes badly). Re-run it after any change to combat,
+monsters, loot, the XP table or prices, and compare by level; `--policy dungeon` spends hunts
+on dungeons and the Spine.
+
+| Levels | Days a level | Rounds a fight | HP lost a fight | Deaths / 100 fights | Retreats / 100 | Gil a day |
+|:--|:--|:--|:--|:--|:--|:--|
+| 1–3 | ~2 | 4–5.5 | 16–25% | 0.3–2.8 | 4–11 | 90–150 |
+| 4–6 | 2–4.5 | 6–7 | 19–29% | 0.3–1.2 | 5–19 | 230–340 |
+| 7–9 | 9–13 | 7.7–8.9 | 26–30% | 0.4–2.6 | 7–28 | 340–810 |
+| 10–12 | 11–16 | 9.4–9.9 | 31–36% | 0.4–0.8 | 10–16 | 900–1,450 |
+| 13–15 | 11–12 | 7–8.4 | 21–28% | 0–0.5 | 1–7 | 2,400–3,400 |
+
+A daily hunter reaches level 15 in a median of about 80–95 days. Before the November 2026 pass the
+same run never got there: four in ten level-1 fights ended in a blackout, and levels 4 and 7 (the
+deep woods, the ruins) each held a character for 50–70 days. At the cap income was ~9,000 gil a day,
+three quarters of it from selling drops.
+
+**Where gil goes.** Potions and the inn (both scale with level), Hemlock's Tier 2 gear (~250–300g a
+piece) from level 3, housing (1,000 / 5,000 / 15,000 / 40,000), pets and furniture, then Hemlock's
+rework at the cap (up to 150,000g per top piece).
 
 ## Progression
 
 | Level | XP Required | Level | XP Required |
 |:--|:--|:--|:--|
-| 2 | 300 | 9 | 48,000 |
-| 3 | 900 | 10 | 64,000 |
-| 4 | 2,700 | 11 | 85,000 |
-| 5 | 5,000 | 12 | 112,000 |
-| 6 | 11,000 | 13 | 148,000 |
-| 7 | 19,000 | 14 | 195,000 |
-| 8 | 28,000 | 15 | 256,000 (cap) |
+| 2 | 200 | 9 | 16,000 |
+| 3 | 500 | 10 | 25,000 |
+| 4 | 900 | 11 | 38,000 |
+| 5 | 1,400 | 12 | 57,000 |
+| 6 | 2,500 | 13 | 92,000 |
+| 7 | 4,500 | 14 | 136,000 |
+| 8 | 8,500 | 15 | 193,000 (cap) |
+
+Every step costs more than the one before it; the table is set from measured XP a day at each level.
 
 **HP gain per level** = `HP_per_level[class] + CON modifier` (minimum 1).
 

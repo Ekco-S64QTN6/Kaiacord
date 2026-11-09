@@ -15,7 +15,7 @@ from utils.ttrpg.record_scan import ScanFailure, ScanReport, log_scan_failures
 HOUSING_TIERS = {
     "hut": {
         "name": "Wattle Hut",
-        "cost": 500,
+        "cost": 1000,
         "upgrade_from": None,
         "desc": "A single-room wattle-and-daub hut on the outskirts of Oakhaven. It keeps the rain out. Mostly.",
         "emoji": "🛖",
@@ -27,7 +27,7 @@ HOUSING_TIERS = {
     },
     "cottage": {
         "name": "Stone Cottage",
-        "cost": 2500,
+        "cost": 5000,
         "upgrade_from": "hut",
         "desc": "A proper stone cottage with a hearth, two rooms, and a garden wall.",
         "emoji": "🏡",
@@ -39,7 +39,7 @@ HOUSING_TIERS = {
     },
     "longhouse": {
         "name": "Oak Longhouse",
-        "cost": 8000,
+        "cost": 15000,
         "upgrade_from": "cottage",
         "desc": "A grand longhouse of seasoned oak. Wide enough to entertain. Strong enough to outlast you.",
         "emoji": "🏠",
@@ -51,7 +51,7 @@ HOUSING_TIERS = {
     },
     "keep": {
         "name": "Oakhaven Keep",
-        "cost": 25000,
+        "cost": 40000,
         "upgrade_from": "longhouse",
         "desc": "Stone walls. Iron gates. A tower with a view of the Whisperwood canopy. This is legacy.",
         "emoji": "🏰",

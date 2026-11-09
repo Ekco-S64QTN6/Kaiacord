@@ -52,6 +52,60 @@ QUEST_ENCOUNTER_OVERRIDES = {
     ],
 }
 
+#: The tiers a hunt can meet from each level, (lowest, highest). One bound
+#: moves at a time, and never on a level where a zone opens (the deep woods
+#: at 4, the ruins at 7): before, both bounds jumped at 4 and at 7 together
+#: with the new zone, and both levels were walls.
+TIER_WINDOWS = (
+    (1,  ("trivial", "easy")),
+    (5,  ("trivial", "medium")),
+    (6,  ("easy",    "medium")),
+    (8,  ("easy",    "hard")),
+    (10, ("medium",  "hard")),
+    (11, ("medium",  "deadly")),
+    (13, ("hard",    "deadly")),
+    (14, ("hard",    "boss")),
+)
+
+
+def tier_window(player_level: int) -> tuple[str, str]:
+    window = TIER_WINDOWS[0][1]
+    for from_level, tiers in TIER_WINDOWS:
+        if player_level >= from_level:
+            window = tiers
+    return window
+
+
+def overworld_hp_cap(player_level: int) -> int:
+    """The most HP an overworld monster has against a player of this level.
+
+    Tiers above easy share one HP range (75-100 base), so without a cap a
+    level-4 player met 92-HP mediums: ten rounds at their damage. The cap
+    keeps a fight to four to six rounds of an at-level player's damage, the
+    same idea as the dungeon's per-difficulty caps."""
+    return 14 + 7 * max(1, int(player_level))
+
+
+def scale_overworld_monster(monster: dict, player_level: int, dist_mult: float = 1.0) -> dict:
+    """An overworld instance of `monster`: zone distance on HP, ATK and DEF,
+    then the level caps. Returns a copy with `hp` as {current, max}."""
+    import math
+    m = dict(monster)
+    hp = int(m["hp"] * dist_mult)
+    hp = max(1, min(hp, overworld_hp_cap(player_level)))
+    m["hp"] = {"current": hp, "max": hp}
+    # ATK and DEF scale with diminishing returns so a far zone cannot make a
+    # monster impossible to dodge; HP stays linear up to its cap.
+    atk_mult = min(1.35, 1.0 + math.log(dist_mult) / math.log(2)) if dist_mult > 1.0 else dist_mult
+    m["attack"] = int(m.get("attack", 0) * atk_mult)
+    m["defense"] = max(1, int(m.get("defense", 0) * atk_mult))
+    # Overworld ATK stays under the player's DEF cap (level*1.5+12) less ten,
+    # about a 50-55% hit rate at the cap; boss-tier entries in the tables
+    # would otherwise hit on nearly every roll.
+    m["attack"] = min(m["attack"], int(player_level * 1.5 + 2))
+    return m
+
+
 def random_encounter(location: str, player_level: int = 1) -> str:
     # Quest override tables take full precedence
     if location in QUEST_ENCOUNTER_OVERRIDES:
@@ -67,14 +121,7 @@ def random_encounter(location: str, player_level: int = 1) -> str:
 
     TIER_ORDER = ["trivial", "easy", "medium", "hard", "deadly", "boss"]
 
-    # Level-based tier window: (min_tier, max_tier)
-    # Prevents low-level players from encountering high-tier monsters
-    if player_level >= 13:  min_tier, max_tier = "deadly",  "boss"
-    elif player_level >= 11: min_tier, max_tier = "hard",   "boss"
-    elif player_level >= 9:  min_tier, max_tier = "hard",   "boss"
-    elif player_level >= 7: min_tier, max_tier = "medium",  "deadly"
-    elif player_level >= 4: min_tier, max_tier = "easy",    "medium"
-    else:                   min_tier, max_tier = "trivial", "easy"
+    min_tier, max_tier = tier_window(player_level)
 
     base_table = ENCOUNTER_TABLES.get(location, ENCOUNTER_TABLES["whisperwood_edge"])
     if isinstance(base_table, dict):

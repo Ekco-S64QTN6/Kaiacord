@@ -66,12 +66,14 @@ def test_encounter_table_registry():
     monster = random_encounter("whisperwood_edge", player_level=1)
     assert monster is not None
     
-    # Verify filtering
-    # Level 10 should filter for hard+ monsters.
-    # whisperwood_deep has malboro (hard).
-    monster_high = random_encounter("whisperwood_deep", player_level=10)
+    # Verify filtering: every encounter at level 10 is inside that level's window.
+    from utils.ttrpg.encounter_tables import tier_window
     from utils.ttrpg.monster_registry import MONSTERS
-    assert MONSTERS[monster_high]["tier"] in ["hard", "deadly", "boss"]
+    order = ["trivial", "easy", "medium", "hard", "deadly", "boss"]
+    low, high = (order.index(t) for t in tier_window(10))
+    for _ in range(50):
+        monster_high = random_encounter("whisperwood_deep", player_level=10)
+        assert low <= order.index(MONSTERS[monster_high]["tier"]) <= high + 1   # +1: a night tier shift
 
 @pytest.mark.parametrize("cls,adv,healed", [("Warrior", "", 20), ("Cleric", "", 25),
                                              ("Cleric", "High Priest", 30)])

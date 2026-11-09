@@ -201,6 +201,12 @@ Verified 2026-11-06: **369 monsters**, **395 gear + 58 consumables = 453 items**
   `dungeon.boss_level_multiplier()`, followed by the existing per-level caps. Do not casually
   rewrite the boss ATK cap table: its level-10 entry is intentionally non-monotonic and currently
   does not bind for registry bosses.
+- **Measure a balance change by playing it.** `tools/simulation/progression_sim.py` plays 25
+  characters from level 1 to 15 through the real combat engine, loot tables and prices, and prints
+  days per level, retreats, deaths and gil by source; run it before and after and compare by level
+  (`docs/ttrpg/aethelgard_system.md`, *Power curve*). Monster scaling lives in
+  `encounter_tables.scale_overworld_monster` and `dungeon.scale_dungeon_mob`, which the simulator
+  calls too: scaling done inline at a call site is scaling it cannot see.
 - **Spine stair guardians are floor-scaled encounter instances.** Build them with
   `spine_dungeon.scale_stair_guardian()`; do not mutate `monster_registry.MONSTERS`. Keep the
   floor HP/ATK/DEF curve and milestone Resonance Ward in sync with
