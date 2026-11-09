@@ -18,6 +18,7 @@ BASELINE = (
     TESTS / "unit" / "test_suite_hygiene.py",
     TESTS / "unit" / "test_chat_model_calls.py",
     TESTS / "unit" / "test_no_shadowed_imports.py",
+    TESTS / "unit" / "test_no_undefined_globals.py",
 )
 
 # Modules whose tests are intentionally named by behavior rather than filename.

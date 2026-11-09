@@ -17,7 +17,7 @@ import asyncio
 import copy
 import aiohttp
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import threading
 
@@ -1986,7 +1986,7 @@ class ForumDraftReviewView(discord.ui.View):
             # Log to forum moderation file
             try:
                 log_entry = {
-                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'timestamp': datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z',
                     'action': 'approved',
                     'user': f"{interaction.user.name}#{interaction.user.discriminator}" if interaction.user.discriminator != '0' else interaction.user.name,
                     'user_id': interaction.user.id,
@@ -2083,7 +2083,7 @@ class ForumDraftReviewView(discord.ui.View):
         # Log to forum moderation file
         try:
             log_entry = {
-                'timestamp': datetime.utcnow().isoformat() + 'Z',
+                'timestamp': datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z',
                 'action': 'rejected',
                 'user': f"{interaction.user.name}#{interaction.user.discriminator}" if interaction.user.discriminator != '0' else interaction.user.name,
                 'user_id': interaction.user.id,

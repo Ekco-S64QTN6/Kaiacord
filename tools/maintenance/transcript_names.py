@@ -167,6 +167,12 @@ def valid_pair(heard: str, correct: str, excerpt: str) -> bool:
         return False                                  # the model must quote, not invent
     if len(heard.split()) == 1 and is_english_word(heard):
         return False                                  # a real word is used as itself elsewhere
+    heard_words = [w.lower() for w in re.findall(r"[\w']+", heard)]
+    correct_words = [w.lower() for w in re.findall(r"[\w']+", correct)]
+    if len(correct_words) < len(heard_words) and all(w in heard_words for w in correct_words):
+        return False                                  # "sandworm group" -> "Sandworm" deletes a word
+    if len(correct_words) == 1 and all(is_english_word(w) for w in heard_words + correct_words):
+        return False                                  # "counter measure" -> "Countermeasures" is spelling
     return True
 
 

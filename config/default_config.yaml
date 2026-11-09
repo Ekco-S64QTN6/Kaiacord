@@ -57,6 +57,8 @@ performance:
 
   # Half-life for user_logs/news recency decay (days). Higher = slower decay.
   rag_recency_half_life_days: 90
+  # Per-source-type overrides of that half-life, e.g. {news: 14, dreams: 60}.
+  rag_recency_half_life_by_type: {}
   
   # RAG Relevance Thresholds
   rag_thresholds:
@@ -262,6 +264,9 @@ discord:
   # cannot change. The id below is Ekco's, kept alongside the username so a
   # username change cannot lock the operator out of admin commands.
   owner_ids: "ekco,177011971818782721"
+
+  # Channel name where Aethelgard trip tales, rescues and world events are posted.
+  rpg_channel: "aethelgard"
 
 # ============================================================================
 # Logging Configuration
@@ -839,6 +844,15 @@ filters:
     - gymconserve
     - kristinoemnclature
     - gnowmaticflux
+
+# ============================================================================
+# Sky — !iss, !nasa, !earth, !spaceweather, !rocks, !launch, !quake, !sky
+# ============================================================================
+sky:
+  # Switch for every sky command.
+  enabled: true
+  # Observer for passes and tonight's sky, "lat, lon". Empty: commands that need it say so.
+  location: ""
 
 # ============================================================================
 # Radio — shortwave feeds, KiwiSDR listening, and the local RTL-SDR scanner
