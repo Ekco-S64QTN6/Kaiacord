@@ -1,5 +1,6 @@
 import time
 import discord
+from utils.ttrpg import turn_buttons
 
 from utils.commands.stale_view import StaleSafeView
 from utils.ttrpg.character_manager import load, save
@@ -112,7 +113,8 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
                     f"*Plant it at your home farm.* Remaining gil: {s['gil']}g"
                 ),
                 color=0x44aa44
-            )
+            ),
+            view=await turn_buttons.buttons_for(ctx, interaction, uid, uname, is_owner),
         )
 
     sel.callback = _buy_seed_cb
@@ -176,7 +178,7 @@ async def _handle_brew(ctx, msg, send, rest, uid, uname, is_owner):
                 await interaction.response.defer()
                 fake_msg = _InteractionMsg(interaction)
                 send_fn = _make_interaction_send(interaction)
-                await _handle_brew(ctx, fake_msg, send_fn, key, uid, uname, is_owner)
+                await turn_buttons.run(_handle_brew, ctx, fake_msg, send_fn, key, uid, uname, is_owner)
             btn.callback = _brew_cb
             view.add_item(btn)
 
@@ -453,7 +455,7 @@ async def _handle_upgrade_house(ctx, msg, send, rest, uid, uname, is_owner):
         ))
         
         fake = _InteractionMsg(interaction)
-        await _handle_my_home(ctx, fake, _make_interaction_send(interaction), rest, uid, uname, is_owner)
+        await turn_buttons.run(_handle_my_home, ctx, fake, _make_interaction_send(interaction), rest, uid, uname, is_owner)
         
     confirm_btn.callback = _confirm_cb
     view.add_item(confirm_btn)
@@ -521,7 +523,7 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
                 chosen = interaction.data["values"][0]
                 await interaction.response.defer()
                 fake = _InteractionMsg(interaction)
-                await _handle_plant_crop(ctx, fake, _make_interaction_send(interaction), chosen, uid, uname, is_owner)
+                await turn_buttons.run(_handle_plant_crop, ctx, fake, _make_interaction_send(interaction), chosen, uid, uname, is_owner)
             sel.callback = _plant_cb
             view.add_item(sel)
         else:
@@ -534,7 +536,7 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
             if str(interaction.user.id) != uid: return
             await interaction.response.defer()
             fake = _InteractionMsg(interaction)
-            await _handle_harvest_crops(ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
+            await turn_buttons.run(_handle_harvest_crops, ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
         harvest_btn.callback = _harvest_cb
         view.add_item(harvest_btn)
 
@@ -543,7 +545,7 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
         if str(interaction.user.id) != uid: return
         await interaction.response.defer()
         fake = _InteractionMsg(interaction)
-        await _handle_water_crops(ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
+        await turn_buttons.run(_handle_water_crops, ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
     water_btn.callback = _water_cb
     view.add_item(water_btn)
 
@@ -554,7 +556,7 @@ async def _handle_farm_view(ctx, msg, send, rest, uid, uname, is_owner):
             if str(interaction.user.id) != uid: return
             await interaction.response.defer()
             fake = _InteractionMsg(interaction)
-            await _handle_farm_treat(ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
+            await turn_buttons.run(_handle_farm_treat, ctx, fake, _make_interaction_send(interaction), "", uid, uname, is_owner)
         treat_btn.callback = _treat_cb
         view.add_item(treat_btn)
 
@@ -817,7 +819,7 @@ async def _handle_pet_shop(ctx, msg, send, rest, uid, uname, is_owner):
         chosen = interaction.data["values"][0]
         await interaction.response.defer()
         fake = _InteractionMsg(interaction)
-        await _handle_buy_pet(ctx, fake, _make_interaction_send(interaction), chosen, uid, uname, is_owner)
+        await turn_buttons.run(_handle_buy_pet, ctx, fake, _make_interaction_send(interaction), chosen, uid, uname, is_owner)
     sel.callback = _buy_cb
     view.add_item(sel)
     view.add_item(_make_status_btn(ctx, uid, uname, is_owner))
@@ -967,7 +969,7 @@ async def _handle_furniture_shop(ctx, msg, send, rest, uid, uname, is_owner):
             chosen = interaction.data["values"][0]
             await interaction.response.defer()
             fake = _InteractionMsg(interaction)
-            await _handle_buy_furniture(ctx, fake, _make_interaction_send(interaction), chosen, uid, uname, is_owner)
+            await turn_buttons.run(_handle_buy_furniture, ctx, fake, _make_interaction_send(interaction), chosen, uid, uname, is_owner)
         sel.callback = _buy_cb
         view.add_item(sel)
     

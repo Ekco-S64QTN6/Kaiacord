@@ -7,6 +7,7 @@ NPC: Old Gregor (sells bait/poles, buys fish)
 """
 import asyncio
 import discord
+from utils.ttrpg import turn_buttons
 
 from utils.commands.stale_view import StaleSafeView
 import secrets
@@ -76,6 +77,12 @@ GREGOR_LINES = [
 
 
 # ── Fishing Menu View ─────────────────────────────────────────────────────────
+
+def _status_view(ctx, interaction, uid, uname, is_owner):
+    """Status buttons for a fishing reply away from the pond."""
+    from utils.ttrpg.rpg_views import _make_status_view
+    return _make_status_view(ctx, None, uid, uname, is_owner)
+
 
 class FishingMenuView(StaleSafeView):
     """Main fishing location UI at tricklebrook_pond."""
@@ -206,7 +213,7 @@ class FishingMenuView(StaleSafeView):
         fake = _InteractionMsg(interaction)
         send_fn = _make_interaction_send(interaction)
         try:
-            await _handle_talk(self._ctx, fake, send_fn, "gregor", self._uid, self._uname, self._is_owner)
+            await turn_buttons.run(_handle_talk, self._ctx, fake, send_fn, "gregor", self._uid, self._uname, self._is_owner)
         except Exception as e:
             await interaction.followup.send(embed=notice(f"talk failed: {e}", error=True), ephemeral=True)
 
@@ -226,7 +233,7 @@ class FishingMenuView(StaleSafeView):
         )
         for name, value in get_fishing_stats_embed_fields(sheet):
             embed.add_field(name=name, value=value, inline=True)
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, view=FishingMenuView(self._ctx, self._uid, self._uname, self._is_owner, sheet))
 
     @discord.ui.button(label="💰 Sell All Fish", style=discord.ButtonStyle.green, row=2)
     async def sell_all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -489,8 +496,7 @@ async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_
             embed=discord.Embed(
                 description="You need to be at **Tricklebrook Pond** to fish.\n`!rpg go tricklebrook_pond`",
                 color=0xcc4444,
-            )
-        )
+            ), view=_status_view(ctx, interaction, uid, uname, is_owner))
         return
 
     stats = sheet.setdefault("fishing_stats", {})
@@ -512,8 +518,7 @@ async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_
                     "*He gestures at the rack by the post. \"Can't fish with your hands.\"*"
                 ),
                 color=0xcc4444,
-            )
-        )
+            ), view=FishingMenuView(ctx, uid, uname, is_owner, sheet))
         return
 
     # Bait always required — no exceptions
@@ -526,8 +531,7 @@ async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_
                     "*\"Nothing bites on an empty hook. Buy some bait.\"*"
                 ),
                 color=0xcc4444,
-            )
-        )
+            ), view=FishingMenuView(ctx, uid, uname, is_owner, sheet))
         return
 
     # Bag capacity check (also enforced again when the fish is actually reeled in).
@@ -540,8 +544,7 @@ async def _cast(ctx, interaction: discord.Interaction, uid: str, uname: str, is_
                     f"Sell your fish to Gregor or upgrade your bag in the shop."
                 ),
                 color=0xcc4444,
-            )
-        )
+            ), view=FishingMenuView(ctx, uid, uname, is_owner, sheet))
         return
 
     pole_name = POLES.get(pole_key, {}).get("name", "Birchwood Rod")
@@ -693,8 +696,7 @@ async def _resolve_bite(
                     embed=discord.Embed(
                         description="That monster hook was already resolved. The bait charge was not repeated.",
                         color=0x888888,
-                    )
-                )
+                    ), view=FishingMenuView(ctx, uid, uname, is_owner, sheet))
                 return
             else:
                 m_key = (
@@ -731,8 +733,7 @@ async def _resolve_bite(
                 else:
                     message = "The water churns, but no creature answers the hook. Your bait was not consumed."
                 await interaction.followup.send(
-                    embed=discord.Embed(description=message, color=0xcc4444),
-                )
+                    embed=discord.Embed(description=message, color=0xcc4444), view=FishingMenuView(ctx, uid, uname, is_owner, sheet))
                 return
 
             # If the session write succeeds but the sheet write is interrupted,
@@ -751,15 +752,14 @@ async def _resolve_bite(
                     embed=discord.Embed(
                         description="That monster hook was already resolved. The bait charge was not repeated.",
                         color=0x888888,
-                    )
-                )
+                    ), view=FishingMenuView(ctx, uid, uname, is_owner, sheet))
                 return
 
             monster_embed = discord.Embed(
                 title="⚠️ MONSTER HOOKED FROM THE BLACKWATER!",
                 description=(
-                    f"The line jerks violently! Instead of a fish, a thrashing **{m_data['name']}** breaks the surface and attacks!\\n\\n"
-                    f"*{m_data.get('desc', '')}*\\n\\n"
+                    f"The line jerks violently! Instead of a fish, a thrashing **{m_data['name']}** breaks the surface and attacks!\n\n"
+                    f"*{m_data.get('desc', '')}*\n\n"
                     f"⚔️ **Combat initiated!** Use `!rpg attack` to defend yourself!"
                 ),
                 color=0x8b0000,
@@ -983,8 +983,7 @@ async def _handle_sell_catch(ctx, interaction: discord.Interaction, uid: str, un
             embed=discord.Embed(
                 description="You need to be at **Tricklebrook Pond** to sell to Gregor.",
                 color=0xcc4444,
-            )
-        )
+            ), view=_status_view(ctx, interaction, uid, uname, is_owner))
         return
 
     cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
@@ -1251,8 +1250,7 @@ class FishingShopView(StaleSafeView):
                         f"Bait count: {total_active_bait}. Gil: {s['gil']}g"
                     ),
                     color=0x2ecc71,
-                )
-            )
+                ), view=FishingMenuView(self._ctx, self._uid, self._uname, self._is_owner, s))
 
         bait_sel.callback = _buy_bait
         self.add_item(bait_sel)
@@ -1305,8 +1303,7 @@ class FishingShopView(StaleSafeView):
                         f"Gil: {s['gil']}g"
                     ),
                     color=0x2ecc71,
-                )
-            )
+                ), view=FishingMenuView(self._ctx, self._uid, self._uname, self._is_owner, s))
 
         pole_sel.callback = _buy_pole
         self.add_item(pole_sel)
@@ -1372,8 +1369,7 @@ class FishingShopView(StaleSafeView):
                         + (f"\nGil: {s['gil']}g" if cost > 0 else "")
                     ),
                     color=0x2ecc71,
-                )
-            )
+                ), view=FishingMenuView(self._ctx, self._uid, self._uname, self._is_owner, s))
 
         bag_sel.callback = _buy_bag
         self.add_item(bag_sel)

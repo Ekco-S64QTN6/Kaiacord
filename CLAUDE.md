@@ -1112,6 +1112,13 @@ same reply. A button that later edits such a message changes only the status lin
 (`kaia_forum.draft_review_embed`), and an edit that runs before bookkeeping must not be able to
 throw past it — Reject's did, and the rejected reply came back.
 
+**Every `!rpg` turn ends on a card with buttons** (`utils/ttrpg/turn_buttons.py`). A typed
+command or a button press is one turn; what it sends through `msg.channel.send` or `send` is
+recorded, and if its last card has no view, the turn's earlier buttons move down to it or the
+buttons for where the player is (the fight, Hunt Again + Status in the wild, Status in town) are
+added. A forest event's card used to arrive bare. A button that calls a handler directly goes
+through `turn_buttons.run`; a card a view sends itself takes `turn_buttons.buttons_for`.
+
 `!help`, `!nightshift` and `!scanner` are button panels (`discord.ui.View`). `!help` is a landing page with a button per section that swaps the page in place; owner-only commands are only in its Admin section, and what a press shows is decided by the presser's ownership, not the invoker's. A button runs the same handler
 the typed command does, with a message-shaped stand-in for the click (`nightshift._Click`), so a
 feature has one code path whether it is clicked or typed.

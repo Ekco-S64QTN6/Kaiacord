@@ -7,6 +7,7 @@ import traceback
 import discord
 
 from utils.commands.stale_view import StaleSafeView
+from utils.ttrpg import turn_buttons
 import secrets
 from utils.infrastructure.logging.kaia_logger import log_debug, log_error
 from utils.infrastructure.system.yaml_config import config
@@ -63,6 +64,12 @@ def _lazy(module: str, name: str):
         return getattr(importlib.import_module(module), name)
 
     async def call(*args, **kwargs):
+        # A button runs a handler as a turn of its own: what it sends last
+        # gets the buttons to carry on (turn_buttons).
+        if len(args) == 7 and not turn_buttons.in_turn():
+            ctx, msg, _send, _rest, uid, uname, is_owner = args
+            async with turn_buttons.turn(ctx, msg, uid, uname, is_owner):
+                return await target()(*args, **kwargs)
         return await target()(*args, **kwargs)
     call.__name__ = name
     call.target = target
@@ -345,7 +352,10 @@ class _InteractionChannel:
         self.name = getattr(self._real, 'name', '')
 
     async def send(self, content=None, **kwargs):
-        return await self._interaction.followup.send(content, **kwargs)
+        kwargs.setdefault("wait", True)          # the message, so its turn can add buttons
+        message = await self._interaction.followup.send(content, **kwargs)
+        turn_buttons.record(message, kwargs)
+        return message
 
     @property
     def typing(self):
@@ -385,15 +395,18 @@ def _make_interaction_send(interaction: discord.Interaction):
     send(channel, text) instead of msg.channel.send(embed=...).
     """
     async def _send(channel, text=None, use_code_block=None, **kwargs):
+        kwargs.setdefault("wait", True)
         if text is not None and str(text).strip():
             if use_code_block is None:
                 use_code_block = "```" not in str(text)
             if use_code_block:
-                await interaction.followup.send(f"```\n{str(text).strip()}\n```", **kwargs)
+                message = await interaction.followup.send(f"```\n{str(text).strip()}\n```", **kwargs)
             else:
-                await interaction.followup.send(str(text).strip(), **kwargs)
+                message = await interaction.followup.send(str(text).strip(), **kwargs)
         else:
-            await interaction.followup.send(**kwargs)
+            message = await interaction.followup.send(**kwargs)
+        turn_buttons.record(message, kwargs)
+        return message
     return _send
 
 
@@ -1557,7 +1570,10 @@ class DungeonView(StaleSafeView):
             else:
                 from utils.ttrpg.dungeon import clear_dungeon
                 await clear_dungeon(self._uid)
-            await interaction.followup.send("You have left the dungeon and returned to the entrance.")
+            await interaction.followup.send(
+                "You have left the dungeon and returned to the entrance.",
+                view=await turn_buttons.buttons_for(self._ctx, interaction, self._uid, self._uname, self._is_owner),
+            )
             # Leaving ends the trip; Kaia tells it once (utils/ttrpg/outing.py).
             from utils.ttrpg import outing
             sheet = await load(self._uid)

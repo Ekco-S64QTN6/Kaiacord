@@ -1,5 +1,6 @@
 """Aethelgard status HUD rendering and inline level-up choice handling."""
 import discord
+from utils.ttrpg import turn_buttons
 
 
 async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner, *, load_character, save_character, show_stat_choice_handler, load_session_fn, load_dungeon_fn, get_current_state_fn, xp_to_next_level_fn, xp_thresholds, colored_bar_fn, ansi_green, ansi_reset, hp_label_fn, hunts_remaining_fn, get_max_hunts_fn, get_title_fn, class_icons, location_icons, player_locked_decorator, location_view_factory, stale_view_factory):
@@ -205,7 +206,10 @@ async def _handle_status(ctx, msg, send, rest, uid, uname, is_owner, *, load_cha
                 s["_advancement_pending"] = False
                 await save_character(s)
                 flavor = options[chosen].get("flavor", f"You are now a {chosen}.")
-                await interaction.followup.send(f"```\n{flavor}\n```\n*You are now a {chosen}! Type `!rpg` to view your stats.*")
+                await interaction.followup.send(
+                    f"```\n{flavor}\n```\n*You are now a {chosen}!*",
+                    view=await turn_buttons.buttons_for(ctx, interaction, uid, uname, is_owner),
+                )
                 
             sel.callback = _adv_cb
             view.add_item(sel)
