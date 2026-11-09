@@ -1339,7 +1339,16 @@ it headless (Playwright) against the real data.
   Python applies a pair only if the misheard form is in the excerpt, is a phrase or a non-word,
   and the correction is capitalised and *sounds like* it. Without the sound test gemma3 answered
   confidently and wrongly — "simx" (cymek) became "thinking machines" sixteen times. What was
-  changed is recorded in the sidecar's `name_corrections`.
+  changed is recorded in the sidecar's `name_corrections` and `memory/transcript_name_corrections.jsonl`.
+  **The video's description is the reference** (`fetch_description`): the model is shown it, and
+  a correction to a name it spells is trusted. Sounding alike was not enough — over 433 recorded
+  pairs (Sept–Nov) the model swapped real names for others ("richard nixon" → "Jack Nicholson",
+  "south africa" → "South America", "kosen" → "Jason" for the host Costin). So a pair is refused
+  when what was heard is already real words *or names the corpus spells* (`corpus_names`: the
+  English list has no proper nouns), when it adds, deletes or truncates words, and, unless the
+  description spells the correction, when it opens on a different sound. People on the
+  description's labelled cast/host/guest lines are also matched to the captions without the model
+  (`reference_corrections`). Precision over recall: "hurricane helen" stays as captioned.
 - **Write frontmatter through `utils.core.frontmatter.dump_frontmatter`, never by string
   formatting.** Every corpus
   writer that built a block with an f-string has produced invalid YAML:

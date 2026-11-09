@@ -39,6 +39,7 @@ def _deterministic_english_wordlist(monkeypatch):
     while the genuine English word "neat" remains protected.
     """
     monkeypatch.setattr(tn, "_ENGLISH", {"neat"})
+    monkeypatch.setattr(tn, "_NAMES", set())
 
 
 @pytest.mark.parametrize("heard, correct", [
@@ -71,6 +72,77 @@ def test_a_correction_that_deletes_words_or_only_respells_english_is_rejected(mo
     assert not tn.valid_pair("daybreak red ladder", "Daybreak Red", excerpt)
     assert not tn.valid_pair("counter measure", "Countermeasures", excerpt)
     assert tn.valid_pair("ATT treaties", "Atreides", EXCERPT)     # fewer words, none of them kept
+
+
+CAST = "Three Buddy Problem - Episode 119.\nCast: Costin Raiu, Juan Andres Guerrero-Saade, Ryan Naraine"
+TALK = """---
+title: x
+---
+## [0:00]
+
+well kosen here's the thing. castian, you're in europe. and we're using costine as an example. ryan caused it
+"""
+
+
+def test_a_real_name_is_never_swapped_for_another(monkeypatch):
+    # The model's confident swaps (Sept–Nov glossaries): the captions had it right.
+    monkeypatch.setattr(tn, "_ENGLISH", {"richard", "south", "department", "war", "of"})
+    monkeypatch.setattr(tn, "_NAMES", {"nixon", "africa", "sinai"})
+    assert not tn.valid_pair("richard nixon", "Jack Nicholson", "richard nixon")
+    assert not tn.valid_pair("south africa", "South America", "south africa", "South America")
+    assert not tn.valid_pair("sinai", "Satan", "sinai")
+    assert not tn.valid_pair("department of war", "Department of Defense", "department of war")
+
+
+def test_a_correction_the_description_does_not_spell_must_open_on_the_same_sound():
+    assert not tn.valid_pair("kosen", "Jason", "kosen")          # j is not k
+    assert tn.valid_pair("kosen", "Costin", "kosen", CAST)       # the cast list spells it
+    assert tn.valid_pair("oracus", "Arrakis", EXCERPT)            # vowels open alike
+
+
+def test_a_correction_may_not_add_words_or_cut_one_short():
+    assert not tn.valid_pair("rosenberg", "Rosenberg Research", "rosenberg")
+    assert not tn.valid_pair("grokipedia", "Grok", "grokipedia")
+    assert tn.valid_pair("tuscanyany", "Tuscany", "tuscanyany")   # a stutter, not a word
+
+
+def test_the_cast_list_corrects_its_names_without_the_model(monkeypatch):
+    monkeypatch.setattr(tn, "_ENGLISH", {"well", "here", "thing", "you", "europe", "and", "using",
+                                         "as", "an", "example", "cause", "it", "in"})
+    assert tn.reference_corrections(TALK, CAST) == {"kosen": "Costin", "castian": "Costin", "costine": "Costin"}
+    assert tn.reference_corrections(TALK, "") == {}
+    # A word the description itself spells is left alone.
+    kde = "---\ntitle: x\n---\nmatthias ettrich wrote it with eirik\n"
+    assert tn.reference_corrections(kde, "Guests: Matthias Ettrich, Eirik Chambe-Eng") == {}
+    # Only a labelled cast line names who is there: "a video with Louis Rossmann" does not.
+    assert tn.reference_corrections("---\ntitle: x\n---\nit's been remanu or new\n",
+                                    "Watch our video with Louis Rossmann") == {}
+    # A full name in the captions that is someone else's is not the guest's.
+    physics = "---\ntitle: x\n---\nlike we saw Ed Witten put out a paper\n"
+    assert tn.reference_corrections(physics, "Guest: Daniel Whiteson") == {}
+
+
+def test_the_model_is_shown_the_description_and_its_names_are_kept():
+    seen = []
+
+    async def chat(prompt):
+        seen.append(prompt)
+        return json.dumps({"corrections": [{"heard": "kosen", "correct": "Jason"}]})
+
+    glossary = asyncio.run(tn.find_corrections(TALK, "x", "Three Buddy Problem", chat, description=CAST))
+    assert "Costin Raiu" in seen[0]
+    assert glossary["kosen"] == "Costin"
+
+
+def test_a_possessive_is_corrected_and_a_longer_word_is_not():
+    fixed, counts = tn.apply_corrections("---\ntitle: x\n---\nAnd Kosen's like, kosen said. kosens\n", {"kosen": "Costin"})
+    assert "And Costin's like, Costin said. kosens" in fixed and counts == {"kosen": 2}
+
+
+def test_inflections_are_english_words(monkeypatch):
+    monkeypatch.setattr(tn, "_ENGLISH", {"cause", "punch", "cheap", "stop", "treaty"})
+    for w in ("caused", "punched", "cheaper", "stopped", "treaties"):
+        assert tn.is_english_word(w), w
 
 
 def test_corrections_touch_prose_and_summary_but_not_anchors_or_links():
