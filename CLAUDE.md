@@ -530,6 +530,11 @@ called.
 > title, an emptied reply — confirmed in what was actually sent (the user log,
 > the channel), is fixed on sight, in the guard and in the log (see the rules
 > below). Making a guard remove less never needs a report.
+>
+> One exception, Ekco's (8 Nov): **a line that is only a bracketed narration** —
+> "(a faint smile)", "(returning focus to the lake)", "(solely addressing
+> starkind)" — is removed from what she sends and is shown (`strip_address_tag`).
+> A bracket inline, an asterisk span, or one with "i"/"you" in it is not touched.
 
 
 `response_filter.py` guards run in two modes and the distinction matters:
@@ -620,8 +625,11 @@ history, so the opener passed both filters). A short verbless line is now keyed 
 (`_frag_key`: "a quiet", "it's a quiet"; an "a …" line up to ten words) when it is made of her stock vocabulary (`_stock_fragment`:
 `_STOCK_ADJ`, `_ABSTRACT`) — "a woman, it seems." and "an m6.86 flare." describe a picture and report a reading,
 and a bracketed stage direction is hers. The same note copied out of the prompt, "(speaking exclusively to
-starkind)", headed every reply by 16 Oct; `strip_address_tag` takes it out of what she sends and what she is
-shown. Her paragraphs fragmented too — 2.3 a reply of ~32 words in early September, 5.4 of ~19 by mid-October —
+starkind)", headed every reply by 16 Oct, and reworded ("(solely addressing starkind)") 61 replies on 3–4 Nov;
+`strip_address_tag` takes it out of what she sends and what she is shown. An opening she reuses is keyed on its
+first three words (`_opener_key`): "it's funny how …" opened 27 of 33 replies to Starkind on 8 Nov, each copied from
+the last. Her shown turns lose it at two uses in the window, what she sends at three of her last six
+(`strip_repeated_opening`), with any sentence that only continued it, and never when what remains could not stand. Her paragraphs fragmented too — 2.3 a reply of ~32 words in early September, 5.4 of ~19 by mid-October —
 and `reflow_paragraphs` joins short prose paragraphs back together. From 16 Oct the cadence came back as
 litanies — "a pattern identified. a tendency observed. a habit acknowledged." — in 38% of replies (none before
 October); `collapse_litany` keeps the first two of a run of three or more "a …" fragments made of her stock

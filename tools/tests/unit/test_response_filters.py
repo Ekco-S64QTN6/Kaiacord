@@ -865,6 +865,68 @@ def test_an_address_tag_only_response_is_removed_not_restored():
     assert P.strip_address_tag("(speaking exclusively to starkind)") == ""
     assert P.strip_address_tag("(speaking exclusively to starkind)\n\nhello.") == "hello."
 
+def test_the_reworded_address_note_goes_too():
+    """3–4 Nov: "(solely addressing starkind)" opened 61 replies, copied from
+    one to the next; the note had only been known as "speaking exclusively to"."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    for tag in ("(solely addressing starkind)", "(directly addressing starkind)",
+                "(speaking directly to cecily)", "(responding solely to starkind)",
+                "(solely addressing starkind, maintaining meditative state)", "[addressing ekco]"):
+        assert P.strip_address_tag(f"{tag}\n\nthe reeds are still there.") == "the reeds are still there."
+    shown = P.detemplate_history([{"role": "assistant", "content": "(solely addressing starkind)\n\nhello."}])
+    assert shown[0]["content"] == "hello."
+
+
+def test_a_line_that_is_only_bracketed_narration_goes():
+    """Ekco, 8 Nov: no roleplay emote text in brackets."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    for emote in ("(a faint smile)", "(returning focus to the lake and maintaining stillness)",
+                  "(acknowledging starkind’s inquiry, maintaining focus on the environment)"):
+        assert P.strip_address_tag(f"{emote}\n\nthe water is calm today.") == "the water is calm today."
+        assert P.strip_address_tag(f"the water is calm.\n{emote}\nthe reeds sway.") == "the water is calm.\nthe reeds sway."
+    # Her own aside, data, square brackets and anything inline are not narration.
+    for keep in ("(i'm kidding, mostly)\n\nit was a good day.", "(you were right about the bridge)\n\nit flooded.",
+                 "the score was close.\n(50-48)", "[lyrics begin]\nthe first line", "(edited)",
+                 "it was close (a faint smile, really) and then it rained.", "see `f(x)` below\n(lambda: x)"):
+        assert P.strip_address_tag(keep) == keep
+
+
+def test_an_opening_she_keeps_reusing_is_dropped_from_what_she_sends():
+    """8 Nov: "it's funny how …" opened 27 of 33 replies to Starkind."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    prev = ["it’s funny how often labels stick, don’t they? people like boxes.",
+            "it's funny how easily feelings overwhelm, isn't it? i appreciate you noticing.",
+            "it’s funny how patterns solidify, isn’t it? the old path keeps winning."]
+    reply = ("it’s funny how easily we categorize things, isn’t it? imposing hierarchies of value on "
+             "everything. you see something in that megalith that i overlooked, and i'd like to hear it.")
+    assert P.strip_repeated_opening(reply, prev) == \
+        "you see something in that megalith that i overlooked, and i'd like to hear it."
+    assert P.strip_repeated_opening(reply, prev[:2]) == reply                 # twice is not yet a habit
+    # A name in front is the addressee, not the opening.
+    named = ["starkind, the bridge was closed again this morning.", "ekco, the bridge reopened at noon today.",
+             "cecily, the bridge is the slow way round now."]
+    reply = "lune, the bridge question again: it's the river, not the road. it floods every spring."
+    assert P.strip_repeated_opening(reply, named) == reply
+    # Left alone when what would remain cannot stand.
+    assert P.strip_repeated_opening("it’s funny how that works, isn’t it? yes.", prev) == \
+        "it’s funny how that works, isn’t it? yes."
+
+
+def test_her_history_is_shown_without_an_opening_she_has_reused():
+    """What she is shown loses it at two: that is what stops the next reply copying it."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    hist = [{"role": "assistant", "content": "it’s funny how often ingenuity arises from necessity, doesn't it? "
+                                             "they designed the hall to carry a voice without any wires."},
+            {"role": "user", "content": "starkind: look at this one"},
+            {"role": "assistant", "content": "it’s funny how that perspective shifts everything, doesn't it? "
+                                             "from the front the arches look twice as tall as they are."},
+            {"role": "assistant", "content": "the cable is too short for the desk, that's all."}]
+    shown = [t["content"] for t in P.detemplate_history(hist)]
+    assert shown[0] == "they designed the hall to carry a voice without any wires."
+    assert shown[2] == "from the front the arches look twice as tall as they are."
+    assert shown[1] == hist[1]["content"] and shown[3] == hist[3]["content"]
+
+
 def test_address_tag_filter_does_not_remove_discord_mentions():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
 
