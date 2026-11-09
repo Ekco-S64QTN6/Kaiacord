@@ -1,6 +1,6 @@
 # Roadmap
 
-What is open, and the call on each. Updated 6 November 2026.
+What is open, and the call on each. Updated 9 November 2026.
 
 Each item carries a decision: **Yes** (to build), **Watch** (measure before building), **Owner's
 call**, or **No** (researched and declined, with the reason). Closed work is in `git log` and the
@@ -64,10 +64,10 @@ pull requests.
 | **Dispatcher and test-guidance documentation** (PR #248) | Corrected public dispatcher versus compatibility-adapter ownership, aligned the default no-external-services pytest selection with the `network` marker, removed stale test counts, and clarified handler, PDF-ingestion, and CI boundaries. |
 | **RPG navigation name-matching regression** (PR #249) | Added whole-word/phrase-boundary coverage and verified that the public look adapter resolves a partial target name without matching embedded substrings. |
 
-## Validation still blocked
+## Validation closed 9 November 2026
 
-- **Live Discord Aethelgard smoke test (#180):** remains open pending an operator-approved run against the deployed bot, a designated test guild/channel, and a disposable character. CI cannot prove live gateway readiness, actual command/component delivery, permissions, or deployed recovery. The issue records the required safe run evidence.
-- **Deployed Linux PDF validation (#206):** automated Linux worker resource-enforcement coverage is merged (#207–#208); the production host's kernel, Python build, cgroup/container memory budget, and a representative PDF test result still need to be captured on that host. GitHub-hosted CI does not substitute for this evidence.
+- **Deployed Linux PDF validation (#206):** run on the host the bot runs from: Linux 6.18.60, Python 3.12.16, no cgroup memory ceiling, so the worker's own 256 MiB / 3 CPU s / 5 s limits bind; `test_context_enricher_links.py` passed 24 of 24, including real address-space, CPU and wall-timeout enforcement.
+- **Live Aethelgard smoke test (#180):** closed as a checklist rather than a defect. The deployed bot opens and resolves combat sessions in live play (7 and 9 Nov), and the dawn tick commits every character and housing record through the journal. A failure found in play gets its own issue.
 
 ## Declined, with the reason
 
