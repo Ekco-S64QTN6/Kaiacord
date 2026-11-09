@@ -63,6 +63,16 @@ def test_bad_pairs_are_rejected(heard, correct, why):
     assert not tn.valid_pair(heard, correct, EXCERPT), why
 
 
+def test_a_correction_that_deletes_words_or_only_respells_english_is_rejected(monkeypatch):
+    # From a security podcast's glossary (9 Nov): each dropped or joined real words.
+    monkeypatch.setattr(tn, "_ENGLISH", {"counter", "measure", "countermeasure", "group", "red", "ladder"})
+    excerpt = "the sandworm group used daybreak red ladder and a counter measure"
+    assert not tn.valid_pair("sandworm group", "Sandworm", excerpt)
+    assert not tn.valid_pair("daybreak red ladder", "Daybreak Red", excerpt)
+    assert not tn.valid_pair("counter measure", "Countermeasures", excerpt)
+    assert tn.valid_pair("ATT treaties", "Atreides", EXCERPT)     # fewer words, none of them kept
+
+
 def test_corrections_touch_prose_and_summary_but_not_anchors_or_links():
     fixed, counts = tn.apply_corrections(DOC, {"oracus": "Arrakis", "att treaties": "Atreides"})
     assert counts == {"oracus": 3, "att treaties": 2}
