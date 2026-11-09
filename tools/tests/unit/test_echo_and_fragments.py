@@ -107,3 +107,14 @@ def test_a_participle_left_by_the_excision_goes_with_the_praise():
         "replication isn't merely about mimicking a sequence of steps.")
     assert "probing" not in out
     assert out.startswith("replication isn't merely")
+
+
+def test_an_ing_word_that_opens_a_clause_after_a_comma_is_kept():
+    # The participle rule took every -ing word for one, and emptied answers
+    # that opened on a gerund subject or an -ing noun.
+    for answer in ("building the index first is faster.", "thing is, the cron job never ran.",
+                   "morning light is the culprit here.", "string theory is unfalsifiable so far."):
+        assert BotSpeakFilter.harden(f"you're right, {answer}") == answer
+    # A relative clause left behind is not promoted to a sentence.
+    assert "which is" not in BotSpeakFilter.harden(
+        "you're right, shifting the focus, which is a change. the bench is in the shade.")

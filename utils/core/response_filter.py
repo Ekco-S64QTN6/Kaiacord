@@ -1154,10 +1154,19 @@ class BotSpeakFilter:
         # framework"), not the rest of the concession — when a verb follows it.
         # Without one it is a participle phrase ("– maximizing respite while
         # still appreciating the surroundings.") and still goes with the offence.
+        # After a comma the verb has to come before the next comma: "building
+        # the index first is faster", "thing is, the job never ran" and
+        # "morning light is the culprit" are clauses (and -ing nouns are as
+        # common as participles), while "probing at the core of my learning
+        # process" and "shifting the focus, which is \u2026" carry none of their own.
         rest = tail[brk.end():] if brk else ''
-        gerund_clause = bool(brk and re.search(r'[;:\u2014\u2013]', brk.group(0))
-                             and re.match(r'\s*[a-z]{2,}ing\b', rest, re.IGNORECASE)
-                             and cls._PLAIN_FINITE_VERB.search(rest))
+        opens_ing = bool(brk and re.match(r'\s*[a-z]{2,}ing\b', rest, re.IGNORECASE))
+        if opens_ing and re.search(r'[;:\u2014\u2013]', brk.group(0)):
+            gerund_clause = bool(cls._PLAIN_FINITE_VERB.search(rest))
+        elif opens_ing:
+            gerund_clause = bool(cls._PLAIN_FINITE_VERB.search(re.split(r'[,;]', rest, maxsplit=1)[0]))
+        else:
+            gerund_clause = False
         if brk:
             tail = tail[brk.end():]
 
@@ -1206,6 +1215,10 @@ class BotSpeakFilter:
             # shipped as "particularly with rwas like centrifuge." ("rwas"
             # passed for a verb).
             if cls._MODIFIER_OPENER.match(candidate):
+                candidate = ''
+            # Nor is a relative clause: "…, which is a change." hangs off the
+            # phrase that went with the offence.
+            if re.match(r'^(?:which|who|whom|whose)\b', candidate, re.IGNORECASE):
                 candidate = ''
             verb = cls._PLAIN_FINITE_VERB if comma else cls._FINITE_VERB
             tail = candidate if verb.search(candidate) else ''
