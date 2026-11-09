@@ -99,6 +99,26 @@ def fetch_metadata(video_id: str, timeout: int = 20) -> dict:
             "author_url": data.get("author_url") or ""}
 
 
+_DESCRIPTION = re.compile(r'"shortDescription":"((?:[^"\\]|\\.)*)"')
+
+
+def fetch_description(video_id: str, timeout: int = 20) -> str:
+    """The video's description from its watch page, or "" when it cannot be read.
+
+    It is the reference for how the video's names are spelled (the cast, the
+    sponsor, the products), which auto-captions get wrong. Not kept in the
+    document: it is text the uploader controls."""
+    req = urllib.request.Request(f"https://www.youtube.com/watch?v={video_id}",
+                                 headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            html = resp.read(4_000_000).decode("utf-8", "replace")
+        m = _DESCRIPTION.search(html)
+        return json.loads(f'"{m.group(1)}"') if m else ""
+    except Exception:
+        return ""
+
+
 def fetch_transcript(video_id: str, languages=("en", "en-US", "en-GB")):
     """Return (snippets, language_label). Prefers human captions over machine."""
     try:
@@ -368,7 +388,9 @@ def convert(url_or_id: str) -> tuple[str, dict]:
     video_id = extract_video_id(url_or_id)
     meta = fetch_metadata(video_id)
     snippets, language = fetch_transcript(video_id)
-    return to_markdown(video_id, meta, snippets, language)
+    markdown, stats = to_markdown(video_id, meta, snippets, language)
+    stats["description"] = fetch_description(video_id)
+    return markdown, stats
 
 
 def main() -> int:
