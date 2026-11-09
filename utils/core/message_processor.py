@@ -2518,6 +2518,7 @@ class MessageProcessor:
             ctx.response_text = PostGenerationSafetyPipeline.strip_address_tag(ctx.response_text)
             ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_closer(ctx.response_text, _mine)
             ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_lines(ctx.response_text, _mine)
+            ctx.response_text = PostGenerationSafetyPipeline.strip_repeated_opening(ctx.response_text, _mine)
         except Exception:
             pass
         try:

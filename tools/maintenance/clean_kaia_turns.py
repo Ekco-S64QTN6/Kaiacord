@@ -6,7 +6,8 @@ shown as history, so a tic that shipped teaches the next reply. From 7 Oct the
 "(speaking exclusively to …)" note copied out of the prompt and the name-less
 grading opener ("a quiet affirmation. a measured assessment.") spread that way.
 This applies the same filters the bot now applies before sending —
-`repair_cut_ellipsis`, `strip_address_tag`, `strip_repeated_lines` (against her previous six turns in
+`repair_cut_ellipsis`, `strip_address_tag` (with bracket-only narration lines), `strip_repeated_lines` and
+`strip_repeated_opening` (against her previous six turns in
 the same conversation), `strip_grading_opener` and `reflow_paragraphs` (short
 lines joined back into paragraphs, no word changed) — to:
 
@@ -55,11 +56,16 @@ def bot_running() -> bool:
     return any(re.search(r"(?:^|/)python[0-9.]*\s+(?:\S*/)?Kaiacord\.py\b", ln) for ln in out.splitlines())
 
 
-def clean(text: str, previous: list) -> str:
+def clean(text: str, previous: list, said: list = None) -> str:
+    """`previous` is her recent turns as cleaned; `said`, as she said them.
+    An opening counts against what she said, at the threshold what she is shown
+    uses (two): counted against the cleaned turns, a dropped opening stopped
+    counting and came back every few turns."""
     from utils.core.response_filter import EmergencyContaminationFilter as E
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
     out = E.repair_cut_ellipsis(P.strip_address_tag(text))
     out = P.strip_repeated_lines(out, previous, window=WINDOW)
+    out = P.strip_repeated_opening(out, previous if said is None else said, window=WINDOW, repeats=2)
     out = P.strip_grading_opener(out)
     out = P.normalize_litany_paragraphs(out)
     return out if out.strip() else text
@@ -77,9 +83,11 @@ def split_turns(raw: str) -> tuple:
     return raw[:marks[0].start()], turns
 
 
-def clean_log(raw: str, previous: list) -> tuple:
+def clean_log(raw: str, previous: list, said: list = None) -> tuple:
     """(new text, changed turns [(before, after)]), carrying `previous` (her
-    recent turns, as she said them) across the files of one conversation."""
+    recent turns, cleaned) and `said` (as she said them) across the files of
+    one conversation."""
+    said = [] if said is None else said
     pre, turns = split_turns(raw)
     out, changes = [pre], []
     for who, head, body in turns:
@@ -87,9 +95,11 @@ def clean_log(raw: str, previous: list) -> tuple:
             out.append(head + body)
             continue
         text = body.strip()
-        new = clean(text, previous)
+        new = clean(text, previous, said)
         previous.append(new)
+        said.append(text)
         del previous[:-WINDOW]
+        del said[:-WINDOW]
         if new != text:
             tail = body[len(body.rstrip()):]
             out.append(head + new + (tail or "\n"))
@@ -136,9 +146,10 @@ def main() -> int:
     logs = ROOT / "knowledge_base" / "user_logs"
     for person in sorted(p for p in logs.iterdir() if p.is_dir() and not p.name.startswith(("forum_", ".", "_"))):
         previous: list = []
+        said: list = []
         for f in sorted(person.glob("interactions_*.md")):
             raw = f.read_text(encoding="utf-8")
-            new, changes = clean_log(raw, previous)
+            new, changes = clean_log(raw, previous, said)
             if not changes:
                 continue
             if not others_unchanged(raw, new):
@@ -156,12 +167,13 @@ def main() -> int:
         s = json.loads(state.read_text(encoding="utf-8"))
         n = 0
         for ch, rows in (s.get("channel_memory") or {}).items():
-            previous = []
+            previous, said = [], []
             for t in rows:
                 if isinstance(t, dict) and t.get("role") == "assistant" and not t.get("event"):
                     text = str(t.get("content", ""))
-                    new = clean(text, previous)
+                    new = clean(text, previous, said)
                     previous.append(new)
+                    said.append(text)
                     if new != text:
                         show(f"channel memory {ch}", [(text, new)])
                         t["content"] = new

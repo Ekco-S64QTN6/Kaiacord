@@ -829,10 +829,23 @@ class PostGenerationSafetyPipeline:
     _GRADE_TAIL = re.compile(r"^(an?\s+[a-z][a-z ,'\u2019\-]{2,80}\.)\s*", re.IGNORECASE)
     #: The bracketed note on whom she is answering, copied out of the prompt into
     #: the reply: "(speaking exclusively to starkind)". From 7 Oct it spread
-    #: through her history until it headed every reply.
+    #: through her history until it headed every reply, and on 3–4 Nov it came
+    #: back reworded — "(solely addressing starkind)", "(speaking directly to
+    #: cecily)", "(responding solely to starkind)" — in 61 replies.
     _ADDRESS_TAG = re.compile(
-        r"^[ \t]*[\(\[]\s*(?:you\s+are\s+)?speaking\s+exclusively\s+to\s+[^)\]\n]{1,40}[\)\]][ \t.]*(?:\n|$)",
+        r"^[ \t]*[\(\[]\s*(?:you\s+are\s+)?(?:(?:solely|directly|exclusively|only|now)\s+)?"
+        r"(?:speaking|talking|responding|replying|addressing|answering)\b[^)\]\n]{1,80}[\)\]][ \t.]*(?:\n|$)",
         re.IGNORECASE | re.MULTILINE)
+    #: A line that is nothing but a parenthetical narrating her: "(a faint
+    #: smile)", "(returning focus to the lake and maintaining stillness)",
+    #: "(acknowledging starkind's inquiry)". Ekco, 8 Nov: no roleplay emote text
+    #: in brackets. Measured over her 7,056 logged turns, every line that is only
+    #: a parenthetical narrates. One with a first- or second-person word in it is
+    #: her talking ("(i'm kidding)"), and digits, colons or code characters make it data;
+    #: both stay, as do square brackets ("[lyrics begin]") and anything inline.
+    _NARRATION_LINE = re.compile(r"^[ \t]*\(([^()\n]{2,200})\)[ \t.]*(?:\n|$)", re.MULTILINE)
+    _SPEAKER_WORD = re.compile(
+        r"\b(?:i|i'm|i've|i'll|i'd|me|my|mine|you|you're|you've|your|yours|we|we're|our|us)\b", re.IGNORECASE)
     _FRAGMENT = re.compile(r"^an?\s+[a-z][a-z ,'\u2019\-]{2,70}\.$", re.IGNORECASE)
     #: A verb that makes a clause of a fragment: the grading opener's second half
     #: has none ("a definitive stance."), a real sentence does.
@@ -1199,9 +1212,19 @@ class PostGenerationSafetyPipeline:
         return " ".join(words) if 3 <= len(words) < cls.TEMPLATE_WORDS else None
 
     @classmethod
+    def _narration(cls, m) -> str:
+        inner = m.group(1).replace("’", "'")
+        if (len(cls._WORD.findall(inner.lower())) < 2 or re.search(r"[0-9=<>{}`/\\|_*#@:;]", inner)
+                or cls._SPEAKER_WORD.search(inner)):
+            return m.group(0)
+        return ""
+
+    @classmethod
     def strip_address_tag(cls, text: str) -> str:
-        """Drop the "(speaking exclusively to …)" line copied out of the prompt."""
+        """Drop the "(speaking exclusively to …)" line copied out of the prompt,
+        and any line that is only a parenthetical narrating her."""
         out = cls._ADDRESS_TAG.sub("", text or "")
+        out = cls._NARRATION_LINE.sub(cls._narration, out)
         if out == (text or ""):
             return text
         out = re.sub(r"\n{3,}", "\n\n", out).strip()
@@ -1354,6 +1377,90 @@ class PostGenerationSafetyPipeline:
         log_warning(f"[TEMPLATE_GUARD] Dropped {len(dropped)} line(s) she keeps repeating: {dropped[0][:70]!r}")
         return out
 
+    #: An opening she keeps reusing is keyed on the first OPENER_WORDS words of a
+    #: reply's first sentence: "it's funny how …" opened 27 of 33 replies to
+    #: Starkind on 8 Nov, each copied from the one before, and the rest of the
+    #: sentence varies, so the six-word line key never matched. A first sentence
+    #: under OPENER_MIN_WORDS ("hey starkind. what's up?") is an answer, not a template.
+    OPENER_WORDS = 3
+    OPENER_MIN_WORDS = 6
+    #: What she sends loses the opening at this many of her last `window` replies;
+    #: what she is shown loses it at two, which is what stops the copy.
+    OPENER_REPEATS = 3
+
+    @classmethod
+    def _full_sentences(cls, text: str) -> list:
+        """Sentences ended by . ! or ?, never by an ellipsis: "feels almost…
+        deliberate, doesn't it?" is one sentence, and cut at the ellipsis it
+        leaves "deliberate, doesn't it?"."""
+        return [x for x in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if x.strip()]
+
+    #: A name in front ("tenno henka, the cessation of …") is the addressee, not
+    #: the opening: keyed with it, unrelated sentences shared a key.
+    _LEAD_NAME = re.compile(r"^\s*(?:[^\s,.!?]+\s+){0,2}[^\s,.!?]+,\s*(?=\S)")
+
+    @classmethod
+    def _opener_key(cls, text: str):
+        sents = cls._full_sentences(cls.strip_address_tag(text or ""))
+        if not sents or re.match(r"^\s*[\(\[\*_>`#\-]", sents[0]):
+            return None
+        first = cls._LEAD_NAME.sub("", sents[0], count=1)
+        words = cls._WORD.findall(first.lower().replace("’", "'"))
+        return " ".join(words[:cls.OPENER_WORDS]) if len(words) >= cls.OPENER_MIN_WORDS else None
+
+    @classmethod
+    def _continues(cls, sentence: str) -> bool:
+        """The rest of the sentence before it, not one of its own: "that weight
+        of loss, that sense of impending change.", "imposing hierarchies of value
+        …", "like grooves worn into stone." — no auxiliary, opening on a
+        connector or an -ing word, or on a determiner in an appositive (a comma,
+        or ten words at most: "the bakery on the corner ran out of rye bread before ten
+        o'clock." has a verb the auxiliary test cannot see)."""
+        s = sentence.strip()
+        if cls._hanging(s):
+            return True
+        if cls._CLAUSE_VERB.search(s):
+            return False
+        if re.match(r"^[a-z]{2,}ing\b", s, re.IGNORECASE):
+            return True
+        return bool(re.match(r"^(?:that|those|this|these|the|an?)\b", s, re.IGNORECASE)) \
+            and ("," in s or len(s.split()) <= 10)
+
+    @classmethod
+    def _without_first_sentence(cls, text: str):
+        """`text` without its opening sentence and up to two sentences that only
+        continue it, or None when under 40 characters would remain."""
+        t = (text or "").strip()
+        sents = cls._full_sentences(t)
+        if len(sents) < 2 or not t.startswith(sents[0]):
+            return None
+        rest = t[len(sents[0]):].lstrip()
+        for nxt in sents[1:3]:
+            if not cls._continues(nxt) or not rest.startswith(nxt):
+                break
+            rest = rest[len(nxt):].lstrip()
+        if len(rest) < 40:
+            return None
+        return rest
+
+    @classmethod
+    def strip_repeated_opening(cls, text: str, previous: list, window: int = 6, repeats: int = None) -> str:
+        """Drop the opening sentence when it opens the way `repeats` (default
+        OPENER_REPEATS) of her last `window` replies did. Left alone when what
+        remains would not stand."""
+        key = cls._opener_key(text)
+        if not key:
+            return text
+        n = sum(1 for p in (previous or [])[-window:] if cls._opener_key(p) == key)
+        if n < (repeats or cls.OPENER_REPEATS):
+            return text
+        rest = cls._without_first_sentence(text)
+        if rest is None:
+            return text
+        log_warning(f"[TEMPLATE_GUARD] Dropped an opening she keeps reusing ({key!r}, "
+                    f"{n} of her last {window}): {text.strip()[:70]!r}")
+        return rest
+
     @classmethod
     def detemplate_history(cls, history: list) -> list:
         """Her own turns as she is shown them, without the lines she has been
@@ -1381,12 +1488,19 @@ class PostGenerationSafetyPipeline:
                 shorts[k] = shorts.get(k, 0) + 1
         repeated = {k for k, n in counts.items() if n >= 2} | {k for k, n in frags.items() if n >= 3}
         repeated_short = {k for k, n in shorts.items() if n >= 2}
+        openers = {}
+        for i in mine:
+            k = cls._opener_key(history[i].get("content", ""))
+            if k:
+                openers[k] = openers.get(k, 0) + 1
         out = list(history)
         for i in mine:
             text = history[i].get("content", "")
             rest, cut = cls._without_openers(text)
             if cut and len(rest.strip()) >= 20:
                 text = rest
+            if openers.get(cls._opener_key(text), 0) >= 2:
+                text = cls._without_first_sentence(text) or text
             if repeated or repeated_short:
                 paras, after_drop = [], False
                 for para in re.split(r"\n\s*\n", text):
