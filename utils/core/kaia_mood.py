@@ -233,71 +233,18 @@ class EmotionalArc:
         )
 
     def get_prompt_injection(self) -> str:
-        """Return a mood context line for the system prompt."""
+        """One consistent line on how she feels, for the system prompt.
+
+        Four signals feed it, and two pairs describe the same thing: arousal and
+        the time of day are both her energy, social energy and the day's count
+        both how talked out she is. Worded one per signal they contradicted
+        each other ("energized … fatigued/sleepy", "socially fresh … very busy
+        day"), so each pair is read together and said once."""
         self._apply_decay()
-
-        # Valence descriptor
-        v = self._mood.valence
-        if v > 0.5:
-            val_word = "good mood"
-        elif v > 0.15:
-            val_word = "positive"
-        elif v > -0.15:
-            val_word = "neutral"
-        elif v > -0.5:
-            val_word = "subdued"
-        else:
-            val_word = "low"
-
-        # Arousal descriptor
-        a = self._mood.arousal
-        if a > 0.7:
-            aro_word = "energized"
-        elif a > 0.4:
-            aro_word = "engaged"
-        else:
-            aro_word = "calm"
-
-        # Social energy descriptor
-        e = self._mood.social_energy
-        if e > 0.7:
-            energy_word = "socially fresh"
-        elif e > 0.4:
-            energy_word = "moderately drained"
-        elif e > 0.2:
-            energy_word = "getting tired"
-        else:
-            energy_word = "socially drained"
-
-        # Circadian energy descriptor
         from datetime import datetime
-        ce = self.circadian_energy()
-        hour = datetime.now().hour
-        if ce > 0.8:
-            circ_word = "waking up/groggy" if hour < 9 else "peak focus energy"
-        elif ce > 0.5:
-            circ_word = "active and steady"
-        elif ce > 0.35:
-            circ_word = "winding down"
-        else:
-            circ_word = "fatigued/sleepy"
-
-        # Daily interaction count context
-        count = self._mood.interaction_count_today
-        if count > 15:
-            day_note = "very busy day"
-        elif count > 8:
-            day_note = "active day"
-        elif count > 3:
-            day_note = "moderate day"
-        else:
-            day_note = ""
-
-        parts = [val_word, aro_word, energy_word, circ_word]
-        if day_note:
-            parts.append(day_note)
-
-        return f"[emotional state: {', '.join(parts)}]"
+        return mood_line(self._mood.valence, self._mood.arousal, self._mood.social_energy,
+                         self.circadian_energy(), self._mood.interaction_count_today,
+                         datetime.now().hour)
 
     def get_summary_for_dream(self) -> str:
         """Return a richer mood summary for the dream engine's nightly context."""
@@ -372,3 +319,49 @@ def mood_length_note(social_energy: float) -> str:
 
 # Global singleton instance
 emotional_arc = EmotionalArc()
+
+
+def mood_line(valence: float, arousal: float, social_energy: float, circadian: float,
+              count_today: int, hour: int) -> str:
+    """[how you feel right now: <mood>, <energy>, <social>]: never two words for
+    one thing pulling opposite ways."""
+    if valence > 0.5:
+        mood = "in a good mood"
+    elif valence > 0.15:
+        mood = "fairly upbeat"
+    elif valence > -0.15:
+        mood = "even"
+    elif valence > -0.5:
+        mood = "a bit down"
+    else:
+        mood = "low"
+
+    # Energy: how wound up she is against what the hour leaves her.
+    if circadian > 0.8:
+        body = "groggy" if hour < 9 else "sharp"
+    elif circadian > 0.5:
+        body = "steady"
+    elif circadian > 0.35:
+        body = "winding down"
+    else:
+        body = "tired"
+    if arousal > 0.7:
+        energy = {"tired": "wired but tired", "winding down": "wired, though the day is catching up",
+                  "groggy": "awake fast"}.get(body, "energized")
+    elif arousal > 0.4:
+        energy = {"tired": "tired but still engaged", "groggy": "waking up",
+                  "winding down": "winding down"}.get(body, "engaged")
+    else:
+        energy = {"tired": "tired", "groggy": "groggy", "winding down": "calm, winding down"}.get(body, "calm")
+
+    # Social: what talking has left her with, said with how busy the day was.
+    busy = count_today > 15 and "a busy day" or count_today > 8 and "a full day" or ""
+    if social_energy > 0.7:
+        social = f"{busy} of talking and still up for more" if busy else "up for talking"
+    elif social_energy > 0.4:
+        social = f"a little talked out after {busy}" if busy else "a little drained"
+    elif social_energy > 0.2:
+        social = "getting tired of talking"
+    else:
+        social = "talked out"
+    return f"[how you feel right now: {mood}, {energy}, {social}]"

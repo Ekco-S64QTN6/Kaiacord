@@ -99,3 +99,26 @@ def test_the_reply_names_the_note_not_its_folder(notes):
     assert "knowledge_base" not in out and "kaia_notes/" not in out
     assert "cognitive_dissonance.md" in out
     assert (notes / "cognitive_dissonance.md").exists()
+
+
+def test_the_channel_sees_the_note_she_kept_and_her_log_does_not(notes):
+    """Ekco, 8 Nov: more notes, and her saying in chat that she wrote them."""
+    reply, stem = kaia_notes.keep_note("worth remembering. i'm adding this to my notes as quorum.md.",
+                                       "Ekco", "look at this", "", datetime(2026, 11, 8, 22))
+    assert stem == "quorum" and (notes / "quorum.md").exists()
+    assert kaia_notes.chat_line(stem) == "-# \U0001f4dd kept a note: `quorum.md`"
+    assert kaia_notes.keep_note("just a reply.", "Ekco", "hi") == ("just a reply.", None)
+    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
+    assert "ctx.response_text + (f\"\\n{_note_line}\"" in src          # sent, not logged
+    assert "ctx.response_text = ctx.response_text + _note_line" not in src
+
+
+def test_she_is_reminded_her_notes_are_real_when_there_is_something_to_keep(notes):
+    assert kaia_notes.note_hint("Ekco", "look", "[shared link: example.com]")
+    assert kaia_notes.note_hint("Ekco", " ".join(["word"] * 70))
+    assert kaia_notes.note_hint("Ekco", "hey, how's it going") == ""
+    hint = kaia_notes.note_hint("Ekco", "look", "https://example.com/x")
+    assert "\u2014" not in hint and "my notes as" not in hint             # no example to copy
+    kaia_notes.keep("i'm adding this to my notes as quorum.md.", "Ekco", "x", "", datetime.now())
+    assert kaia_notes.note_hint("Ekco", "look", "https://example.com/y") == ""   # one just kept
+    assert kaia_notes.note_hint("Starkind", "look", "https://example.com/y")

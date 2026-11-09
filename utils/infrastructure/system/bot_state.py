@@ -318,31 +318,23 @@ class BotState:
         self.save()
 
     def get_kaia_state_line(self) -> str:
-        """Returns a single human-readable context line for use in system prompts."""
-        parts = []
-        
-        if self.kaia_engagement >= 0.7:
-            parts.append("active conversation day")
-        elif self.kaia_engagement <= 0.3:
-            parts.append("quiet day")
-        else:
-            parts.append("moderate activity")
-
+        """Her head, in her terms: how clearly she is remembering (retrieval
+        confidence) and whether she has slept on things (the dream). How busy
+        the day is lives in the mood line beside it; said here as well, from a
+        different counter, the two disagreed ("quiet day" against "very busy day")."""
         if self.kaia_coherence >= 0.75:
-            parts.append("memory clear")
+            memory = "thinking clearly"
         elif self.kaia_coherence >= 0.5:
-            parts.append("memory patchy")
+            memory = "memory a bit hazy"
         else:
-            parts.append("memory index degraded")
-
+            memory = "memory foggy"
         if self.kaia_dream_freshness >= 0.8:
-            parts.append("recently reflected")
+            sleep = ", slept on things recently"
         elif self.kaia_dream_freshness >= 0.3:
-            parts.append("reflection due soon")
+            sleep = ""
         else:
-            parts.append("dreams overdue")
-
-        return f"[current state: {', '.join(parts)}]"
+            sleep = ", haven't slept on things in a while"
+        return f"[in your head: {memory}{sleep}]"
 
     def update_relationship(self, user_id: str, valence_sample: float = 0.5, display_name: str = ""):
         """Update the relationship state for a user after an interaction.

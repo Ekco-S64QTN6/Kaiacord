@@ -1132,6 +1132,20 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 8g2b. Her notes are real: on a turn with a link, a file or a long
+        # message, she is reminded she keeps them (utils/core/kaia_notes.py).
+        # Discord only and never a DM, the same as writing one.
+        try:
+            if not ctx.is_social and not getattr(ctx, "is_dm", False) \
+                    and not getattr(ctx.message, "no_persist", False):
+                from utils.core import kaia_notes
+                _hint = kaia_notes.note_hint(ctx.author_name, ctx.own_words or "",
+                                             getattr(ctx, "sanitized_content", "") or "")
+                if _hint:
+                    ctx.system_prompt = ctx.system_prompt + f"\n\n{_hint}"
+        except Exception:
+            pass
+
         # 8g3. Where this conversation is — a fresh start after hours of quiet,
         # well along, or being closed by an explicit goodbye
         # (utils/core/conversation_arc.py). Discord only.
@@ -2583,6 +2597,7 @@ class MessageProcessor:
             log_debug(f"Time guard skipped (non-fatal): {_tg_err}")
         ctx.response_text = code_blocks.restore(ctx.response_text, _code)
 
+        _note_line = ""
         # A reply saying she is keeping a note keeps one, and names the file
         # that now exists. Discord only: a forum draft or a public feed is not
         # a conversation she takes notes on. Not in a DM either: notes are
@@ -2591,14 +2606,19 @@ class MessageProcessor:
                 and not getattr(ctx.message, "no_persist", False):
             try:
                 from utils.core import kaia_notes
-                ctx.response_text = await asyncio.to_thread(
-                    kaia_notes.keep, ctx.response_text, ctx.author_name, ctx.own_words,
+                ctx.response_text, _kept = await asyncio.to_thread(
+                    kaia_notes.keep_note, ctx.response_text, ctx.author_name, ctx.own_words,
                     getattr(ctx, "sanitized_content", "") or "")
+                if _kept:
+                    _note_line = kaia_notes.chat_line(_kept)
+                    log_info(f"[notes] kept {_kept}.md with {ctx.author_name}")
             except Exception as _note_err:
                 log_debug(f"Note not kept (non-fatal): {_note_err}")
 
-        # 2. SEND RESPONSE
-        await self._send_response(channel=ctx.message.channel, text=ctx.response_text)
+        # 2. SEND RESPONSE. The note line goes out with the reply and is not
+        # part of ctx.response_text, which is what gets logged and shown back.
+        await self._send_response(channel=ctx.message.channel,
+                                  text=ctx.response_text + (f"\n{_note_line}" if _note_line else ""))
 
         # A reply saying she is flagging something for review flags it: a row in
         # memory/review_flags.jsonl and a post in #kaia-opolis. Discord only, and

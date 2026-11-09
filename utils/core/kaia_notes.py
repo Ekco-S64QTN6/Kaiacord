@@ -1,4 +1,5 @@
-"""Kaia's notes: when she says she is keeping one, she does.
+"""Kaia's notes: when she says she is keeping one, she does, and the channel
+sees the note's name under her reply.
 
 She ends replies to shared links with "i'm adding this to my notes as
 `ppg_worm_analysis_2026.txt`". That used to be a claim with nothing behind it.
@@ -103,9 +104,42 @@ def keep(reply: str, author: str, own_words: str, enriched: str = "",
          when: Optional[datetime] = None) -> str:
     """Write the note her reply claims, if it claims one. Returns the reply,
     with the filename it names corrected to the note that now exists."""
+    return keep_note(reply, author, own_words, enriched, when)[0]
+
+
+#: A turn worth a note: something put in front of her (a link, a file), or a
+#: message long enough to carry a thought worth keeping.
+NOTE_WORTHY_WORDS = 60
+#: Not twice in a row with one person: the next note is for the next thing.
+HINT_GAP_S = 1200
+_ATTACHED = re.compile(r"\[ATTACHED_FILE_CONTEXT\]|\[shared file\]")
+
+
+def note_hint(author: str, own_words: str, enriched: str = "", now: Optional[datetime] = None) -> str:
+    """The reminder that her notes are real, on a turn that might deserve one.
+
+    Every note she kept came after a shared link, unprompted: ten from late
+    September to 29 October, none since. Ekco liked it and wants more. No
+    example sentence: an example in the prompt is what comes out."""
+    now = now or datetime.now()
+    prior = _last.get(author)
+    if prior and 0 <= (now - prior[1]).total_seconds() < HINT_GAP_S:
+        return ""
+    shared = bool(_URL.search(enriched or "") or _SHARED_LINK.search(enriched or "")
+                  or _ATTACHED.search(enriched or ""))
+    if not shared and len((own_words or "").split()) < NOTE_WORTHY_WORDS:
+        return ""
+    return ("[you keep notes of your own: real files you can find again later. if something here is worth "
+            "keeping, say in your reply that you're adding it to your notes, with a filename ending in .md, "
+            "and it gets written. only when it's genuinely worth keeping.]")
+
+
+def keep_note(reply: str, author: str, own_words: str, enriched: str = "",
+              when: Optional[datetime] = None) -> tuple:
+    """`keep`, and the name of the note written (None when nothing was)."""
     found = find_claim(reply)
     if not found:
-        return reply
+        return reply, None
     claim, stem = found
     when = when or datetime.now()
     if not stem:
@@ -142,5 +176,11 @@ def keep(reply: str, author: str, own_words: str, enriched: str = "",
         # it ("knowledge_base/kaia_notes/x.md") is plumbing said aloud.
         fixed = re.sub(r"(?:[\w.\-]+/)*" + re.escape(named.group(1)) + r"\.(?:txt|md)",
                        f"{stem}.md", claim, count=1)
-        return reply.replace(claim, fixed, 1)
-    return reply
+        return reply.replace(claim, fixed, 1), stem
+    return reply, stem
+
+
+def chat_line(stem: str) -> str:
+    """What the channel sees under the reply, sent with it and never logged:
+    in her history it would be one more line to copy."""
+    return f"-# \U0001f4dd kept a note: `{stem}.md`"
