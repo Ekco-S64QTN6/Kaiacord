@@ -1781,6 +1781,13 @@ class MessageProcessor:
                         "specifics, colours, counts, materials, background detail, that you cannot see. "
                         "A hedged description is worth more here than a confident wrong one.]"
                     )
+            _unseen = self._unseen_images_note(len(image_attachments), len(images))
+            if _unseen and messages and messages[0].get("role") == "system":
+                messages[0]["content"] += _unseen
+                log_warning(
+                    f"Vision: {len(image_attachments) - len(images)} of "
+                    f"{len(image_attachments)} image(s) not loaded; told her so."
+                )
         
         # 3. LLM Generation (flag active to block quips/dreams)
         if self.bot_state:
@@ -3035,6 +3042,25 @@ class MessageProcessor:
     VISION_MAX_SOURCE_PIXELS = 20_000_000
     VISION_MAX_REDIRECTS = 5
 
+    @staticmethod
+    def _unseen_images_note(attempted: int, loaded: int) -> str:
+        """The system-prompt note for images that were attached but not loaded.
+
+        Without it she is asked about a picture she was never given, and
+        describes one anyway.
+        """
+        missing = attempted - loaded
+        if missing <= 0:
+            return ""
+        what = (f"{missing} of the {attempted} attached images" if loaded
+                else "The attached image" if missing == 1
+                else f"The {missing} attached images")
+        return (
+            f"\n\n[VISUAL GROUNDING: {what} could not be loaded, so you cannot see "
+            f"{'it' if missing == 1 else 'them'}. Say so plainly; do not describe "
+            "or guess at what you cannot see.]"
+        )
+
     def _select_vision_image_attachments(self, attachments):
         """Return the bounded image subset and the number of images skipped."""
         suffixes = (".png", ".jpg", ".jpeg", ".gif", ".webp")
@@ -3058,6 +3084,15 @@ class MessageProcessor:
             import io as _io
 
             with Image.open(_io.BytesIO(data)) as img:
+                # A JPEG decodes at 1/2, 1/4 or 1/8 scale for almost nothing, so a
+                # phone photo or a long screenshot is read already near the size
+                # it is sent at; the pixel budget then applies to what is decoded.
+                if getattr(img, "format", None) == "JPEG":
+                    _long = max(img.width, img.height) or 1
+                    img.draft("RGB", (
+                        max(1, -(-img.width * self.VISION_MAX_EDGE // _long)),
+                        max(1, -(-img.height * self.VISION_MAX_EDGE // _long)),
+                    ))
                 if img.width * img.height > self.VISION_MAX_SOURCE_PIXELS:
                     log_warning("Image dimensions exceed the vision pixel budget; skipping attachment.")
                     return ""
