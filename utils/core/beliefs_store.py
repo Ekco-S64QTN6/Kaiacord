@@ -29,6 +29,12 @@ MAX_BELIEFS = 100
 #: confidence below what almost every older one scores, so with the store full
 #: the weakest was always the one just written: it evicted itself on the spot.
 PROTECT_NEW_S = 7 * 86400
+#: How many beliefs may be inside that week at once. Past it, a new belief
+#: displaces the weakest of the other new ones, not a settled one: a dream forms
+#: about nine a night, and with every new belief protected the only ones left to
+#: evict were her oldest and most recalled. A settled belief makes room only when
+#: a new one lasts its week, by being recalled or reached again.
+PROBATION_SLOTS = 40
 
 
 def retention_score(belief: dict, now: float) -> float:
@@ -43,8 +49,9 @@ def retention_score(belief: dict, now: float) -> float:
 
 
 def evict_weakest(beliefs: List[dict], keep_topic: str = "", now: Optional[float] = None) -> Optional[dict]:
-    """Over the cap, drop the single weakest belief and return it: the weakest
-    past its protection, else the weakest of the new. Never `keep_topic`, the one
+    """Over the cap, drop the single weakest belief and return it. While fewer than
+    PROBATION_SLOTS beliefs are inside their protection, that is the weakest
+    settled one; past that, the weakest of the new. Never `keep_topic`, the one
     being written. A burst of new beliefs cannot wipe a block, and file order stays."""
     if len(beliefs) <= MAX_BELIEFS:
         return None
@@ -55,7 +62,9 @@ def evict_weakest(beliefs: List[dict], keep_topic: str = "", now: Optional[float
         return None
     settled = [i for i in candidates
                if now - float(beliefs[i].get("last_updated", 0) or 0) >= PROTECT_NEW_S]
-    weakest = min(settled or candidates, key=lambda i: retention_score(beliefs[i], now))
+    new = [i for i in candidates if i not in set(settled)]
+    pool = new if (len(new) >= PROBATION_SLOTS or not settled) else settled
+    weakest = min(pool, key=lambda i: retention_score(beliefs[i], now))
     evicted = beliefs.pop(weakest)
     log_info(f"🧠 Belief evicted (store at cap): '{str(evicted.get('topic', '?'))[:40]}' "
              f"conf={evicted.get('confidence')} accesses={evicted.get('access_count', 0)}")
