@@ -226,3 +226,38 @@ def test_public_image_redirect_is_validated_and_processed(monkeypatch):
     assert session.kwargs["connector"] is connector
     assert decoded == [(b"image-bytes", False)]
     assert redirect.released and final.released
+
+
+def _jpeg(width, height):
+    import io
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (120, 60, 30)).save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("size", [(8000, 6000), (1080, 20000)])
+def test_a_jpeg_over_the_pixel_budget_is_decoded_small_not_skipped(size):
+    """A 48 MP phone photo or a long screenshot is over the budget at full size;
+    JPEG draft decoding reads it near the size it is sent at."""
+    import base64
+    import io
+    from PIL import Image
+
+    width, height = size
+    assert width * height > MessageProcessor.VISION_MAX_SOURCE_PIXELS
+    out = _processor()._prepare_image_payload(_jpeg(width, height), is_gif=False)
+
+    assert out
+    sent = Image.open(io.BytesIO(base64.b64decode(out))).size
+    assert max(sent) == MessageProcessor.VISION_MAX_EDGE
+
+
+def test_an_image_that_did_not_load_is_named_in_the_prompt():
+    note = MessageProcessor._unseen_images_note
+    assert note(1, 1) == ""
+    assert note(0, 0) == ""
+    assert "The attached image could not be loaded, so you cannot see it." in note(1, 0)
+    assert "The 3 attached images could not be loaded, so you cannot see them." in note(3, 0)
+    assert "1 of the 2 attached images" in note(2, 1)
