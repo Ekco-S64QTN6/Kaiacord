@@ -1479,7 +1479,9 @@ anchor written as a report of a source ("The author is struck by…") is not kep
 A full belief store keeps what she just thought (`beliefs_store.evict_weakest`): a new belief starts at
 `NEW_BELIEF_CONFIDENCE` and every older one scores higher, so the weakest was always the one just written. From 23 Oct
 each new belief evicted itself and "New Belief Formed" was logged anyway. For `PROTECT_NEW_S` a belief is not up for
-eviction; after that one she reached only once fades unless she recalls it or reaches it again.
+eviction; after that one she reached only once fades unless she recalls it or reaches it again. At most `PROBATION_SLOTS`
+are inside that week: with every new belief protected and nine formed a night, the only ones left to evict were her
+oldest and most recalled (64 of 100 lost, 2–9 Nov), so past the slots a new belief displaces the weakest new one.
 
 `knowledge_base/kaia_dreams/` is its own RAG index, and `context_optimizer` labels what is
 retrieved from it **INTERNAL REFLECTION (DREAM)** — as something Kaia thought — except an

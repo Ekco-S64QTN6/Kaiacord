@@ -1781,12 +1781,13 @@ class MessageProcessor:
                         "specifics, colours, counts, materials, background detail, that you cannot see. "
                         "A hedged description is worth more here than a confident wrong one.]"
                     )
-            _unseen = self._unseen_images_note(len(image_attachments), len(images))
+            _attempted = len(image_attachments) + skipped_images
+            _unseen = self._unseen_images_note(_attempted, len(images))
             if _unseen and messages and messages[0].get("role") == "system":
                 messages[0]["content"] += _unseen
                 log_warning(
-                    f"Vision: {len(image_attachments) - len(images)} of "
-                    f"{len(image_attachments)} image(s) not loaded; told her so."
+                    f"Vision: {_attempted - len(images)} of {_attempted} image(s) "
+                    "not loaded; told her so."
                 )
         
         # 3. LLM Generation (flag active to block quips/dreams)

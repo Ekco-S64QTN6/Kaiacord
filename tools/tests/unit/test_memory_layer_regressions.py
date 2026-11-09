@@ -156,6 +156,31 @@ def test_a_view_held_once_fades_once_its_protection_ends():
     assert beliefs_store.evict_weakest(beliefs) is faded
 
 
+
+def test_a_month_of_dreams_keeps_her_settled_beliefs():
+    """Nine new beliefs a night, each protected for a week, left only her oldest
+    and most recalled beliefs to evict: nine of them a night, until none were left."""
+    from utils.core import beliefs_store
+    day = 86400.0
+    start = time.time()
+    beliefs = [_belief(f"settled {i}", 0.9, age_days=60, accesses=100) for i in range(100)]
+    for night in range(30):
+        now = start + night * day
+        for k in range(9):
+            topic = f"night {night} belief {k}"
+            beliefs.append({"topic": topic, "position": "p", "confidence": 0.6,
+                            "last_updated": now, "access_count": 0})
+            beliefs_store.evict_weakest(beliefs, keep_topic=topic, now=now)
+        if night == 3:   # one of the new views is reached again and recalled
+            recalled = next(b for b in beliefs if b["topic"] == "night 3 belief 0")
+            recalled.update(confidence=0.9, access_count=8, last_updated=now)
+    assert len(beliefs) == 100
+    settled = [b for b in beliefs if b["topic"].startswith("settled")]
+    assert len(settled) >= 100 - beliefs_store.PROBATION_SLOTS - 1
+    assert any(b["topic"] == "night 3 belief 0" for b in beliefs)
+    assert sum(b["topic"].startswith("night") for b in beliefs) <= beliefs_store.PROBATION_SLOTS + 1
+
+
 # ── Relationship event pruning ───────────────────────────────────────
 
 def test_save_event_prunes_by_real_recency(tmp_path, monkeypatch):
