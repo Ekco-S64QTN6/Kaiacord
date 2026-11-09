@@ -116,7 +116,7 @@ COMMANDS = (
             aliases=("dreams",), owner_only=True, usage="!dream [list|generate|stats]",
             summary="Manage dream reflections"),
     Command("memory", handle_memory_cmd, GROUP_KAIA, extra=RESPONDER,
-            owner_only=True, usage="!memory [beliefs|anchors]",
+            owner_only=True, usage="!memory [beliefs | anchors | self]",
             summary="Inspect belief and anchor stores"),
     Command("selfmodel", handle_selfmodel_command, GROUP_KAIA, extra=RESPONDER,
             owner_only=True,
@@ -151,7 +151,7 @@ COMMANDS = (
     Command("rpg", handle_rpg_command, GROUP_RPG, extra=RESPONDER,
             usage="!rpg [subcommand]",
             summary="Turn-based RPG status board & command menu "
-                    "(`!rpg help` for the full class guide)"),
+                    "(`!rpg help` lists every subcommand: travel, combat, quests, the bank, fishing, housing, farming)"),
 
     # ── News, radio & sky, music & art ─────────────────────────────
     Command("news", handle_news_command, GROUP_NEWS, extra=RESPONDER,
@@ -170,8 +170,9 @@ COMMANDS = (
     Command("tacamo", handle_tacamo_command, GROUP_NIGHT, extra=RESPONDER,
             summary="Are the EAM relay planes (E-6B TACAMO, E-4B) broadcasting on ADS-B?"),
     Command("scanner", handle_scanner_command, GROUP_NIGHT, extra=RESPONDER, aliases=("localradio",),
-            usage="!scanner [history | off]",
-            summary="The local RTL-SDR scanner: what it has caught overnight, and live listening"),
+            usage="!scanner [history | dash | scan | off]",
+            summary="The local RTL-SDR scanner: what it has caught overnight; `dash` opens KAIA//RX, "
+                    "`scan` listens along in your voice channel"),
     Command("boards", handle_boards_command, GROUP_NEWS, extra=RESPONDER, aliases=("moltbook", "agentboards"),
             usage="!boards [now]",
             summary="Kaia on the AI agent boards (Moltbook, Agent Room, field notes): what she read and said"),
@@ -214,7 +215,7 @@ COMMANDS = (
     Command("forum", handle_forum_command, GROUP_NEWS, extra=RESPONDER,
             usage="!forum link <uid>",
             summary="Link your forum account "
-                    "(other `!forum` subcommands are admin-only)"),
+                    "(admin: `status`, `stats`, `scrape`, `read`, `user`, `post`, `reply`)"),
     Command("music", handle_music_command, GROUP_MUSIC, extra=RESPONDER,
             usage="!music on [--genre] | off | status | <request> | records [query] | skip",
             summary="Kaia DJs a live-coded set in your voice channel; "
