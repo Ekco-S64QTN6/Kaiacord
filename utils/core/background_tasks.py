@@ -3796,6 +3796,7 @@ async def run_caravan_arrival(bot_ctx, channel):
     from utils.ttrpg.shop import find_item, process_purchase
     from utils.ttrpg.character_manager import load, save
     from utils.ttrpg.broadcast import log_world_event as _log_world_event
+    from utils.ttrpg.world_state import update_world_state
 
     TOWN_LOCATIONS = {
         "oakhaven", "stone_hearth", "hemlocks_store",

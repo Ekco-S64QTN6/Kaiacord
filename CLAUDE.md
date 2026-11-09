@@ -88,7 +88,7 @@ so a mis-marked test fails fast instead of loading a model:
 
 | Workflow | Runs |
 |:--|:--|
-| `unit-tests.yml` | every PR and push to `main`: `.github/scripts/run_ci_tests.py` — `compileall` over `utils/` and `tools/`, the hygiene baseline (`test_suite_hygiene`, `test_chat_model_calls`, `test_no_shadowed_imports`), plus the tests for what the diff touched (`test_<stem>.py`, every test file that imports the changed module — skipped for one imported by more than `MAX_IMPORTERS` — `RELATED_TESTS`, all of `tools/tests/unit/ttrpg/` for a `utils/ttrpg/` change) |
+| `unit-tests.yml` | every PR and push to `main`: `.github/scripts/run_ci_tests.py` — `compileall` over `utils/` and `tools/`, the hygiene baseline (`test_suite_hygiene`, `test_chat_model_calls`, `test_no_shadowed_imports`, `test_no_undefined_globals`), plus the tests for what the diff touched (`test_<stem>.py`, every test file that imports the changed module — skipped for one imported by more than `MAX_IMPORTERS` — `RELATED_TESTS`, all of `tools/tests/unit/ttrpg/` for a `utils/ttrpg/` change) |
 | `ttrpg-tests.yml` | Full `tools/tests/unit/ttrpg/` suite when `utils/ttrpg/**`, `tools/tests/unit/ttrpg/**`, or the workflow file changes; also supports manual dispatch |
 | `records-audio-tests.yml` | `test_records.py` when `utils/audio/records.py` changes |
 
@@ -1548,7 +1548,9 @@ production from test runs (see [§9](#9-logging)) has now produced a wrong concl
 **Exercise the code, do not just parse it.** `ast.parse` passes happily on a `NameError` waiting
 to happen — a config read added to `kaia_proactive` referenced a `config` that module never
 imported, and only calling the function found it. Three separate defects this September were
-caught by running the changed path and none by reading it.
+caught by running the changed path and none by reading it. The global-name case is now caught
+statically (`test_no_undefined_globals`, CI baseline): `run_caravan_arrival` called
+`update_world_state` unimported from 4 to 9 Nov, so no caravan was ever reachable.
 
 **A test that runs a tool is a tool run.** `test_tools_runnable` checked that every script in
 `tools/` can start, by invoking `python <tool> --help`. Sixteen of them have no argparse, so the
