@@ -404,12 +404,13 @@ class BotState:
         months = int((time.time() - rel.get('first_seen', time.time())) / 2592000)
         valence = rel.get('emotional_valence', 0.5)
         mood_word = 'positive' if valence > 0.6 else ('warm' if valence > 0.45 else 'neutral')
-        top_topics = list(rel.get('topic_counts', {}).keys())[:3]
-        topics_str = ', '.join(top_topics) if top_topics else 'varied'
+        tc = rel.get('topic_counts') or {}
+        top_topics = [t for t, _ in sorted(tc.items(), key=lambda kv: -kv[1])[:3]]
+        interests = f", interests: {', '.join(top_topics)}" if top_topics else ""
 
         return (
             f"[{user_name}: known {months}mo, {rel['interaction_count']} exchanges, "
-            f"recent mood {mood_word}, interests: {topics_str}]"
+            f"recent mood {mood_word}{interests}]"
         )
 
     def get_relationship_stage(self, user_id: str) -> str:
@@ -517,29 +518,12 @@ class BotState:
         # Mark as primed for this last_seen timestamp
         self._dossier_primed_users[uid] = last_seen
 
-        # Gather top 3 recent topics
-        top_topics = []
-        try:
-            from utils.core.relationship_manager import load_events
-            events = load_events(uid)
-            if events:
-                events.sort(key=lambda e: getattr(e, 'timestamp', 0), reverse=True)
-                seen = set()
-                for ev in events:
-                    for t in getattr(ev, 'topics', []):
-                        t_clean = t.strip().lower()
-                        if t_clean and t_clean not in seen:
-                            seen.add(t_clean)
-                            top_topics.append(t_clean)
-                        if len(top_topics) >= 3:
-                            break
-                    if len(top_topics) >= 3:
-                        break
-        except Exception:
-            pass
-
-        if not top_topics and rel.get('topic_counts'):
-            top_topics = list(rel['topic_counts'].keys())[:3]
+        # Topics are what a person talked about, counted. A relationship
+        # event's `topics` are the words of the one message that raised it,
+        # kept to recognise a repeated repair ("i meant pry not pray sorry" gave
+        # "begin, meant, sorry"), so they are not used here.
+        tc = rel.get('topic_counts') or {}
+        top_topics = [t for t, _ in sorted(tc.items(), key=lambda kv: -kv[1])[:3]]
 
         # Gather last open loop
         open_loop = rel.get('last_open_loop', '').strip()

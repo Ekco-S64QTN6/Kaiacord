@@ -29,6 +29,8 @@ class MessageContext:
     raw_nodes: List[Any] = field(default_factory=list)
     context_nodes: List[Any] = field(default_factory=list)
     system_prompt: str = ""
+    #: The persona exactly as loaded: what the prompt opens with and the warm-up caches.
+    persona_text: str = ""
     prompt_messages: List[Dict[str, str]] = field(default_factory=list)
     grounded_sources: List[str] = field(default_factory=list)   # reference files behind the reply   # exactly what Ollama was sent
     user_traits: Dict[str, Any] = field(default_factory=dict)
