@@ -1093,6 +1093,18 @@ class BotSpeakFilter:
         r"|haven|don|doesn|didn|won|wouldn|couldn|shouldn)\b"
         r"|['\u2019](?:s|re|ve|ll|d|m)\b"
         r"|\b\w{3,}(?:ed|ing|es|s)\b", re.IGNORECASE)
+    # The same without the suffix guess, which takes plural nouns and -ed
+    # adjectives for verbs: an auxiliary, a contraction, or a subject pronoun
+    # followed by a word.
+    _PLAIN_FINITE_VERB = re.compile(
+        r"\b(?:is|are|was|were|be|been|am|has|have|had|do|does|did|can|could"
+        r"|will|would|shall|should|may|might|must|isn|aren|wasn|weren|hasn"
+        r"|haven|don|doesn|didn|won|wouldn|couldn|shouldn)\b"
+        r"|['\u2019](?:s|re|ve|ll|d|m)\b"
+        r"|\b(?:i|you|we|they|he|she|it)\s+[a-z]{2,}", re.IGNORECASE)
+    # "x, and y" / "x, or y" at the start of the remainder: the last items of a
+    # list the removed clause began.
+    _LIST_CONTINUATION = re.compile(r"^[^,;:.!?]{1,40},\s+(?:and|or)\s", re.IGNORECASE)
 
     # A connector stranded at the end of the head once the clause it introduced
     # is gone: "i'm not sure what caused it, but <concession>".
@@ -1137,6 +1149,15 @@ class BotSpeakFilter:
         terminal = sentence.rstrip()[-1] if had_terminal else ''
         # Consume the connector that joined the concession to its substance.
         brk = cls._CLAUSE_BREAK.match(tail)
+        # After a semicolon, colon or dash an -ing word can be the subject of a
+        # clause of its own ("you're correct; shifting focus … is a change in
+        # framework"), not the rest of the concession — when a verb follows it.
+        # Without one it is a participle phrase ("– maximizing respite while
+        # still appreciating the surroundings.") and still goes with the offence.
+        rest = tail[brk.end():] if brk else ''
+        gerund_clause = bool(brk and re.search(r'[;:\u2014\u2013]', brk.group(0))
+                             and re.match(r'\s*[a-z]{2,}ing\b', rest, re.IGNORECASE)
+                             and cls._PLAIN_FINITE_VERB.search(rest))
         if brk:
             tail = tail[brk.end():]
 
@@ -1149,7 +1170,7 @@ class BotSpeakFilter:
         # the tail is a fragment; it only decides what is left worth keeping. A
         # head-empty-only test ships 'starkind,  to point that out.'
         stripped_tail = tail.strip()
-        if stripped_tail and cls._DANGLING_TAIL.match(stripped_tail):
+        if stripped_tail and not gerund_clause and cls._DANGLING_TAIL.match(stripped_tail):
             # A dangling tail is the continuation of the clause just removed.
             # What follows a comma inside it can be real substance —
             # "you're correct to press on this point, the dependency chain is
@@ -1165,8 +1186,19 @@ class BotSpeakFilter:
             # corpus it produced "not an anomaly." the same way. So the
             # remainder has to carry a finite verb to be promoted, and
             # otherwise the unit goes with the offence it belongs to.
-            after = re.split(r'[,;]\s+', stripped_tail, maxsplit=1)
-            candidate = after[1].strip() if len(after) > 1 else ''
+            after = re.split(r'([,;])\s+', stripped_tail, maxsplit=1)
+            sep = after[1] if len(after) > 1 else ''
+            candidate = after[2].strip() if len(after) > 2 else ''
+            # After a comma the remainder is as often the rest of a list or an
+            # appositive as a clause: "…connection between a cat, chinese
+            # characters, and a distorted reference to jesus." shipped as
+            # "chinese characters, and a distorted reference to jesus.", and the
+            # suffix test took "characters" for a verb. There it takes a list
+            # continuation for the offence and asks for a verb the suffix test
+            # cannot mistake. A semicolon separates clauses, so the loose test stays.
+            comma = sep == ','
+            if comma and cls._LIST_CONTINUATION.match(candidate):
+                candidate = ''
             # The connector joined the rescued clause to the offence, which is gone.
             candidate = re.sub(r'^(?:and|but|so|yet)\s+', '', candidate, flags=re.IGNORECASE)
             # A modifier of the removed clause is not a clause: "…between
@@ -1175,7 +1207,8 @@ class BotSpeakFilter:
             # passed for a verb).
             if cls._MODIFIER_OPENER.match(candidate):
                 candidate = ''
-            tail = candidate if cls._FINITE_VERB.search(candidate) else ''
+            verb = cls._PLAIN_FINITE_VERB if comma else cls._FINITE_VERB
+            tail = candidate if verb.search(candidate) else ''
         elif not head.strip() and stripped_tail:
             # "that's a great point, and the chain is weak" — the praised noun is
             # left stranded ahead of the connector; drop it with the connector.

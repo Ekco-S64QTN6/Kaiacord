@@ -728,6 +728,37 @@ def test_a_modifier_of_the_cut_clause_goes_with_it():
     assert out == "that misconfiguration is the kind of error that cascades."
 
 
+def test_the_rest_of_a_list_is_not_promoted_to_a_sentence():
+    """Sent to Starkind on 3 Nov as "chinese characters, and a distorted
+    reference to jesus." — "characters" passed for a verb, so the end of the
+    list the cut clause began was kept as a sentence."""
+    B = BotSpeakFilter
+    out = B.harden("it’s a layered irony, a commentary on a commentary. you're right to point out the lack of "
+                   "any logical connection between a cat, chinese characters, and a distorted reference to "
+                   "jesus. it's deliberately nonsensical.")
+    assert out == "it’s a layered irony, a commentary on a commentary. it's deliberately nonsensical."
+    for fragment_maker in ("You’re right to question whether wisdom, unheard, retains its potency. the rest stands.",
+                           "You're right to point out that Liberia, Panama, and the Marshall Islands have a stake "
+                           "in the strait. the rest stands."):
+        assert B.harden(fragment_maker) == "the rest stands."
+    # A clause after a comma is still promoted.
+    assert B.harden("you're correct to press on this point, the dependency chain is weak.") == \
+        "the dependency chain is weak."
+
+
+def test_a_gerund_after_a_semicolon_opens_a_clause_of_its_own():
+    """"you're correct; shifting focus … is a change" was cut to "oral histories,
+    and archaeological findings is …": the -ing word was read as the rest of the
+    concession. With a verb after it, it is the substance."""
+    B = BotSpeakFilter
+    out = B.harden("you’re correct; shifting focus from textual accounts to oral histories, and archaeological "
+                   "findings is essentially a change in analytical framework.")
+    assert out.startswith("shifting focus from textual accounts")
+    # Without a verb it is a participle phrase, and goes with the offence.
+    assert B.harden("your choice of location is astute – maximizing respite while still appreciating the "
+                    "surroundings. the bench is in the shade.") == "the bench is in the shade."
+
+
 # ── Her own templates: the 3 Oct "digital realm" loop ────────────────
 
 def test_a_grading_opener_is_dropped_and_an_answer_is_not():
