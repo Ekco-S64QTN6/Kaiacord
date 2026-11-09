@@ -630,6 +630,11 @@ class ContextEnricher:
             
         # A link at the end of a sentence carries its full stop or bracket.
         matches = [m.rstrip(_TRAILING_PUNCT) for m in matches]
+        # A picture's link goes to vision (utils/core/image_links.py), not the scraper.
+        from utils.core.image_links import is_image_link
+        matches = [m for m in matches if not is_image_link(m)]
+        if not matches:
+            return ""
         # Remove duplicates and limit to 2 links to prevent abuse/stall
         unique_urls = list(dict.fromkeys(m for m in matches if m))[:2]
         

@@ -723,8 +723,10 @@ as `[TOKEN_DEBUG]`, which is where to look if reply truncation reappears; the fi
 
 Images go inline to `gemma3:12b` as base64 on the `user` message. Three things about that path:
 
-- **It keys off `ctx.message.attachments` and nothing else.** Any platform that wants Kaia to see
-  a picture has to populate that list. The forum did not, so `MockMessage.attachments` was always
+- **It keys off `ctx.message.attachments`, plus on Discord the pictures a message links**
+  (`image_links.vision_sources`: a URL whose path ends in an image extension, an `image`/`gifv`
+  embed's still). The link scraper skips those URLs, which it used to report as a page that
+  "wouldn't load". Any other platform that wants Kaia to see a picture has to populate the list. The forum did not, so `MockMessage.attachments` was always
   empty and she answered image posts blind — a photograph in thread 443378 drew *"those symbols
   again? what are you trying to do?"*. `MockAttachment` supplies the `.filename`/`.url` the branch
   reads, and guesses an extension for `attachment.php?attachmentid=…`, which has none and would
