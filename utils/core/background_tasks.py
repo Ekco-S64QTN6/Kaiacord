@@ -2175,7 +2175,9 @@ class CoreTaskManager:
                         not global_brief_succeeded
                         and "[NEWS_RETRYABLE_EXHAUSTED]" in stdout_text
                     )
-                    if global_brief_succeeded:
+                    if global_brief_succeeded and "already exists. Skipping generation" in stdout_text:
+                        log_info("Grounded global news brief: today's is already filed; not regenerated.")
+                    elif global_brief_succeeded:
                         log_success("Grounded global news brief generated.")
                     else:
                         log_error(f"Grounded global news brief failed with return code {process.returncode}")
