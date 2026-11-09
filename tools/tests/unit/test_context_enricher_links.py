@@ -335,6 +335,10 @@ def test_pdf_parser_uses_a_resource_limited_disposable_process(monkeypatch):
     assert captured["stderr"] == ce.subprocess.DEVNULL
     assert "resource.setrlimit(resource.RLIMIT_AS" in ce._PDF_WORKER_SCRIPT
     assert "resource.setrlimit(resource.RLIMIT_CPU" in ce._PDF_WORKER_SCRIPT
+    # A worker the CPU limit kills must not dump core: each test run left one,
+    # and the desktop reported it as a Kaiacord crash.
+    assert "resource.setrlimit(resource.RLIMIT_CORE, (0, 0))" in ce._PDF_WORKER_SCRIPT
+    assert ".prctl(4, 0, 0, 0, 0)" in ce._PDF_WORKER_SCRIPT
 
 
 def test_oversized_pdf_response_is_rejected_before_parser(monkeypatch):

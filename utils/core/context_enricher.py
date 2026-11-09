@@ -85,6 +85,16 @@ except Exception:
     # Environments without enforceable OS resource limits fail closed.
     sys.exit(3)
 
+# A worker the limits kill (SIGXCPU) is the guard working, not a crash: no core
+# dump, so systemd-coredump does not report it as one. RLIMIT_CORE alone is not
+# enough when cores are piped to a handler; a non-dumpable process is never dumped.
+try:
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    import ctypes
+    ctypes.CDLL(None, use_errno=True).prctl(4, 0, 0, 0, 0)   # PR_SET_DUMPABLE, 0
+except Exception:
+    pass
+
 try:
     from io import BytesIO
     from pypdf import PdfReader
