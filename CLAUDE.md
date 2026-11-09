@@ -480,7 +480,11 @@ that does not hold** (6 Nov): 254 of 258 turns over 6,000 tokens ran cold (media
 0.75 `COLD_S_PER_TOKEN` line), and the journal since 4 Nov has 433 `forcing full prompt re-processing` against
 87 `restored context checkpoint` — about one restored turn per warm-up (105 logged), each warm-up a ~10k-token
 background prefill that queues ahead of the next chat turn. The single-prompt measurement (13.7 s → 10.2 s)
-was real; across real traffic the cache rolls over. Roadmap item; measure before keeping or dropping it.
+was real; across real traffic the cache rolls over. A cause found 8 Nov: the identity stream was *prepended*, so every
+real prompt opened on it and never on the persona the warm-up caches. It goes after the persona now; nothing may be put
+ahead of the persona (the self-model and constitution still are, and are off). Measure I5 again before dropping the warm-up.
+What follows the persona is undashed (`undash`), and so is her shown history: the persona forbids the em dash, and from
+3 Nov it was in 45-64% of her replies, copied from a prompt full of them. Her replies themselves are not filtered for it.
 `[TOKEN_DEBUG]` logs `prompt_s`.
 
 ### Repeat penalty

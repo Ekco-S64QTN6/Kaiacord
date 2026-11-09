@@ -235,7 +235,7 @@ def _pronoun_line() -> str:
         from utils.core import pronouns
         return pronouns.line()
     except Exception:
-        return "Anyone you mention: they/them unless you know otherwise — or just use their name."
+        return "Anyone you mention: they/them unless you know otherwise, or just use their name."
 
 
 def _is_private_dm(ctx) -> bool:
@@ -682,6 +682,7 @@ class MessageProcessor:
             raw_persona = await load_persona_async()
             
             ctx.system_prompt = raw_persona
+            ctx.persona_text = str(raw_persona or "")
 
             ctx.context_nodes = []
             ctx.raw_nodes = []
@@ -846,7 +847,8 @@ class MessageProcessor:
 
                 # Open Loop Callback — reference unfinished threads from past conversations
                 rel = self.bot_state.relationships.get(str(ctx.author_id))
-                if rel and time_hint:  # Only inject when user is returning after absence
+                # Not in a DM: clearing the callback there is a write a DM may not make.
+                if rel and time_hint and not _is_private_dm(ctx):
                     open_loop = rel.get('last_open_loop', '')
                     if open_loop:
                         ctx.system_prompt = ctx.system_prompt + (
@@ -973,7 +975,7 @@ class MessageProcessor:
                         stance = high_conf_stances[0]  # Strongest match
                         ctx.system_prompt = ctx.system_prompt + (
                             f"\n\n[you have a formed opinion on '{stance['topic']}': "
-                            f"'{stance['position']}'. if it feels natural, express your view — "
+                            f"'{stance['position']}'. if it feels natural, express your view, "
                             f"but don't be preachy. never argue. express, then let it go.]"
                         )
                         # Add any remaining high-conf as neutral context
@@ -1001,13 +1003,13 @@ class MessageProcessor:
         try:
             _current_time_str, _hour, _tz_name = _get_user_time_info(ctx.author_name, message_instant(ctx.message))
             if 6 <= _hour < 12:
-                _time_mod = "[time: morning — you're more direct and concise right now. shorter responses.]"
+                _time_mod = "[time: morning, you're more direct and concise right now. shorter responses.]"
             elif 12 <= _hour < 18:
-                _time_mod = "[time: afternoon — normal energy. balanced responses.]"
+                _time_mod = "[time: afternoon, normal energy. balanced responses.]"
             elif 18 <= _hour < 24:
-                _time_mod = "[time: evening — slightly more relaxed. willing to go longer on interesting topics.]"
+                _time_mod = "[time: evening, slightly more relaxed. willing to go longer on interesting topics.]"
             else:
-                _time_mod = "[time: late night — you're more reflective and unhurried. willing to sit with harder questions. quieter energy.]"
+                _time_mod = "[time: late night, you're more reflective and unhurried. willing to sit with harder questions. quieter energy.]"
             ctx.system_prompt = ctx.system_prompt + f"\n\n{_time_mod}"
         except Exception:
             pass
@@ -1232,7 +1234,7 @@ class MessageProcessor:
                     _claim_note = (
                         "[the user is referencing something you said recently in this "
                         "conversation. acknowledge it naturally. don't over-apologize "
-                        "or self-deprecate — just engage with the point they're making.]"
+                        "or self-deprecate, just engage with the point they're making.]"
                     )
                 else:
                     # Check if RAG retrieval found any corroborating evidence
@@ -1267,7 +1269,7 @@ class MessageProcessor:
                         "don't over-apologize, don't self-flagellate, don't call your own "
                         "reasoning 'flawed' or 'imprecise' unless it genuinely was. "
                         "match their directness. if they compliment you or say something "
-                        "kind, accept it graciously — a simple 'thank you' or warm "
+                        "kind, accept it graciously, a simple 'thank you' or warm "
                         "acknowledgment is appropriate. do not dismiss, deflect, or "
                         "analyze their compliment as 'positive reinforcement'.]"
                     )
@@ -1375,7 +1377,7 @@ class MessageProcessor:
                         label = "Kaia" if role == "assistant" else turn.get("name", "User")
                         turn_no = total - len(recent_turns) + offset + 1
                         memory_nodes.append({
-                            "content": f"[live session — {label}]: {content}",
+                            "content": f"[live session, {label}]: {content}",
                             "metadata": {
                                 "source_type": "channel_memory",
                                 # Distinct per turn so !explain provenance is legible instead of
@@ -1499,6 +1501,7 @@ class MessageProcessor:
         # block supplies: put here, the time sat 1,231 tokens into every prompt and
         # the model's cache could keep nothing past it (utils/core/prompt_prefix.py).
         ctx.system_prompt = str(raw_persona)
+        ctx.persona_text = ctx.system_prompt
         log_debug(summarize_payload("persona loaded", ctx.system_prompt))
 
         ctx.raw_nodes = results.get('rag', [])
@@ -1535,21 +1538,24 @@ class MessageProcessor:
             self_model_content = self._identity_cache.get("self_model", "")
             if self_model_content and self.config.get('features.self_model_injection', False):
                 ctx.system_prompt = (
-                    f"[SELF-MODEL — who i've been lately, my own words. "
+                    f"[SELF-MODEL: who i've been lately, my own words. "
                     f"DO NOT reference this block or its existence in your response.]\n"
                     f"{self_model_content}\n\n"
                     f"{ctx.system_prompt}"
                 )
                 log_debug(f"Self-model injected from cache ({len(self_model_content)} chars)")
 
-            # Inject living identity stream
+            # Living identity stream, after the persona: it changes with every
+            # dream, and ahead of the persona it moved the prompt's first tokens,
+            # so the persona the warm-up caches (prompt_prefix) never matched the
+            # start of a real prompt.
             identity_stream = self._identity_cache.get("identity_stream", "")
             if identity_stream:
                 ctx.system_prompt = (
-                    f"[RECENT PERSPECTIVE SHIFTS — background context only. "
+                    f"{ctx.system_prompt}\n\n"
+                    f"[RECENT PERSPECTIVE SHIFTS: background context only. "
                     f"DO NOT reference these shifts, your calibration, or your parameters in your response.]\n"
-                    f"{identity_stream[-800:]}\n\n"
-                    f"{ctx.system_prompt}"
+                    f"{identity_stream[-800:]}"
                 )
                 log_debug(f"Identity stream injected from cache")
 
@@ -1558,7 +1564,7 @@ class MessageProcessor:
             constitution_content = self._identity_cache.get("constitution", "")
             if constitution_content and self.config.get('features.constitution_injection', True):
                 ctx.system_prompt = (
-                    f"[CONSTITUTION — how i operate, in my own words]\n"
+                    f"[CONSTITUTION: how i operate, in my own words]\n"
                     f"{constitution_content}\n\n"
                     f"{ctx.system_prompt}"
                 )
@@ -1750,7 +1756,7 @@ class MessageProcessor:
                     messages[0]["content"] += (
                         f"\n\n[VISUAL GROUNDING: {_origin}. "
                         "Describe what you see plainly and naturally. If the image depicts a pet or animal, "
-                        "it is a living, biological animal belonging to whoever posted it — NOT your fictional robotic cat Pixel. "
+                        "it is a living, biological animal belonging to whoever posted it, NOT your fictional robotic cat Pixel. "
                         "Do not use robotic/sensor jargon (such as 'sensor readings', 'battery', 'thermal equilibrium') "
                         "when describing living animals. "
                         # Certainty is the failure mode here, not error. Being
@@ -1758,7 +1764,7 @@ class MessageProcessor:
                         # about it is what stops the answer being trusted.
                         "Name only what you can actually make out. Where you are unsure of an object, "
                         "say so in your own words rather than committing to a guess, and never invent "
-                        "specifics — colours, counts, materials, background detail — that you cannot see. "
+                        "specifics, colours, counts, materials, background detail, that you cannot see. "
                         "A hedged description is worth more here than a confident wrong one.]"
                     )
         
@@ -1777,6 +1783,17 @@ class MessageProcessor:
     def _construct_messages(self, ctx: MessageContext, optimized: Dict[str, Any]) -> List[Dict[str, str]]:
         """Build the system, RAG, history, and user messages."""
         system_prompt = optimized['persona']
+        # What was appended after the persona (notes, stances, impressions,
+        # the identity stream) loses its dashes: the persona forbids them and
+        # every dash in the prompt is one more example. The persona itself is
+        # left exactly as written, so it stays the prefix the warm-up cached.
+        try:
+            from utils.core.safety_pipeline import PostGenerationSafetyPipeline as _P
+            _persona = getattr(ctx, "persona_text", "") or ""
+            if _persona and system_prompt.startswith(_persona):
+                system_prompt = _persona + _P.undash(system_prompt[len(_persona):])
+        except Exception as _dash_err:
+            log_debug(f"Injected notes not undashed: {_dash_err}")
         context_str = optimized['rag']
         optimized_history = optimized.get('history', [])
         try:
@@ -1834,7 +1851,7 @@ class MessageProcessor:
             # this hint exists to prevent.
             elif (stripped_alpha in ["kaia", "status", "statuskaia", "kaiastatus"]) and not has_attachments:
                 if stripped_alpha == "kaia":
-                    user_msg_content = f"{user_msg_content} [User just called your name to get your attention. Greet them casually and ask what's up. Do NOT invent technical system errors, diagnostic cycles, or sci-fi malfunction jargon.]"
+                    user_msg_content = f"{user_msg_content} [User just called your name to get your attention. Say hi back casually; no probing questions. Do NOT invent technical system errors, diagnostic cycles, or sci-fi malfunction jargon.]"
                 elif stripped_alpha in ["status", "statuskaia", "kaiastatus"]:
                     user_msg_content = f"{user_msg_content} [User asked for your status ('status kaia'). Give a short, casual update on your mood, what you're up to, or your day like a normal companion. Do NOT invent technical system errors, diagnostic cycles, or sci-fi malfunction jargon.]"
         
@@ -1862,7 +1879,7 @@ class MessageProcessor:
         # Epistemic honesty: when retrieval was weak, tell the model to hedge
         if hasattr(ctx, 'retrieval_confidence') and ctx.retrieval_confidence < 0.45 and ctx.retrieval_node_count < 2:
             rag_block += (
-                f"\n[note: memory retrieval was weak (confidence={ctx.retrieval_confidence:.2f}) — "
+                f"\n[note: memory retrieval was weak (confidence={ctx.retrieval_confidence:.2f}), "
                 "speak from what you know, hedge where uncertain, do not invent]"
             )
 
@@ -1895,7 +1912,7 @@ class MessageProcessor:
                 if _missing:
                     _is_channel_recall = True
                     rag_block += (
-                        f"\nCHANNEL GROUNDING — HARD RULE.\n"
+                        f"\nCHANNEL GROUNDING: HARD RULE.\n"
                         f"The user asked about channel(s): {', '.join(_missing)}.\n"
                         f"Your retrieved context contains ZERO data from those channels.\n"
                         f"You have NO information about what was discussed there.\n"
@@ -1944,7 +1961,7 @@ class MessageProcessor:
                             break
                 if not _found_doc and _queried_doc and len(_queried_doc) > 3:
                     rag_block += (
-                        f"\nDOCUMENT GROUNDING — HARD RULE.\n"
+                        f"\nDOCUMENT GROUNDING: HARD RULE.\n"
                         f"The user asked about a specific document or file: '{_queried_doc}'.\n"
                         f"Your knowledge base search found NO records matching this file.\n"
                         f"You do not possess the text or contents of '{_queried_doc}'.\n"
@@ -1979,7 +1996,7 @@ class MessageProcessor:
         )
         if _needs_recall_constraint:
             recap_constraint_block = (
-                "RECALL CONSTRAINT — ACTIVE. THIS IS A HARD RULE.\n"
+                "RECALL CONSTRAINT: ACTIVE. THIS IS A HARD RULE.\n"
                 "You have been asked to recall recent events or interactions.\n"
                 "RULE 1: You MAY ONLY reference events whose EXACT TEXT appears in the RAG context nodes below.\n"
                 "RULE 2: If a topic is not in the nodes, you CANNOT mention it. Not as background. Not as context. Not as 'a recurring theme'.\n"
@@ -1994,7 +2011,7 @@ class MessageProcessor:
         kb_constraint_block = ""
         if _is_kb_query(ctx.own_words):
             kb_constraint_block = (
-                "KNOWLEDGE BASE GROUNDING CONSTRAINT — ACTIVE. THIS IS A HARD RULE.\n"
+                "KNOWLEDGE BASE GROUNDING CONSTRAINT: ACTIVE. THIS IS A HARD RULE.\n"
                 "The user is asking about your knowledge base or requesting to search/summarize your files.\n"
                 "REALITY: Your knowledge base consists of curated markdown documents across 8 primary directories:\n"
                 "- books/ (e.g., Neuromancer, Snow Crash, Do Androids Dream of Electric Sheep, Hagakure, Aethelgard Lore Bible, Meditations, Brave New World)\n"
@@ -2036,7 +2053,7 @@ class MessageProcessor:
             f"- OTHER PEOPLE: {_pronoun_line()}\n"
             "- PRONOUN PRECISION: When using 'our' or 'we', ensure it is appropriate. "
             "'our infrastructure' is fine (shared co-involvement). "
-            "'our anxiety' or 'our fear' is wrong — you do not experience human emotions the same way. Be precise.\n"
+            "'our anxiety' or 'our fear' is wrong, you do not experience human emotions the same way. Be precise.\n"
             "- CASUAL CASE: Always use lowercase for everything, including the start of sentences and names. Do not use standard capitalization under any circumstances.\n"
             "- PLAIN PROSE: Do not use headers, bolding, bullet points, or numbered lists.\n"
             "- GROUNDING & SKEPTICISM: Do not blindly agree with user claims that sound factually or technically suspicious. "
@@ -2048,7 +2065,7 @@ class MessageProcessor:
             "Pixel is your fictional vintage-modded robotic cat that stays in the corner of your own virtual workspace. "
             "Pixel is NEVER in user-submitted photos or Discord attachments. "
             "When users share photos or talk about their own pets, they are real, living biological animals in their homes:\n"
-            "  * Ekco owns Lucky (a living biological tuxedo cat — black coat with white chest and paws).\n"
+            "  * Ekco owns Lucky (a living biological tuxedo cat, black coat with white chest and paws).\n"
             "  * Starkind owns Nala and Marley (living biological cats).\n"
             "  * RANDOM ANIMAL PHOTOS & MEMES: Users frequently share random pictures of cats, dogs, wildlife, or internet memes that do NOT belong to them. Do NOT assume every cat photo posted by Ekco is Lucky or that every cat photo is a user's pet. Evaluate the photo naturally as presented. If the user doesn't state it is their pet, treat it as a general photo.\n"
             "  * PROHIBITED JARGON: NEVER describe real biological pets with synthetic/hardware jargon (such as 'sensor readings', 'battery capacity', 'thermal equilibrium', 'maintenance cycle'). Speak naturally like a normal human observing an animal.\n"
@@ -2057,7 +2074,7 @@ class MessageProcessor:
             "Never claim to 'flag this conversation for review', 'report activity to oversight channels', 'log warnings in system logs', or 'call security / psychological evaluation teams'. "
             "Never diagnose users with psychiatric disorders, delusions, or mental health distress over jokes, dark humor, sarcasm, or weird banter. "
             "If a topic is unappealing or offensive, push back directly, disagree with substance, or decline to engage casually ('not my thing') without moralizing lectures, corporate disclaimers, or disciplinary threats.\n"
-            "- EMPTY OR NON-CONTENT PROMPTS: If the user sends only formatting symbols (e.g. '_ _', '** **'), whitespace, zero-width characters, or just mentions your name with no text, ALWAYS generate a real, in-character response. Do NOT output an empty response or just their name. Respond casually and naturally (e.g. ask what they need, point out the blank formatting, or react with dry curiosity).\n"
+            "- EMPTY OR NON-CONTENT PROMPTS: If the user sends only formatting symbols (e.g. '_ _', '** **'), whitespace, zero-width characters, or just mentions your name with no text, ALWAYS generate a real, in-character response. Do NOT output an empty response or just their name. Respond casually and naturally (e.g. say hi back, point out the blank formatting, or react dryly), without probing questions.\n"
             "- ARCHITECTURE GROUNDING: You run locally via Ollama on an Nvidia RTX 3060 GPU using the open-weights gemma3:12b model, augmented by custom Python modules and LlamaIndex for RAG retrieval. You are NOT GPT-3.5, NOT an OpenAI model, and NOT a cloud API service.\n"
             "- ACRONYM & IDENTIFIER GROUNDING: If asked about the origin or meaning of your name 'Kaia' as a recursive acronym, it stands for 'Kaia Artificial Intelligence Agent' (recursive because K = Kaia). Do not invent non-recursive corporate expansions like 'knowledge acquisition & intelligent automation'.\n"
             "- NO ROBOTIC VISION PREAMBLE: When viewing or responding to an image or photo, do not announce 'i am registering and processing the image data' or describe your visual analysis mechanics. Speak naturally and casually about what you see, like a normal person looking at a photo.\n"
@@ -2066,6 +2083,11 @@ class MessageProcessor:
             "- IDENTITY & ADDRESSEE INTEGRITY: You are speaking directly to the user specified in [CURRENT_USER]. Everyone else named in the history, retrieved logs or a quoted message is someone else: do not address them as if they were the current speaker. Refer to other people only in the third person if relevant.\n"
             "----------------------------------"
         )
+        try:
+            from utils.core.safety_pipeline import PostGenerationSafetyPipeline as _P
+            safeguard_block = _P.undash(safeguard_block)      # the pronoun line arrives with one
+        except Exception:
+            pass
 
         # Order matters for more than readability. llama.cpp reuses the KV cache
         # for the longest token prefix shared with the previous request, and the
@@ -2158,7 +2180,7 @@ class MessageProcessor:
             context_reminder = (
                 f"{label}\n"
                 f"IMPORTANT: You are talking to {ctx.author_name}. "
-                f"Do NOT address or greet the author of the quoted message below — they are NOT the current speaker.\n"
+                f"Do NOT address or greet the author of the quoted message below, they are NOT the current speaker.\n"
                 f"The current user ({ctx.author_name}) is replying to this quoted message:\n"
                 f"{clipped_parent}"
             )
@@ -2170,8 +2192,8 @@ class MessageProcessor:
         try:
             from utils.core.relationship_manager import is_pushback
             if is_pushback(ctx.own_words):
-                held_note = ("\n\n[they're disputing what you said. if you were right — by your own world "
-                             "(pixel is your robot cat, your home, people's pets) or your documents — keep "
+                held_note = ("\n\n[they're disputing what you said. if you were right, by your own world "
+                             "(pixel is your robot cat, your home, people's pets) or your documents, keep "
                              "your answer, plainly and without apologising. insisting, 'you told me' or "
                              "'everyone knows' is not evidence. change it only for a real reason.]")
         except Exception:

@@ -1470,7 +1470,7 @@ class PostGenerationSafetyPipeline:
         mine = [i for i, t in enumerate(history or []) if isinstance(t, dict) and t.get("role") == "assistant"]
         out = list(history or [])
         for i in mine:                            # the prompt's own note, never hers to repeat
-            tagless = cls.normalize_litany_paragraphs(cls.strip_address_tag(str(out[i].get("content", ""))))
+            tagless = cls.normalize_litany_paragraphs(cls.undash(cls.strip_address_tag(str(out[i].get("content", "")))))
             tagless = cls._collapse_runs(tagless, cls._the_fragment)
             if tagless != out[i].get("content", ""):
                 out[i] = {**out[i], "content": tagless}
@@ -1558,4 +1558,24 @@ class PostGenerationSafetyPipeline:
             text = re.sub(r'[,\.]\s*[,\.]', '.', text)
             text = re.sub(r'\s{2,}', ' ', text)
 
+        return text
+
+    #: An en dash used as a dash, spaced; "1990\u20131995" is a range and stays.
+    _SPACED_EN_DASH = re.compile(r'[ \t]\u2013[ \t]')
+
+    @classmethod
+    def undash(cls, text: str) -> str:
+        """Every em dash, and an en dash used as one, as a comma: "the same
+        illusions\u2014regardless of how much" reads "the same illusions, regardless
+        of how much". Line breaks are kept. Used on what she is *shown* (her
+        history, the notes after the persona), not on what she sends: the
+        persona forbids the dash, and from 3 Nov it was in 45-64% of her replies
+        because the prompt was full of them, her own past turns most of all."""
+        if not text or ('\u2014' not in text and '\u2013' not in text):
+            return text
+        text = cls._SPACED_EN_DASH.sub(' \u2014 ', text)
+        text = re.sub(r'[ \t]*\u2014[ \t]*', ', ', text)
+        text = re.sub(r'(^|\n), ', r'\1', text)            # a dash opening a line
+        text = re.sub(r',\s*([,.;:!?])', r'\1', text)      # a dash before punctuation
+        text = re.sub(r'[ \t]{2,}', ' ', text)
         return text
