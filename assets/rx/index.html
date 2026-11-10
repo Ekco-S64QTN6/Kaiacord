@@ -538,16 +538,16 @@ function kaiaState() {
     default: return "RxIdle";
   }
 }
-// A different portrait of her on every launch (`portrait: "random"` in the
-// engine never repeats the last one); the page reloads when the server counts
-// a new launch, since the window is often reused rather than reopened.
+// Her portrait is t2, as in Kaia Sentinel and Kaiagotchi; ?face=<name> shows another and
+// ?face=random rotates through all six. The page reloads when the server counts a new
+// launch, since the window is often reused rather than reopened.
 var kaiaLaunch = null;
 function kaiaRelaunch(n) {
   if (n == null) return;
   if (kaiaLaunch === null) kaiaLaunch = n;
   else if (n !== kaiaLaunch) location.reload();
 }
-KaiaCodec.mount($("kaia-stage"), { assets: "/kaia/portraits", portrait: "random", maxFps: 30 }).then((c) => { codec = c; }).catch((e) => console.error("[rx] Kaia:", e));
+KaiaCodec.mount($("kaia-stage"), { assets: "/kaia/portraits", portrait: new URLSearchParams(location.search).get("face") || "t2", maxFps: 30 }).then((c) => { codec = c; }).catch((e) => console.error("[rx] Kaia:", e));
 let typed = null;
 function sayLine(line) {
   if (line === lastLine) return;
