@@ -267,7 +267,14 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | 13 | hard – deadly |
 | 14–15 | hard – boss |
 
-At night a quarter of hunts shift up a tier.
+At night a quarter of hunts shift up a tier. Where a zone holds fewer than `MIN_KINDS` (4) different
+monsters inside the window, the lower bound opens a tier at a time until it holds four: the Trade Road
+has one hard monster, and from level 13 every hunt there was a Drake Hatchling. A zone with nothing in
+the window meets its whole table.
+
+On an undead day (the Ghost Caravan, the Hollow Sun, the calendar's undead days) a Skeleton, Ghost,
+Spectre and Wight join every table (`encounter_tables.UNDEAD_BONUS`), one each from easy to hard, so
+the window keeps some of them at every level; the skeleton and ghost alone left it from level 10.
 
 **Drops.** A kill rolls the gear table 35% of the time and the consumable table half the time
 (`loot_tables.roll_kill_drops`); an ordinary dungeon mob rolls gear 30% of the time. The tables alone
@@ -590,12 +597,12 @@ All temporary conditions are cleared on daily reset (midnight). Only `Blessed` a
 | XP Boosted | Experience Tonic | +25% XP on the next combat kill |
 | Fortified | Ironbark Tonic / Warding Salve | +2 DEF applied for one entire combat encounter |
 | Embered | Firebrew / Frenzy Draught | +2 ATK applied for one entire combat encounter |
-| Sharp Mind | Old Man's Riddle | +2 to next INT check |
-| Battle Focus | Veiled Elder (Warrior) | +1 to STR checks |
-| Forest Sight | Veiled Elder (Ranger) | +1 to DEX checks |
-| Resonance Link | Veiled Elder (Mage) | +2 to INT checks |
-| Shadow Step | Veiled Elder (Rogue) | +2 to DEX checks |
-| Divine Clarity | Veiled Elder (Cleric) | +2 to WIS checks |
+| Sharp Mind | Old Man's Riddle | +1 ATK for the next fight |
+| Battle Focus | Veiled Elder (Warrior) | +1 ATK for the next fight |
+| Forest Sight | Veiled Elder (Ranger) | +1 ATK for the next fight |
+| Resonance Link | Veiled Elder (Mage) | +2 damage for the next fight |
+| Shadow Step | Veiled Elder (Rogue), Quiet Hunter | +2 ATK for the next fight |
+| Divine Clarity | Veiled Elder (Cleric) | +2 damage for the next fight |
 | Tree Memory | Whisper in Bark | -2 damage from natural creatures (not undead or constructs) for one fight |
 | Wisp Ward | Twin Wisps (ignored both), Uninvited Guest | +1 DEF for one fight |
 | Aeridorian Attunement | Strange Statue | +1 ATK in the Aeridor Ruins until the daily reset |

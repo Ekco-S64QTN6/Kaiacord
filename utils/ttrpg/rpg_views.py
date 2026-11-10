@@ -352,10 +352,8 @@ class _InteractionChannel:
         self.name = getattr(self._real, 'name', '')
 
     async def send(self, content=None, **kwargs):
-        kwargs.setdefault("wait", True)          # the message, so its turn can add buttons
-        message = await self._interaction.followup.send(content, **kwargs)
-        turn_buttons.record(message, kwargs)
-        return message
+        # The press's response if it has none yet, a follow-up after (turn_buttons.reply).
+        return await turn_buttons.reply(self._interaction, content, fallback_channel=self._real, **kwargs)
 
     @property
     def typing(self):
@@ -395,18 +393,12 @@ def _make_interaction_send(interaction: discord.Interaction):
     send(channel, text) instead of msg.channel.send(embed=...).
     """
     async def _send(channel, text=None, use_code_block=None, **kwargs):
-        kwargs.setdefault("wait", True)
+        content = None
         if text is not None and str(text).strip():
             if use_code_block is None:
                 use_code_block = "```" not in str(text)
-            if use_code_block:
-                message = await interaction.followup.send(f"```\n{str(text).strip()}\n```", **kwargs)
-            else:
-                message = await interaction.followup.send(str(text).strip(), **kwargs)
-        else:
-            message = await interaction.followup.send(**kwargs)
-        turn_buttons.record(message, kwargs)
-        return message
+            content = f"```\n{str(text).strip()}\n```" if use_code_block else str(text).strip()
+        return await turn_buttons.reply(interaction, content, **kwargs)
     return _send
 
 
@@ -717,26 +709,24 @@ class RPGCombatView(StaleSafeView):
                 except discord.NotFound:
                     pass
                 return
-            try:
-                await interaction.response.defer()
-            except discord.NotFound:
-                log_debug("[rpg button] attack: interaction expired (NotFound on defer)")
-                return
+            # Not deferred: the round is posted as the press's response, one
+            # round trip instead of two (turn_buttons.answering).
             fake_msg = _InteractionMsg(interaction)
             send_fn = _make_interaction_send(interaction)
-            try:
-                await _handle_attack(
-                    self._ctx, fake_msg, send_fn,
-                    self._monster_key, self._uid, self._uname, self._is_owner
-                )
-            except Exception as e:
-                log_error(f"[rpg button] attack failed: {e}")
+            async with turn_buttons.answering(interaction):
                 try:
-                    await interaction.followup.send(
-                        "```\nerror running attack. check logs.\n```", ephemeral=True
+                    await _handle_attack(
+                        self._ctx, fake_msg, send_fn,
+                        self._monster_key, self._uid, self._uname, self._is_owner
                     )
-                except discord.NotFound:
-                    pass
+                except Exception as e:
+                    log_error(f"[rpg button] attack failed: {e}")
+                    try:
+                        await turn_buttons.reply(
+                            interaction, "```\nerror running attack. check logs.\n```", ephemeral=True
+                        )
+                    except discord.HTTPException:
+                        pass
 
         atk_btn.callback = _attack_cb
         self.add_item(atk_btn)
@@ -755,26 +745,24 @@ class RPGCombatView(StaleSafeView):
                 except discord.NotFound:
                     pass
                 return
-            try:
-                await interaction.response.defer()
-            except discord.NotFound:
-                log_debug("[rpg button] flee: interaction expired (NotFound on defer)")
-                return
+            # Not deferred: the round is posted as the press's response, one
+            # round trip instead of two (turn_buttons.answering).
             fake_msg = _InteractionMsg(interaction)
             send_fn = _make_interaction_send(interaction)
-            try:
-                await _handle_flee(
-                    self._ctx, fake_msg, send_fn,
-                    "", self._uid, self._uname, self._is_owner
-                )
-            except Exception as e:
-                log_error(f"[rpg button] flee failed: {e}")
+            async with turn_buttons.answering(interaction):
                 try:
-                    await interaction.followup.send(
-                        "```\nerror running flee. check logs.\n```", ephemeral=True
+                    await _handle_flee(
+                        self._ctx, fake_msg, send_fn,
+                        "", self._uid, self._uname, self._is_owner
                     )
-                except discord.NotFound:
-                    pass
+                except Exception as e:
+                    log_error(f"[rpg button] flee failed: {e}")
+                    try:
+                        await turn_buttons.reply(
+                            interaction, "```\nerror running flee. check logs.\n```", ephemeral=True
+                        )
+                    except discord.HTTPException:
+                        pass
 
         flee_btn.callback = _flee_cb
         self.add_item(flee_btn)
@@ -1208,23 +1196,40 @@ def _make_status_view(ctx, msg, uid, uname, is_owner):
 
 
 async def _get_active_view(ctx, msg, uid, uname, is_owner):
-    """Returns the correct view context: current-location combat, dungeon combat, dungeon map, or None."""
+    """The view for where the player is: a fight at their location, the dungeon
+    or Spine floor they are standing in, or None.
+
+    A run the player walked away from stays active so they can pick it up
+    again, so a dungeon is only theirs to move in from its own location: the
+    Spine from the Aeridor Ruins, a regular dungeon from the place it was
+    generated for."""
+    sheet = await load(uid)
+    current_location = (sheet or {}).get("location", "oakhaven")
     s = await load_session(str(msg.channel.id))
-    if s and s.get("combat_active"):
-        sheet = await load(uid)
-        if sheet:
-            current_location = sheet.get("location", "oakhaven")
-            for m in s.get("monsters", []):
-                if (
-                    isinstance(m, dict)
-                    and str(m.get("aggro_uid")) == str(uid)
-                    and m.get("origin_location") == current_location
-                ):
-                    return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
+    if sheet and s and s.get("combat_active"):
+        for m in s.get("monsters", []):
+            if (
+                isinstance(m, dict)
+                and str(m.get("aggro_uid")) == str(uid)
+                and m.get("origin_location") == current_location
+            ):
+                return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
+
+    if current_location == "aeridor_ruins":
+        from utils.ttrpg.spine_dungeon import load_spine_dungeon
+        s_state = await load_spine_dungeon(uid)
+        if s_state and s_state.get("active"):
+            ac = s_state.get("active_combat")
+            if ac:
+                monster = ac.get("monster", {})
+                m_name = ac.get("boss_name") or monster.get("name", "monster")
+                return DungeonCombatView(ctx, uid, uname, is_owner, m_name)
+            return DungeonView(ctx, uid, uname, is_owner, s_state)
+        return None
 
     from utils.ttrpg.dungeon import load_dungeon
     d_state = await load_dungeon(uid)
-    if d_state and d_state.get("active"):
+    if d_state and d_state.get("active") and d_state.get("location", current_location) == current_location:
         ac = d_state.get("active_combat")
         if ac:
             monster = ac.get("monster", {})
@@ -1232,17 +1237,6 @@ async def _get_active_view(ctx, msg, uid, uname, is_owner):
             return DungeonCombatView(ctx, uid, uname, is_owner, m_name)
         else:
             return DungeonView(ctx, uid, uname, is_owner, d_state)
-
-    from utils.ttrpg.spine_dungeon import load_spine_dungeon
-    s_state = await load_spine_dungeon(uid)
-    if s_state and s_state.get("active"):
-        ac = s_state.get("active_combat")
-        if ac:
-            monster = ac.get("monster", {})
-            m_name = ac.get("boss_name") or monster.get("name", "monster")
-            return DungeonCombatView(ctx, uid, uname, is_owner, m_name)
-        else:
-            return DungeonView(ctx, uid, uname, is_owner, s_state)
 
     return None
 
@@ -1739,11 +1733,9 @@ class DungeonCombatView(StaleSafeView):
                 except discord.NotFound:
                     pass
                 return
-            try:
-                await interaction.response.defer()
-            except discord.NotFound:
-                pass
-            await _dungeon_combat_round(self._ctx, interaction, self._uid, self._uname, self._is_owner)
+            # Answered by the round's card, not deferred (turn_buttons.answering).
+            async with turn_buttons.answering(interaction):
+                await _dungeon_combat_round(self._ctx, interaction, self._uid, self._uname, self._is_owner)
         atk_btn.callback = _atk_cb
         self.add_item(atk_btn)
 

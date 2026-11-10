@@ -241,3 +241,38 @@ def test_missing_person_claim_requires_matching_unexpired_location():
     assert claim_missing_person(state, "whisperwood_edge", now=1_000) is None
     assert claim_missing_person(state, "whisperwood_deep", now=2_000) is None
     assert state["missing_person_loc"] == "whisperwood_deep"
+
+
+def test_a_hunt_never_meets_only_one_kind_of_monster():
+    import collections
+    from utils.ttrpg import encounter_tables as et
+    for loc in ("whisperwood_edge", "trade_road", "whisperwood_deep", "aeridor_ruins"):
+        for level in range(1, 16):
+            seen = collections.Counter(et.random_encounter(loc, level) for _ in range(400))
+            assert len(seen) >= et.MIN_KINDS, (loc, level, seen)
+            assert seen.most_common(1)[0][1] < 400 * 0.6, (loc, level, seen)
+
+
+def test_an_undead_day_brings_the_dead_at_every_level(monkeypatch):
+    from utils.ttrpg import encounter_tables as et
+    from utils.ttrpg.class_advancement import is_undead
+    from utils.ttrpg.monster_registry import MONSTERS
+    monkeypatch.setattr(et, "get_special_day", lambda: {"encounter_mod": {"undead_bonus": True}})
+    for loc in ("trade_road", "whisperwood_deep"):
+        for level in (3, 12, 15):
+            met = [et.random_encounter(loc, level) for _ in range(300)]
+            assert any(is_undead(MONSTERS[k]) for k in met), (loc, level)
+
+
+def test_one_fight_buff_cards_say_what_the_buff_does():
+    from utils.ttrpg import forest_events as fe
+    from utils.ttrpg.combat_engine import ONE_FIGHT_BUFFS
+    claims = {(1, 0, 0): "ATK +1", (2, 0, 0): "ATK +2", (0, 2, 0): "+2 damage", (0, 0, 1): "DEF +1"}
+    sheet = {"level": 5, "class": "Fighter", "stats": {"int": 18, "wis": 18, "cha": 18, "dex": 18, "str": 18, "con": 18},
+             "hp": {"current": 30, "max": 30}, "inventory": [], "conditions": [], "lore_pages": [], "gil": 100}
+    for key in ("old_man_riddle", "blue_flame_echo", "wagon_tracks", "twin_wisps", "uninvited_guest", "veiled_elder"):
+        for _ in range(200):
+            r = fe.resolve_event(key, dict(sheet))
+            want = claims.get(ONE_FIGHT_BUFFS.get(r["condition_add"]))
+            if want:
+                assert want in r["outcome"], (key, r["condition_add"], r["outcome"])

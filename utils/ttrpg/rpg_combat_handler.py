@@ -45,6 +45,7 @@ from utils.ttrpg.broadcast import (
 # One shim for every button path: it carries embeds and views, and
 # answers msg.content / msg.mentions for handlers that read them.
 from utils.ttrpg.rpg_views import _make_interaction_send, _InteractionMsg, no_character  # noqa: E402
+from utils.ttrpg import turn_buttons  # noqa: E402
 
 
 from utils.ttrpg.rpg_views import *
@@ -583,7 +584,7 @@ async def _finish_dungeon_victory(ctx_obj, interaction, uid, uname, is_owner,
         embed = discord.Embed(title="⚔️ Victory", description=exchange_text, color=0x2D5A27)
         view = DungeonView(ctx_obj, uid, uname, is_owner, state)
         try:
-            await interaction.followup.send(embed=embed, view=view)
+            await turn_buttons.reply(interaction, embed=embed, view=view)
         except discord.errors.NotFound:
             await interaction.channel.send(embed=embed, view=view)
 
@@ -653,7 +654,7 @@ async def _finish_dungeon_defeat(ctx_obj, interaction, uid, uname, is_owner,
     )
     view = _make_status_view(ctx_obj, None, uid, uname, is_owner)
     try:
-        await interaction.followup.send(embed=embed, view=view)
+        await turn_buttons.reply(interaction, embed=embed, view=view)
     except discord.errors.NotFound:
         await interaction.channel.send(embed=embed, view=view)
 
@@ -704,7 +705,7 @@ async def _continue_dungeon_combat_round(ctx_obj, interaction, uid, uname, is_ow
     )
     view = DungeonCombatView(ctx_obj, uid, uname, is_owner, name_used)
     try:
-        await interaction.followup.send(embed=embed, view=view)
+        await turn_buttons.reply(interaction, embed=embed, view=view)
     except discord.errors.NotFound:
         await interaction.channel.send(embed=embed, view=view)
 
@@ -717,7 +718,7 @@ async def _dungeon_combat_round(ctx_obj, interaction, uid, uname, is_owner):
         return
     if not encounter["active"]:
         try:
-            await interaction.followup.send("No active combat.", ephemeral=True)
+            await turn_buttons.reply(interaction, "No active combat.", ephemeral=True)
         except discord.errors.NotFound:
             pass
         return
@@ -2455,7 +2456,7 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
     )
     view = StaleSafeView(timeout=60)
     view.add_item(_make_status_btn(ctx_obj, uid, uname, is_owner))
-    await interaction.followup.send(embed=embed, view=view)
+    await turn_buttons.reply(interaction, embed=embed, view=view)
     
     await _log_world_event(f"🏰 **{sheet['character_name']}** conquered the {state.get('theme_name', 'dungeon')}.")
     dungeon_embed = discord.Embed(

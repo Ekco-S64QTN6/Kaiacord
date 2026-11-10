@@ -1124,6 +1124,9 @@ recorded, and if its last card has no view, the turn's earlier buttons move down
 buttons for where the player is (the fight, Hunt Again + Status in the wild, Status in town) are
 added. A forest event's card used to arrive bare. A button that calls a handler directly goes
 through `turn_buttons.run`; a card a view sends itself takes `turn_buttons.buttons_for`.
+The combat buttons (Attack, Flee, the dungeon's Attack) are not deferred: inside `turn_buttons.answering` the first
+card goes out as the press's response (`turn_buttons.reply`) and later ones as follow-ups, one round trip to Discord where
+defer-then-follow-up was two; a press still unanswered after `ANSWER_WITHIN` (2 s) is deferred before Discord's 3 s limit.
 
 `!help`, `!nightshift` and `!scanner` are button panels (`discord.ui.View`). `!help` is a landing page with a button per section that swaps the page in place; owner-only commands are only in its Admin section, and what a press shows is decided by the presser's ownership, not the invoker's. A button runs the same handler
 the typed command does, with a message-shaped stand-in for the click (`nightshift._Click`), so a

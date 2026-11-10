@@ -16,13 +16,18 @@ to scroll up to an old turn's buttons or type `!rpg` again.
 """
 from __future__ import annotations
 
+import asyncio
 import contextvars
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 
 import discord
 
 from utils.infrastructure.logging.kaia_logger import log_debug
+
+#: A press is answered by its first card. If none is ready this long after
+#: the press, it is deferred instead: Discord fails one left unanswered for 3 s.
+ANSWER_WITHIN = 2.0
 
 #: How long a fallback set stays live. The turn's own views mostly use 60-120 s,
 #: which a player reading a long card outlasts.
@@ -161,3 +166,79 @@ async def buttons_for(ctx, interaction, uid, uname, is_owner):
     """`fallback_view` for a card a view's callback sends itself."""
     from utils.ttrpg.rpg_views import _InteractionMsg
     return await fallback_view(ctx, _InteractionMsg(interaction), str(uid), uname, is_owner)
+
+
+# ── Answering a press ─────────────────────────────────────────────────────────
+# A press used to be deferred and then followed up: two round trips to Discord,
+# one after the other, before the next round appeared. Posting the first card
+# as the interaction's response is one. `answering` scopes a press; `reply`
+# sends a card through it; `acknowledge` defers a press that has sent nothing.
+
+_reply_locks: dict[int, asyncio.Lock] = {}
+
+
+def _key(interaction) -> int:
+    return getattr(interaction, "id", None) or id(interaction)
+
+
+def _answered(interaction) -> bool:
+    """Whether the press has its response. A stand-in with no `response`
+    (a handler's message-shaped fake) only ever had follow-ups."""
+    is_done = getattr(getattr(interaction, "response", None), "is_done", None)
+    return True if is_done is None else bool(is_done())
+
+
+def _lock_for(interaction) -> asyncio.Lock:
+    return _reply_locks.setdefault(_key(interaction), asyncio.Lock())
+
+
+async def acknowledge(interaction) -> None:
+    """Defer the press if nothing has answered it yet."""
+    async with _lock_for(interaction):
+        if _answered(interaction):
+            return
+        with suppress(discord.NotFound, discord.HTTPException):
+            await interaction.response.defer()
+
+
+async def reply(interaction, content=None, *, fallback_channel=None, **kwargs):
+    """Send a card for this press: as its response while it has none, as a
+    follow-up after. An expired press (NotFound) goes to `fallback_channel`."""
+    kwargs.pop("wait", None)
+    if kwargs.get("view", ...) is None:
+        del kwargs["view"]
+    async with _lock_for(interaction):
+        try:
+            if not _answered(interaction):
+                callback = await interaction.response.send_message(content, **kwargs)
+                message = getattr(callback, "resource", None)
+            else:
+                message = await interaction.followup.send(content, wait=True, **kwargs)
+        except discord.NotFound:
+            if fallback_channel is None or kwargs.get("ephemeral"):
+                raise
+            kwargs.pop("ephemeral", None)
+            message = await fallback_channel.send(content, **kwargs)
+    record(message, kwargs)
+    return message
+
+
+@asynccontextmanager
+async def answering(interaction, after: float = ANSWER_WITHIN):
+    """Scope a press whose cards go through `reply`. Deferred `after` seconds
+    in if nothing has answered it, and when it ends having sent nothing."""
+    async def _deadline():
+        await asyncio.sleep(after)
+        await asyncio.shield(acknowledge(interaction))
+
+    deadline = asyncio.create_task(_deadline())
+    try:
+        yield
+    finally:
+        deadline.cancel()
+        with suppress(asyncio.CancelledError):
+            await deadline
+        try:
+            await acknowledge(interaction)
+        finally:
+            _reply_locks.pop(_key(interaction), None)

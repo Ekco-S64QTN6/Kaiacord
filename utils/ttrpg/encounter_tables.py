@@ -68,6 +68,14 @@ TIER_WINDOWS = (
 )
 
 
+#: Who walks on an undead day (a Hollow Sun, a Ghost Caravan, the calendar's
+#: undead days), one at each tier from easy to hard so every level meets some.
+UNDEAD_BONUS = [("skeleton", 15), ("ghost", 15), ("spectre", 10), ("wight", 10)]
+
+#: The fewest different monsters a hunt's window may hold (random_encounter).
+MIN_KINDS = 4
+
+
 def tier_window(player_level: int) -> tuple[str, str]:
     window = TIER_WINDOWS[0][1]
     for from_level, tiers in TIER_WINDOWS:
@@ -177,14 +185,20 @@ def random_encounter(location: str, player_level: int = 1) -> str:
         max_idx = min(len(TIER_ORDER) - 1, max(0, max_idx + tier_shift))
 
     if special_mod.get("undead_bonus"):
-        table = table + [("skeleton", 15), ("ghost", 15)]
+        table = table + UNDEAD_BONUS
 
-    filtered = [
-        (k, w) for k, w in table
-        if min_idx <= TIER_ORDER.index(
-            MONSTERS.get(k, {}).get("tier", "trivial")
-        ) <= max_idx
-    ]
+    def in_window(lo):
+        return [
+            (k, w) for k, w in table
+            if lo <= TIER_ORDER.index(MONSTERS.get(k, {}).get("tier", "trivial")) <= max_idx
+        ]
+
+    filtered = in_window(min_idx)
+    # A zone with only one or two monsters at the top of the window would
+    # be nothing but those; the window opens downward until there is a mix.
+    while filtered and len({k for k, _ in filtered}) < MIN_KINDS and min_idx > 0:
+        min_idx -= 1
+        filtered = in_window(min_idx)
     if filtered:
         table = filtered
 

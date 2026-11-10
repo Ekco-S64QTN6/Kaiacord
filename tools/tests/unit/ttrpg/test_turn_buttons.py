@@ -135,3 +135,64 @@ def test_a_nested_handler_call_is_part_of_the_outer_turn():
                 await turn_buttons.TurnChannel(ch).send("inner")
             assert not ch.sent[0][1].edit.await_args      # not finished by the inner scope
     asyncio.run(_turn())
+
+
+# ── A press is answered by its first card ─────────────────────────────────────
+
+class _Response:
+    def __init__(self):
+        self.done, self.calls = False, []
+
+    def is_done(self):
+        return self.done
+
+    async def defer(self, **k):
+        self.calls.append("defer")
+        self.done = True
+
+    async def send_message(self, content=None, **k):
+        self.calls.append("send_message")
+        self.done = True
+        return MagicMock(resource=MagicMock())
+
+
+def _press():
+    it = MagicMock()
+    it.id = id(it)
+    it.response = _Response()
+    it.followup.send = AsyncMock(return_value=MagicMock())
+    return it
+
+
+def test_a_press_is_answered_by_its_first_card_in_one_call():
+    it = _press()
+
+    async def go():
+        async with turn_buttons.answering(it):
+            await turn_buttons.reply(it, embed=discord.Embed(description="round 1"), view=None)
+            await turn_buttons.reply(it, embed=discord.Embed(description="kill"))
+    asyncio.run(go())
+    assert it.response.calls == ["send_message"]
+    it.followup.send.assert_awaited_once()
+
+
+def test_a_press_that_sends_nothing_is_still_acknowledged():
+    it = _press()
+
+    async def go():
+        async with turn_buttons.answering(it):
+            pass
+    asyncio.run(go())
+    assert it.response.calls == ["defer"]
+
+
+def test_a_slow_press_is_deferred_before_discord_gives_up_on_it():
+    it = _press()
+
+    async def go():
+        async with turn_buttons.answering(it, after=0.01):
+            await asyncio.sleep(0.05)
+            await turn_buttons.reply(it, content="late")
+    asyncio.run(go())
+    assert it.response.calls == ["defer"]
+    it.followup.send.assert_awaited_once()
