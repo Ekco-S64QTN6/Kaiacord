@@ -164,7 +164,7 @@ platform with its own prompt would sound like someone else.
 
 ### 8. TTRPG System (Aethelgard)
 
-**Responsibility**: A full persistent RPG with turn-based combat, 10 classes, and a 77-floor mega-dungeon.
+**Responsibility**: A full persistent RPG with turn-based combat, 5 classes with 10 advanced ones, and a 77-floor mega-dungeon.
 
 **Features**:
 - Deterministic game math handled entirely by Python; LLM handles narration only.
@@ -262,8 +262,8 @@ classifier model, leaving the whole GPU to the chat model and its context
 
 ### Social API Circuit Breakers
 All social media API calls (Bluesky, X/Twitter) are wrapped in `CircuitBreaker` instances:
-- Opens after 3 consecutive failures.
-- Auto-resets after 5-minute timeout.
+- Opens after 5 consecutive failures (`CircuitBreaker` defaults).
+- Tries again after 60 seconds (half-open); a success closes it.
 - Prevents cascade failures from taking down the main bot loop.
 
 ### Generation retries

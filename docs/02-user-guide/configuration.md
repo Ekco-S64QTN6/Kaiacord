@@ -15,7 +15,7 @@ Settings resolve in order: environment variables, then `config/kaia.yaml` (your 
 | `unprompted.shared_gap_minutes` | `10` | Spacing between any two posts; a post held by it queues. |
 | `unprompted.per_source.<source>` | — | Per-source `min_interval_minutes` and `max_per_day`. |
 | `unprompted.bluesky.<name>` | `quip` only | Which kinds are also posted to Bluesky. |
-| `desires.gate_enabled` / `initiate_threshold` | `true` | Whether, and how readily, she speaks first. |
+| `desires.gate_enabled` / `initiate_threshold` | `true` / `0.12` | Whether, and how readily, she speaks first. |
 | `bluesky.enabled` / `x_twitter.enabled` | `false` | Turns each integration on. Credentials alone do nothing. |
 | `sky.location` | unset | `"lat, lon"`; a city is enough. ISS passes and `!sky` need it. |
 | `radio.hfgcs_windows_utc` / `radio.follow` | four windows / E07, V07, S11a, M12, E11 | When she records the HFGCS net, and which number stations she tunes in for — one recording per station a day, six in all, rotating. |

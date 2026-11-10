@@ -2,9 +2,10 @@
 
 ```
 tools/tests/
-├── unit/           # Component tests, mostly isolated; some carry slow/ollama markers
-├── integration/    # More than one subsystem together, and anything that needs a live service
-└── conftest.py     # Puts the repo root on sys.path; nothing else
+├── unit/              # Component tests, mostly isolated; some carry slow/ollama markers
+├── integration/       # More than one subsystem together, and anything that needs a live service
+├── live_write_guard.py # Audit hook: fails the run on any write under memory/, knowledge_base/ or logs/ outside a .test path
+└── conftest.py        # Repo root on sys.path, installs the guard, and refuses live model teardown
 ```
 
 Configuration lives in `pytest.ini` at the repo root: `testpaths`, marker
@@ -16,9 +17,9 @@ anything that reaches the daemon must carry `ollama`, GPU-dependent work carries
 slow sweeps carry `slow`, and public-internet access carries `network`. Without those
 markers, a suite run can reach a live service or load a model and evict `gemma3:12b` from VRAM.
 
-The same holds anywhere in the tree. `test_embed_device.py` and `test_bm25_cache.py`
-sat in `unit/` with no marker and embedded through the bot's own Ollama on every
-"no external services" run; they carry `ollama` now and live in `integration/`.
+The same holds anywhere in the tree. `test_embed_device.py` and `test_bm25_cache.py` (since
+removed) sat in `unit/` with no marker and embedded through the bot's own Ollama on every
+"no external services" run; `test_embed_device.py` carries `ollama` now and lives in `integration/`.
 `journalctl -u ollama` during a suite run is the check — it should show no
 `/api/embed` or `/api/chat` at all.
 
@@ -111,8 +112,9 @@ deleting the test would not.
 
 ## Fixtures
 
-`conftest.py` holds none. Its fifteen fixtures were used by no test, and several
-no longer worked (a bot-state fixture called the instance as if it were the
-class, a mock Ollama listed the removed `gemma2:2b`, an `event_loop` override that
-pytest-asyncio 1.x ignores). Use pytest's own `tmp_path` and `monkeypatch`, and
-put a shared fixture in `conftest.py` when a second test needs it.
+`conftest.py` holds one, autouse: `_no_live_teardown` replaces the GPU manager's
+`unload_all_models`, `force_clear_gpu` and `kill_orphaned_runners` with recorders, and a test that
+calls one fails the run (two shutdown tests once unloaded the live model). It also installs
+`live_write_guard`, which fails the run and names the test for any write under `memory/`,
+`knowledge_base/` or `logs/` outside a `.test` path. Otherwise use pytest's own `tmp_path` and
+`monkeypatch`, and put a shared fixture in `conftest.py` when a second test needs it.

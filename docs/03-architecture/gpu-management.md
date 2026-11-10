@@ -48,6 +48,7 @@ Kaia is optimized for continuous presence on a single 12GB GPU. Unlike previous 
   |:--|:--|:--|:--|:--|
   | 16,384 | 6.8 GiB | 1.5 GiB | ~1.2 GiB | ~9.5 GiB |
   | 24,576 | 6.8 GiB | 2.0 GiB | ~1.2 GiB | 9.9 GiB (10,188 MiB measured) |
+  | 32,768, `q8_0` KV + flash attention | 6.8 GiB | ~1.5 GiB (q8_0) | ~1.2 GiB | 9.5 GiB (9,732 MiB measured 10 Nov 2026) |
 
   All 49 layers stay on the GPU at either size. The desktop, a browser and Discord take
   roughly another 1.2 GiB of the 12, so at 24,576 the card sits within a few hundred MiB of

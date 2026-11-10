@@ -58,6 +58,9 @@ flowchart TD
   Reciprocal Rank Fusion (k = 60).
 - **Scoring**: per-type boosts, recency decay (a half-life per type: chat logs 90 days, news 30,
   dreams 180; knowledge does not age), and penalties for audit-flagged nodes.
+- **No padding** (`without_padding`): cosine alone scores every chunk 0.8 or better, so the top-k
+  used to be topped up with whatever was nearest. On an ordinary turn a document only the vector
+  search found is dropped; a question keeps the nearest two.
 - **Whose logs**: a question about "me" or about her is scoped to the asker. A question naming
   someone ("who is starkind") also reaches that person's logs and profile, found by their
   `user_logs/` folder name and linked accounts in the identity registry. A profile only ever

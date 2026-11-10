@@ -17,9 +17,10 @@ bot and resented. Everything below exists to serve that goal. To be clear about
 provenance: that is the operator's stated aim, not a diagnosis — no post of hers
 has been reported as reading like a bot.
 
-### Off-Topic (Forum 19) — **on**
+### Off-Topic (Forum 19)
 
-Two different acts, budgeted differently.
+The whole integration, scraping and Off-Topic posting, is behind `forum.enabled` (see
+`config/kaia.yaml` for whether it is on). Two different acts, budgeted differently.
 
 **Interjecting** — walking into a stranger's thread uninvited. Four gates, in
 order, each of which can silently and correctly result in no post:
@@ -69,9 +70,9 @@ which distinguishes openers from replies. It used to live in an in-memory list
 on the client, which meant every restart reset the daily cap — the exact shape
 of failure that produces a burst of posts and an annoyed forum.
 
-### Technical Discussion (Forum 40) — **off**
+### Technical Discussion (Forum 40)
 
-Gated separately by `forum.tech_support_enabled`, which is `false`. Unsolicited
+Gated separately by `forum.tech_support_enabled`, `false` by default. Unsolicited
 technical answers are a different promise from joining a conversation: this flow ran
 without reliably staying inside the wiki and troubleshooting docs it was supposed to
 be grounded in, and giving strangers confidently wrong EQ advice is worse than saying
@@ -211,7 +212,7 @@ first act in a community is to post has not read the room.
 
 ## 🛡️ Zero-Hallucination Support Guardrails
 
-These apply to the technical flow, which is currently disabled:
+These apply to the technical flow (`forum.tech_support_enabled`, off by default):
 - **Strict RAG Grounding**: queries verified Project 1999 wiki files (`knowledge_base/wiki/`) and synthesized community troubleshooting cheat sheets (`knowledge_base/troubleshooting/`).
 - **Hallucination Detection**: the post-generation pipeline filters fabricated URLs, hallucinated user handles, and unsupported configuration recommendations before drafting.
 - **No Speculation**: if RAG cannot resolve the issue, Kaia defaults to admitting uncertainty.

@@ -43,7 +43,7 @@ Ollama is required for local AI inference.
 
 ```bash
 # Download and install
-curl -fsSL https://ollama.ai/install.sh | sh
+curl -fsSL https://ollama.com/install.sh | sh
 
 # Verify installation
 ollama --version
@@ -228,7 +228,7 @@ After=network.target ollama.service
 Type=simple
 User=your_username
 WorkingDirectory=/home/your_username/Kaiacord
-Environment="PATH=/home/your_username/Kaiacord/venv/bin"
+Environment="PATH=/home/your_username/Kaiacord/venv/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/home/your_username/Kaiacord/venv/bin/python Kaiacord.py --no-gui
 Restart=always
 

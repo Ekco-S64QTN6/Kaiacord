@@ -58,7 +58,8 @@ referential integrity:
 ```bash
 timeout 10 venv/bin/python3 -c "
 exec(open('utils/ttrpg/monster_registry.py').read())
-missing = [k for loc, table in ENCOUNTER_TABLES.items() for k, w in table if k not in MONSTERS]
+rows = [r for t in ENCOUNTER_TABLES.values() for r in (sum(t.values(), []) if isinstance(t, dict) else t)]
+missing = [k for k, w in rows if k not in MONSTERS]
 print('BROKEN REFS:', missing) if missing else print('OK')
 "
 ```

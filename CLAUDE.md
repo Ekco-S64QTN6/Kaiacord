@@ -176,7 +176,7 @@ exec(open('utils/ttrpg/equipment_registry.py').read())
 print('gear', sum(len(d) for d in (WEAPONS,ARMOR,HEADGEAR,BOOTS,ACCESSORIES)), '+ consumables', len(CONSUMABLES))"
 ```
 
-Verified 2026-11-06: **369 monsters**, **395 gear + 58 consumables = 453 items**, 248 fish (`len(FISH)`),
+Verified 2026-11-10: **369 monsters**, **395 gear + 58 consumables = 453 items**, 248 fish (`len(FISH)`),
 13 quests (`len(QUESTS)`), 5 base classes with 10 advanced ones.
 
 ---
@@ -186,11 +186,13 @@ Verified 2026-11-06: **369 monsters**, **395 gear + 58 consumables = 453 items**
 - **Python owns deterministic state.** Combat resolution, stat maths, inventory, and budgets are
   plain Python. The LLM narrates outcomes; it never computes them.
 - **No LLM call per fight.** Fights and forest events are recorded in the player's outing
-  (`utils/ttrpg/outing.py`) and told once, when the trip ends (back to town, death, leaving or
-  clearing a dungeon). A call per kill held every hunt behind up to 45 s of typing indicator.
-  The paragraph goes to #aethelgard (`discord.rpg_channel`) so everyone can follow the day, never
-  through a button's follow-up; a closed trip waits in `outings/untold/` with its text until the
-  post succeeds, and the boot tells whatever is still waiting. Open outing records are bound to the
+  (`utils/ttrpg/outing.py`). Closing an outing (back to town, death, leaving or clearing a
+  dungeon) only merges it into the player's daily record (`outings/daily/`); at midnight, before
+  hunts reset, the dawn task rolls up any still-open outing and tells the player's day once. A
+  call per kill held every hunt behind up to 45 s of typing indicator. The report goes to
+  #aethelgard (`discord.rpg_channel`) so everyone can follow the day, never through a button's
+  follow-up; an untold day waits in `outings/untold/` with its text until the post succeeds, and
+  the boot tells whatever is still waiting. Open outing records are bound to the
   player ID in their filename; daily and untold records are bound to the ID in their dated filename.
   A mismatch is preserved and fails closed before merge, finalization, or posting. Legacy records
   without an embedded `uid` adopt the filename owner.
@@ -1582,9 +1584,9 @@ statically (`test_no_undefined_globals`, CI baseline): `run_caravan_arrival` cal
 `update_world_state` unimported from 4 to 9 Nov, so no caravan was ever reachable.
 
 **A test that runs a tool is a tool run.** `test_tools_runnable` checked that every script in
-`tools/` can start, by invoking `python <tool> --help`. Sixteen of them have no argparse, so the
-argument is ignored and the script simply **runs** — `sanitize_logs`, `kb_cleanse_user_logs`,
-`repair_kb` and `precision_repair_kb` all rewrite `knowledge_base/user_logs/` in place. The suite
+`tools/` can start, by invoking `python <tool> --help`. Sixteen of them had no argparse, so the
+argument was ignored and the script simply **ran** — `sanitize_logs`, `kb_cleanse_user_logs`,
+`repair_kb` and `precision_repair_kb` (since removed, `447bec3`) all rewrote `knowledge_base/user_logs/` in place. The suite
 stripped the identity frontmatter off eight forum profiles, twice, while claiming to be a
 read-only check, and the repair had to be run again afterwards. Exercise a script's *import block*
 with `importlib.util.spec_from_file_location` + `exec_module` under any name but `__main__`;
