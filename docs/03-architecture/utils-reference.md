@@ -36,6 +36,15 @@ Core utility modules used by Kaiacord.
 | `pronouns.py` | `people.pronouns`, and they/them for anyone not listed — one line in the chat and monologue prompts |
 | `stance_harness.py` | `!stance`: pressure scenarios through the real pipeline |
 | `kaia_reactions.py` | Non-verbal emoji reactions — 85 emoji across 11 mood-biased pools, graded so the heaviest is not as likely as the mildest |
+| `kaia_sheep.py` | `!art`: real Electric Sheep flock genomes rendered by flam3 (an external GPL program); `kaia_art.py` is the NumPy fallback |
+| `kaia_flock.py` | Her own flock: the sheep she breeds and mutates, their lineage, and the 👍/👎 votes that steer picks and culls |
+| `prompt_prefix.py` | Keeps the start of her prompt unchanged turn to turn so the model can reuse its cache |
+| `image_links.py` | Pictures shared as links (an image URL, an `image`/`gifv` embed) sent to vision with uploads |
+| `commands_note.py` | What her `!` commands are, from the registry, when a turn names one |
+| `review_flags.py` | "i'm flagging that for review" recorded in `memory/review_flags.jsonl` and posted to `#kaia-opolis` |
+| `open_loops.py` | Something a person said they are about to do, for her to ask after when they return |
+| `unknown_subject.py` | Tells her, as a fact about the turn, when nothing she has mentions what she is asked about |
+| `growth_log.py` | Serialised appends and bounded rotation for the shared growth ledger, under one interprocess lock |
 
 ## Cognitive Pipeline (`utils/core/`)
 
@@ -94,6 +103,8 @@ Core utility modules used by Kaiacord.
 | `monitoring/stats_poller.py` | Background poller for hardware and cognitive telemetry (helpers in `stats_helpers.py`) |
 | `monitoring/async_lock_metrics.py` | Process-local lock-registry size, lifetime peak, and contention measurements for RPG `!sysmon` |
 | `monitoring/mem_probe.py` | The 15-minute memory audit: RSS, a heap trim and what it returned, optional tracemalloc growth sites |
+| `system/app_window.py` | The DJ booth and KAIA//RX opened as desktop windows rather than browser tabs |
+| `system/kaia_avatar.py` | Serves the shared Kaia avatar engine and portraits to both dashboards |
 
 ## GPU & System (`utils/infrastructure/gpu/`)
 
@@ -136,6 +147,7 @@ Core utility modules used by Kaiacord.
 | `scanner_handler.py` | `!scanner` — the panel, listen-along, history and presets |
 | `stance_handler.py` | `!stance` — the stance-stability harness |
 | `embed_style.py` | The embed box every `!` command answers in (`box`, `add_field`, `notice`, `clean`) |
+| `stale_view.py` | A button pressed after its interaction expired is answered quietly, not logged as a fault |
 
 ## Music (`utils/audio/`)
 
@@ -155,6 +167,10 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `records.py` | The records mixer: decks, transition planning (blend, or a clean switch on the bar), band-split mixing, Kaia's hands on the mixer, the free deck worked by hand, LUFS levels, the set session |
 | `beatgrid.py` | Beat and bar grids (bar one as the first strong beat, bars counted from it), the bassline's entry bar, the last strong beat, the rubberband stretch and key-shift filter |
 | `dj_dashboard.py` | The DJ booth: server, state stream, waveforms, the pop-out window (page in `assets/dj/`) |
+| `setlist.py`, `mixcheck.py` | Which records lock with which, measured ahead of time, and the sets that follow; whether a planned blend locks, measured on the two records |
+| `dj_voice.py` | What she says about her DJing in the booth's feed, built from what the mixer actually did |
+| `voice_busy.py` | Whether she is playing in voice now; work that can wait (`wait_until_quiet`) holds off |
+| `process_lifecycle.py` | Terminating and reaping the child processes the audio and radio code own |
 
 ## Radio (`utils/radio/`)
 
@@ -178,6 +194,9 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `dongle.py`, `rtl.py` | librtlsdr through ctypes; the device lock, `rtl_fm` streams and audio measurement |
 | `rx_scope.py`, `rx_dashboard.py` | KAIA//RX (`!scanner dash`): band panoramas and waterfalls from the watcher's spectra, and the page's server (state, clips, spectrograms, monitor audio, tune) |
 | `spectrogram.py` | A kept clip as a picture, rendered once beside it and pruned with it |
+| `bookmarks.py` | The receiver's bookmarks: channels a person named, tagged and marked |
+| `decode.py` | APRS packets and pager messages from a data catch, via multimon-ng if installed |
+| `streets.py` | Street names in dispatch transcripts corrected against a local street list |
 
 ## News (`utils/news/`)
 
@@ -192,6 +211,16 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 |--------|---------|
 | `feeds.py` | NASA, NOAA SWPC, JPL, USGS, Launch Library 2, DSN Now |
 | `passes.py` | ISS passes, moon and planets from `sky.location`, computed locally with Skyfield |
+
+## KAIA // OPS (`utils/admin/`)
+
+The read-only admin dashboard, run in its own process by `tools/maintenance/kaia_admin.py`.
+
+| Module | Purpose |
+|--------|---------|
+| `logscan.py` | `logs/kaiacord.log` read into dated events (dates walked back from the file's mtime) and followed by byte offset |
+| `sources.py` | Readers for `memory/`, `knowledge_base/`, Ollama, the journal and `/proc`; each returns the files it read, cached on their mtimes |
+| `server.py` | The page's server, its `READERS` and the read-only `CHECKS` |
 
 ## Social & Forum Layer (`utils/social/`)
 
@@ -229,11 +258,16 @@ Guest on volunteer services: polled every `radio.poll_hours`, history in `memory
 | `rpg_core_handler.py` | Compatibility/dependency adapters and remaining orchestration; the public `!rpg` dispatcher is `utils/commands/rpg_handler.py` |
 | `rpg_world_handler.py`, `rpg_navigation_handler.py`, `rpg_inventory_handler.py`, `rpg_recovery_handler.py`, `rpg_bank_handler.py`, `rpg_reference_handler.py`, `rpg_consumable_handler.py`, `rpg_gamble_handler.py`, `rpg_shrine_handler.py`, `rpg_scout_handler.py`, `rpg_advancement_handler.py`, `rpg_character_creation_handler.py`, `rpg_sheet_handler.py`, `rpg_status_handler.py`, `rpg_combat_handler.py`, `rpg_housing_handler.py`, `rpg_shop_handler.py`, `rpg_social_handler.py` | Domain handlers grouped by world/navigation, inventory/equipment, recovery/rest, banking, reference, consumables, gambling, Shrine, scouting, advancement, character creation, sheets/status, combat, housing, shop, and social actions |
 | `rpg_admin_handler.py` | Owner-only `!rpg give` and `!rpg heal`; locks caller and target in sorted UID order, taking one lock for self-targets |
-| `calendar.py` | Seasons, dynamic weather, and 13 special calendar holidays |
-| `quest_registry.py` | 12 progressive quests (L1–L15) |
+| `calendar.py` | Seasons, dynamic weather, and 14 special calendar days |
+| `quest_registry.py` | 13 progressive quests (L1–L15) |
 | `npc_registry.py` & `loot_tables.py` | NPC dialogue definitions and tiered drop tables |
 | `world.py`, `world_state.py` | The map, and the shared world (weather, events) saved in `memory/ttrpg/world_state.json` |
 | `session_manager.py` | Per-session file locks plus per-player action locks; combat takes channel then user, owner admin mutations take caller/target locks in sorted UID order |
 | `rpg_views.py`, `rpg_ui.py` | Discord component views, stale-safe controls and RPG display helpers |
 | `dice_engine.py`, `progression.py`, `encounter_tables.py`, `forest_events.py`, `micro_events.py` | Rolls (`secrets`), levelling, encounters and events |
 | `rpg_prompt_builder.py`, `narration.py`, `broadcast.py` | What the model is given to narrate; validated world-event log with worker-thread async reads/writes, and Discord broadcasts |
+| `turn_buttons.py` | Every `!rpg` turn ends on a card with buttons; combat buttons answer with their first card in one call |
+| `combat_outcomes.py`, `housing_transactions.py`, `quest_completion.py` | Crash-safe journals: combat outcomes, a sheet plus one per-player resource, and exactly-once quest settlement |
+| `inventory_capacity.py` | The inventory cap (distinct item keys) and the grant-or-mail helpers |
+| `forest_events_rare.py`, `noon_events.py`, `rare_spawns.py`, `lore.py` | Rarer and night-only events and easter eggs; the noon events that boost them; rare monster variants; the Lore Codex (21 pages in 5 sets) |
+| `record_scan.py` | Structured reports of partial RPG record-directory scans |

@@ -20,7 +20,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!nightshift` | A control panel: a button for every radio and sky feature, live receivers included (`!nightshift list` for the commands) | All |
 | `!beacons [20\|17\|15\|12\|10]` | Kaia listens to the worldwide HF beacon chain; which continents she can hear | All |
 | `!overnight` | Kaia writes up what her night shift saw, from real data, now | All |
-| `!scanner [scan \| history \| off]` | The local RTL-SDR scanner: what it caught overnight, presets to play live in voice, recordings to replay | All |
+| `!scanner [history \| dash \| scan \| off]` | The local RTL-SDR scanner: what it caught overnight, presets to play live in voice, recordings to replay | All |
 | `!iss` | Where the space station is, who's in orbit, the next visible pass | All |
 | `!nasa` | NASA's picture of the day; who the Deep Space Network is talking to now (`!apod`, `!dsn`) | All |
 | `!earth` | The latest full-Earth image from DSCOVR | All |
@@ -32,15 +32,15 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!download <url>` | Submit a URL for the knowledge base (cleaned and filed straight away) | All |
 | `!youtube <url>` | Pull a video's transcript into the knowledge base, correcting misheard names (`!yt`) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
-| `!flag <reason>` | Flag the previous message for audit/review | Admin |
+| `!flag <construct>` | Tag the last answer's retrieved sources with a Data Rot label | Admin |
 | `!forum [cmd]` | VBulletin forum management | Mixed |
 | `!boards [now]` | Kaia on the AI agent boards (Moltbook, Agent Room, field notes): where she's registered and what she has said lately; `now` checks in (`!moltbook`) | Mixed |
 | `!dream [cmd]` | Dream engine management | Admin |
 | `!memory [beliefs \| anchors \| self]` | Her beliefs, memory anchors and self-model (100-cap each) | Admin |
 | `!audit [cmd]` | Inspect flagged interactions and hallucination logs | Admin |
 | `!snapshot` | Save the channel's recent conversation as a retrievable snapshot | Admin |
-| `!enrich [text]` | Run manual entity/context enrichment | Admin |
-| `!reindex` | Trigger background knowledge base reindexing | Admin |
+| `!enrich [--category all\|knowledge\|logs] [--limit N] [--dry-run]` | Run metadata enrichment over the knowledge base | Admin |
+| `!reindex [--full]` | Trigger background knowledge base reindexing | Admin |
 | `!selfmodel` | Regenerate Kaia's self-model | Admin |
 | `!stance [scenario\|baseline]` | Pressure-test whether she holds a correct position | Admin |
 | `!sysmon` | System monitoring dashboard | Admin |
@@ -337,7 +337,7 @@ to mention if the conversation touches it.
 
 | Role | Commands |
 |:---|:---|
-| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!scanner`, `!beacons`, `!overnight`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!music`, `!download`, `!youtube`, `!explain`, `!quip`, `!forum link` |
-| **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!stance`, `!sysmon`, `!forum (status/stats/scrape/read/post/reply/user)` |
+| **All Users** | `!scores`, `!art`, `!rpg`, `!help`, `!news`, `!skyking`, `!numbers`, `!radio`, `!tacamo`, `!buzzer`, `!nightshift`, `!scanner`, `!beacons`, `!overnight`, `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky`, `!music`, `!download`, `!youtube`, `!explain`, `!quip`, `!boards`, `!forum link` |
+| **Admin (Owner)** | All of the above, plus `!dream`, `!memory`, `!flag`, `!audit`, `!reindex`, `!enrich`, `!snapshot`, `!selfmodel`, `!stance`, `!sysmon`, `!boards now`, `!forum (status/stats/scrape/read/post/reply/user)` |
 
 Rate limiting applies to all users (configurable via `performance.requests_per_minute` in `kaia.yaml`).

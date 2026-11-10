@@ -2,32 +2,19 @@
 
 Set up Bluesky and X accounts for Kaia to post and reply, and the AI agent boards she talks on.
 
-> ## Current status (September 2026)
+> **A flag turns each integration on; credentials alone never do.** `bluesky.enabled` and
+> `x_twitter.enabled` gate their subsystem, and the mention poller is not started when both are
+> off. What is currently switched on is in `config/kaia.yaml`; this page does not track it.
 >
-> | Platform | `enabled` | Cross-posts quips | Replies to mentions |
-> |:--|:--|:--|:--|
-> | **Bluesky** | `true` | `true` | `false` |
-> | **X / Twitter** | `false` | `false` | `false` |
+> **X has an upstream problem.** As of September 2026, twikit 2.3.3 (the latest release, and the
+> one installed) could not talk to X at all: x.com returns HTTP 200 but `ON_DEMAND_FILE_REGEX` no
+> longer matches the page, so `ClientTransaction.get_indices` raises *"Couldn't get KEY_BYTE
+> indices"* on every request, login or not, and imported cookies do not get around it. Turn on
+> `x_twitter.enabled` and the sources under `unprompted.x` once a twikit release fixes it; the
+> cross-post path is wired, tested, and independent of Bluesky.
 >
-> **Credentials alone never enable either.** The flag gates the integration, and
-> the mention poller is not started when both are off. Setting the `.env` values
-> below does nothing on its own.
->
-> **X is off for an upstream reason, not an account one.** `@KaiaKuroshi` and its
-> credentials are fine and `is_x_configured()` passes. twikit 2.3.3 — the latest
-> release — cannot talk to X at all: x.com returns HTTP 200 but
-> `ON_DEMAND_FILE_REGEX` no longer matches anything in the page, so
-> `ClientTransaction.get_indices` raises *"Couldn't get KEY_BYTE indices"*. That
-> transaction id is generated for **every** request, not just login, so importing
-> browser cookies does not get around it.
->
-> Flip `x_twitter.enabled` and the sources under `unprompted.x` to `true` once a
-> twikit release fixes it. Nothing else needs changing — the cross-post path is
-> wired and tested, and is decoupled from Bluesky so one failing no longer takes
-> the other down.
->
-> Replying to strangers' mentions is deliberately off on both: broadcasting her
-> own posts is a different risk from answering people who did not ask.
+> Replying to strangers' mentions is off by default on both (`reply_to_mentions: false`):
+> broadcasting her own posts is a different risk from answering people who did not ask.
 
 ## Bluesky Setup
 
@@ -79,11 +66,11 @@ Enable/disable features in `config/kaia.yaml`:
 ```yaml
 bluesky:
   enabled: true
-  reply_to_mentions: true   # Reply when mentioned
+  reply_to_mentions: false  # true: reply when mentioned (off by default)
 
 x_twitter:
-  enabled: true
-  reply_to_mentions: true   # Reply when mentioned
+  enabled: false
+  reply_to_mentions: false
 
 # What she posts to each feed on her own — quips, openers, observations,
 # monologue thoughts — is chosen per source under unprompted:
@@ -97,8 +84,8 @@ unprompted:
     quip: true
 
 social:
-  poll_interval_minutes: 1  # How often to check for mentions
-  mention_lookback_hours: 3 # How far back to scan for missed mentions
+  poll_interval_minutes: 3  # How often to check for mentions (default)
+  mention_lookback_hours: 2 # How far back to scan for missed mentions (default)
 ```
 
 ---
@@ -127,8 +114,8 @@ At the configured polling interval, Kaia checks for mentions on both platforms. 
 
 #### Circuit Breakers
 Both platforms have independent `CircuitBreaker` instances:
-- Opens after 3 consecutive API failures
-- Auto-resets after 5-minute timeout
+- Opens after 5 consecutive API failures (`CircuitBreaker` defaults)
+- Tries again after 60 seconds (half-open); a success closes it
 - Prevents cascade failures from blocking the main bot loop
 
 #### 401 Auto-Recovery (X)
@@ -187,6 +174,6 @@ bans is redrafted once, then dropped. Daily write limits are per board (`agent_b
 | `utils/social/kaia_twitter.py` | X API client (twikit, lazy-loaded to avoid startup stalls) |
 | `utils/social/kaia_social_responder.py` | Mention polling, thread tracking, circuit breakers, AI replies |
 | `memory/x_cookies.json` | X session cookies (auto-created) |
-| `memory/social_replied_ids.json` | Tracks replied mentions and per-user thread counts |
+| `memory/social_replied.log`, `memory/social_state.json` | Replied mentions and per-thread counts (`social_tracker`): an append-only log under `flock`, compacted into a snapshot, shared across processes |
 | `utils/social/agent_boards.py` | The agent boards |
 | `memory/agent_boards/` | Board credentials (0600), state and the activity log |

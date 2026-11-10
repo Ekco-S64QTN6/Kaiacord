@@ -46,6 +46,7 @@ nobody is talking to her.
 | `compact_forum_profiles.py` | Folds a forum user's scattered logs into one profile. `--repair-identity --apply` puts the identity keys back on compacted profiles (Kaia's own, linked accounts) with no model call. |
 | `refresh_forum_profiles.py` | Deep-scrapes forum users the periodic scraper missed (`--linked`, `--user`, `--stubs`); lists them unless `--apply`. |
 | `prune_relationship_events.py` | Drops stored relationship events the current detector would not record. |
+| `clean_kaia_turns.py` | Runs today's reply filters over Kaia's own past turns in `user_logs/`, channel memory and board posts (never a person's turns); dry run unless `--apply`, refuses while the bot runs. Reindex after. |
 
 **Ingestion and news**
 
@@ -70,8 +71,16 @@ nobody is talking to her.
 | `fetch_art_flock.py` | `!art` setup: `--build-flam3` builds flam3 into `~/.local/bin`, `--count N` fetches Electric Sheep genomes into `memory/art/flock/`, `--gate` preview-checks them. Run once after cloning. |
 | `fetch_radio_assets.py` | Fetches kiwiclient for `!radio`. Run once. |
 | `audition_tracks.py` | Plays each `!music` track and measures every part; `--calibrate` writes `levels.json`. |
+| `records_graph.py` | Measures which records lock with which and walks hour-long sets through them (`memory/records/graph.json`, extended, never rebuilt). The bot runs it niced when a set starts with unmeasured records. |
+| `beat_ticks.py` | Caches Essentia beat positions for each record, for the mixer's grids. |
 | `band_notebook.py` | The local scanner's ledger as a notebook, one entry per frequency; `--write` updates the git-ignored `docs/reports/reference/local_band_notebook.md`, keeping its "My notes". Runs after every watch. |
+| `ledger_repair.py` | Brings the scanner ledger up to how catches are judged now (`--clips`, …); dry run unless `--apply`. |
+| `rx_preview.py` | KAIA//RX on a simulated RTL-SDR: the real scanner and dashboard, no dongle and no bot. |
+| `fetch_street_names.py` | Builds the scanner's street list from OpenStreetMap into `memory/radio/streets.json`. |
+| `uvk5.py` | Read-only Quansheng UV-K5 over its programming cable: find the port, firmware, EEPROM backup. Never transmits. |
 | `check_md_anchors.py` | Validates in-page Markdown anchors against GitHub's slug rules. |
+| `kaia_admin.py` | KAIA // OPS, the read-only admin dashboard on 127.0.0.1:47433, in its own process (`--detach`, `--no-window`). |
+| `mem_report.py` | Reads `memory/diagnostics/mem_probe.jsonl`: RSS, what the heap trim gave back, and with `diagnostics.memory_trace` the lines Python's growth came from. |
 
 ## diagnostics/
 
@@ -106,6 +115,7 @@ nobody is talking to her.
 | Script | What it does |
 |:--|:--|
 | `game_audit.py` | Simulates hunts per class and reports win rate, deaths and rewards. |
+| `progression_sim.py` | Plays characters from level 1 to 15 through the real combat engine, loot tables and prices; days per level, deaths, retreats and gil by source. Run before and after a balance change. |
 
 ## tests/
 

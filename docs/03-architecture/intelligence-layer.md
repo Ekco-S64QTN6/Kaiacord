@@ -28,8 +28,8 @@ flowchart TD
 ### 1 · Intent matching (`intent_classifier.py`)
 
 `IntentParser.fast_parse` labels the message with regex before any retrieval or
-inference — greeting, command, recap, diagnostic, dream recall. It produces a
-`MessageIntent` that steers retrieval strategy and prompt construction.
+inference — greeting, command, recap, diagnostic, dream recall. It returns an
+`Intent` (`context_optimizer.Intent`), or None, which steers retrieval strategy and prompt construction.
 
 There is no second pass and no auxiliary model. A high-confidence
 `SOCIAL_GREETING` or `COMMAND_EXECUTION` takes the **Adaptive Skip** path in
@@ -146,7 +146,7 @@ suffixed `.test`, so fixtures are never mistaken for production incidents.
 ## Interaction flow
 
 1. **Gatekeeper** — rate limit and safety check
-2. **Match** — `MessageIntent` by regex; high-confidence greetings skip RAG,
+2. **Match** — an `Intent` by regex; high-confidence greetings skip RAG,
    unless the message quotes a post
 3. **Enrich** — reply context, URLs, attachments
 4. **Retrieve** — `KaiaRAG`, hybrid BM25 + vector with RRF, scoped to the asker and anyone the

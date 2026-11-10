@@ -69,7 +69,7 @@ Expected: Concise, lowercase response about Python
 ### Issue: "Ollama not found"
 ```bash
 # Install Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
+curl -fsSL https://ollama.com/install.sh | sh
 
 # Start service
 sudo systemctl start ollama
@@ -95,7 +95,7 @@ Kaia needs access to message content and server members to function correctly.
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
 2. Select your application → Go to the **Bot** tab
 3. Scroll down to **Privileged Gateway Intents**
-4. Toggle ON **Presence Intent**, **Server Members Intent**, and **Message Content Intent**
+4. Toggle ON **Server Members Intent** and **Message Content Intent** (Presence is not used)
 5. Save changes and restart the bot
 
 ---
@@ -107,7 +107,7 @@ Kaia needs access to message content and server members to function correctly.
 - **[Dashboard Guide](../02-user-guide/dashboard.md)** — Understanding the curses UI
 
 ### Try Features
-- **Art**: `!art` to generate fractal flame artwork
+- **Art**: `!art` for an Electric Sheep fractal flame
 - **RPG**: `!rpg` to play the Aethelgard TTRPG
 - **News**: `!news technology`
 - **Social**: Set up [Bluesky & X](../02-user-guide/social-media.md) cross-posting
@@ -125,6 +125,6 @@ Kaia needs access to message content and server members to function correctly.
 |:--------|:-------|
 | `@kaia [question]` | Ask anything |
 | `!scores` | Gamified memory analytics & affinity leaderboards |
-| `!art` | Generate fractal flame art |
+| `!art` | An Electric Sheep fractal flame |
 | `!rpg` | Open the TTRPG HUD |
 | `!news [category]` | Get news briefs |
