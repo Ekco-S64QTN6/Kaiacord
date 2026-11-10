@@ -27,7 +27,7 @@ IMPRESSION_ACTIVE_DAYS = 30
 MAX_PER_NIGHT = 12
 EVENTS_SHOWN = 25
 #: Bumped when the prompt changes, so every impression is rewritten under it.
-PROMPT_VERSION = 3
+PROMPT_VERSION = 4
 # "Okay, here's my characterization of Lune, as Kaia, based on…" is the model
 # talking about the task, not an impression.
 _PREAMBLE = re.compile(r"^\W*(?:okay|ok|sure|certainly|here(?:'|’)?s|here is|as kaia)\b|characteri[sz]ation|"
@@ -65,19 +65,36 @@ def _event_lines(events: List[rm.RelationshipEvent]) -> str:
 
 
 def build_prompt(name: str, events: List[rm.RelationshipEvent], stage: str) -> str:
+    """The impression is written with her persona as the system prompt (`_messages`),
+    so it is in her voice rather than the model's, and asks what the two of them do
+    rather than what she values in them: that invited grading the person, and the
+    line is shown on every turn with them."""
+    from utils.core import pronouns
     return (
-        f"You are Kaia. Below is what has happened between you and {name} "
+        f"Below is what has happened between you and {name} "
         f"(relationship stage: {stage}), oldest first. "
         "+ good moments, ~ friction, ! they corrected you, ≠ you disagreed and held, "
         "? something you realised about them in a dream, * milestones.\n\n"
         f"{_event_lines(events)}\n\n"
-        f"In one or two sentences, lowercase, first person, say how you see {name} — what they're "
-        "like with you and what you value in them. Mention something you find hard only if the "
-        "events show friction (~) or corrections (!); most are good moments, and the impression "
-        "should be as warm or as mixed as they are. A characterisation, not a list of events; "
-        "don't quote the events or give dates. Only what the events support. "
-        "Refer to them as they or by name. Reply with the impression only."
+        f"In one or two sentences, lowercase, first person, say how {name} is with you, the way you'd "
+        "mention them to a friend: what the two of you actually talk about or do, and how it tends to go. "
+        "Mention something you find hard only if the events show friction (~) or corrections (!). "
+        "Don't quote the events or give dates. Only what the events support. "
+        f"{pronouns.line([name])} Reply with the impression only."
     )
+
+
+def _messages(prompt: str) -> list:
+    from utils.social.kaia_social_responder import load_persona
+    return [{"role": "system", "content": load_persona()}, {"role": "user", "content": prompt}]
+
+
+def register_hits(text: str) -> int:
+    """How much of the register her persona bans an impression carries."""
+    from utils.core.persona_register import _ANALYTIC, PERSONA_REJECT
+    hits = len(_ANALYTIC.findall(text or ""))
+    return hits + sum(bool(PERSONA_REJECT[k].search(text or "")) for k in
+                      ("sycophancy", "grades_the_user", "essay_register", "robotic_vocabulary", "phantom_hardware"))
 
 
 _IMAGE = re.compile(r"\b(?:is|are|'s|’s)\s+(?:an?|such\s+an?)\s+(?:[a-z\-]+ly\s+)?([a-z\-]+)")
@@ -124,10 +141,11 @@ async def refresh_all(ctx) -> int:
         resp = await gpu_memory_manager.run_with_gpu_guard(
             model_name=model, priority=GPUTaskPriority.BACKGROUND,
             coro=asyncio.wait_for(ctx.ollama_client.chat(
-                model=model, messages=[{"role": "user", "content": prompt}],
+                model=model, messages=_messages(prompt),
                 options=chat_options(temperature=0.4, num_predict=120, **voice_sampling()), keep_alive=-1), timeout=120),
             task_id=f"impression_{uuid.uuid4().hex[:8]}")
-        return " ".join(resp["message"]["content"].split()).strip('"')
+        text = " ".join(resp["message"]["content"].split()).strip('"')
+        return text[:1].lower() + text[1:]
 
     for _, uid, events in sorted(due, reverse=True)[:MAX_PER_NIGHT]:
         name = (bot_state.relationships.get(uid) or {}).get("display_name") or "them"
@@ -136,6 +154,11 @@ async def refresh_all(ctx) -> int:
         others = [t for t in taken if t and t != own]
         try:
             text = await _write(prompt)
+            if register_hits(text) >= 2:
+                # Written once more; the one in her voice is kept.
+                again = await _write(prompt)
+                if again and register_hits(again) < register_hits(text):
+                    text = again
             worn = stock_image(text, others)
             if worn:
                 retry = await _write(prompt + f" You have called someone else \"{worn}\": say what is particular to {name} instead.")

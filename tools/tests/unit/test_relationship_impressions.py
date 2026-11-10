@@ -19,8 +19,11 @@ def test_an_impression_is_written_from_new_events_and_injected(tmp_path, monkeyp
     rm.save_event("99", _event("positive", "thanks", ago_days=200))     # inactive
     prompts = []
 
+    systems = []
+
     async def chat(model, messages, options, keep_alive):
-        prompts.append(messages[0]["content"])
+        systems.append(messages[0]["role"] == "system" and "Kaia" in messages[0]["content"])
+        prompts.append(messages[-1]["content"])
         return {"message": {"content": "the one who argues with me properly, and means it kindly."}}
 
     async def guard(model_name, priority, coro, task_id):
@@ -33,6 +36,8 @@ def test_an_impression_is_written_from_new_events_and_injected(tmp_path, monkeyp
                                   get_relationship_stage=lambda uid: "familiar"))
     assert asyncio.run(ri.refresh_all(ctx)) == 1
     assert "≠ disagreement" in prompts[0] and "Ekco" in prompts[0]
+    assert systems[0], "written with her persona as the system prompt"
+    assert "what you value" not in prompts[0]
     assert ri.impression_note("42", "Ekco") == \
         "[how you see Ekco: the one who argues with me properly, and means it kindly.]"
     # Nothing new since: not rewritten.
@@ -57,3 +62,26 @@ def test_an_impression_written_under_an_older_prompt_is_rewritten(monkeypatch):
     monkeypatch.setattr(ri, "load", lambda uid: {"text": "x" * 30, "latest_event": events[-1].timestamp,
                                                  "v": ri.PROMPT_VERSION})
     assert not ri._needs_refresh("1", events, events[-1].timestamp + 1)
+
+
+def test_an_impression_in_the_banned_register_is_written_once_more(tmp_path, monkeypatch):
+    monkeypatch.setattr(rm, "RELATIONSHIPS_DIR", str(tmp_path))
+    rm.save_event("42", _event("positive", "we fixed the dns thing"))
+    drafts = iter([
+        "Ekco is incredibly insightful and i really appreciate their fundamental perspective.",
+        "ekco and i mostly end up fixing things at two in the morning, usually dns.",
+    ])
+
+    async def chat(model, messages, options, keep_alive):
+        return {"message": {"content": next(drafts)}}
+
+    async def guard(model_name, priority, coro, task_id):
+        return await coro
+    from utils.infrastructure.gpu import gpu_manager
+    monkeypatch.setattr(gpu_manager.gpu_memory_manager, "run_with_gpu_guard", guard)
+    ctx = SimpleNamespace(
+        config=SimpleNamespace(chat_model="m"), ollama_client=SimpleNamespace(chat=chat),
+        bot_state=SimpleNamespace(relationships={"42": {"display_name": "Ekco"}},
+                                  get_relationship_stage=lambda uid: "familiar"))
+    assert asyncio.run(ri.refresh_all(ctx)) == 1
+    assert "fixing things at two in the morning" in ri.impression_note("42", "Ekco")

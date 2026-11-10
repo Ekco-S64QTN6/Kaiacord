@@ -1487,7 +1487,11 @@ retrieval never reported:
 
 ### Dreams
 
-**What a dream writes about people and beliefs is read back into replies, so it is held to her voice.** A
+**What a dream writes about people and beliefs is read back into replies, so it is held to her voice.** The extraction
+copies her own sentences out of the reflection rather than paraphrasing them: the reflections are in her voice and the
+paraphrase was in the analyst register (10 Nov, about 21 analyst words per 1,000 against 8). Relationship impressions are
+written with her persona as the system prompt and asked what the two of them do, never what she values in them; that
+wording made every impression a grade of the person, injected on every turn with them. A
 belief must be a position the reflection takes, not a source's ("the author believes…" is refused,
 `REPORTED_VIEW`); one reflection sets at most `NEW_BELIEF_CONFIDENCE`, and the same view reached again firms
 it up — the model had answered 0.9 for 94 of 100. A relationship insight is what passed between them, never a
