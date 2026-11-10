@@ -241,3 +241,17 @@ def test_missing_person_claim_requires_matching_unexpired_location():
     assert claim_missing_person(state, "whisperwood_edge", now=1_000) is None
     assert claim_missing_person(state, "whisperwood_deep", now=2_000) is None
     assert state["missing_person_loc"] == "whisperwood_deep"
+
+
+def test_one_fight_buff_cards_say_what_the_buff_does():
+    from utils.ttrpg import forest_events as fe
+    from utils.ttrpg.combat_engine import ONE_FIGHT_BUFFS
+    claims = {(1, 0, 0): "ATK +1", (2, 0, 0): "ATK +2", (0, 2, 0): "+2 damage", (0, 0, 1): "DEF +1"}
+    sheet = {"level": 5, "class": "Fighter", "stats": {"int": 18, "wis": 18, "cha": 18, "dex": 18, "str": 18, "con": 18},
+             "hp": {"current": 30, "max": 30}, "inventory": [], "conditions": [], "lore_pages": [], "gil": 100}
+    for key in ("old_man_riddle", "blue_flame_echo", "wagon_tracks", "twin_wisps", "uninvited_guest", "veiled_elder"):
+        for _ in range(200):
+            r = fe.resolve_event(key, dict(sheet))
+            want = claims.get(ONE_FIGHT_BUFFS.get(r["condition_add"]))
+            if want:
+                assert want in r["outcome"], (key, r["condition_add"], r["outcome"])

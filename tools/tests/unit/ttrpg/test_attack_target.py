@@ -203,3 +203,28 @@ def test_active_view_fails_closed_for_legacy_encounter_without_origin(monkeypatc
         monkeypatch, None, "trade_road"
     )
     assert result is None
+
+
+def _dungeon_view_at(monkeypatch, location, *, spine=None, dungeon=None):
+    from types import SimpleNamespace
+    from utils.ttrpg import rpg_views, spine_dungeon, dungeon as dungeon_mod
+
+    monkeypatch.setattr(rpg_views, "load", AsyncMock(return_value={"user_id": "42", "location": location}))
+    monkeypatch.setattr(rpg_views, "load_session", AsyncMock(return_value=None))
+    monkeypatch.setattr(spine_dungeon, "load_spine_dungeon", AsyncMock(return_value=spine))
+    monkeypatch.setattr(dungeon_mod, "load_dungeon", AsyncMock(return_value=dungeon))
+    monkeypatch.setattr(rpg_views, "DungeonView", lambda *a: ("dungeon", a[-1]))
+    msg = SimpleNamespace(channel=SimpleNamespace(id=123))
+    return asyncio.run(rpg_views._get_active_view(None, msg, "42", "Player", False))
+
+
+def test_an_open_spine_run_gives_no_dungeon_buttons_away_from_the_ruins(monkeypatch):
+    spine = {"active": True, "is_spine": True}
+    assert _dungeon_view_at(monkeypatch, "trade_road", spine=spine) is None
+    assert _dungeon_view_at(monkeypatch, "aeridor_ruins", spine=spine) == ("dungeon", spine)
+
+
+def test_a_dungeon_gives_its_buttons_only_where_it_was_entered(monkeypatch):
+    d = {"active": True, "location": "whisperwood_deep"}
+    assert _dungeon_view_at(monkeypatch, "trade_road", dungeon=d) is None
+    assert _dungeon_view_at(monkeypatch, "whisperwood_deep", dungeon=d) == ("dungeon", d)

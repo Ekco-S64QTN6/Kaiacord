@@ -192,7 +192,7 @@ def _old_man_riddle(sheet: dict) -> dict:
         else:
             r["xp"] = 20
             r["condition_add"] = "sharp_mind"
-            r["outcome"] = "You answered correctly. +20 XP. Sharp Mind (next INT check +2)."
+            r["outcome"] = "You answered correctly. +20 XP. Sharp Mind (ATK +1 for your next fight)."
             r["narration_hook"] = "The riddle was about the Silent Ones. The player gave an answer that surprised even them. The old man smiled once, briefly."
     else:
         r["xp"] = 5
@@ -271,7 +271,7 @@ def _veiled_elder(sheet: dict) -> dict:
         "Shaman":     ("world_speak",    "DEF +2 for your next fight"),
     }
     lookup = advanced if advanced in class_buffs else char_class
-    condition, effect_text = class_buffs.get(lookup, ("veiled_blessing", "+1 to next check"))
+    condition, effect_text = class_buffs.get(lookup, ("veiled_blessing", "ATK +1 for your next fight"))
     r["condition_add"] = condition
     r["xp"] = 15
     r["outcome"] = f"The Veiled elder spoke. {effect_text}."
@@ -487,7 +487,7 @@ def _strange_statue(sheet: dict) -> dict:
         r["condition_add"] = "aeridorian_attunement"
         r["outcome"] = (
             f"You understood the gesture. +{xp} XP. "
-            "*Aeridorian Attunement* — +1 to ATK in the ruins until next rest."
+            "*Aeridorian Attunement* — +1 to ATK in the ruins until dawn."
         )
         r["narration_hook"] = (
             "A stone figure the height of two men, carved in a style that predates Aeridor. "
@@ -590,7 +590,7 @@ def _twin_wisps(sheet: dict) -> dict:
         # Ignored both — they stayed, gave blessing
         r["xp"] = 15
         r["condition_add"] = "wisp_ward"
-        r["outcome"] = "You ignored both. They gave you a ward. +15 XP."
+        r["outcome"] = "You ignored both. They gave you a ward (DEF +1 for your next fight). +15 XP."
         r["narration_hook"] = (
             "Two wisps approached. The player stopped moving and watched them. "
             "The wisps circled once, twice. Finding no takers for their usual game, "
@@ -660,7 +660,7 @@ def _blue_flame_echo(sheet: dict) -> dict:
     if roll >= dc:
         r["xp"] = 15
         r["condition_add"] = "sharp_mind"
-        r["outcome"] = "A blue flame flickers, bringing an unsettling clarity to your mind. +15 XP, Sharp Mind (next INT check +2)."
+        r["outcome"] = "A blue flame flickers, bringing an unsettling clarity to your mind. +15 XP, Sharp Mind (ATK +1 for your next fight)."
         r["narration_hook"] = (
             "A low blue fire flickered briefly on a rotten stump before vanishing. "
             "A sudden, cold clarity washed over your thoughts, leaving you strangely focused "
@@ -770,7 +770,7 @@ def _wagon_tracks(sheet: dict) -> dict:
     else:
         r["xp"] = 10
         r["condition_add"] = "sharp_mind"
-        r["outcome"] = "You found dropped guild survey notes on the road. +10 XP, Sharp Mind (next INT check +2)."
+        r["outcome"] = "You found dropped guild survey notes on the road. +10 XP, Sharp Mind (ATK +1 for your next fight)."
         r["narration_hook"] = (
             "You found a discarded piece of parchment detailing Guild survey points. "
             "Studying the terrain notes gives you a keen understanding of the local contours."
@@ -863,7 +863,7 @@ def _uninvited_guest(sheet: dict) -> dict:
         r["xp"] = 25
         r["gil"] = 30
         r["condition_add"] = "wisp_ward"
-        r["outcome"] = "You stood firm under the stalker's gaze. +25 XP, +30 Gil, Wisp Ward condition granted."
+        r["outcome"] = "You stood firm under the stalker's gaze. +25 XP, +30 Gil, Wisp Ward (DEF +1 for your next fight)."
         r["narration_hook"] = (
             "A distorted shadow crouched over the trail. Instead of fleeing, you met its hollow gaze. "
             "It shivered, spat a shard of bone and coins onto the dirt, and bounded away, leaving you warded."

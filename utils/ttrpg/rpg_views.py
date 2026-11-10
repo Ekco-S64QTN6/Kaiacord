@@ -1208,23 +1208,40 @@ def _make_status_view(ctx, msg, uid, uname, is_owner):
 
 
 async def _get_active_view(ctx, msg, uid, uname, is_owner):
-    """Returns the correct view context: current-location combat, dungeon combat, dungeon map, or None."""
+    """The view for where the player is: a fight at their location, the dungeon
+    or Spine floor they are standing in, or None.
+
+    A run the player walked away from stays active so they can pick it up
+    again, so a dungeon is only theirs to move in from its own location: the
+    Spine from the Aeridor Ruins, a regular dungeon from the place it was
+    generated for."""
+    sheet = await load(uid)
+    current_location = (sheet or {}).get("location", "oakhaven")
     s = await load_session(str(msg.channel.id))
-    if s and s.get("combat_active"):
-        sheet = await load(uid)
-        if sheet:
-            current_location = sheet.get("location", "oakhaven")
-            for m in s.get("monsters", []):
-                if (
-                    isinstance(m, dict)
-                    and str(m.get("aggro_uid")) == str(uid)
-                    and m.get("origin_location") == current_location
-                ):
-                    return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
+    if sheet and s and s.get("combat_active"):
+        for m in s.get("monsters", []):
+            if (
+                isinstance(m, dict)
+                and str(m.get("aggro_uid")) == str(uid)
+                and m.get("origin_location") == current_location
+            ):
+                return RPGCombatView(ctx, msg, uid, uname, is_owner, m.get("key", "monster"))
+
+    if current_location == "aeridor_ruins":
+        from utils.ttrpg.spine_dungeon import load_spine_dungeon
+        s_state = await load_spine_dungeon(uid)
+        if s_state and s_state.get("active"):
+            ac = s_state.get("active_combat")
+            if ac:
+                monster = ac.get("monster", {})
+                m_name = ac.get("boss_name") or monster.get("name", "monster")
+                return DungeonCombatView(ctx, uid, uname, is_owner, m_name)
+            return DungeonView(ctx, uid, uname, is_owner, s_state)
+        return None
 
     from utils.ttrpg.dungeon import load_dungeon
     d_state = await load_dungeon(uid)
-    if d_state and d_state.get("active"):
+    if d_state and d_state.get("active") and d_state.get("location", current_location) == current_location:
         ac = d_state.get("active_combat")
         if ac:
             monster = ac.get("monster", {})
@@ -1232,17 +1249,6 @@ async def _get_active_view(ctx, msg, uid, uname, is_owner):
             return DungeonCombatView(ctx, uid, uname, is_owner, m_name)
         else:
             return DungeonView(ctx, uid, uname, is_owner, d_state)
-
-    from utils.ttrpg.spine_dungeon import load_spine_dungeon
-    s_state = await load_spine_dungeon(uid)
-    if s_state and s_state.get("active"):
-        ac = s_state.get("active_combat")
-        if ac:
-            monster = ac.get("monster", {})
-            m_name = ac.get("boss_name") or monster.get("name", "monster")
-            return DungeonCombatView(ctx, uid, uname, is_owner, m_name)
-        else:
-            return DungeonView(ctx, uid, uname, is_owner, s_state)
 
     return None
 
