@@ -2228,6 +2228,22 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # Asked what she knows of something nothing in front of her mentions,
+        # she is told so (utils/core/unknown_subject.py): a fact about this
+        # turn, beside the message for the same reason as the pushback note.
+        unknown_note = ""
+        try:
+            from utils.core import unknown_subject
+            _given = [str(m.get("content") or "") for m in messages]
+            _given.append(str(user_msg_content or "").replace(ctx.own_words or "", " ", 1))
+            unknown_note = unknown_subject.note_for(ctx.own_words or "", _given)
+            if unknown_note:
+                log_info(f"[unknown_subject] nothing in her context mentions what "
+                         f"{ctx.author_name} asked about; told her so")
+                held_note += f"\n\n{unknown_note}"
+        except Exception:
+            pass
+
         if context_reminder:
             messages.append({"role": "user", "content": f"{context_reminder}\n\n[You are speaking exclusively to {ctx.author_name}. Do NOT greet or address other users.]\n{ctx.author_name}: {user_msg_content}{held_note}"})
         else:
