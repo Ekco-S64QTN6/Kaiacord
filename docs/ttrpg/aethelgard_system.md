@@ -267,7 +267,14 @@ Each hunt costs 1 of 5 daily hunts. Hunts may trigger a **forest event** instead
 | 13 | hard – deadly |
 | 14–15 | hard – boss |
 
-At night a quarter of hunts shift up a tier.
+At night a quarter of hunts shift up a tier. Where a zone holds fewer than `MIN_KINDS` (4) different
+monsters inside the window, the lower bound opens a tier at a time until it holds four: the Trade Road
+has one hard monster, and from level 13 every hunt there was a Drake Hatchling. A zone with nothing in
+the window meets its whole table.
+
+On an undead day (the Ghost Caravan, the Hollow Sun, the calendar's undead days) a Skeleton, Ghost,
+Spectre and Wight join every table (`encounter_tables.UNDEAD_BONUS`), one each from easy to hard, so
+the window keeps some of them at every level; the skeleton and ghost alone left it from level 10.
 
 **Drops.** A kill rolls the gear table 35% of the time and the consumable table half the time
 (`loot_tables.roll_kill_drops`); an ordinary dungeon mob rolls gear 30% of the time. The tables alone

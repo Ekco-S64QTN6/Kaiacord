@@ -243,6 +243,27 @@ def test_missing_person_claim_requires_matching_unexpired_location():
     assert state["missing_person_loc"] == "whisperwood_deep"
 
 
+def test_a_hunt_never_meets_only_one_kind_of_monster():
+    import collections
+    from utils.ttrpg import encounter_tables as et
+    for loc in ("whisperwood_edge", "trade_road", "whisperwood_deep", "aeridor_ruins"):
+        for level in range(1, 16):
+            seen = collections.Counter(et.random_encounter(loc, level) for _ in range(400))
+            assert len(seen) >= et.MIN_KINDS, (loc, level, seen)
+            assert seen.most_common(1)[0][1] < 400 * 0.6, (loc, level, seen)
+
+
+def test_an_undead_day_brings_the_dead_at_every_level(monkeypatch):
+    from utils.ttrpg import encounter_tables as et
+    from utils.ttrpg.class_advancement import is_undead
+    from utils.ttrpg.monster_registry import MONSTERS
+    monkeypatch.setattr(et, "get_special_day", lambda: {"encounter_mod": {"undead_bonus": True}})
+    for loc in ("trade_road", "whisperwood_deep"):
+        for level in (3, 12, 15):
+            met = [et.random_encounter(loc, level) for _ in range(300)]
+            assert any(is_undead(MONSTERS[k]) for k in met), (loc, level)
+
+
 def test_one_fight_buff_cards_say_what_the_buff_does():
     from utils.ttrpg import forest_events as fe
     from utils.ttrpg.combat_engine import ONE_FIGHT_BUFFS
