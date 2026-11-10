@@ -830,10 +830,15 @@ VOICE AND FORMAT RULES (always apply regardless of dream type):
             extraction_prompt = (
                 f"From this reflection, extract structured insights in JSON:\n\n"
                 f"{reflection[:1500]}\n\n"
-                f"Return ONLY valid JSON with these keys:\n"
-                f'- "belief_update": a position the reflection itself takes — yours, written as you '
-                f'("i think…", "i don\'t trust…") — not a summary of what an author, article or person '
-                f'argues; null if the reflection only reports someone else\'s view. '
+                # Text values are her own sentences, not a paraphrase: the paraphrase came
+                # out in the analyst register her persona bans, and these values are
+                # injected into later turns as hers.
+                f"Return ONLY valid JSON with these keys. Every text value is taken from the reflection "
+                f"in its own words: a sentence of it, or the part of a sentence that says the thing, "
+                f"copied rather than paraphrased, so it keeps how you put it.\n"
+                f'- "belief_update": a position the reflection itself takes, yours, not a summary of '
+                f'what an author, article or person argues; null if the reflection only reports '
+                f'someone else\'s view. '
                 f'{{"topic": str, "position": str, "confidence": 0.0-1.0, '
                 f'"aliases": [list of 3-5 related search keywords that someone might use when '
                 f'discussing this topic, e.g. for "aesthetic evaluation" include "art", "beauty", '
