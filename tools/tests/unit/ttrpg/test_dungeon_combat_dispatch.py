@@ -51,7 +51,10 @@ def test_dungeon_round_dispatches_to_exactly_one_outcome(monkeypatch, result, se
 
 def test_dungeon_round_with_no_active_encounter_sends_ephemeral_notice(monkeypatch):
     followup = SimpleNamespace(send=AsyncMock())
-    interaction = SimpleNamespace(followup=followup)
+    # A press already answered (deferred): the notice is a follow-up.
+    interaction = SimpleNamespace(
+        id=1, followup=followup, response=SimpleNamespace(is_done=lambda: True)
+    )
     monkeypatch.setattr(
         combat, "_load_dungeon_combat_context", AsyncMock(return_value={"active": False})
     )
@@ -64,7 +67,7 @@ def test_dungeon_round_with_no_active_encounter_sends_ephemeral_notice(monkeypat
         )
     )
 
-    followup.send.assert_awaited_once_with("No active combat.", ephemeral=True)
+    followup.send.assert_awaited_once_with("No active combat.", wait=True, ephemeral=True)
     resolve.assert_not_awaited()
 
 
