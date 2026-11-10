@@ -122,3 +122,36 @@ def test_she_is_reminded_her_notes_are_real_when_there_is_something_to_keep(note
     kaia_notes.keep("i'm adding this to my notes as quorum.md.", "Ekco", "x", "", datetime.now())
     assert kaia_notes.note_hint("Ekco", "look", "https://example.com/y") == ""   # one just kept
     assert kaia_notes.note_hint("Starkind", "look", "https://example.com/y")
+
+
+@pytest.mark.parametrize("reply,name", [
+    # 9 Nov: the name in a sentence of its own, and no note was kept.
+    ('it\'s a band-aid. i need to add this article to my notes as well. filename: "bbc_blacksky_plan.md". '
+     'the implications are significant.', "bbc_blacksky_plan"),
+    ('i should add "avian industrial loft design" to my notes. filename: "pigeon_architecture.md". '
+     'it\'s an intriguing thought experiment.', "pigeon_architecture"),
+    ('i’m adding "the coo-de-sac" as a subfolder within my pigeon architecture notes. '
+     'filename: "pigeon_architecture/coo_de_sac.md". it deserves its own space.', "coo_de_sac"),
+])
+def test_a_name_in_the_next_sentence_completes_the_claim(reply, name):
+    assert kaia_notes.find_claim(reply)[1] == name
+
+
+@pytest.mark.parametrize("reply", [
+    'should i add this to my notes? filename: "x.md".',
+    'i keep notes. the readme.md is in the repo.',
+])
+def test_a_question_or_a_bare_mention_is_still_not_a_note(reply):
+    assert kaia_notes.find_claim(reply) is None
+
+
+def test_the_two_sentence_claim_is_kept_and_named(notes):
+    reply = ('fm radio is fragile. i need to add this article to my notes as well. '
+             'filename: "bbc_blacksky_plan.md". the implications are significant.')
+    out, stem = kaia_notes.keep_note(reply, "Ekco", "Kaia, https://example.com/bbc",
+                                     "Kaia, https://example.com/bbc\n[shared link: securityaffairs.com]",
+                                     datetime(2026, 11, 9, 22, 4))
+    assert stem == "bbc_blacksky_plan" and out == reply
+    text = (notes / "bbc_blacksky_plan.md").read_text()
+    assert "fm radio is fragile." in text and "the implications are significant." in text
+    assert "filename:" not in text and "add this article" not in text

@@ -43,6 +43,9 @@ _NOTES_NO_NAME = re.compile(
     r"\b(?:i['’]?m|i am|i['’]ll|i will)\s+(?:adding|saving|putting|filing|jotting)\s+"
     r"(?:this|that|it|your [a-z ]{1,30}?|the [a-z ]{1,30}?)\s+(?:down\s+)?(?:to|in|into)\s+my\s+notes\b",
     re.IGNORECASE)
+_NOTES_WORD = re.compile(r"\bnotes?\b", re.IGNORECASE)
+# The sentence after it that only gives the name: "filename: "x.md"."
+_NAME_LABEL = re.compile(r"\s*(?:file\s*name|name|file|title)\s*[:\-\u2013]", re.IGNORECASE)
 # Ends at . ! ? followed by space or the end, so the dot in a filename is
 # not a sentence boundary.
 _SENTENCE = re.compile(r"[^\n]+?(?:[.!?][\"'”’)]*(?=\s|$)|(?=\n)|$)")
@@ -59,11 +62,25 @@ def _sentences(text: str) -> list[str]:
 
 
 def find_claim(reply: str) -> Optional[tuple[str, Optional[str]]]:
-    """(the sentence claiming a note, the filename it names or None)."""
-    for sentence in _sentences(reply or ""):
+    """(the sentence claiming a note, the filename it names or None).
+
+    The name can come in a sentence of its own straight after the act:
+    "i need to add this to my notes as well. filename: "x.md"." The claim is
+    then both sentences."""
+    text = reply or ""
+    spans = [(m.start(), m.end()) for m in _SENTENCE.finditer(text) if m.group(0).strip()]
+    for i, (start, end) in enumerate(spans):
+        sentence = text[start:end]
         name = _FILENAME.search(sentence)
-        if name and _KEEPING.search(sentence):
+        keeping = _KEEPING.search(sentence)
+        if name and keeping:
             return sentence.strip(), name.group(1)
+        if keeping and not name and i + 1 < len(spans) and _NOTES_WORD.search(sentence) \
+                and not sentence.rstrip().endswith("?"):
+            following = text[spans[i + 1][0]:spans[i + 1][1]]
+            named = _FILENAME.search(following)
+            if named and _NAME_LABEL.match(following):
+                return text[start:spans[i + 1][1]].strip(), named.group(1)
         if _NOTES_NO_NAME.search(sentence):
             return sentence.strip(), None
     return None

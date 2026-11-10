@@ -112,14 +112,12 @@ class PostGenerationSafetyPipeline:
     def _norm(s: str) -> str:
         return re.sub(r'[^a-z0-9 ]+', ' ', (s or '').lower())
 
-    # A quoted span the sentence is built around rather than one standing on its
-    # own. "the <span> is concerning" and "about the <span>" are ordinary
-    # English: she is naming a thing with the words the other person used for
-    # it, which is how you refer to a thing, not an echo.
-    _SPAN_IS_LOAD_BEARING = re.compile(
-        r"\b(?:the|a|an|this|that|these|those|his|her|its|their|our|my|your|"
-        r"of|about|on|in|with|by|for|from|to|called|named|termed|re)\s*$",
-        re.IGNORECASE)
+    # A quoted span stands on its own only where a sentence starts: the front of
+    # the reply, a new line, or after a sentence's end. Anywhere else the
+    # sentence is built around it ("the <span> is concerning", "i'm adding
+    # <span> as a subfolder", "filename: <span>"): she is naming a thing with
+    # the words the other person used for it, and cutting it leaves a hole.
+    _SPAN_OPENS_SENTENCE = re.compile(r"(?:^|[.!?\u2026][\"'\u201d\u2019)]*\s|\n)\s*$")
 
     # A verb directly after the span makes the span the subject of it.
     _VERB_FOLLOWS_SPAN = re.compile(
@@ -227,10 +225,10 @@ class PostGenerationSafetyPipeline:
             #   the is... concerning.
             before = content[:m.start()]
             after = content[m.end():]
-            if cls._SPAN_IS_LOAD_BEARING.search(before) or \
+            if not cls._SPAN_OPENS_SENTENCE.search(before) or \
                     cls._VERB_FOLLOWS_SPAN.match(after):
-                log_debug("[PROMPT_ECHO_GUARD] Echoed span is the subject of its "
-                          "sentence; leaving it rather than stranding the article.")
+                log_debug("[PROMPT_ECHO_GUARD] Echoed span is part of its sentence; "
+                          "leaving it rather than leaving a hole.")
                 return m.group(0)
 
             log_warning(f"[PROMPT_ECHO_GUARD] Dropped echoed span: '{span[:60]}...'")

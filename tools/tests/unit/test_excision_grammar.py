@@ -100,3 +100,24 @@ def test_a_label_that_is_the_subject_of_its_sentence_survives(text):
     """She discusses her own plumbing constantly, which is exactly the
     conversation this guard is most likely to fire in."""
     assert BotSpeakFilter.scrub_directive_leaks(text) == text
+
+
+@pytest.mark.parametrize("reply", [
+    # 9 Nov: shipped as "i’m adding as a subfolder … filename:."
+    'i’m adding "the coo-de-sac" as a subfolder within my pigeon architecture notes. '
+    'filename: "pigeon_architecture/coo_de_sac.md". it deserves its own space.',
+])
+def test_an_echoed_span_inside_its_sentence_survives(reply):
+    query = "The fanciest pigeon neighborhood would be called The Coo-de-Sac in pigeon architecture."
+    assert P.strip_prompt_echo(reply, query) == reply
+
+
+@pytest.mark.parametrize("query,reply", [
+    ("the goal was understanding. and to repair the image recognition system kaia",
+     'but i suspect there’s more to it. your phrasing—"the goal was understanding"—suggests a shift.'),
+    ("less own. more value. it could grow into ownership. i don't see that just yet",
+     'and your caveat – "it could grow into ownership" – is equally telling.'),
+])
+def test_a_quote_between_dashes_is_part_of_its_sentence(query, reply):
+    """Shipped as "your phrasing——suggests" and "your caveat – – is"."""
+    assert P.strip_prompt_echo(reply, query) == reply
