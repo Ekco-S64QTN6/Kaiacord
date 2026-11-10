@@ -169,10 +169,10 @@ mute, and is not judged.
   runs. Kaia herself is the shared codec avatar in `assets/kaia-avatar/` (served at `/kaia/`; the
   same engine as Kaia's and Kaiagotchi's dashboards — keep the copies identical (Kaiagotchi's is
   `kaiagotchi/ui/web/static/js/kaia/`; change the engine in both, byte for byte), put states in the
-  page via `KaiaAnimator.registerMood`). Both pages mount her with `portrait: "random"` — the next of
-  `KaiaCodec.PORTRAITS` in a shuffled rotation, every one once before any repeats, a new shuffle never
-  opening on the last (`KaiaCodec.randomPortrait`; it was "any but the last", which Ekco saw as the same
-  face every launch; `test_kaia_avatar_portraits.py` runs the real file under Node) — and every
+  page via `KaiaAnimator.registerMood`). Both pages mount her as t2, Ekco's choice for every dashboard
+  (10 Nov); `?face=<name>` shows another, and `?face=random` is the shuffled rotation of
+  `KaiaCodec.PORTRAITS`, every one once before any repeats, a new shuffle never opening on the last
+  (`KaiaCodec.randomPortrait`; `test_kaia_avatar_portraits.py` runs the real file under Node) — and every
   launch (`open_window`, i.e. each `!music records` and `!scanner dash`) bumps `launch` in the page's
   stream; an open page reloads when it changes, because the window is usually reused, not reopened. `tools/maintenance/rx_preview.py` runs the real `Watcher`
   against a simulated sky in real time and serves the page — use it to look at a change, not the bot.
