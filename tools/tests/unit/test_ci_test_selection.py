@@ -159,3 +159,33 @@ def test_a_module_change_selects_tests_that_import_it_under_any_name():
     selected = {p.as_posix() for p in selector["select_tests"](["utils/core/kaia_rag_query.py"])}
     for name in ("test_news_and_short_queries.py", "test_tier1_features.py"):
         assert any(s.endswith("tools/tests/unit/" + name) for s in selected), name
+
+
+
+def test_library_changes_select_record_and_set_style_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/audio/library.py"])
+    }
+    assert "tools/tests/unit/test_records.py" in selected
+
+
+def test_setlist_changes_select_set_and_blend_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/audio/setlist.py"])
+    }
+    assert "tools/tests/unit/test_setlist.py" in selected
+    assert "tools/tests/unit/test_mixcheck.py" in selected
+
+
+def test_records_changes_select_full_records_and_lifecycle_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/audio/records.py"])
+    }
+    assert "tools/tests/unit/test_records.py" in selected
+    assert "tools/tests/unit/test_records_startup_cleanup.py" in selected
