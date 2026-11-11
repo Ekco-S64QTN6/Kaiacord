@@ -252,16 +252,16 @@ class MusicSession:
                 step()
             except Exception as exc:
                 log_debug(f"[music] {what}: {exc}")
+        if self._monitor_on_speakers:
+            self._monitor_on_speakers = False
+            try:
+                await asyncio.shield(asyncio.to_thread(monitor_to_speakers, False))
+            except Exception as exc:
+                log_debug(f"[music] speaker monitor release: {exc}")
         try:
             await self.vc.disconnect(force=True)
         except Exception as exc:
             log_debug(f"[music] disconnect: {exc}")
-        if self._monitor_on_speakers:
-            self._monitor_on_speakers = False
-            try:
-                await asyncio.to_thread(monitor_to_speakers, False)
-            except Exception as exc:
-                log_debug(f"[music] speaker monitor release: {exc}")
         task = self._task
         if task and not task.done() and task is not asyncio.current_task():
             task.cancel()
