@@ -281,7 +281,7 @@ def test_the_unprompted_gate_actually_round_trips(tmp_path):
     s.unprompted_date = "2026-09-21"
     s.save()
     # save() offloads the write to a single-worker executor; wait for it.
-    s._executor.shutdown(wait=True)
+    s.close()
 
     raw = json.loads(path.read_text()) if path.exists() else {}
     assert raw.get("unprompted_last_sent") == 1234.5, f"not written to disk: {sorted(raw)[:12]}"
