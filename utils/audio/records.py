@@ -333,9 +333,6 @@ def _wait_deck(deck, frames: int, timeout: float) -> bool:
 #: which is heard as a hiccup; a set is music throughout.
 OPUS_SIGNAL = "music"
 
-#: How long a NEXT or ▶ pressed during a booth load waits for it to land.
-LOAD_WAIT_S = 30.0
-
 
 @dataclass
 class Next:
@@ -2326,15 +2323,18 @@ class RecordsSession:
             return
 
         def wait():
-            deadline = time.time() + LOAD_WAIT_S
-            while time.time() < deadline:
+            # _prepare's external probes have their own bounded timeouts. Do
+            # not run NEXT/PLAY against the old queue merely because a slow
+            # decode or beat analysis exceeded an arbitrary booth wait window.
+            while True:
                 with self._load_lock:
                     pending_now = self.loading
                     closing = self._closing
                 if not pending_now or closing:
                     break
                 time.sleep(0.05)
-            fn()
+            if not closing:
+                fn()
         threading.Thread(target=wait, daemon=True, name="kaia-records-after-load").start()
 
     async def stop(self, disconnect: bool = True) -> None:
