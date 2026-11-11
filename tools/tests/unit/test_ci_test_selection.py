@@ -159,3 +159,13 @@ def test_a_module_change_selects_tests_that_import_it_under_any_name():
     selected = {p.as_posix() for p in selector["select_tests"](["utils/core/kaia_rag_query.py"])}
     for name in ("test_news_and_short_queries.py", "test_tier1_features.py"):
         assert any(s.endswith("tools/tests/unit/" + name) for s in selected), name
+
+
+
+def test_process_ingress_changes_select_interprocess_serialization_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["tools/maintenance/process_ingress.py"])
+    }
+    assert "tools/tests/unit/test_ingress_now.py" in selected
