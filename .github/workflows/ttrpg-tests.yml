@@ -58,7 +58,7 @@ jobs:
           # The hosted Ubuntu image tries Azure's mirror first. It can stall
           # while the official archive mirrors in this list remain healthy.
           if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i '/azure\\.archive\\.ubuntu\\.com/d' /etc/apt/apt-mirrors.txt
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
           fi
           if ! ldconfig -p 2>/dev/null | grep -q 'libopus[.]so'; then
             # The Python wheel supplies FFmpeg. Install only the small runtime
