@@ -1205,3 +1205,132 @@ def test_records_session_stop_invalidates_outstanding_booth_loads():
     assert not worker.is_alive()
     assert session.source.loaded == []
     assert session.last_load is None
+
+
+
+def _blocking_frame_source():
+    import threading
+    from types import SimpleNamespace
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingDeck:
+        def __init__(self):
+            self.record = SimpleNamespace(path="/tmp/records-frame-lock.mp3", name="Current")
+            self.remaining = 20_000
+            self.slot = 1
+            self.played = 0
+            self.ratio = 1.0
+            self.grid = None
+            self.closed = False
+
+        def at(self, frames=None):
+            return 0.0
+
+        def frame(self):
+            entered.set()
+            assert release.wait(timeout=3.0), "test did not release the rendered frame"
+            self.played += 1
+            return bytes(FRAME_BYTES)
+
+        def close(self):
+            self.closed = True
+
+    deck = BlockingDeck()
+    source = CrossfadeSource(deck, pick=lambda _deck: None)
+    source.rides = False
+    return source, deck, entered, release
+
+
+def test_booth_load_waits_for_the_current_audio_frame_boundary():
+    import threading
+    from types import SimpleNamespace
+
+    source, deck, entered, release = _blocking_frame_source()
+    frame_result = []
+    read_thread = threading.Thread(target=lambda: frame_result.append(source.read()), daemon=True)
+    read_thread.start()
+    assert entered.wait(timeout=1.0)
+
+    record = SimpleNamespace(path="/tmp/next.mp3", name="Next")
+    nxt = Next(record, 180.0)
+    mutation_done = threading.Event()
+    mutation_thread = threading.Thread(
+        target=lambda: (source.load(nxt), mutation_done.set()), daemon=True
+    )
+    mutation_thread.start()
+    try:
+        assert not mutation_done.wait(timeout=0.15), "booth load mutated the mixer during a rendered frame"
+    finally:
+        release.set()
+        read_thread.join(timeout=1.0)
+        mutation_thread.join(timeout=1.0)
+
+    assert not read_thread.is_alive() and not mutation_thread.is_alive()
+    assert frame_result == [bytes(FRAME_BYTES)]
+    assert mutation_done.is_set()
+    assert source._queued is nxt
+    source.cleanup()
+    assert deck.closed
+
+
+def test_dashboard_fader_change_waits_for_audio_frame_boundary(monkeypatch):
+    import threading
+    from types import SimpleNamespace
+    from utils.audio import dj_dashboard
+
+    source, _deck, entered, release = _blocking_frame_source()
+    frame_thread = threading.Thread(target=source.read, daemon=True)
+    frame_thread.start()
+    assert entered.wait(timeout=1.0)
+
+    sent = []
+    handler = object.__new__(dj_dashboard._Handler)
+    handler.path = "/control"
+    handler._body = lambda: {"slot": 1, "name": "fader", "value": 0.0}
+    handler._send = lambda *args: sent.append(args)
+    monkeypatch.setattr(dj_dashboard, "_session", lambda: SimpleNamespace(source=source))
+
+    request_done = threading.Event()
+    request_thread = threading.Thread(
+        target=lambda: (handler.do_POST(), request_done.set()), daemon=True
+    )
+    request_thread.start()
+    try:
+        assert not request_done.wait(timeout=0.15), "dashboard changed a fader during a rendered frame"
+    finally:
+        release.set()
+        frame_thread.join(timeout=1.0)
+        request_thread.join(timeout=1.0)
+
+    assert not frame_thread.is_alive() and not request_thread.is_alive()
+    assert request_done.is_set()
+    assert sent == [(204, b"", "text/plain")]
+    assert source.controls.channels[1]["fader"] == 0.0
+    source.cleanup()
+
+
+def test_renderer_cleanup_waits_for_in_progress_frame():
+    import threading
+
+    source, deck, entered, release = _blocking_frame_source()
+    frame_thread = threading.Thread(target=source.read, daemon=True)
+    frame_thread.start()
+    assert entered.wait(timeout=1.0)
+
+    cleanup_done = threading.Event()
+    cleanup_thread = threading.Thread(
+        target=lambda: (source.cleanup(), cleanup_done.set()), daemon=True
+    )
+    cleanup_thread.start()
+    try:
+        assert not cleanup_done.wait(timeout=0.15), "cleanup retired the current deck mid-frame"
+    finally:
+        release.set()
+        frame_thread.join(timeout=1.0)
+        cleanup_thread.join(timeout=1.0)
+
+    assert not frame_thread.is_alive() and not cleanup_thread.is_alive()
+    assert cleanup_done.is_set()
+    assert deck.closed
