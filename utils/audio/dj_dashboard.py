@@ -431,63 +431,66 @@ class _Handler(BaseHTTPRequestHandler):
         if s is None or s.source is None:
             return self._send(409, b"", "text/plain")
         body, src = self._body(), s.source
-        if self.path == "/skip":
-            log_info("[records] skip from the DJ booth")
-            s.skip()
-            ok = True
-        elif self.path == "/control":
-            slot = body.get("slot")
-            ok = src.controls.set(int(slot) if slot not in (None, "") else None, str(body.get("name", "")),
-                                  body.get("value"))
-        elif self.path == "/rides":
-            src.rides = not src.rides
-            src.gesture = ""
-            log_info(f"[records] Kaia's hands on the mixer {'on' if src.rides else 'off'} from the booth")
-            ok = True
-        elif self.path == "/blend":
-            ok = src.set_mix_beats(int(body.get("beats") or 0))
-            if ok:
-                log_info(f"[records] blends from the booth: {src._mix_beats} beats")
-        elif self.path == "/reset":
-            if src.hand is not None:
-                src.finish()                     # she takes the mix from where the hands left it
-            src.controls.reset()
-            src.paused.clear()
-            log_info("[records] the booth handed the mix back to Kaia")
-            ok = True
-        elif self.path in ("/pause", "/play"):
-            # On air: pause / resume in place. The free deck: play it by hand
-            # (synced, on the beat) or pause it.
-            slot = int(body.get("slot") or 0)
-            ok = slot in (1, 2)
-            if ok and src.current is not None and slot == src.current.slot:
-                src.paused.symmetric_difference_update({slot})
-            elif ok and src.hand is not None:
-                ok = src.stop_hand()
-            elif ok and s.loading:
-                s.after_load(src.play_hand)          # ▶ on a record still loading plays it once it lands
-            elif ok:
-                ok = src.play_hand() == "starting"
-        elif self.path == "/cue":
-            # CUE on the free deck: with "pos", move the cue point there; with
-            # none, a deck playing by hand stops back at its cue point.
-            pos = body.get("pos")
-            ok = src.set_cue(float(pos)) if pos is not None else src.stop_hand(back_to_cue=True)
-        elif self.path == "/set":
-            try:
-                chosen = s.play_set(int(body.get("i")))
-            except (TypeError, ValueError):
-                chosen = None
-            if chosen is None:
-                return self._send(400, b"", "text/plain")
-            return self._send(200, json.dumps({"next": chosen[0], "on_air": chosen[1]}).encode(), "application/json")
-        elif self.path in ("/load", "/queue"):
-            rec = next((r for r in s.crate if track_id(r.path) == body.get("id")), None)
-            if rec:
-                s.load(rec)
-            ok = rec is not None
-        else:
-            return self._send(404, b"", "text/plain")
+        # The audio renderer takes this same lock for a complete frame;
+        # booth actions cannot change faders/decks halfway through that frame.
+        with src._lock:
+            if self.path == "/skip":
+                log_info("[records] skip from the DJ booth")
+                s.skip()
+                ok = True
+            elif self.path == "/control":
+                slot = body.get("slot")
+                ok = src.controls.set(int(slot) if slot not in (None, "") else None, str(body.get("name", "")),
+                                      body.get("value"))
+            elif self.path == "/rides":
+                src.rides = not src.rides
+                src.gesture = ""
+                log_info(f"[records] Kaia's hands on the mixer {'on' if src.rides else 'off'} from the booth")
+                ok = True
+            elif self.path == "/blend":
+                ok = src.set_mix_beats(int(body.get("beats") or 0))
+                if ok:
+                    log_info(f"[records] blends from the booth: {src._mix_beats} beats")
+            elif self.path == "/reset":
+                if src.hand is not None:
+                    src.finish()                     # she takes the mix from where the hands left it
+                src.controls.reset()
+                src.paused.clear()
+                log_info("[records] the booth handed the mix back to Kaia")
+                ok = True
+            elif self.path in ("/pause", "/play"):
+                # On air: pause / resume in place. The free deck: play it by hand
+                # (synced, on the beat) or pause it.
+                slot = int(body.get("slot") or 0)
+                ok = slot in (1, 2)
+                if ok and src.current is not None and slot == src.current.slot:
+                    src.paused.symmetric_difference_update({slot})
+                elif ok and src.hand is not None:
+                    ok = src.stop_hand()
+                elif ok and s.loading:
+                    s.after_load(src.play_hand)          # ▶ on a record still loading plays it once it lands
+                elif ok:
+                    ok = src.play_hand() == "starting"
+            elif self.path == "/cue":
+                # CUE on the free deck: with "pos", move the cue point there; with
+                # none, a deck playing by hand stops back at its cue point.
+                pos = body.get("pos")
+                ok = src.set_cue(float(pos)) if pos is not None else src.stop_hand(back_to_cue=True)
+            elif self.path == "/set":
+                try:
+                    chosen = s.play_set(int(body.get("i")))
+                except (TypeError, ValueError):
+                    chosen = None
+                if chosen is None:
+                    return self._send(400, b"", "text/plain")
+                return self._send(200, json.dumps({"next": chosen[0], "on_air": chosen[1]}).encode(), "application/json")
+            elif self.path in ("/load", "/queue"):
+                rec = next((r for r in s.crate if track_id(r.path) == body.get("id")), None)
+                if rec:
+                    s.load(rec)
+                ok = rec is not None
+            else:
+                return self._send(404, b"", "text/plain")
         self._send(204 if ok else 400, b"", "text/plain")
 
 
