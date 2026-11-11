@@ -95,7 +95,7 @@ def test_dm_interaction_does_not_become_the_proactive_target(tmp_path):
     assert state.last_interaction_time > 0
     assert state.channel_last_activity == {}
     assert state.last_active_channel_id is None
-    state._executor.shutdown(wait=True)
+    state.close()
 
 
 
