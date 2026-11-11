@@ -280,11 +280,12 @@ class CoreTaskManager:
         self.noon_raid_task = self._make_noon_raid_task()
         self.afterthought_task = self._make_afterthought_task()
         
-        # Inner Monologue — ephemeral thought buffer, injected into system prompt
+        # Inner Monologue — ephemeral thought buffer for its dedicated unprompted path.
+        # It is not exposed to MessageProcessor: server-wide private thoughts
+        # must not become context for an unrelated direct reply.
         try:
             from utils.core.kaia_monologue import InnerMonologue
             self.monologue = InnerMonologue()
-            ctx.monologue = self.monologue  # Expose to message_processor
             self.monologue_task = self._make_monologue_task()
         except Exception as e:
             log_warning(f"Monologue system init failed (non-fatal): {e}")
