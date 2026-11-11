@@ -53,3 +53,68 @@ def test_blend_length_does_not_outweigh_a_bad_key_by_itself():
     # rank, so key compatibility is never sacrificed for a shorter difference.
     assert setlist.blend_rank({"beats": 32}) + 0 <= setlist.blend_rank({"beats": 64}) + 1
     assert setlist.blend_rank({}) == setlist.blend_rank({"beats": 16})
+
+
+
+def test_selection_rank_prefers_exact_style_before_family_neighbours():
+    current = Record("/m/current.mp3", "Alpha", "Current", 124.0, "8A", "House")
+    exact = Record("/m/exact.mp3", "Beta", "Exact", 124.0, "8A", "House")
+    disco = Record("/m/disco.mp3", "Gamma", "Disco", 124.0, "8A", "Disco")
+    techno = Record("/m/techno.mp3", "Delta", "Techno", 124.0, "8A", "Techno")
+    edge = {"beats": 64, "agree": 14, "bars": 16, "ratio": 1.0}
+
+    exact_rank = setlist.transition_rank(current, exact, edge, history=[current])
+    disco_rank = setlist.transition_rank(current, disco, edge, history=[current])
+    techno_rank = setlist.transition_rank(current, techno, edge, history=[current])
+    assert exact_rank < disco_rank < techno_rank
+
+
+def test_selection_rank_softly_prefers_artist_variety():
+    current = Record("/m/current.mp3", "Alpha", "Current", 124.0, "8A", "House")
+    fresh = Record("/m/fresh.mp3", "Beta", "Fresh", 124.0, "8A", "House")
+    repeat = Record("/m/repeat.mp3", "Alpha", "Repeat", 124.0, "8A", "House")
+    edge = {"beats": 64, "agree": 14, "bars": 16, "ratio": 1.0}
+
+    assert setlist.transition_rank(current, fresh, edge, history=[current]) < setlist.transition_rank(
+        current, repeat, edge, history=[current]
+    )
+    # It remains a preference, not an exclusion from the graph.
+    assert setlist.transition_rank(current, repeat, edge, history=[current])
+
+
+def test_selection_rank_uses_agreement_fraction_not_raw_count():
+    current = Record("/m/current.mp3", "Alpha", "Current", 124.0, "8A", "House")
+    wide_low_confidence = {"beats": 128, "agree": 20, "bars": 32, "ratio": 1.0}
+    shorter_high_confidence = {"beats": 64, "agree": 14, "bars": 16, "ratio": 1.0}
+    candidate = Record("/m/candidate.mp3", "Beta", "Candidate", 124.0, "8A", "House")
+
+    assert setlist.blend_rank(wide_low_confidence) == setlist.blend_rank(shorter_high_confidence)
+    assert setlist.transition_rank(current, candidate, shorter_high_confidence) < setlist.transition_rank(
+        current, candidate, wide_low_confidence
+    )
+
+
+def test_selection_rank_keeps_the_existing_key_and_blend_tradeoff():
+    current = Record("/m/current.mp3", "Alpha", "Current", 124.0, "8A", "House")
+    same_key = Record("/m/same-key.mp3", "Beta", "Same key", 124.0, "8A", "House")
+    two_steps = Record("/m/two-steps.mp3", "Gamma", "Two steps", 124.0, "10A", "House")
+    short = {"beats": 32, "agree": 8, "bars": 8, "ratio": 1.0}
+    long = {"beats": 64, "agree": 14, "bars": 16, "ratio": 1.0}
+
+    assert setlist.transition_rank(current, same_key, short) < setlist.transition_rank(current, two_steps, long)
+
+
+def test_artist_matching_ignores_compilation_placeholders():
+    from utils.audio import library
+    various = Record("/m/various.mp3", "Various Artists", "Compilation", 124.0, "8A", "House")
+    named = Record("/m/named.mp3", "Beta", "Named", 124.0, "8A", "House")
+    assert not library.shares_artist(various, named)
+
+
+def test_set_method_upgrade_rebuilds_sets_without_invalidating_audio_edges():
+    graph = {"method": setlist.METHOD, "sets_method": setlist.SET_METHOD - 1,
+             "records": {}, "edges": {}, "checked": {}}
+    assert setlist.needs_build(graph, [])
+    assert setlist.pending(graph, []) == {"records": 0, "pairs": 0}
+    graph["sets_method"] = setlist.SET_METHOD
+    assert not setlist.needs_build(graph, [])
