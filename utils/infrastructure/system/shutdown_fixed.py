@@ -241,11 +241,10 @@ class CleanShutdown:
             save = getattr(state, "save", None)
             close = getattr(state, "close", None)
             if callable(save) and callable(close):
-                def _save_and_close_bot_state():
-                    save()
-                    close()
-
-                await asyncio.wait_for(asyncio.to_thread(_save_and_close_bot_state), timeout=5.0)
+                # save() snapshots live event-loop-owned containers; only the
+                # queued serialization/write drain belongs on a worker thread.
+                save()
+                await asyncio.wait_for(asyncio.to_thread(close), timeout=5.0)
                 log_info("  ✅ BotState snapshot writer drained")
             else:
                 log_warning("  ⚠️ BotState writer has no close() method; final snapshot may not be drained")
