@@ -18,6 +18,7 @@ the live planner still measures every blend before it starts.
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import threading
@@ -32,6 +33,8 @@ VERSION = 2
 #: again whole: the judge has only ever become stricter, so an old edge is not
 #: evidence.
 METHOD = 4
+# Set ranking changes do not invalidate the expensive audio-pair measurements.
+SET_METHOD = 2
 MAX_SETS = 16
 #: A set runs about an hour: it is walked until it reaches SET_TARGET_S of
 #: played time, and one that cannot reach SET_MIN_S is not a set.
@@ -244,7 +247,7 @@ def _changed(entry: Optional[dict], path: str) -> bool:
 def needs_build(g: dict, crate: list) -> bool:
     """Something to measure: a record new or changed since the graph saw it,
     or pairs left from an older way of measuring."""
-    if g.get("method", 2) < METHOD:
+    if g.get("method", 2) < METHOD or g.get("sets_method", 1) < SET_METHOD:
         return True
     recs = g.get("records", {})
     return any(_changed(recs.get(r.path), r.path) for r in crate if r.bpm and os.path.exists(r.path))
@@ -440,6 +443,60 @@ def blend_rank(edge: Optional[dict]) -> int:
     return 0 if beats >= 64 else 1 if beats >= 32 else 3
 
 
+def transition_rank(current, candidate, edge: Optional[dict], *, history=(),
+                     start_family: Optional[str] = None, onward: int = 0,
+                     rng: Optional[random.Random] = None) -> tuple:
+    """Shared taste rank for sets, measured partners and search alternatives.
+
+    Rhythm remains the gate: longer blends rank first, then the fraction of
+    judged bars that agree. Among comparable locks, prefer a compatible key,
+    the exact genre (then its family), artists not already used in this run,
+    and less pitch/tempo correction. This ranks choices; it never makes an
+    unlocked pair eligible.
+    """
+    from utils.audio import library
+
+    edge = edge or {}
+    bars = float(edge.get("bars") or 0.0)
+    agree = float(edge.get("agree") or 0.0)
+    confidence = max(0.0, min(1.0, agree / bars)) if bars > 0 else 1.0
+
+    step = library.key_step(current.key, candidate.key)
+    key_penalty = {0: 0, 1: 0, 2: 1}.get(step, 2)
+
+    current_genre = " ".join(str(getattr(current, "genre", "") or "").casefold().split())
+    next_genre = " ".join(str(getattr(candidate, "genre", "") or "").casefold().split())
+    if current_genre and current_genre == next_genre:
+        style_penalty = 0
+    elif family(current) == family(candidate):
+        style_penalty = 1
+    else:
+        style_penalty = 3
+
+    target_family = start_family or family(current)
+    family_penalty = 0 if family(candidate) == target_family else 2
+    artist_repeats = sum(1 for old in history if library.shares_artist(candidate, old))
+
+    ratio = edge.get("ratio")
+    try:
+        ratio = float(ratio)
+    except (TypeError, ValueError):
+        ratio = library.tempo_ratio(current.bpm, candidate.bpm)
+    stretch_penalty = round(abs(math.log(ratio)), 4) if ratio and ratio > 0 else 1.0
+
+    return (
+        blend_rank(edge),
+        -round(confidence, 4),
+        key_penalty,
+        style_penalty,
+        family_penalty,
+        artist_repeats,
+        stretch_penalty,
+        -min(max(0, int(onward)), 6),
+        rng.random() if rng is not None else 0.0,
+    )
+
+
 def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
     """Sets walked through the graph, about an hour each: every next record a
     measured lock from the one before, no song twice in a set (another file or
@@ -477,11 +534,14 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
                    and not any(library.same_song(live[b], live[x]) for x in path)]
 
             def score(b):
-                step = library.key_step(live[cur].key, live[b].key)
                 ahead = sum(1 for x in edges.get(b, {}) if x not in path)
-                return (blend_rank(edges[cur][b])
-                        + (0 if step in (0, 1) else 1 if step == 2 else 2) + (0 if fam[b] == fam[start] else 2),
-                        used.get(b, 0), -min(ahead, 6), rng.random())
+                rank = transition_rank(
+                    live[cur], live[b], edges[cur][b],
+                    history=[live[p] for p in path], start_family=fam[start],
+                    onward=ahead,
+                )
+                # Use count remains a cross-set diversity tiebreak after musical fit.
+                return rank[:-1] + (used.get(b, 0), rng.random())
             return sorted(out, key=score)[:5]
 
         def dfs():
@@ -524,6 +584,7 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
         for p in path:
             used[p] = used.get(p, 0) + 1
     sets.sort(key=lambda st: (family_of(st, live), min(live[p].bpm or 0 for p in st)))
+    g["sets_method"] = SET_METHOD
     return sets
 
 
