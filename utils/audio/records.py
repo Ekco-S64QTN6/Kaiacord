@@ -1497,6 +1497,13 @@ class CrossfadeSource(_AudioSource):
         return shift
 
     def read(self) -> bytes:
+        # Booth state and the deck graph are mutated under this same RLock.
+        # A complete 20 ms render must see one committed mixer state; otherwise
+        # a skip/load/cue can retire the incoming deck halfway through a frame.
+        with self._lock:
+            return self._read_locked()
+
+    def _read_locked(self) -> bytes:
         cur = self.current
         if cur is None:
             return b""
@@ -1757,11 +1764,14 @@ class CrossfadeSource(_AudioSource):
         self._prefetch()
 
     def cleanup(self) -> None:
-        self._cancel_splice()
-        for deck in (self.current, self.incoming, self.hand):
-            if deck:
-                deck.close()
-        self.current = self.incoming = self.hand = None
+        # Do not retire a decoder while the renderer is in the middle of a
+        # frame. BufferedRecordsSource stops/joins its producer before this.
+        with self._lock:
+            self._cancel_splice()
+            for deck in (self.current, self.incoming, self.hand):
+                if deck:
+                    deck.close()
+            self.current = self.incoming = self.hand = None
 
 
 class BufferedRecordsSource(_AudioSource):
