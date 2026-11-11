@@ -2142,10 +2142,12 @@ class RecordsSession:
         else:
             self.set_list = next((s for s in self.graph.get("sets", []) if deck.record.path in s), self.set_list)
         onward = lambda p: len([x for x in setlist.partners(self.graph, p) if x not in played])
-        # How long the pair can blend counts with the key, as it does in the sets.
-        options.sort(key=lambda p: (setlist.blend_rank(nbrs.get(p))
-                                    + {0: 0, 1: 0, 2: 1}.get(library.key_step(deck.record.key, self._by_path[p].key), 2),
-                                    -min(onward(p), 6), self._rng.random()))
+        start_record = self._by_path.get(self.set_list[0]) if self.set_list else deck.record
+        start_family = setlist.family(start_record or deck.record)
+        options.sort(key=lambda p: setlist.transition_rank(
+            deck.record, self._by_path[p], nbrs.get(p),
+            history=heard, start_family=start_family, onward=onward(p), rng=self._rng,
+        ))
         for path in options[:4]:
             rec = self._by_path[path]
             seconds = probe_seconds(rec.path)
@@ -2185,12 +2187,22 @@ class RecordsSession:
             return (r.path not in played and r.bpm and (exclude is None or not library.same_song(r, exclude))
                     and not any(library.same_song(r, h) for h in heard))
         nbrs = setlist.partners(self.graph, deck.record.path)
-        first = [self._by_path[p] for p in sorted(nbrs, key=lambda p: -nbrs[p].get("agree", 0))
-                 if p in self._by_path and fresh(self._by_path[p])]
         onward = lambda r: len(setlist.partners(self.graph, r.path))
+        start_family = setlist.family(deck.record)
+        first = [self._by_path[p] for p in nbrs
+                 if p in self._by_path and fresh(self._by_path[p])]
+        first.sort(key=lambda r: setlist.transition_rank(
+            deck.record, r, nbrs[r.path], history=heard,
+            start_family=start_family, onward=onward(r), rng=self._rng,
+        ))
         rest = [r for r in self.crate if fresh(r) and r not in first and library.tempo_ratio(playing, r.bpm)
                 and beatgrid.ticks_for(r.path) is not None]
-        rest.sort(key=lambda r: (onward(r) == 0, -library.score(deck.record, r), self._rng.random()))
+        rest.sort(key=lambda r: (
+            onward(r) == 0,
+            sum(1 for h in heard if library.shares_artist(r, h)),
+            -library.score(deck.record, r),
+            self._rng.random(),
+        ))
         return first + rest
 
     def _alternatives(self, deck: Deck, rejected: Next):
