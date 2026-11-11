@@ -15,7 +15,11 @@ on:
   pull_request:
     paths:
       - "utils/audio/records.py"
+      - "utils/audio/library.py"
+      - "utils/audio/setlist.py"
       - "tools/tests/unit/test_records.py"
+      - "tools/tests/unit/test_setlist.py"
+      - "tools/tests/unit/test_mixcheck.py"
       - "config/default_config.yaml"
       - ".github/workflows/records-audio-tests.yml"
 
