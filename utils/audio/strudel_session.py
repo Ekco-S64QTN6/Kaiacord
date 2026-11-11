@@ -266,7 +266,7 @@ class MusicSession:
         except Exception as exc:
             log_debug(f"[music] close engine: {exc}")
 
-        if self._monitor_on_speakers:
+        if getattr(self, "_monitor_on_speakers", False):
             self._monitor_on_speakers = False
             try:
                 await asyncio.shield(asyncio.to_thread(monitor_to_speakers, False))
