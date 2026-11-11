@@ -1334,3 +1334,41 @@ def test_renderer_cleanup_waits_for_in_progress_frame():
     assert not frame_thread.is_alive() and not cleanup_thread.is_alive()
     assert cleanup_done.is_set()
     assert deck.closed
+
+
+
+def test_dashboard_snapshot_waits_for_a_committed_audio_frame(monkeypatch):
+    import threading
+    from types import SimpleNamespace
+    from utils.audio import dj_dashboard
+
+    source, _deck, entered, release = _blocking_frame_source()
+    frame_thread = threading.Thread(target=source.read, daemon=True)
+    frame_thread.start()
+    assert entered.wait(timeout=1.0)
+
+    snapshot_read = threading.Event()
+    snapshot_done = threading.Event()
+    monkeypatch.setattr(
+        dj_dashboard, "_snapshot_locked",
+        lambda _session, _source: (snapshot_read.set() or {"live": True}),
+    )
+    session = SimpleNamespace(source=source)
+    result = []
+    snapshot_thread = threading.Thread(
+        target=lambda: (result.append(dj_dashboard.snapshot(session)), snapshot_done.set()),
+        daemon=True,
+    )
+    snapshot_thread.start()
+    try:
+        assert not snapshot_done.wait(timeout=0.15), "dashboard snapshot read a half-rendered mixer frame"
+        assert not snapshot_read.is_set()
+    finally:
+        release.set()
+        frame_thread.join(timeout=1.0)
+        snapshot_thread.join(timeout=1.0)
+
+    assert not frame_thread.is_alive() and not snapshot_thread.is_alive()
+    assert snapshot_done.is_set() and snapshot_read.is_set()
+    assert result == [{"live": True}]
+    source.cleanup()
