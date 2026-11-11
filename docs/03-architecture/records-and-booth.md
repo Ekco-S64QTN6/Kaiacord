@@ -86,13 +86,16 @@ a mix that sounded wrong:
   nowhere goes out on the bar with its last beat (mids and highs) repeating, `ECHO_FEEDBACK` quieter
   each beat, under the incoming's bar one. On 9 Oct, 40 of 71 planned transitions were cuts — 36 of
   them pairs the graph had never measured (skips and hand loads), which nothing tried to rescue.
-- **She picks partners that blend long** (`setlist.blend_rank`). An edge records the longest blend that
-  locked: 31% of locking pairs lock only for 16 beats (~7.5 s at 128 bpm: highs, bass swap and outgoing
-  inside two bars — a swap, not a blend). Nothing preferred the long ones, and a third of the hour sets'
-  transitions were 16-beat ("mixes into the next song super quick", 31 Oct). The blend's length is
-  *added* to the key and genre rank (64 beats 0, 32 1, 16 3), in the sets and in `_partner`: ranked
-  ahead of key instead, compatible key steps fell from 88% to 72%; added, 81%, with 16-beat steps
-  34% → 3% and 64-beat 41% → 82%. After changing it, `records_graph.py --sets-only --apply`.
+- **She picks partners that blend long and stay in a style** (`setlist.transition_rank`). An edge records the
+  longest blend that locked: 31% of locking pairs lock only for 16 beats (~7.5 s at 128 bpm: highs, bass swap
+  and outgoing inside two bars — a swap, not a blend). The rank adds blend length to the existing key and
+  family penalties rather than letting duration automatically beat harmonic fit. Ties prefer the same exact
+  genre, a higher share of agreeing bars, fewer artist repeats, less tempo correction and useful onward
+  partners. The same rank is used by set construction, live graph partners and alternative search. Artist
+  variety is a soft preference, never a ban. `SET_METHOD` versions playlist ranking separately from
+  `METHOD`: a ranking change rebuilds the hour-long paths without re-measuring the audio graph. The graph
+  still proves only rhythmic lock; it does not yet certify that vocals or midrange content sit well together —
+  see [issue #291](https://github.com/Ekco-S64QTN6/Kaiacord/issues/291).
 - **She picks partners that lock** (`setlist`). `memory/records/graph.json` holds every tempo-compatible
   pair measured with `find_blend` at the outgoing's end; it is extended, never rebuilt — a new or changed
   record costs its own pairs (a file only retagged keeps them: `library.audio_signature` hashes the
