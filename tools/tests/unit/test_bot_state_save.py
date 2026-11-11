@@ -139,3 +139,80 @@ def test_save_serializes_the_detached_snapshot_on_the_writer_thread(tmp_path):
     assert serialization_threads[0] != caller_thread
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["relationships"]["user-1"]["interaction_count"] == 1
+
+
+
+def test_close_drains_queued_snapshots_and_is_idempotent(tmp_path):
+    path = tmp_path / "bot_state_close.json"
+    state = BotState(state_file=str(path))
+    state.relationships = {"user-1": {"interaction_count": 1}}
+    state.save()
+    state.relationships["user-1"]["interaction_count"] = 2
+    state.save()
+
+    state.close()
+    state.close()
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["relationships"]["user-1"]["interaction_count"] == 2
+    assert state._writer_closed is True
+
+
+def test_save_after_close_does_not_overwrite_the_final_snapshot(tmp_path):
+    path = tmp_path / "bot_state_closed.json"
+    state = BotState(state_file=str(path))
+    state.relationships = {"user-1": {"interaction_count": 3}}
+    state.save()
+    state.close()
+
+    state.relationships["user-1"]["interaction_count"] = 99
+    state.save()
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["relationships"]["user-1"]["interaction_count"] == 3
+    assert state._writer_closing is True
+    assert state._writer_closed is True
+
+
+def test_close_waits_for_a_snapshot_already_being_serialized(tmp_path):
+    path = tmp_path / "bot_state_close_wait.json"
+    state = BotState(state_file=str(path))
+    state.relationships = {"user-1": {"interaction_count": 1}}
+    started = threading.Event()
+    release = threading.Event()
+    closed = threading.Event()
+    original = state._serialize_snapshot
+
+    def blocked_serialize(snapshot):
+        started.set()
+        if not release.wait(timeout=5.0):
+            raise TimeoutError("test did not release the snapshot writer")
+        return original(snapshot)
+
+    state._serialize_snapshot = blocked_serialize
+    closer = threading.Thread(target=lambda: (state.close(), closed.set()), daemon=True)
+    try:
+        state.save()
+        assert started.wait(timeout=2.0), "writer did not begin serializing"
+        closer.start()
+        assert not closed.wait(timeout=0.1), "close returned before the queued write finished"
+    finally:
+        release.set()
+        if closer.ident is not None:
+            closer.join(timeout=3.0)
+    assert closed.is_set(), "close did not finish after the writer was released"
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["relationships"]["user-1"]["interaction_count"] == 1
+
+
+def test_shutdown_drains_bot_state_after_task_cancellation():
+    import inspect
+    from utils.infrastructure.system.shutdown_fixed import CleanShutdown
+
+    source = inspect.getsource(CleanShutdown.async_shutdown)
+    task_cancel = source.index("task_registry.cancel_all")
+    state_close = source.index("state.close()")
+    model_unload = source.index("OllamaGPUManager.unload_all_models")
+    assert task_cancel < state_close < model_unload
+    assert "await asyncio.wait_for(asyncio.to_thread(close), timeout=5.0)" in source
+    assert 'getattr(app_ctx, "bot_state", None)' in source
