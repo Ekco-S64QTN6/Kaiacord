@@ -55,11 +55,16 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
+          # The hosted Ubuntu image tries Azure's mirror first. It can stall
+          # while the official archive mirrors in this list remain healthy.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
           if ! ldconfig -p 2>/dev/null | grep -q 'libopus[.]so'; then
             # The Python wheel supplies FFmpeg. Install only the small runtime
-            # library from apt instead of downloading FFmpeg's large dependency tree.
-            sudo env DEBIAN_FRONTEND=noninteractive timeout 120s apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-            sudo env DEBIAN_FRONTEND=noninteractive timeout 120s apt-get install --yes --no-install-recommends -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 libopus0
+            # library from the remaining official archive mirrors.
+            sudo env DEBIAN_FRONTEND=noninteractive timeout 120s apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=120 update
+            sudo env DEBIAN_FRONTEND=noninteractive timeout 120s apt-get install --yes --no-install-recommends -o Acquire::Retries=0 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=120 libopus0
           fi
       - name: Install Python dependencies
         run: |
