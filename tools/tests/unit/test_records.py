@@ -1192,10 +1192,9 @@ def test_records_session_stop_invalidates_outstanding_booth_loads():
         is_playing=lambda: False,
         disconnect=AsyncMock(),
     )
-    session.load(rec)
     before = set(threading.enumerate())
-    # The worker was started before this snapshot; locate it by name.
-    worker = next(t for t in threading.enumerate() if t.name == "kaia-records-load")
+    session.load(rec)
+    worker = _new_load_thread(before)
     assert started.wait(timeout=1.0)
 
     asyncio.run(session.stop(disconnect=False))
