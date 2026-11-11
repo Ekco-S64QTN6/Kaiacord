@@ -934,6 +934,7 @@ def test_next_pressed_while_a_booth_load_is_reading_waits_for_it():
     from types import SimpleNamespace
     calls = []
     session = R.RecordsSession.__new__(R.RecordsSession)
+    session._load_lock = threading.Lock()
     session.loading = "Cam Wales — Ambulance"
     session.source = SimpleNamespace(skip=lambda: calls.append(("skip", session.loading)))
     session.skip()
@@ -1038,3 +1039,141 @@ def test_a_set_waits_for_its_first_record_to_buffer():
             return False
     t0 = time.monotonic()
     assert R._wait_deck(Never(), 25, 0.1) is False and time.monotonic() - t0 < 0.5
+
+
+
+def _load_race_session():
+    import threading
+    from types import SimpleNamespace
+
+    session = R.RecordsSession.__new__(R.RecordsSession)
+    session._closing = False
+    session._load_lock = threading.Lock()
+    session._load_generation = 0
+    session.loading = None
+    session.last_load = None
+    session.requests = []
+    session.requested_by = "tester"
+    session.say = lambda *_args: None
+
+    class Mixer:
+        def __init__(self):
+            self.loaded = []
+
+        def load(self, nxt):
+            self.loaded.append(nxt.record.title)
+            return "loaded"
+
+    session.source = Mixer()
+    return session, SimpleNamespace
+
+
+def test_newest_booth_load_wins_when_older_analysis_finishes_last():
+    import threading
+
+    session, SimpleNamespace = _load_race_session()
+    started = {name: threading.Event() for name in ("Old", "New")}
+    release = {name: threading.Event() for name in ("Old", "New")}
+    prepared = {name: threading.Event() for name in ("Old", "New")}
+
+    def prepare(rec):
+        started[rec.title].set()
+        assert release[rec.title].wait(timeout=3.0)
+        prepared[rec.title].set()
+        return R.Next(rec, 60.0)
+
+    session._prepare = prepare
+    old = SimpleNamespace(name="Old record", title="Old", path="/old.mp3")
+    new = SimpleNamespace(name="New record", title="New", path="/new.mp3")
+
+    session.load(old)
+    assert started["Old"].wait(timeout=1.0)
+    session.load(new)
+    assert started["New"].wait(timeout=1.0)
+
+    release["New"].set()
+    deadline = time.time() + 2.0
+    while session.loading is not None and time.time() < deadline:
+        time.sleep(0.01)
+    assert session.loading is None
+    assert session.source.loaded == ["New"]
+
+    # The old worker finishes after the newest one has already committed.
+    release["Old"].set()
+    assert prepared["Old"].wait(timeout=1.0)
+    deadline = time.time() + 1.0
+    while threading.active_count() > 0 and time.time() < deadline:
+        if session.source.loaded == ["New"]:
+            time.sleep(0.01)
+            break
+    assert session.source.loaded == ["New"]
+    assert session.last_load["name"] == "New record"
+
+
+def test_after_load_waits_for_the_latest_booth_load_not_an_older_worker():
+    import threading
+    from types import SimpleNamespace
+
+    session, _ = _load_race_session()
+    started = {name: threading.Event() for name in ("Old", "New")}
+    release = {name: threading.Event() for name in ("Old", "New")}
+    prepared = {name: threading.Event() for name in ("Old", "New")}
+    callbacks = []
+
+    def prepare(rec):
+        started[rec.title].set()
+        assert release[rec.title].wait(timeout=3.0)
+        prepared[rec.title].set()
+        return R.Next(rec, 60.0)
+
+    session._prepare = prepare
+    old = SimpleNamespace(name="Old record", title="Old", path="/old.mp3")
+    new = SimpleNamespace(name="New record", title="New", path="/new.mp3")
+
+    session.load(old)
+    assert started["Old"].wait(timeout=1.0)
+    session.load(new)
+    assert started["New"].wait(timeout=1.0)
+    session.after_load(lambda: callbacks.append(tuple(session.source.loaded)))
+
+    release["Old"].set()
+    assert prepared["Old"].wait(timeout=1.0)
+    time.sleep(0.15)
+    assert session.loading == "New"
+    assert callbacks == []
+
+    release["New"].set()
+    deadline = time.time() + 2.0
+    while not callbacks and time.time() < deadline:
+        time.sleep(0.01)
+    assert callbacks == [("New",)]
+
+
+def test_records_session_stop_invalidates_outstanding_booth_loads():
+    import threading
+
+    session, SimpleNamespace = _load_race_session()
+    started = threading.Event()
+    release = threading.Event()
+    prepared = threading.Event()
+    rec = SimpleNamespace(name="Late record", title="Late", path="/late.mp3")
+
+    def prepare(_rec):
+        started.set()
+        assert release.wait(timeout=3.0)
+        prepared.set()
+        return R.Next(rec, 60.0)
+
+    session._prepare = prepare
+    session.load(rec)
+    assert started.wait(timeout=1.0)
+    with session._load_lock:
+        session._closing = True
+        session._load_generation += 1
+        session.loading = None
+    release.set()
+    assert prepared.wait(timeout=1.0)
+    time.sleep(0.1)
+    assert session.source.loaded == []
+    assert session.loading is None
+    assert session.last_load is None
