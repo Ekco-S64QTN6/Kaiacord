@@ -48,6 +48,11 @@ ASSET_DIR = PROJECT_ROOT / "assets" / "strudel"
 SINK_NAME = "kaia_music"
 FRAME_BYTES = 960 * 2 * 2          # 20 ms, 48 kHz, stereo, s16le
 
+# Several guilds share this null sink. One loopback is enough; a lease count
+# prevents duplicate local playback and prevents one guild stopping another.
+_MONITOR_LOCK = threading.Lock()
+_MONITOR_USERS = 0
+
 def _browser_environment(base_env=None) -> dict[str, str]:
     """Return Chromium's environment without changing the bot's process env."""
     env = dict(os.environ if base_env is None else base_env)
@@ -87,22 +92,54 @@ def ensure_sink() -> bool:
         return False
 
 
-def monitor_to_speakers(enable: bool = True) -> None:
-    """Loop the sink back to the default output so a human can hear it.
+def _monitor_module_ids() -> list[str]:
+    rows = _pactl("list", "short", "modules").splitlines()
+    return [
+        line.split(None, 1)[0]
+        for line in rows
+        if "module-loopback" in line and f"source={SINK_NAME}.monitor" in line
+    ]
 
-    The null sink has no speakers attached, so by default the operator sees
-    audio meters moving and hears nothing — which reads as a fault and is not.
+
+def monitor_to_speakers(enable: bool = True) -> bool:
+    """Acquire/release a shared loopback from Kaia's sink to local speakers.
+
+    The null sink is shared by every guild. The first live session removes
+    stale Kaia loopbacks left by an interrupted process and creates one; more
+    sessions share it. Only the last matching release unloads it.
     """
-    try:
-        if enable:
-            _pactl("load-module", "module-loopback",
-                   f"source={SINK_NAME}.monitor", "latency_msec=60")
-        else:
-            for line in _pactl("list", "short", "modules").splitlines():
-                if "module-loopback" in line and SINK_NAME in line:
-                    _pactl("unload-module", line.split("\t")[0])
-    except Exception as exc:
-        log_debug(f"[music] loopback toggle failed: {exc}")
+    global _MONITOR_USERS
+    with _MONITOR_LOCK:
+        try:
+            if enable:
+                if _MONITOR_USERS:
+                    _MONITOR_USERS += 1
+                    return True
+
+                # The sink is dedicated to Kaia. Matching modules found at the
+                # first acquisition are residue from a prior bot process.
+                for module_id in _monitor_module_ids():
+                    _pactl("unload-module", module_id)
+
+                loaded = _pactl("load-module", "module-loopback",
+                                f"source={SINK_NAME}.monitor", "latency_msec=60").strip()
+                if not _monitor_module_ids():
+                    raise RuntimeError(f"pactl did not create a loopback (reply: {loaded!r})")
+                _MONITOR_USERS = 1
+                return True
+
+            if _MONITOR_USERS == 0:
+                return False
+            _MONITOR_USERS -= 1
+            if _MONITOR_USERS:
+                return True
+
+            for module_id in _monitor_module_ids():
+                _pactl("unload-module", module_id)
+            return True
+        except Exception as exc:
+            log_debug(f"[music] loopback toggle failed: {exc}")
+            return False
 
 
 # ── the engine ───────────────────────────────────────────────────────
