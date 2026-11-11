@@ -133,6 +133,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_radio_close_stream.py",
     ),
     "utils/audio/strudel_engine.py": ("tools/tests/unit/test_strudel_source_restart.py",),
+    "utils/audio/strudel_session.py": ("tools/tests/unit/test_strudel_session_lifecycle.py",),
     "utils/commands/art_handler.py": (
         "tools/tests/unit/test_kaia_sheep.py",
         "tools/tests/unit/test_art_intent.py",
