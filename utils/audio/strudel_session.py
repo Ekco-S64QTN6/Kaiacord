@@ -247,23 +247,24 @@ class MusicSession:
         _sessions.pop(self.guild_id, None)
 
         # These operations wait on Playwright, FFmpeg, pipe reads and thread
-        # joins. Keep them off Discord's event loop, preserving their teardown
-        # order so the source is stopped before its engine is closed.
-        for operation, what in (
-            (self.engine.stop, "stop pattern"),
-            (self.source.cleanup, "cleanup source"),
-            (self.engine.close, "close engine"),
-        ):
-            if what == "cleanup source":
-                try:
-                    if self.vc.is_playing():
-                        self.vc.stop()
-                except Exception as exc:
-                    log_debug(f"[music] stop playback: {exc}")
-            try:
-                await asyncio.to_thread(operation)
-            except Exception as exc:
-                log_debug(f"[music] {what}: {exc}")
+        # joins. Keep them off Discord's event loop and preserve teardown order.
+        try:
+            await asyncio.to_thread(self.engine.stop)
+        except Exception as exc:
+            log_debug(f"[music] stop pattern: {exc}")
+        try:
+            if self.vc.is_playing():
+                self.vc.stop()
+        except Exception as exc:
+            log_debug(f"[music] stop playback: {exc}")
+        try:
+            await asyncio.to_thread(self.source.cleanup)
+        except Exception as exc:
+            log_debug(f"[music] cleanup source: {exc}")
+        try:
+            await asyncio.to_thread(self.engine.close)
+        except Exception as exc:
+            log_debug(f"[music] close engine: {exc}")
 
         if self._monitor_on_speakers:
             self._monitor_on_speakers = False
