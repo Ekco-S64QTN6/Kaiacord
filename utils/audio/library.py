@@ -75,7 +75,7 @@ def load(path: str | os.PathLike) -> list[Record]:
 
 
 _VERSION = re.compile(r"\s+-\s+.*\b(?:remix|mix|edit|version|rework|remaster(?:ed)?|vip|dub|bootleg|flip|cover)\b.*$")
-_ARTIST_FILLER = {"feat", "ft", "vs", "and", "the", "with", "official", "music", "x", "various", "artists", "unknown"}
+_ARTIST_FILLER = {"feat", "ft", "vs", "and", "the", "with", "official", "music", "x", "various", "artists", "artist", "unknown"}
 
 
 def audio_signature(path: str) -> Optional[str]:
