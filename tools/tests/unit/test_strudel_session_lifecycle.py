@@ -7,11 +7,25 @@ from utils.audio import strudel_session as ss
 
 
 def test_watchdog_exception_stops_and_unregisters_the_music_session(monkeypatch):
+    import threading
+
     monkeypatch.setattr(ss, "WATCHDOG_PERIOD_S", 0)
+    loop_thread = threading.get_ident()
+    call_threads = {}
+
+    def record_thread(name, *, fail=False):
+        def call(*_args, **_kwargs):
+            call_threads[name] = threading.get_ident()
+            if fail:
+                raise RuntimeError("fake browser failure")
+        return call
 
     engine = MagicMock()
-    engine.alive.side_effect = RuntimeError("fake browser failure")
+    engine.alive.side_effect = record_thread("alive", fail=True)
+    engine.stop.side_effect = record_thread("stop")
+    engine.close.side_effect = record_thread("close")
     source = MagicMock()
+    source.cleanup.side_effect = record_thread("source cleanup")
 
     voice = MagicMock()
     voice.guild.id = 4242
@@ -36,6 +50,30 @@ def test_watchdog_exception_stops_and_unregisters_the_music_session(monkeypatch)
     engine.close.assert_called_once()
     source.cleanup.assert_called_once()
     voice.disconnect.assert_awaited_once()
+    assert set(call_threads) == {"alive", "stop", "source cleanup", "close"}
+    assert all(thread_id != loop_thread for thread_id in call_threads.values())
+
+
+def test_human_editor_query_is_offloaded_from_the_event_loop():
+    import threading
+    from types import SimpleNamespace
+
+    session = object.__new__(ss.MusicSession)
+    query_threads = []
+    session._held = 0
+    session.engine = SimpleNamespace(
+        human_edited=lambda: query_threads.append(threading.get_ident()) or True
+    )
+
+    async def go():
+        loop_thread = threading.get_ident()
+        held = await session._held_for_human()
+        return loop_thread, held
+
+    loop_thread, held = asyncio.run(go())
+    assert held is True
+    assert len(query_threads) == 1
+    assert query_threads[0] != loop_thread
 
 
 def test_failed_startup_closes_source_engine_and_new_voice_connection(monkeypatch):
