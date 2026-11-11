@@ -96,3 +96,25 @@ def test_dm_interaction_does_not_become_the_proactive_target(tmp_path):
     assert state.channel_last_activity == {}
     assert state.last_active_channel_id is None
     state._executor.shutdown(wait=True)
+
+
+
+def test_server_wide_private_monologue_does_not_enter_direct_reply_prompts():
+    """Cross-channel thoughts are unscoped; they must not steer direct replies."""
+    from utils.core.message_processor import MessageProcessor
+
+    source = textwrap.dedent(inspect.getsource(MessageProcessor._retrieve_and_generate))
+    tree = ast.parse(source)
+    assert not any(
+        isinstance(node, ast.Attribute) and node.attr == "get_injection"
+        for node in ast.walk(tree)
+    ), "direct replies must not inject the private monologue buffer"
+    assert "self.ctx.monologue" not in source
+    assert "monologue.get_injection()" not in Path("utils/core/message_processor.py").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_background_tasks_do_not_expose_monologue_to_message_processor():
+    source = Path("utils/core/background_tasks.py").read_text(encoding="utf-8")
+    assert "ctx.monologue = self.monologue" not in source

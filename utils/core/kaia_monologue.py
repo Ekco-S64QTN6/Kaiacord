@@ -3,10 +3,11 @@ Inner Monologue System
 ======================
 
 A rolling buffer of private one-sentence observations Kaia makes about
-channel activity. They are injected into her system prompt, so her replies are
-coloured by what she has been thinking about, and are also offered to the
-shared unprompted system (utils/core/unprompted.py), which posts them to
-#kaia-opolis when `unprompted.sources.monologue` is on.
+channel activity. The buffer remains available to the dedicated unprompted
+system (utils/core/unprompted.py), which can post thoughts to #kaia-opolis
+when `unprompted.sources.monologue` is on. It is deliberately not injected
+into direct replies: the observations span server channels and may have no
+bearing on the person or subject currently speaking to her.
 
 - In-memory deque(maxlen=5): resets on restart, like real thoughts
 - At most one every 15 minutes, and only when the conversation has changed
@@ -258,7 +259,7 @@ class InnerMonologue:
         """Return formatted monologue entries for system prompt injection.
 
         Returns empty string if no thoughts available.
-        Called by message_processor at response time.
+        Used by the dedicated unprompted path, not direct chat response generation.
         """
         if not self._buffer:
             return ""
