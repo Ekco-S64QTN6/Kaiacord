@@ -908,6 +908,10 @@ class CrossfadeSource(_AudioSource):
         self._picking = False
         self._exhausted = False             # the last pick found nothing to play
         self._planning = False
+        # A booth NEXT can arrive while an end-of-record planner is measuring
+        # off-thread. Remember the higher-priority request until that worker
+        # relinquishes the single-planner slot.
+        self._pending_planning_mode: Optional[str] = None
         self._start_frame: Optional[int] = None
         self.frames_sent = 0
         # What the mixer is doing, for the DJ dashboard: pre-fader levels of
@@ -1002,7 +1006,8 @@ class CrossfadeSource(_AudioSource):
             # seconds, each pushing the echo 2 s on).
             pending = self.plan if (self.plan is not None and not self.blend_started()) else None
             if (pending is not None and pending.mode == "skip") or \
-                    (self._planning and self.planning_mode == "skip"):
+                    (self._planning and self.planning_mode == "skip") or \
+                    self._pending_planning_mode == "skip":
                 log_debug("[records] skip pressed again; the one on its way stands")
                 return
             if self._call_off_plan():
@@ -1314,11 +1319,19 @@ class CrossfadeSource(_AudioSource):
         return round(20 * np.log10(rms / 32768.0), 1) if rms > 1 else -90.0
 
     def _begin_planning(self, mode: str) -> None:
-        if self._planning or self.plan or self.current is None or self.hand is not None or self._hand_starting:
-            return
-        self._planning = True
-        self.planning_mode = mode
-        deck, gen = self.current, self._gen
+        with self._lock:
+            if self._planning:
+                # NEXT supersedes a speculative end-of-record transition. The
+                # current worker owns the planner slot until it notices its
+                # invalidated generation and exits; start the skip afterwards.
+                if mode == "skip" and self.planning_mode != "skip":
+                    self._pending_planning_mode = "skip"
+                return
+            if self.plan or self.current is None or self.hand is not None or self._hand_starting:
+                return
+            self._planning = True
+            self.planning_mode = mode
+            deck, gen = self.current, self._gen
 
         def run():
             try:
@@ -1454,8 +1467,12 @@ class CrossfadeSource(_AudioSource):
             except Exception as e:
                 log_warning(f"[records] transition not planned: {e}")
             finally:
-                self._planning = False
-                self.planning_mode = None
+                with self._lock:
+                    self._planning = False
+                    self.planning_mode = None
+                    pending_mode, self._pending_planning_mode = self._pending_planning_mode, None
+                if pending_mode is not None:
+                    self._begin_planning(pending_mode)
         threading.Thread(target=run, daemon=True, name="kaia-records-plan").start()
 
     def _journal_row(self, row: dict) -> None:
