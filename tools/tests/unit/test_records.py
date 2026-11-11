@@ -935,6 +935,7 @@ def test_next_pressed_while_a_booth_load_is_reading_waits_for_it():
     calls = []
     session = R.RecordsSession.__new__(R.RecordsSession)
     session._load_lock = threading.Lock()
+    session._closing = False
     session.loading = "Cam Wales — Ambulance"
     session.source = SimpleNamespace(skip=lambda: calls.append(("skip", session.loading)))
     session.skip()
@@ -1160,7 +1161,7 @@ def test_after_load_waits_for_the_latest_booth_load_not_an_older_worker():
     release["Old"].set()
     old_worker.join(timeout=1.0)
     assert not old_worker.is_alive()
-    assert session.loading == "New"
+    assert session.loading == "New record"
     assert not callback_done.wait(timeout=0.15)
 
     release["New"].set()
