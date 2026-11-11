@@ -214,5 +214,6 @@ def test_shutdown_drains_bot_state_after_task_cancellation():
     state_close = source.index('close = getattr(state, "close", None)')
     model_unload = source.index("OllamaGPUManager.unload_all_models")
     assert task_cancel < state_close < model_unload
-    assert "await asyncio.wait_for(asyncio.to_thread(close), timeout=5.0)" in source
+    assert "asyncio.to_thread(_save_and_close_bot_state)" in source
+    assert "timeout=5.0" in source
     assert 'getattr(app_ctx, "bot_state", None)' in source
