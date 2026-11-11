@@ -49,6 +49,9 @@ class MusicSession:
         self.text_channel = text_channel
         self.started_at = time.time()
         self._closing = False
+        # False unless a caller explicitly transfers a shared monitor lease
+        # into this session (the field also makes stop() safe on main-only runs).
+        self._monitor_on_speakers = False
         self._alone_since: float | None = None
         self._restore: tuple[float, list[str]] | None = None
         self.listeners_seen: set[str] = set()
