@@ -75,7 +75,7 @@ def load(path: str | os.PathLike) -> list[Record]:
 
 
 _VERSION = re.compile(r"\s+-\s+.*\b(?:remix|mix|edit|version|rework|remaster(?:ed)?|vip|dub|bootleg|flip|cover)\b.*$")
-_ARTIST_FILLER = {"feat", "ft", "vs", "and", "the", "with", "official", "music", "x"}
+_ARTIST_FILLER = {"feat", "ft", "vs", "and", "the", "with", "official", "music", "x", "various", "artists", "unknown"}
 
 
 def audio_signature(path: str) -> Optional[str]:
@@ -124,6 +124,12 @@ def title_key(rec: Record) -> str:
 @functools.lru_cache(maxsize=4096)
 def _artist_words(rec: Record) -> frozenset:
     return frozenset(w for w in re.findall(r"\w+", rec.artist.lower()) if len(w) > 2 and w not in _ARTIST_FILLER)
+
+
+def shares_artist(a: Record, b: Record) -> bool:
+    """Whether two credits share a named artist (unknown/compilation credits do not count)."""
+    wa, wb = _artist_words(a), _artist_words(b)
+    return bool(wa and wb and wa & wb)
 
 
 def same_song(a: Record, b: Record) -> bool:
@@ -192,8 +198,13 @@ def score(current: Record, candidate: Record) -> float:
     ratio = tempo_ratio(current.bpm, candidate.bpm)
     if ratio is not None:
         s += 3.0 - 20.0 * abs(ratio - 1.0)
-    if current.genre and candidate.genre == current.genre:
+    if current.genre and candidate.genre and current.genre.casefold().strip() == candidate.genre.casefold().strip():
         s += 1.5
+    # When fit and style are otherwise equal, give the next slot to another
+    # artist. This is deliberately a soft preference, not a ban: a small crate
+    # or a deliberately producer-led set can still repeat someone.
+    if shares_artist(current, candidate):
+        s -= 0.75
     return s
 
 
