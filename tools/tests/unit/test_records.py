@@ -1042,6 +1042,7 @@ def test_a_set_waits_for_its_first_record_to_buffer():
 
 
 
+
 def _load_race_session():
     import threading
     from types import SimpleNamespace
@@ -1055,6 +1056,10 @@ def _load_race_session():
     session.requests = []
     session.requested_by = "tester"
     session.say = lambda *_args: None
+    session.voice_source = None
+    session._task = None
+    session.started_at = time.time()
+    session.names = []
 
     class Mixer:
         def __init__(self):
@@ -1064,48 +1069,56 @@ def _load_race_session():
             self.loaded.append(nxt.record.title)
             return "loaded"
 
+        def cleanup(self):
+            pass
+
     session.source = Mixer()
-    return session, SimpleNamespace
+    return session
+
+
+def _new_load_thread(previous):
+    import threading
+    current = set(threading.enumerate()) - previous
+    return next(t for t in current if t.name == "kaia-records-load")
 
 
 def test_newest_booth_load_wins_when_older_analysis_finishes_last():
     import threading
+    from types import SimpleNamespace
 
-    session, SimpleNamespace = _load_race_session()
+    session = _load_race_session()
     started = {name: threading.Event() for name in ("Old", "New")}
     release = {name: threading.Event() for name in ("Old", "New")}
-    prepared = {name: threading.Event() for name in ("Old", "New")}
 
     def prepare(rec):
         started[rec.title].set()
         assert release[rec.title].wait(timeout=3.0)
-        prepared[rec.title].set()
         return R.Next(rec, 60.0)
 
     session._prepare = prepare
     old = SimpleNamespace(name="Old record", title="Old", path="/old.mp3")
     new = SimpleNamespace(name="New record", title="New", path="/new.mp3")
 
+    before = set(threading.enumerate())
     session.load(old)
+    old_worker = _new_load_thread(before)
     assert started["Old"].wait(timeout=1.0)
+
+    before = set(threading.enumerate())
     session.load(new)
+    new_worker = _new_load_thread(before)
     assert started["New"].wait(timeout=1.0)
 
     release["New"].set()
-    deadline = time.time() + 2.0
-    while session.loading is not None and time.time() < deadline:
-        time.sleep(0.01)
+    new_worker.join(timeout=1.0)
+    assert not new_worker.is_alive()
     assert session.loading is None
     assert session.source.loaded == ["New"]
 
-    # The old worker finishes after the newest one has already committed.
+    # The old worker finishes only after the latest choice has committed.
     release["Old"].set()
-    assert prepared["Old"].wait(timeout=1.0)
-    deadline = time.time() + 1.0
-    while threading.active_count() > 0 and time.time() < deadline:
-        if session.source.loaded == ["New"]:
-            time.sleep(0.01)
-            break
+    old_worker.join(timeout=1.0)
+    assert not old_worker.is_alive()
     assert session.source.loaded == ["New"]
     assert session.last_load["name"] == "New record"
 
@@ -1114,66 +1127,81 @@ def test_after_load_waits_for_the_latest_booth_load_not_an_older_worker():
     import threading
     from types import SimpleNamespace
 
-    session, _ = _load_race_session()
+    session = _load_race_session()
     started = {name: threading.Event() for name in ("Old", "New")}
     release = {name: threading.Event() for name in ("Old", "New")}
-    prepared = {name: threading.Event() for name in ("Old", "New")}
     callbacks = []
+    callback_done = threading.Event()
 
     def prepare(rec):
         started[rec.title].set()
         assert release[rec.title].wait(timeout=3.0)
-        prepared[rec.title].set()
         return R.Next(rec, 60.0)
 
     session._prepare = prepare
     old = SimpleNamespace(name="Old record", title="Old", path="/old.mp3")
     new = SimpleNamespace(name="New record", title="New", path="/new.mp3")
 
+    before = set(threading.enumerate())
     session.load(old)
+    old_worker = _new_load_thread(before)
     assert started["Old"].wait(timeout=1.0)
-    session.load(new)
-    assert started["New"].wait(timeout=1.0)
-    session.after_load(lambda: callbacks.append(tuple(session.source.loaded)))
 
+    before = set(threading.enumerate())
+    session.load(new)
+    new_worker = _new_load_thread(before)
+    assert started["New"].wait(timeout=1.0)
+
+    def after():
+        callbacks.append(tuple(session.source.loaded))
+        callback_done.set()
+
+    session.after_load(after)
     release["Old"].set()
-    assert prepared["Old"].wait(timeout=1.0)
-    time.sleep(0.15)
+    old_worker.join(timeout=1.0)
+    assert not old_worker.is_alive()
     assert session.loading == "New"
-    assert callbacks == []
+    assert not callback_done.wait(timeout=0.15)
 
     release["New"].set()
-    deadline = time.time() + 2.0
-    while not callbacks and time.time() < deadline:
-        time.sleep(0.01)
+    new_worker.join(timeout=1.0)
+    assert not new_worker.is_alive()
+    assert callback_done.wait(timeout=1.0)
     assert callbacks == [("New",)]
 
 
 def test_records_session_stop_invalidates_outstanding_booth_loads():
+    import asyncio
     import threading
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
 
-    session, SimpleNamespace = _load_race_session()
+    session = _load_race_session()
     started = threading.Event()
     release = threading.Event()
-    prepared = threading.Event()
     rec = SimpleNamespace(name="Late record", title="Late", path="/late.mp3")
 
     def prepare(_rec):
         started.set()
         assert release.wait(timeout=3.0)
-        prepared.set()
         return R.Next(rec, 60.0)
 
     session._prepare = prepare
+    session.vc = SimpleNamespace(
+        guild=SimpleNamespace(id=99117),
+        is_playing=lambda: False,
+        disconnect=AsyncMock(),
+    )
     session.load(rec)
+    before = set(threading.enumerate())
+    # The worker was started before this snapshot; locate it by name.
+    worker = next(t for t in threading.enumerate() if t.name == "kaia-records-load")
     assert started.wait(timeout=1.0)
-    with session._load_lock:
-        session._closing = True
-        session._load_generation += 1
-        session.loading = None
-    release.set()
-    assert prepared.wait(timeout=1.0)
-    time.sleep(0.1)
-    assert session.source.loaded == []
+
+    asyncio.run(session.stop(disconnect=False))
     assert session.loading is None
+    release.set()
+    worker.join(timeout=1.0)
+    assert not worker.is_alive()
+    assert session.source.loaded == []
     assert session.last_load is None
