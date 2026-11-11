@@ -166,12 +166,18 @@ _launch = 0
 
 
 def snapshot(session) -> dict:
-    """The booth as it stands: both decks, the mixer, the set."""
+    """The booth as it stands, sampled at one committed mixer frame boundary."""
     if session is None or session.source is None:
         return {"live": False, "t": time.time(), "launch": _launch}
+    src = session.source
+    with src._lock:
+        return _snapshot_locked(session, src)
+
+
+def _snapshot_locked(session, src) -> dict:
+    """Read deck, plan, control and meter state while the renderer is paused."""
     from utils.audio import records as R
     from utils.audio.records import ramp
-    src = session.source
     cur, inc, plan, queued, hand = src.current, src.incoming, src.plan, src._queued, src.hand
     decks = {}
     free = src.free_slot()
