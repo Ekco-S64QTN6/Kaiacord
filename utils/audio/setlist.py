@@ -470,7 +470,8 @@ def transition_rank(current, candidate, edge: Optional[dict], *, history=(),
     elif family(current) == family(candidate):
         style_penalty = 1
     else:
-        style_penalty = 2
+        # The start-family penalty below already carries the cross-family cost.
+        style_penalty = 0
 
     target_family = start_family or family(current)
     family_penalty = 0 if family(candidate) == target_family else 2
