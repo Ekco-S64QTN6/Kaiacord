@@ -5,7 +5,11 @@ on:
     branches: ["**"]
     paths:
       - "utils/audio/records.py"
+      - "utils/audio/library.py"
+      - "utils/audio/setlist.py"
       - "tools/tests/unit/test_records.py"
+      - "tools/tests/unit/test_setlist.py"
+      - "tools/tests/unit/test_mixcheck.py"
       - "config/default_config.yaml"
       - ".github/workflows/records-audio-tests.yml"
   pull_request:
@@ -34,5 +38,10 @@ jobs:
           sudo apt-get install --yes ffmpeg
           python -m pip install --upgrade pip
           python -m pip install pytest pytest-asyncio numpy scipy PyYAML
-      - name: Test the record mixer and buffered AudioSource
-        run: python -m pytest tools/tests/unit/test_records.py -q
+      - name: Test records, set ranking and measured blends
+        run: >-
+          python -m pytest
+          tools/tests/unit/test_records.py
+          tools/tests/unit/test_setlist.py
+          tools/tests/unit/test_mixcheck.py
+          -q
