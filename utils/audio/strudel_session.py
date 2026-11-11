@@ -39,7 +39,8 @@ def _cfg(key: str, default):
 class MusicSession:
     def __init__(self, vc: discord.VoiceClient, engine: StrudelEngine,
                  source: StrudelAudioSource, perf: TrackPerformance,
-                 genre: str, requested_by: str, text_channel=None):
+                 genre: str, requested_by: str, text_channel=None,
+                 monitor_on_speakers: bool = False):
         self.vc = vc
         self.engine = engine
         self.source = source
@@ -49,6 +50,7 @@ class MusicSession:
         self.text_channel = text_channel
         self.started_at = time.time()
         self._closing = False
+        self._monitor_on_speakers = bool(monitor_on_speakers)
         self._alone_since: float | None = None
         self._restore: tuple[float, list[str]] | None = None
         self.listeners_seen: set[str] = set()
@@ -254,6 +256,12 @@ class MusicSession:
             await self.vc.disconnect(force=True)
         except Exception as exc:
             log_debug(f"[music] disconnect: {exc}")
+        if self._monitor_on_speakers:
+            self._monitor_on_speakers = False
+            try:
+                await asyncio.to_thread(monitor_to_speakers, False)
+            except Exception as exc:
+                log_debug(f"[music] speaker monitor release: {exc}")
         task = self._task
         if task and not task.done() and task is not asyncio.current_task():
             task.cancel()
@@ -332,6 +340,7 @@ async def start_session(channel, *, genre: str, requested_by: str,
     vc = None
     connected_here = False
     played_here = False
+    monitor_acquired = False
     session = None
     try:
         # Startup owns all resources from this point until the session is
@@ -341,7 +350,9 @@ async def start_session(channel, *, genre: str, requested_by: str,
         from utils.audio.strudel_patterns import warmup_program
         await loop.run_in_executor(None, engine.warm_up, warmup_program())
         if _cfg("monitor_on_speakers", False):
-            monitor_to_speakers(True)
+            monitor_acquired = await asyncio.to_thread(monitor_to_speakers, True)
+            if not monitor_acquired:
+                log_warning("[music] local speaker monitor could not be enabled")
 
         perf = build_for_mood(genre)
         await loop.run_in_executor(None, engine.play, perf.code())
@@ -373,7 +384,9 @@ async def start_session(channel, *, genre: str, requested_by: str,
                 signal_type="music")          # see records.OPUS_SIGNAL
         played_here = True
 
-        session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel)
+        session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel,
+                                monitor_on_speakers=monitor_acquired)
+        monitor_acquired = False      # the session now owns this lease
         _sessions[guild_id] = session
         log_action(f"[music] '{genre}' started in {channel.name} for {requested_by}.")
         return session
@@ -411,6 +424,11 @@ async def start_session(channel, *, genre: str, requested_by: str,
                         await vc.disconnect(force=True)
                 except BaseException as cleanup_exc:
                     log_warning(f"[music] startup voice disconnect failed: {cleanup_exc}")
+            if monitor_acquired:
+                try:
+                    await asyncio.to_thread(monitor_to_speakers, False)
+                except BaseException as cleanup_exc:
+                    log_warning(f"[music] startup speaker monitor release failed: {cleanup_exc}")
         raise
 
 
