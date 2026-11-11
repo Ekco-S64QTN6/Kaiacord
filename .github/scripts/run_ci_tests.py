@@ -79,6 +79,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_telemetry_honesty.py",
         "tools/tests/unit/test_async_task_registry.py",
         "tools/tests/unit/test_shutdown_prelude.py",
+        "tools/tests/unit/test_bot_state_save.py",
     ),
     "utils/infrastructure/monitoring/async_task_registry.py": ("tools/tests/unit/test_async_task_registry.py",),
     "utils/core/context_enricher.py": (
