@@ -64,6 +64,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_background_task_processes.py",
         "tools/tests/unit/ttrpg/test_world_event_async_io.py",
     ),
+    "utils/commands/download_handler.py": ("tools/tests/unit/test_download_sidecar.py",),
     "utils/commands/news_handler.py": ("tools/tests/unit/test_command_boxes.py",),
     "tools/maintenance/scrape_tech_news.py": ("tools/tests/unit/test_news_manager.py",),
     "tools/maintenance/update_kaia_news.py": ("tools/tests/unit/test_news_brief.py",),
