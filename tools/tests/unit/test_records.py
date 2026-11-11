@@ -1038,3 +1038,36 @@ def test_a_set_waits_for_its_first_record_to_buffer():
             return False
     t0 = time.monotonic()
     assert R._wait_deck(Never(), 25, 0.1) is False and time.monotonic() - t0 < 0.5
+
+
+
+def test_measured_alternatives_use_normalized_lock_quality_and_artist_variety(monkeypatch):
+    import random
+    from types import SimpleNamespace
+    from utils.audio import beatgrid
+    from utils.audio.records import RecordsSession
+
+    current = rec("current", 124, "8A", "House")
+    current = library.Record(current.path, "Alpha", current.title, current.bpm, current.key, current.genre)
+    good = library.Record("/music/good.mp3", "Beta", "good", 124.0, "8A", "House")
+    same_artist = library.Record("/music/repeat.mp3", "Alpha", "repeat", 124.0, "8A", "House")
+    lower_confidence = library.Record("/music/lower.mp3", "Gamma", "lower", 124.0, "8A", "House")
+
+    graph = {"edges": {current.path: {
+        good.path: {"beats": 64, "agree": 14, "bars": 16, "ratio": 1.0},
+        same_artist.path: {"beats": 64, "agree": 14, "bars": 16, "ratio": 1.0},
+        # More raw agreeing bars, but a lower share of its much longer overlap.
+        lower_confidence.path: {"beats": 128, "agree": 20, "bars": 32, "ratio": 1.0},
+    }}}
+    session = RecordsSession.__new__(RecordsSession)
+    session.played = []
+    session._by_path = {r.path: r for r in (current, good, same_artist, lower_confidence)}
+    session.graph = graph
+    session.crate = [current, good, same_artist, lower_confidence]
+    session._rng = random.Random(4)
+    monkeypatch.setattr(beatgrid, "ticks_for", lambda _path: [0.0])
+
+    deck = SimpleNamespace(record=current, grid=SimpleNamespace(bpm=124.0), ratio=1.0)
+    ordered = session._candidates(deck)
+
+    assert [r.path for r in ordered[:3]] == [good.path, same_artist.path, lower_confidence.path]
