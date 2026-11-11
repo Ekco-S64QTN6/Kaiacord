@@ -34,7 +34,7 @@ def test_save_survives_concurrent_mutation(tmp_path, monkeypatch):
     finally:
         stop.set()
         t.join()
-    state._executor.shutdown(wait=True)
+    state.close()
 
     assert not failures, failures[0]
     saved = json.loads(path.read_text(encoding="utf-8"))
@@ -63,7 +63,7 @@ def test_save_retries_when_snapshot_comprehension_races(tmp_path, monkeypatch):
     try:
         state.save()
     finally:
-        state._executor.shutdown(wait=True)
+        state.close()
 
     assert state.channel_memory.calls >= 2
     assert path.exists()
@@ -95,7 +95,7 @@ def test_save_deep_copies_nested_state_and_retries_runtime_race(tmp_path, monkey
     try:
         state.save()
     finally:
-        state._executor.shutdown(wait=True)
+        state.close()
 
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["relationships"]["user-1"]["topic_counts"] == {"radio": 3}
@@ -133,7 +133,7 @@ def test_save_serializes_the_detached_snapshot_on_the_writer_thread(tmp_path):
         state.relationships["user-1"]["interaction_count"] = 2
     finally:
         release.set()
-        state._executor.shutdown(wait=True)
+        state.close()
 
     assert serialization_threads
     assert serialization_threads[0] != caller_thread
@@ -211,7 +211,7 @@ def test_shutdown_drains_bot_state_after_task_cancellation():
 
     source = inspect.getsource(CleanShutdown.async_shutdown)
     task_cancel = source.index("task_registry.cancel_all")
-    state_close = source.index("state.close()")
+    state_close = source.index('close = getattr(state, "close", None)')
     model_unload = source.index("OllamaGPUManager.unload_all_models")
     assert task_cancel < state_close < model_unload
     assert "await asyncio.wait_for(asyncio.to_thread(close), timeout=5.0)" in source
