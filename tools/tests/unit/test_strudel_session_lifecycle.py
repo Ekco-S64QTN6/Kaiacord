@@ -281,7 +281,7 @@ def test_first_monitor_acquire_clears_stale_loopbacks_from_an_interrupted_proces
     def pactl(*args):
         if args[:3] == ("list", "short", "modules"):
             return "\n".join(f"{module_id} module-loopback source=kaia_music.monitor" for module_id in modules)
-        if args[:2] == ("unload-module",):
+        if args[:1] == ("unload-module",):
             modules.pop(str(args[1]), None)
             return ""
         if args[:2] == ("load-module", "module-loopback"):
