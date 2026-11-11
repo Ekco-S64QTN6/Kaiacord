@@ -822,15 +822,11 @@ class MessageProcessor:
         except Exception:
             pass  # Never let desire injection break generation
 
-        # 8a2. Inner Monologue injection — private thoughts from recent observations
-        try:
-            monologue = getattr(self.ctx, 'monologue', None)
-            if monologue:
-                monologue_text = monologue.get_injection()
-                if monologue_text:
-                    ctx.system_prompt = ctx.system_prompt + f"\n\n{monologue_text}"
-        except Exception:
-            pass  # Never let monologue injection break generation
+        # 8a2. Private monologue is deliberately excluded from direct replies.
+        # Its buffer is built from observations across server channels, not
+        # necessarily this speaker or topic. Injecting it into every reply
+        # invited unrelated thoughts to bleed into otherwise focused answers.
+        # The dedicated unprompted path may still use the private buffer.
 
         # 8b. Relationship context injection — per-user familiarity and history
         try:
