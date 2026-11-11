@@ -460,6 +460,48 @@ def test_a_skip_calls_off_a_blend_planned_for_the_end_of_the_record():
     assert src.plan.mode == "skip" and src.plan.drop < 12.0
 
 
+def test_skip_is_deferred_until_an_in_progress_end_planner_releases_ownership(monkeypatch):
+    import threading
+
+    src, _ = _source()
+    entered = threading.Event()
+    release = threading.Event()
+    original = R._music_end
+    calls = []
+
+    def blocked_end(deck):
+        calls.append(threading.get_ident())
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(timeout=3.0)
+        return original(deck)
+
+    monkeypatch.setattr(R, "_music_end", blocked_end)
+    src._begin_planning("end")
+    assert entered.wait(timeout=1.0)
+    assert src._planning and src.planning_mode == "end"
+
+    src.skip()
+    assert src._planning
+    assert src.planning_mode == "end"
+    assert src._pending_planning_mode == "skip"
+    assert src.plan is None
+
+    # Repeated NEXTs while one is already queued do not move it or spawn another
+    # deferred planner.
+    src.skip()
+    assert src._pending_planning_mode == "skip"
+
+    release.set()
+    deadline = time.time() + 5.0
+    while (src.plan is None or src.plan.mode != "skip") and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert src.plan is not None and src.plan.mode == "skip"
+    assert src._pending_planning_mode is None
+    assert not src._planning or src.planning_mode == "skip"
+
+
 def test_an_epic_blend_rides_both_records_up_together_for_a_minute():
     """EPIC is the DJ's long blend: a short way in, a minute and more with
     both records up and locked (bass swapped halfway through it), a short way out."""
