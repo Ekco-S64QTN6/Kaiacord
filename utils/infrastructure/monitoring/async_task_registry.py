@@ -78,6 +78,12 @@ class AsyncTaskRegistry:
                 to_remove = [k for k, v in self._tasks.items() if v is t]
                 for key in to_remove:
                     del self._tasks[key]
+                # A timed-out parent may finish cleanup later and register a
+                # detached child after cancel_all() has returned. Keep shutdown
+                # draining active until the whole tracked descendant set exits.
+                if (self._shutdown_requested and self._shutdown_draining
+                        and not any(not pending.done() for pending in self._tasks.values())):
+                    self._shutdown_draining = False
             if not t.cancelled():
                 exc = t.exception()
                 if exc is not None:
@@ -185,7 +191,10 @@ class AsyncTaskRegistry:
             cancelled_count += sum(1 for task in late if not task.done())
             seen.update(late)
             self._tasks = {name: task for name, task in self._tasks.items() if not task.done()}
-            self._shutdown_draining = False
+            # When the deadline expires, descendants may still be created by
+            # cancellation cleanup. Keep tracking them until the last live task
+            # finishes; force_clear() remains the explicit emergency escape.
+            self._shutdown_draining = bool(pending)
 
         if wait_error is not None:
             logger.log(f"Error during task cancellation: {wait_error}", "ERROR")
