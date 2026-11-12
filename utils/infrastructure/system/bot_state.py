@@ -30,6 +30,11 @@ class BotState:
         self._lock = threading.Lock()
         self._write_lock = threading.Lock()  # Prevents concurrent _persist_to_disk writes
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='bot_state_writer')
+        # save() submits while holding _lock; close() takes the same lock before
+        # shutting down the executor, so accepted snapshots are ahead of shutdown.
+        self._writer_close_lock = threading.Lock()
+        self._writer_closing = False
+        self._writer_closed = False
         self.channel_memory: Dict[int, Deque[Dict[str, str]]] = {}
         self.last_interaction_time: float = time.time()
         self.last_active_channel_id: Optional[int] = None
@@ -160,6 +165,8 @@ class BotState:
         """Snapshot live state here; serialize and write the detached snapshot off-loop."""
         try:
             with self._lock:
+                if self._writer_closing or self._writer_closed:
+                    return
                 # Copying live maps/deques must remain on the caller thread and
                 # under the state lock. Serializing the detached snapshot is safe
                 # on the single writer thread and avoids JSON work on Discord's loop.
@@ -225,6 +232,17 @@ class BotState:
                 write_atomic(self.state_file, payload)
         except Exception as e:
             log_warning(f"Background save failed for bot state: {e}")
+
+    def close(self) -> None:
+        """Stop accepting new snapshots and drain every accepted save."""
+        with self._writer_close_lock:
+            with self._lock:
+                if self._writer_closed:
+                    return
+                self._writer_closing = True
+            self._executor.shutdown(wait=True)
+            with self._lock:
+                self._writer_closed = True
 
     def reset_quips(self):
         """Reset consecutive quips counter"""

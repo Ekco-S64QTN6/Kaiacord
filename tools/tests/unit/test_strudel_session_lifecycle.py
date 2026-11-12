@@ -54,28 +54,6 @@ def test_watchdog_exception_stops_and_unregisters_the_music_session(monkeypatch)
     assert all(thread_id != loop_thread for thread_id in call_threads.values())
 
 
-def test_human_editor_query_is_offloaded_from_the_event_loop():
-    import threading
-    from types import SimpleNamespace
-
-    session = object.__new__(ss.MusicSession)
-    query_threads = []
-    session._held = 0
-    session.engine = SimpleNamespace(
-        human_edited=lambda: query_threads.append(threading.get_ident()) or True
-    )
-
-    async def go():
-        loop_thread = threading.get_ident()
-        held = await session._held_for_human()
-        return loop_thread, held
-
-    loop_thread, held = asyncio.run(go())
-    assert held is True
-    assert len(query_threads) == 1
-    assert query_threads[0] != loop_thread
-
-
 def test_failed_startup_closes_source_engine_and_new_voice_connection(monkeypatch):
     """A failed Discord play must not orphan the partially created audio stack."""
     from types import SimpleNamespace
@@ -271,3 +249,176 @@ def test_failed_startup_leaves_a_reused_connections_playback_alone(monkeypatch):
         assert 6624 not in ss._sessions
 
     asyncio.run(scenario())
+
+
+
+def test_monitor_loopback_is_shared_between_guild_sessions_and_unloaded_on_last_release(monkeypatch):
+    from utils.audio import strudel_engine as engine
+
+    modules = {}
+    next_id = [40]
+    calls = []
+
+    def pactl(*args):
+        calls.append(args)
+        if args[:3] == ("list", "short", "modules"):
+            return "\n".join(f"{module_id} module-loopback source=kaia_music.monitor" for module_id in modules)
+        if args[:2] == ("load-module", "module-loopback"):
+            module_id = str(next_id[0])
+            next_id[0] += 1
+            modules[module_id] = True
+            return module_id
+        if args[:1] == ("unload-module",):
+            modules.pop(str(args[1]), None)
+            return ""
+        raise AssertionError(args)
+
+    monkeypatch.setattr(engine, "_pactl", pactl)
+    monkeypatch.setattr(engine, "_MONITOR_USERS", 0)
+
+    assert engine.monitor_to_speakers(True) is True
+    assert engine.monitor_to_speakers(True) is True
+    assert len(modules) == 1
+    assert sum(c[:2] == ("load-module", "module-loopback") for c in calls) == 1
+
+    assert engine.monitor_to_speakers(False) is True
+    assert len(modules) == 1, "the first guild must not mute the second"
+    assert engine.monitor_to_speakers(False) is True
+    assert modules == {}
+    assert engine.monitor_to_speakers(False) is False
+
+
+def test_first_monitor_acquire_clears_stale_loopbacks_from_an_interrupted_process(monkeypatch):
+    from utils.audio import strudel_engine as engine
+
+    modules = {"12": True, "13": True}
+    next_id = [14]
+
+    def pactl(*args):
+        if args[:3] == ("list", "short", "modules"):
+            return "\n".join(f"{module_id} module-loopback source=kaia_music.monitor" for module_id in modules)
+        if args[:1] == ("unload-module",):
+            modules.pop(str(args[1]), None)
+            return ""
+        if args[:2] == ("load-module", "module-loopback"):
+            module_id = str(next_id[0])
+            next_id[0] += 1
+            modules[module_id] = True
+            return module_id
+        raise AssertionError(args)
+
+    monkeypatch.setattr(engine, "_pactl", pactl)
+    monkeypatch.setattr(engine, "_MONITOR_USERS", 0)
+    assert engine.monitor_to_speakers(True) is True
+    assert set(modules) == {"14"}
+    assert engine.monitor_to_speakers(False) is True
+    assert modules == {}
+
+
+def test_session_stop_releases_its_speaker_monitor_lease(monkeypatch):
+    releases = []
+    monkeypatch.setattr(ss, "monitor_to_speakers", lambda enable=True: releases.append(enable) or True)
+
+    async def scenario():
+        voice = MagicMock()
+        voice.guild.id = 8844
+        voice.channel.name = "General"
+        voice.disconnect = AsyncMock()
+        session = ss.MusicSession(
+            voice, MagicMock(), MagicMock(), MagicMock(), "house", "tester",
+            monitor_on_speakers=True,
+        )
+        ss._sessions[8844] = session
+        await session.stop()
+        await session.stop()
+
+    asyncio.run(scenario())
+    assert releases == [False]
+
+
+def test_failed_startup_releases_the_speaker_monitor_lease(monkeypatch):
+    from types import SimpleNamespace
+
+    events = []
+
+    class FakeEngine:
+        def __init__(self, **_kwargs):
+            pass
+        def start(self):
+            pass
+        def warm_up(self, _code):
+            pass
+        def play(self, _code):
+            return True
+        def close(self):
+            events.append("engine.close")
+
+    class FakeSource:
+        def __init__(self, _engine):
+            pass
+        def cleanup(self):
+            events.append("source.cleanup")
+
+    class FakeVoice:
+        def __init__(self):
+            self.disconnect = AsyncMock()
+            self.connected = True
+        def is_connected(self):
+            return self.connected
+        def play(self, *_args, **_kwargs):
+            raise RuntimeError("voice refused")
+        def is_playing(self):
+            return False
+
+    async def scenario():
+        voice = FakeVoice()
+        guild = SimpleNamespace(id=8845, voice_client=None)
+        channel = SimpleNamespace(guild=guild, name="Test", connect=AsyncMock(return_value=voice))
+        monkeypatch.setattr(ss.discord.opus, "is_loaded", lambda: True)
+        monkeypatch.setattr(ss, "StrudelEngine", FakeEngine)
+        monkeypatch.setattr(ss, "StrudelAudioSource", FakeSource)
+        monkeypatch.setattr(ss, "_cfg", lambda key, default: (
+            True if key == "monitor_on_speakers" else
+            0.0 if key == "prime_seconds" else default
+        ))
+        monkeypatch.setattr(ss, "build_for_mood", lambda _genre: SimpleNamespace(code=lambda: "test"))
+        monkeypatch.setattr(ss, "monitor_to_speakers", lambda enable=True: events.append("monitor_on" if enable else "monitor_off") or True)
+        from utils.audio import records
+        from utils.radio import live
+        monkeypatch.setattr(records, "get_records", lambda _guild_id: None)
+        monkeypatch.setattr(live, "free_voice", AsyncMock())
+        monkeypatch.setattr(ss, "settle", lambda *_args: None)
+        try:
+            await ss.start_session(channel, genre="house", requested_by="tester")
+        except RuntimeError as exc:
+            assert str(exc) == "voice refused"
+        else:
+            raise AssertionError("startup error did not propagate")
+        assert events.count("monitor_on") == 1
+        assert events.count("monitor_off") == 1
+        assert 8845 not in ss._sessions
+
+    asyncio.run(scenario())
+
+
+def test_human_editor_query_is_offloaded_from_the_event_loop():
+    import threading
+    from types import SimpleNamespace
+
+    session = object.__new__(ss.MusicSession)
+    query_threads = []
+    session._held = 0
+    session.engine = SimpleNamespace(
+        human_edited=lambda: query_threads.append(threading.get_ident()) or True
+    )
+
+    async def go():
+        loop_thread = threading.get_ident()
+        held = await session._held_for_human()
+        return loop_thread, held
+
+    loop_thread, held = asyncio.run(go())
+    assert held is True
+    assert len(query_threads) == 1
+    assert query_threads[0] != loop_thread
+

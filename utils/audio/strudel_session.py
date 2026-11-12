@@ -39,7 +39,8 @@ def _cfg(key: str, default):
 class MusicSession:
     def __init__(self, vc: discord.VoiceClient, engine: StrudelEngine,
                  source: StrudelAudioSource, perf: TrackPerformance,
-                 genre: str, requested_by: str, text_channel=None):
+                 genre: str, requested_by: str, text_channel=None,
+                 monitor_on_speakers: bool = False):
         self.vc = vc
         self.engine = engine
         self.source = source
@@ -49,9 +50,7 @@ class MusicSession:
         self.text_channel = text_channel
         self.started_at = time.time()
         self._closing = False
-        # False unless a caller explicitly transfers a shared monitor lease
-        # into this session (the field also makes stop() safe on main-only runs).
-        self._monitor_on_speakers = False
+        self._monitor_on_speakers = bool(monitor_on_speakers)
         self._alone_since: float | None = None
         self._restore: tuple[float, list[str]] | None = None
         self.listeners_seen: set[str] = set()
@@ -212,11 +211,7 @@ class MusicSession:
             self._pass_task = None
 
     async def _held_for_human(self) -> bool:
-        """Pause the script while the editor has unapplied human changes.
-
-        The query is a synchronous Playwright call; never wait on the engine's
-        owner thread from Discord's event loop.
-        """
+        """Pause while the editor has unapplied changes without blocking the loop."""
         try:
             edited = await asyncio.to_thread(self.engine.human_edited)
         except Exception:
@@ -225,8 +220,6 @@ class MusicSession:
             self._held = 0
             return False
         self._held = getattr(self, "_held", 0) + 1
-        # Do not wait forever: if the editor is left dirty and abandoned, the
-        # performance would freeze on one state for the rest of the session.
         if self._held * WATCHDOG_PERIOD_S > float(_cfg("human_edit_grace_seconds", 180)):
             log_info("[music] resuming the script; the editor has been left dirty.")
             self._held = 0
@@ -249,8 +242,8 @@ class MusicSession:
         self._closing = True
         _sessions.pop(self.guild_id, None)
 
-        # These operations wait on Playwright, FFmpeg, pipe reads and thread
-        # joins. Keep them off Discord's event loop and preserve teardown order.
+        # Playwright, FFmpeg and capture-thread teardown can wait; never run it
+        # synchronously on Discord's event loop.
         try:
             await asyncio.to_thread(self.engine.stop)
         except Exception as exc:
@@ -269,7 +262,7 @@ class MusicSession:
         except Exception as exc:
             log_debug(f"[music] close engine: {exc}")
 
-        if getattr(self, "_monitor_on_speakers", False):
+        if self._monitor_on_speakers:
             self._monitor_on_speakers = False
             try:
                 await asyncio.shield(asyncio.to_thread(monitor_to_speakers, False))
@@ -357,6 +350,7 @@ async def start_session(channel, *, genre: str, requested_by: str,
     vc = None
     connected_here = False
     played_here = False
+    monitor_acquired = False
     session = None
     try:
         # Startup owns all resources from this point until the session is
@@ -366,7 +360,9 @@ async def start_session(channel, *, genre: str, requested_by: str,
         from utils.audio.strudel_patterns import warmup_program
         await loop.run_in_executor(None, engine.warm_up, warmup_program())
         if _cfg("monitor_on_speakers", False):
-            monitor_to_speakers(True)
+            monitor_acquired = await asyncio.to_thread(monitor_to_speakers, True)
+            if not monitor_acquired:
+                log_warning("[music] local speaker monitor could not be enabled")
 
         perf = build_for_mood(genre)
         await loop.run_in_executor(None, engine.play, perf.code())
@@ -398,7 +394,9 @@ async def start_session(channel, *, genre: str, requested_by: str,
                 signal_type="music")          # see records.OPUS_SIGNAL
         played_here = True
 
-        session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel)
+        session = MusicSession(vc, engine, source, perf, genre, requested_by, text_channel,
+                                monitor_on_speakers=monitor_acquired)
+        monitor_acquired = False      # the session now owns this lease
         _sessions[guild_id] = session
         log_action(f"[music] '{genre}' started in {channel.name} for {requested_by}.")
         return session
@@ -436,6 +434,11 @@ async def start_session(channel, *, genre: str, requested_by: str,
                         await vc.disconnect(force=True)
                 except BaseException as cleanup_exc:
                     log_warning(f"[music] startup voice disconnect failed: {cleanup_exc}")
+            if monitor_acquired:
+                try:
+                    await asyncio.to_thread(monitor_to_speakers, False)
+                except BaseException as cleanup_exc:
+                    log_warning(f"[music] startup speaker monitor release failed: {cleanup_exc}")
         raise
 
 
