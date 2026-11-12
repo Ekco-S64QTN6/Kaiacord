@@ -59,6 +59,7 @@ def changed_line_report(coverage: dict, changes: dict[str, set[int]], minimum: f
             normalised[key] = data
 
     rows = []
+    subsystems: dict[str, list[int]] = {}
     covered_total = 0
     measured_total = 0
     for path in sorted(changes):
@@ -71,6 +72,11 @@ def changed_line_report(coverage: dict, changes: dict[str, set[int]], minimum: f
         hits = len(covered)
         percent = (100.0 * hits / count) if count else 100.0
         rows.append((path, hits, count, percent, len(changes[path] & excluded)))
+        parts = PurePosixPath(path).parts
+        subsystem = parts[1] if len(parts) > 1 else "other"
+        totals = subsystems.setdefault(subsystem, [0, 0])
+        totals[0] += hits
+        totals[1] += count
         covered_total += hits
         measured_total += count
 
@@ -84,9 +90,16 @@ def changed_line_report(coverage: dict, changes: dict[str, set[int]], minimum: f
             f"**{outcome}: {covered_total}/{measured_total} added utils/*.py lines covered "
             f"({percent:.1f}%; required floor: {minimum:.1f}%).**",
             "",
+            "| Subsystem | Covered / measured lines | Coverage |",
+            "|---|---:|---:|",
+        ]
+        for subsystem, (hits, count) in sorted(subsystems.items()):
+            lines.append(f"| {subsystem} | {hits}/{count} | {(100.0 * hits / count) if count else 100.0:.1f}% |")
+        lines.extend([
+            "",
             "| Changed file | Covered / measured lines | Coverage | Excluded |",
             "|---|---:|---:|---:|",
-        ]
+        ])
         lines.extend(
             f"| {path} | {hits}/{count} | {file_percent:.1f}% | {excluded} |"
             for path, hits, count, file_percent, excluded in rows
