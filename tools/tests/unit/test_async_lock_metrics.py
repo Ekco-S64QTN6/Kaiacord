@@ -167,8 +167,8 @@ def test_active_owner_and_waiter_keep_one_shared_lock_alive(monkeypatch):
 def test_lock_metrics_report_idle_evictions():
     record_registry_lock_created("test_evictions", 1)
     class EmptyRegistry:
-        def __len__(self):
-            return 0
+        def items(self):
+            return ()
 
     from utils.infrastructure.monitoring.async_lock_metrics import _record_registry_lock_evicted
     _record_registry_lock_evicted("test_evictions", EmptyRegistry())
