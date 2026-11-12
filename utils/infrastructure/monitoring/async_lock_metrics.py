@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+import weakref
 
 _guard = threading.Lock()
 _metrics: dict[str, dict[str, float | int]] = {}
@@ -17,6 +18,7 @@ def _entry(registry: str) -> dict[str, float | int]:
             "created": 0,
             "current": 0,
             "peak": 0,
+            "evicted": 0,
             "acquisitions": 0,
             "contended": 0,
             "wait_ms_total": 0.0,
@@ -32,6 +34,30 @@ def record_registry_lock_created(registry: str, current_size: int) -> None:
         metric["created"] = int(metric["created"]) + 1
         metric["current"] = int(current_size)
         metric["peak"] = max(int(metric["peak"]), int(current_size))
+
+
+def _record_registry_lock_evicted(registry: str, locks) -> None:
+    """Update live size when the last owner/waiter releases a weakly held lock."""
+    # A finalizer can run before WeakValueDictionary's own weakref callback
+    # removes the dead slot. Iterating live items purges dead refs before
+    # recording the current size.
+    current_size = sum(1 for _ in locks.items())
+    with _guard:
+        metric = _entry(registry)
+        metric["current"] = current_size
+        metric["evicted"] = int(metric["evicted"]) + 1
+
+
+def track_registry_lock(registry: str, locks, lock) -> None:
+    """Record creation and arrange collection only after every strong owner ends.
+
+    Callers must hold the registry's lookup guard while inserting. Each task
+    keeps the returned lock in a local variable while acquiring/waiting, so a
+    WeakValueDictionary cannot retire a lock that still has owners or waiters.
+    """
+    record_registry_lock_created(registry, len(locks))
+    finalizer = weakref.finalize(lock, _record_registry_lock_evicted, registry, locks)
+    finalizer.atexit = False
 
 
 def _record_acquisition(registry: str, contended: bool, wait_ms: float) -> None:
@@ -88,7 +114,8 @@ def format_lock_registry_metrics() -> str:
             continue
         rows.append(
             f"• **{labels[name]}:** current {metric['current']} / peak {metric['peak']} "
-            f"({metric['created']} created); {metric['contended']} contended acquisitions, "
+            f"({metric['created']} created, {metric['evicted']} evicted); "
+            f"{metric['contended']} contended acquisitions, "
             f"max wait {float(metric['wait_ms_max']):.1f} ms"
         )
     return "\n".join(rows) if rows else "No RPG lock-registry activity recorded in this process."
