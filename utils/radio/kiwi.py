@@ -105,7 +105,7 @@ def _host_port(url: str) -> tuple[str, int]:
             raise ValueError(url)
         return host, port
     except ValueError as exc:
-        raise ValueError(url) from exc
+        raise ValueError(f"invalid receiver URL {url!r}: {exc}") from exc
 
 
 def _public_ip(value: str):
