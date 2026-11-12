@@ -29,10 +29,14 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install audio test dependencies
+        timeout-minutes: 4
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes ffmpeg
-          python -m pip install --upgrade pip
-          python -m pip install pytest pytest-asyncio numpy scipy PyYAML
+          python -m pip install --no-input --disable-pip-version-check imageio-ffmpeg
+          mkdir -p "$RUNNER_TEMP/ffmpeg-bin"
+          ln -sf "$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" "$RUNNER_TEMP/ffmpeg-bin/ffmpeg"
+          echo "$RUNNER_TEMP/ffmpeg-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/ffmpeg-bin/ffmpeg" -version
+          python -m pip install --no-input --disable-pip-version-check --upgrade pip
+          python -m pip install --no-input --disable-pip-version-check pytest pytest-asyncio numpy scipy PyYAML
       - name: Test the record mixer and buffered AudioSource
         run: python -m pytest tools/tests/unit/test_records.py -q
