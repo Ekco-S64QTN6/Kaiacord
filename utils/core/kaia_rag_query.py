@@ -42,6 +42,15 @@ from utils.core.context_optimizer import Intent
 
 # Knowledge candidates fetched for a news turn, so recency has a field to rank.
 NEWS_CANDIDATE_POOL = 30
+
+
+class RetrievalResults(list):
+    """List-compatible nodes carrying metadata for this exact retrieval call."""
+
+    def __init__(self, values=(), *, confidence: float = 0.0, node_count: Optional[int] = None):
+        super().__init__(values)
+        self.retrieval_confidence = float(confidence)
+        self.retrieval_node_count = int(len(self) if node_count is None else node_count)
 # The newest briefs offered to a news turn regardless of similarity.
 LATEST_NEWS_FILES = 3
 # A news turn asking for what is current, not for a period it names.
@@ -1084,12 +1093,18 @@ class RAGQueryMixin:
         else:
             retrieval_confidence = 0.0
 
-        # Store confidence as instance attributes so message_processor can read them
-        # Safe because retrieve() is protected by thread_safe_rag_operation which serializes access.
+        # Keep the compatibility "last" metrics for diagnostics, but the
+        # authoritative values travel with this request's list. retrieve() is
+        # intentionally concurrent, so another request may replace the
+        # instance attributes before MessageProcessor consumes this result.
         self._last_retrieval_confidence = retrieval_confidence
         self._last_retrieval_node_count = len(top_results)
 
-        return top_results
+        return RetrievalResults(
+            top_results,
+            confidence=retrieval_confidence,
+            node_count=len(top_results),
+        )
 
     @thread_safe_rag_operation
     def _latest_news_candidates(self, pool, query_lower: str = "", n_files: int = LATEST_NEWS_FILES):
@@ -1158,7 +1173,7 @@ class RAGQueryMixin:
     async def retrieve(self, query: str, user_id: Any = None, user_name: str = None, top_k: int = 5, 
                 strict_identity: bool = False, include_news: bool = False,
                 category: str = "general", intent: Optional[Intent] = None) -> List[Dict[str, Any]]:
-        if not self.indices or not query or not query.strip(): return []
+        if not self.indices or not query or not query.strip(): return RetrievalResults()
 
         # Reset per-call retrieval metrics
         self._last_retrieval_confidence = 0.0
@@ -1194,7 +1209,7 @@ class RAGQueryMixin:
                     self._last_retrieval_confidence = 1.0
                     self._last_retrieval_node_count = len(results)
                     _trace_whole_document(query, results, self._get_channel_key())
-                    return results
+                    return RetrievalResults(results, confidence=1.0, node_count=len(results))
             
             # Manifest title fast path: match query words against indexed
             # filenames directly. It bypasses scoring, so it is deliberately hard
@@ -1278,7 +1293,8 @@ class RAGQueryMixin:
                         self._last_retrieval_node_count = len(_fname_results)
                         log_success(f"Manifest title fast path resolved {len(_fname_results)} nodes")
                         _trace_whole_document(query, _fname_results, self._get_channel_key())
-                        return _fname_results
+                        return RetrievalResults(_fname_results, confidence=1.0,
+                                                node_count=len(_fname_results))
 
             # Filename-reference fast path — runs regardless of routing strategy, but skipped on raw logs/code.
             # Catches: "check the file called X", "the file named X", "look at X.md",
@@ -1300,7 +1316,8 @@ class RAGQueryMixin:
                                 self._last_retrieval_node_count = len(_fname_results)
                                 log_success(f"Filename fast path resolved {len(_fname_results)} nodes for '{_hint}'")
                                 _trace_whole_document(query, _fname_results, self._get_channel_key())
-                                return _fname_results
+                                return RetrievalResults(_fname_results, confidence=1.0,
+                                                        node_count=len(_fname_results))
                         break
             
             # Update user cache
@@ -1351,7 +1368,7 @@ class RAGQueryMixin:
             # to investigate is overwritten by the next thing anyone says.
             try:
                 from utils.infrastructure.monitoring.retrieval_trace import record
-                record(query, self._last_retrieval_confidence, results,
+                record(query, results.retrieval_confidence, results,
                        channel=self._get_channel_key())
             except Exception:
                 pass
@@ -1362,7 +1379,7 @@ class RAGQueryMixin:
         except Exception as e:
             log_error(f"Error during retrieval: {e}")
             log_debug(traceback.format_exc())
-            return []
+            return RetrievalResults()
 
     @staticmethod
     def _node_timestamp(node) -> float:
@@ -1484,9 +1501,10 @@ class RAGQueryMixin:
         Search for specific recent events in the logs.
         Similar to get_recent_highlights but targeted with a query.
         """
-        self._last_retrieval_confidence = 0.5 # Prevent EMA corruption if no nodes found
+        self._last_retrieval_confidence = 0.5 # Neutral sample for observational queries.
         if not self.indices or 'logs' not in self.indices:
-            return []
+            self._last_retrieval_node_count = 0
+            return RetrievalResults([], confidence=0.5, node_count=0)
             
         try:
             cutoff = time.time() - (hours * 3600)
@@ -1502,7 +1520,8 @@ class RAGQueryMixin:
                     recent_nodes.append(node)
             
             if not recent_nodes:
-                return []
+                self._last_retrieval_node_count = 0
+                return RetrievalResults([], confidence=0.5, node_count=0)
 
             # Simple keyword matching for "search" among recent nodes
             scored_events = []
@@ -1565,7 +1584,8 @@ class RAGQueryMixin:
                 self._last_retrieval_results = top_fallback
                 self._last_retrieval_confidence = 0.3
                 self._last_retrieval_node_count = len(fallback)
-                return top_fallback
+                return RetrievalResults(top_fallback, confidence=0.3,
+                                        node_count=len(fallback))
 
             # Set retrieval confidence for observational queries (Bug fix: neutral 0.5 floor)
             self._last_retrieval_confidence = 0.5
@@ -1597,10 +1617,11 @@ class RAGQueryMixin:
             self._last_retrieval_confidence = 0.5
             self._last_retrieval_node_count = len(scored_events)
 
-            return top_results
+            return RetrievalResults(top_results, confidence=0.5,
+                                    node_count=len(scored_events))
             
         except Exception as e:
             log_error(f"Failed to search recent events: {e}")
-            return []
+            return RetrievalResults([], confidence=0.5, node_count=0)
 
 
