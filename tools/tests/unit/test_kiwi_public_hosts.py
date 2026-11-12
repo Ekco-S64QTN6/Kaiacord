@@ -211,3 +211,28 @@ def test_open_stream_refuses_unpinned_receiver_and_uses_pinned_ip(monkeypatch):
 
     assert captured[0][captured[0].index("-s") + 1] == "8.8.4.4"
     assert "receiver.example" not in captured[0]
+
+
+def test_parse_directory_excludes_private_ip_literal_rows():
+    import json
+
+    rows = [
+        {
+            "status": "active", "offline": "no", "name": "loopback",
+            "sdr_hw": "KiwiSDR", "bands": "0-30000000",
+            "users": "0", "users_max": "4", "ext_api": "2",
+            "gps": "(38.9, -94.8)", "snr": "30,30",
+            "url": "http://127.0.0.1:8073",
+        },
+        {
+            "status": "active", "offline": "no", "name": "public",
+            "sdr_hw": "KiwiSDR", "bands": "0-30000000",
+            "users": "0", "users_max": "4", "ext_api": "2",
+            "gps": "(38.9, -94.8)", "snr": "30,30",
+            "url": "http://8.8.8.8:8073",
+        },
+    ]
+
+    parsed = kiwi.parse_directory("var kiwisdr = " + json.dumps(rows) + ";")
+
+    assert [receiver.name for receiver in parsed] == ["public"]
