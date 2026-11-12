@@ -909,6 +909,7 @@ def test_scanner_budget_rolls_over_once_under_concurrent_reservations(monkeypatc
 
 
 def test_morse_clip_interval_reservation_is_atomic(monkeypatch):
+    import time
     from concurrent.futures import ThreadPoolExecutor
 
     monkeypatch.setattr(scanner, "_id_clips", {})
