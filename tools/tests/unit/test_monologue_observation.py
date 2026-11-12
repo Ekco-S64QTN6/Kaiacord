@@ -213,6 +213,47 @@ def test_legacy_untagged_forum_turns_are_still_excluded():
 
 
 
+def test_monologue_skips_channel_when_discord_identity_check_raises():
+    """A failed channel lookup must not turn legacy/private memory into a
+    public observation prompt."""
+    import asyncio
+
+    from utils.core.kaia_monologue import InnerMonologue
+
+    class FailingResolver:
+        def __call__(self, _channel_id):
+            raise RuntimeError("cache unavailable")
+
+    class FakeOllama:
+        def __init__(self):
+            self.calls = 0
+
+        async def chat(self, **_kwargs):
+            self.calls += 1
+            return {"message": {"content": "i notice the room is quiet."}}
+
+    memory = {
+        "1462239450691145924": [
+            {"role": "user", "content": "Ekco: this should remain private",
+             "timestamp": 2000.0},
+        ],
+    }
+    client = FakeOllama()
+    monologue = InnerMonologue()
+    monologue._last_generated = 0
+
+    result = asyncio.run(monologue.generate_thought(
+        channel_memory=memory,
+        bot_state=object(),
+        ollama_client=client,
+        chat_model="test-model",
+        is_discord_channel=FailingResolver(),
+    ))
+
+    assert result is None
+    assert client.calls == 0
+
+
 
 
 def test_only_the_absence_checkin_goes_out_unlabelled():
