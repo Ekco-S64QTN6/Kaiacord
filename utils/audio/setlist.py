@@ -17,12 +17,15 @@ the live planner still measures every blend before it starts.
 """
 from __future__ import annotations
 
+import asyncio
+import fcntl
 import json
 import math
 import os
 import random
 import threading
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -640,6 +643,51 @@ def live_sets(g: dict, crate: list) -> list:
 def _rotation_path() -> Path:
     from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
     return Path(telemetry_path("memory/records/set_rotation.json"))
+
+
+@asynccontextmanager
+async def rotation_transaction():
+    """Hold the global set-selection/commit transaction across voice startup.
+
+    The rotation file is shared by every guild (and may be shared by more
+    than one bot process using the same telemetry directory). Atomic JSON
+    replacement prevents partial files, but it does not serialize the
+    read -> choose -> start -> advance sequence. A sidecar flock does.
+
+    Lock acquisition and release run in worker threads so waiting for another
+    guild/process never blocks Discord's event loop. If the caller is cancelled
+    while acquisition is pending, wait for that acquisition to finish and
+    release it before propagating cancellation.
+    """
+    path = _rotation_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    lock_file = await asyncio.to_thread(lock_path.open, "a", encoding="utf-8")
+    acquire_task = asyncio.create_task(asyncio.to_thread(
+        fcntl.flock, lock_file.fileno(), fcntl.LOCK_EX
+    ))
+    try:
+        await asyncio.shield(acquire_task)
+    except asyncio.CancelledError:
+        try:
+            await asyncio.shield(acquire_task)
+        finally:
+            await asyncio.to_thread(
+                fcntl.flock, lock_file.fileno(), fcntl.LOCK_UN
+            )
+            await asyncio.to_thread(lock_file.close)
+        raise
+    except BaseException:
+        await asyncio.to_thread(lock_file.close)
+        raise
+
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(
+            fcntl.flock, lock_file.fileno(), fcntl.LOCK_UN
+        )
+        await asyncio.to_thread(lock_file.close)
 
 
 def peek_rotation(n_sets: int) -> Optional[int]:
