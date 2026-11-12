@@ -193,11 +193,18 @@ def test_a_pinned_catch_is_transcribed_and_clipped_whatever_the_nights_budget(mo
 
 def test_a_scan_catch_does_not_inherit_a_later_watch_pin(monkeypatch):
     """A backlog catch from an open scan is not promoted to a net by a new watch."""
+    import time
+    from utils.radio import waterfall
+
     calls, clips = [], []
     monkeypatch.setattr(scanner, "_transcribe", lambda a, **k: calls.append(1) or "")
     monkeypatch.setattr(scanner, "_save_clip", lambda audio, f, t: clips.append(f) or "clip.ogg")
+    monkeypatch.setattr(scanner, "morse_id", lambda _audio: False)
+    monkeypatch.setattr(waterfall, "is_packet", lambda _audio: False)
+    monkeypatch.setattr(waterfall, "voice_like", lambda _audio: False)
     monkeypatch.setitem(scanner._transcribed, "date", datetime.now().strftime("%Y-%m-%d"))
     monkeypatch.setitem(scanner._transcribed, "count", scanner.TRANSCRIBE_PER_NIGHT)
+    monkeypatch.setitem(scanner._transcribed, "speech", scanner.SPEECH_PER_NIGHT)
     monkeypatch.setattr(scanner, "_pinned", {
         "freq_hz": 147_570_000, "label": "a later watch", "until": time.time() + 60,
     })
