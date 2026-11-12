@@ -112,6 +112,12 @@ RELATED_TESTS = {
         "tools/tests/unit/test_news_retrieval.py",
         "tools/tests/unit/test_news_and_short_queries.py",
     ),
+    "utils/commands/forum_handler.py": ("tools/tests/unit/test_forum_identity_linking.py",),
+    "utils/social/kaia_identities.py": (
+        "tools/tests/unit/test_forum_identity_linking.py",
+        "tools/tests/unit/test_identity_and_profiles.py",
+    ),
+    "utils/social/kaia_forum.py": ("tools/tests/unit/test_forum_identity_linking.py",),
     "utils/social/kaia_twitter.py": (
         "tools/tests/unit/test_kaia_twitter.py",
         "tools/tests/unit/test_x_auth_recovery.py",
