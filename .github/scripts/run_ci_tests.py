@@ -136,6 +136,7 @@ RELATED_TESTS = {
     "utils/social/agent_board_verify.py": ("tools/tests/unit/test_agent_boards.py",),
     "utils/core/kaia_dream.py": ("tools/tests/unit/test_memory_anchors.py", "tools/tests/unit/test_beliefs_store.py",
                                  "tools/tests/unit/test_memory_layer_regressions.py"),
+    "utils/core/kaia_monologue.py": ("tools/tests/unit/test_monologue_observation.py",),
     "utils/core/relationship_manager.py": (
         "tools/tests/unit/test_memory_anchors.py",
         "tools/tests/unit/test_relationship_events.py",
