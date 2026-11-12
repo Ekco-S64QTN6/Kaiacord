@@ -258,3 +258,12 @@ def test_rag_retriever_changes_select_fast_vector_concurrency_regressions():
         for path in selector["select_tests"](["utils/core/kaia_rag_retriever.py"])
     }
     assert "tools/tests/unit/test_fast_vector_query.py" in selected
+
+
+def test_setlist_changes_select_progressive_widening_regression():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/audio/setlist.py"])
+    }
+    assert "tools/tests/unit/test_setlist.py" in selected

@@ -482,7 +482,10 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
                 return (blend_rank(edges[cur][b])
                         + (0 if step in (0, 1) else 1 if step == 2 else 2) + (0 if fam[b] == fam[start] else 2),
                         used.get(b, 0), -min(ahead, 6), rng.random())
-            return sorted(out, key=score)[:5]
+            # Keep the whole ranked frontier. The bounded DFS below widens
+            # from the best five to further candidates when preferred paths
+            # dead-end; truncating here made backtracking unable to see them.
+            return sorted(out, key=score)
 
         def dfs():
             nonlocal best, best_len
@@ -491,12 +494,24 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
                 best, best_len = list(path), n
             if n >= target or budget[0] <= 0:
                 return n >= target
-            for b in options(path[-1]):
-                budget[0] -= 1
-                path.append(b)
-                if dfs():
-                    return True
-                path.pop()
+            ranked = options(path[-1])
+            # Progressive widening: exhaust the best five first, then admit
+            # the next ten, then twenty, etc. WALK_BUDGET remains the hard
+            # per-start limit, so a large graph cannot cause unbounded DFS.
+            width = min(5, len(ranked))
+            offset = 0
+            while offset < len(ranked) and budget[0] > 0:
+                end = min(len(ranked), width)
+                for b in ranked[offset:end]:
+                    if budget[0] <= 0:
+                        return False
+                    budget[0] -= 1
+                    path.append(b)
+                    if dfs():
+                        return True
+                    path.pop()
+                offset = end
+                width = min(len(ranked), max(width + 1, width * 2))
             return False
         dfs()
         return best, best_len
