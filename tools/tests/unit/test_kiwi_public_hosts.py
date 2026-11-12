@@ -176,7 +176,7 @@ def test_smeter_subprocess_receives_the_pinned_ip(monkeypatch):
         returncode = 0
 
         async def communicate(self):
-            return b"12-Nov-2026 03:00:00 UTC RSSI: -91.5\\n", b""
+            return b"12-Nov-2026 03:00:00 UTC RSSI: -91.5\n", b""
 
     async def fake_exec(*cmd, **_kwargs):
         captured["cmd"] = list(cmd)
