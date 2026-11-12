@@ -429,10 +429,6 @@ RECHECK_EVERY = 10
 _pinned: Optional[dict] = None   # the net being watched, while one is
 
 
-def _on_net(freq_hz: int) -> bool:
-    return _pinned is not None and abs(freq_hz - _pinned["freq_hz"]) <= 5000
-
-
 def classify(catch) -> None:
     """A catch from the waterfall → the ledger: voice if Whisper finds words,
     data if it has a digital mode's shape, otherwise a bare carrier. Runs on
@@ -453,7 +449,10 @@ def classify(catch) -> None:
     if catch.seconds < MIN_CATCH_S or len(catch.audio) < rtl.SAMPLE_RATE:
         return                                   # a kerchunk
     catch.freq_hz = snap_channel(catch.freq_hz)
-    net = _on_net(catch.freq_hz)
+    # Catch classification can outlive the watch that captured it. Use
+    # immutable provenance carried with the catch, never the next watch's
+    # mutable module-global pin.
+    net = bool(getattr(catch, "pinned", False))
     from utils.radio.waterfall import carried_audio
     signal = carried_audio(catch.audio)
     digital = any(c.get("mode") == "digital" and abs(c["freq_hz"] - catch.freq_hz) <= 3000 for c in seed_channels())
