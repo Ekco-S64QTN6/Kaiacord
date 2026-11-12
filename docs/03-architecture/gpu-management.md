@@ -96,6 +96,8 @@ On startup, `on_ready()` runs a sequenced boot:
 - **Phase 3**: RAG init and knowledge refresh — background, non-blocking. There is no
   classifier to warm.
 
+A source-level review of the current Phase 1 state machine, its recovery failure modes, and an offline fake-Ollama test plan is documented in [GPU bootstrap recovery review](gpu-bootstrap-recovery-review.md). It is review-only: `Kaiacord.py` remains untouched pending maintainer approval.
+
 ## Performance Monitoring
 
 `stats_tracker` records every turn's response time, which the dashboard shows
