@@ -28,7 +28,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 
@@ -326,7 +326,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _local(self) -> bool:
         from utils.core.sanitizer import local_request_ok
-        return local_request_ok(self.headers.get("Host"), self.headers.get("Origin"), self.server.server_address[1])
+        return local_request_ok(self.headers.get("Host"), self.headers.get("Origin"), cast(ThreadingHTTPServer, self.server).server_port)
 
     def do_GET(self):
         if not self._local():
