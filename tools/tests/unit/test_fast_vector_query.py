@@ -205,7 +205,7 @@ def test_vector_store_delete_waits_for_a_query_snapshot(monkeypatch):
 
     def delete_while_query_runs():
         delete_started.set()
-        store.delete(ref_doc_id="id0")
+        store.delete_nodes(node_ids=["id0"])
         delete_done.set()
 
     delete_thread = threading.Thread(target=delete_while_query_runs, daemon=True)
