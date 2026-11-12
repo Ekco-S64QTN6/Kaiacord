@@ -91,7 +91,7 @@ def _make_due_review(store):
                 "user_name": "Ekco",
                 "topic": "remote work",
                 "text": ARG,
-            }) + "\\n")
+            }) + "\n")
 
 
 def _fake_review_context(content):
