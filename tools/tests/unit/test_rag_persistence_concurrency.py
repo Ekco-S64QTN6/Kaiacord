@@ -120,7 +120,16 @@ def test_two_writers_cannot_delete_each_others_shared_staging_directory(tmp_path
     release_first = threading.Event()
     call_lock = threading.Lock()
     call_count = 0
+    second_lock_attempted = threading.Event()
+    original_get_lock = harness._get_persistence_transaction_lock
     errors = []
+
+    def observe_lock_attempt():
+        if threading.current_thread().name == "second-writer":
+            second_lock_attempted.set()
+        return original_get_lock()
+
+    harness._get_persistence_transaction_lock = observe_lock_attempt
 
     def blocking_persist(persist_dir):
         nonlocal call_count
@@ -151,8 +160,9 @@ def test_two_writers_cannot_delete_each_others_shared_staging_directory(tmp_path
 
     second = threading.Thread(target=write, name="second-writer")
     second.start()
-    # The first writer is stopped inside storage_context.persist while still
-    # holding the transaction lock. The second must not enter that function.
+    # The second thread signals immediately before requesting the shared lock.
+    # It must block there until the first writer finishes staging and swapping.
+    assert second_lock_attempted.wait(timeout=1)
     assert not second_entered.wait(timeout=0.2)
 
     release_first.set()
