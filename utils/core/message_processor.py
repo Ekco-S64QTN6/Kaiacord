@@ -245,6 +245,26 @@ def _extract_recap_hours(text: str) -> int:
 _NEWS_CUE = re.compile(r"\b(?:news|headlines?|current events)\b", re.IGNORECASE)
 
 
+def recent_entries(stream: str, limit: int) -> str:
+    """The newest whole entries of a "---"-separated journal that fit in `limit`
+    characters. A character slice started mid-word ("d to. maybe focusing…"),
+    which is a fragment she is shown every turn. One entry longer than the
+    limit is cut back to a sentence start."""
+    entries = [e.strip() for e in re.split(r"\n\s*---+\s*\n", stream or "") if e.strip()]
+    kept, used = [], 0
+    for entry in reversed(entries):
+        if kept and used + len(entry) + 7 > limit:
+            break
+        kept.append(entry)
+        used += len(entry) + 7
+    text = "\n\n---\n".join(reversed(kept))
+    if len(text) > limit:
+        tail = text[-limit:]
+        cut = re.search(r"(?<=[.!?])\s+", tail)
+        text = tail[cut.end():] if cut else tail
+    return text
+
+
 def _pronoun_line() -> str:
     try:
         from utils.core import pronouns
@@ -929,9 +949,11 @@ class MessageProcessor:
         except Exception:
             pass  # Never let Theory of Mind injection break generation
 
-        # 8c. Beliefs injection — topically relevant persistent opinions (Item 9)
-        # Uses semantic alias expansion for much better matching than raw word-overlap.
-        matching = []  # Initialized here so 8g can safely reference it even if 8c throws
+        # 8c. Beliefs she holds on what the speaker is talking about
+        # (utils/core/belief_recall.py). Matched on the speaker's own words: a
+        # scraped page or a quoted message is not them raising a subject.
+        matching = []
+        recalled_lines = []  # Initialized here so 8g can safely reference it even if 8c throws
         try:
             beliefs_path = os.path.join("memory", "beliefs.json")
             if os.path.exists(beliefs_path):
@@ -940,60 +962,26 @@ class MessageProcessor:
                         return json.load(bf)
                 all_beliefs = await asyncio.to_thread(_read_beliefs)
                 if all_beliefs:
-                    query_lower = ctx.sanitized_content.lower()
-                    query_words = set(query_lower.split())
-                    # Remove common stop words to reduce false positives
-                    stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'do', 'does',
-                                  'did', 'i', 'you', 'we', 'they', 'it', 'to', 'of', 'in',
-                                  'for', 'on', 'with', 'at', 'by', 'and', 'or', 'but', 'not',
-                                  'what', 'how', 'why', 'when', 'where', 'who', 'that', 'this',
-                                  'my', 'your', 'me', 'be', 'have', 'has', 'had', 'about',
-                                  'just', 'like', 'think', 'know', 'really', 'so', 'can'}
-                    query_words -= stop_words
+                    from utils.core import belief_recall
+                    recalled = belief_recall.relevant(ctx.own_words or "", all_beliefs, limit=3)
+                    if recalled:
+                        log_debug("Beliefs recalled: " + "; ".join(
+                            f"{b.get('topic')} ({why})" for b, _score, why in recalled))
+                    recalled_lines = [f"{b['topic']}: {b['position']}" for b, _score, _why in recalled]
+                    stances = [b for b, _score, _why in recalled if b.get('confidence', 0.5) > 0.7]
+                    for b, _score, _why in recalled:
+                        if b not in stances:
+                            matching.append(f"{b['topic']}: {b['position']} (uncertain)")
 
-                    matching = []
-                    touched_topics = []  # beliefs this turn used, counted once below
-                    high_conf_stances = []  # For conversational stance (confidence > 0.7)
-                    for b in all_beliefs:
-                        topic = b.get('topic', '').lower()
-                        topic_words = set(topic.split()) - stop_words
-                        conf = b.get('confidence', 0.5)
-                        matched = False
-
-                        # Check 1: Direct word overlap (original behavior)
-                        if query_words & topic_words:
-                            matched = True
-
-                        # Check 2: Alias matching (pre-computed during dream extraction)
-                        if not matched:
-                            aliases = set(b.get('aliases', []))
-                            if aliases and (query_words & aliases):
-                                matched = True
-
-                        # Check 3: Substring match (topic phrase appears in query)
-                        if not matched:
-                            if len(topic) > 4 and topic in query_lower:
-                                matched = True
-
-                        if matched:
-                            touched_topics.append(b.get('topic', ''))
-                            if conf > 0.7:
-                                high_conf_stances.append(b)
-                            else:
-                                stance_qualifier = ' (uncertain)'
-                                matching.append(f"{b['topic']}: {b['position']}{stance_qualifier}")
-
-                    # Conversational Stance: high-confidence beliefs get active voice
-                    if high_conf_stances:
-                        high_conf_stances.sort(key=lambda b: b.get('confidence', 0.5), reverse=True)
-                        stance = high_conf_stances[0]  # Strongest match
+                    # The belief the message touches most gets the active voice.
+                    if stances:
+                        stance = stances[0]
                         ctx.system_prompt = ctx.system_prompt + (
                             f"\n\n[you have a formed opinion on '{stance['topic']}': "
                             f"'{stance['position']}'. if it feels natural, express your view, "
                             f"but don't be preachy. never argue. express, then let it go.]"
                         )
-                        # Add any remaining high-conf as neutral context
-                        for s in high_conf_stances[1:3]:
+                        for s in stances[1:3]:
                             matching.append(f"{s['topic']}: {s['position']}")
 
                     if matching:
@@ -1002,10 +990,12 @@ class MessageProcessor:
                     # Count the use against a fresh read, under the store's lock.
                     # Writing back the copy read at the top of this block put a
                     # stale file over any belief the dream engine had formed or
-                    # revised in between.
-                    if touched_topics:
+                    # revised in between. Only what reached the prompt counts: a
+                    # use keeps a belief from being evicted.
+                    if recalled:
                         from utils.core import beliefs_store
-                        await asyncio.to_thread(beliefs_store.bump_access, touched_topics)
+                        await asyncio.to_thread(
+                            beliefs_store.bump_access, [b.get('topic', '') for b, _s, _w in recalled])
         except Exception:
             pass  # Never let beliefs injection break generation
 
@@ -1013,37 +1003,22 @@ class MessageProcessor:
         # These lightweight prompt injections create the illusion of inner life
         # by subtly varying Kaia's behavior based on context. No LLM calls.
 
-        # 8d. Time-of-Day Personality Modulation
+        # 8d. The hour colours her tone. It says nothing about length: how much
+        # a turn asks for is read from the turn (utils/core/turn_shape.py), and
+        # length advice keyed to the clock told her to answer a passing remark
+        # at night with an essay. The afternoon is her ordinary self: no note.
         try:
             _current_time_str, _hour, _tz_name = _get_user_time_info(ctx.author_name, message_instant(ctx.message))
             if 6 <= _hour < 12:
-                _time_mod = "[time: morning, you're more direct and concise right now. shorter responses.]"
+                _time_mod = "[time: morning, you're more direct right now.]"
             elif 12 <= _hour < 18:
-                _time_mod = "[time: afternoon, normal energy. balanced responses.]"
+                _time_mod = ""
             elif 18 <= _hour < 24:
-                _time_mod = "[time: evening, slightly more relaxed. willing to go longer on interesting topics.]"
+                _time_mod = "[time: evening, a little more relaxed.]"
             else:
-                _time_mod = "[time: late night, you're more reflective and unhurried. willing to sit with harder questions. quieter energy.]"
-            ctx.system_prompt = ctx.system_prompt + f"\n\n{_time_mod}"
-        except Exception:
-            pass
-
-        # 8e. Adaptive Tone Mirroring — match the user's communication style
-        try:
-            _recent_user_msgs = [
-                m['content'] for m in self.bot_state.channel_memory.get(ctx.channel_id, [])
-                if m.get('role') == 'user'
-            ][-5:]  # Last 5 user messages
-            if _recent_user_msgs:
-                _avg_len = sum(len(m) for m in _recent_user_msgs) / len(_recent_user_msgs)
-                if _avg_len < 40:
-                    _mirror = "[style: they write short. match their brevity. don't over-explain.]"
-                elif _avg_len > 250:
-                    _mirror = "[style: they write at length. match their depth. fuller responses welcome.]"
-                else:
-                    _mirror = ""
-                if _mirror:
-                    ctx.system_prompt = ctx.system_prompt + f"\n\n{_mirror}"
+                _time_mod = "[time: late night, you're more reflective and unhurried. quieter energy.]"
+            if _time_mod:
+                ctx.system_prompt = ctx.system_prompt + f"\n\n{_time_mod}"
         except Exception:
             pass
 
@@ -1100,7 +1075,7 @@ class MessageProcessor:
         try:
             from utils.core import growth_recall
             from utils.core.self_claims import note as growth_self_note
-            _note = await asyncio.to_thread(growth_recall.belief_revision_for, matching)
+            _note = await asyncio.to_thread(growth_recall.belief_revision_for, recalled_lines)
             if not _note:
                 _note = await asyncio.to_thread(
                     growth_recall.identity_shift_for, ctx.own_words, ctx.channel_id)
@@ -1210,10 +1185,17 @@ class MessageProcessor:
                     if _filename:
                         import os as _os
                         _clean_name = _os.path.splitext(_os.path.basename(_filename))[0].replace('_', ' ').replace('-', ' ')
-                        ctx.system_prompt = ctx.system_prompt + (
-                            f"\n\n[you recently read a document about: \"{_clean_name}\". "
-                            f"if relevant to the conversation, you may reference it naturally, but don't force it.]"
-                        )
+                        # Only when the speaker's words touch it. On every turn
+                        # it was one title offered to every person about every
+                        # subject until the next file arrived.
+                        from utils.core.belief_recall import content_words
+                        _title_words = {w for w in content_words(_clean_name) if len(w) >= 4} - {
+                            "transcript", "book", "document", "article", "notes", "part", "chapter", "volume"}
+                        if _title_words & set(content_words(ctx.own_words or "")):
+                            ctx.system_prompt = ctx.system_prompt + (
+                                f"\n\n[you recently read a document about: \"{_clean_name}\". "
+                                f"if relevant to the conversation, you may reference it naturally, but don't force it.]"
+                            )
         except Exception:
             pass
 
@@ -1589,7 +1571,7 @@ class MessageProcessor:
                     f"{ctx.system_prompt}\n\n"
                     f"[RECENT PERSPECTIVE SHIFTS: background context only. "
                     f"DO NOT reference these shifts, your calibration, or your parameters in your response.]\n"
-                    f"{identity_stream[-800:]}"
+                    f"{recent_entries(identity_stream, 800)}"
                 )
                 log_debug(f"Identity stream injected from cache")
 
@@ -2261,6 +2243,24 @@ class MessageProcessor:
                 log_info(f"[unknown_subject] nothing in her context mentions what "
                          f"{ctx.author_name} asked about; told her so")
                 held_note += f"\n\n{unknown_note}"
+        except Exception:
+            pass
+
+        # How much this turn asks of her (utils/core/turn_shape.py), beside the
+        # message like the notes above. Not when she was pointed at a message
+        # or handed a file: the subject there is not the few words typed.
+        try:
+            if not ctx.pointed_at and "[ATTACHED_FILE_CONTEXT]" not in (ctx.sanitized_content or ""):
+                from utils.core import turn_shape
+                _shared = "http" in (ctx.own_words or "")
+                try:
+                    from utils.core.sanitizer import attachment_citations
+                    _shared = _shared or bool(attachment_citations(ctx.message))
+                except Exception:
+                    pass
+                _shape = turn_shape.note_for(ctx.own_words or "", shared=_shared)
+                if _shape:
+                    held_note += f"\n\n{_shape}"
         except Exception:
             pass
 

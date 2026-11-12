@@ -446,6 +446,36 @@ commands are carries the registry's lines for them. Asked about `!help` she had 
 The open loop in her "returning" dossier is the speaker's own plan (`open_loops.find`: "i" as its subject, not a
 question, not pasted text); the old patterns kept "want to see it? yes or no?" as Starkind's intention.
 
+### Length has one owner, and it reads the turn
+
+**How much a reply should be is read from the speaker's own words, in one place**
+(`utils/core/turn_shape.py`), and the note goes beside the message. The median reply to a message of
+twelve words or fewer went from 40 words in early September to 69 in early November, and nothing in
+the prompt was reading the message for its size: length advice came from the hour ("willing to go
+longer" at night), from the average of the speaker's last five messages, and from how long the
+conversation had run, each appended on its own. A passing remark in plain text now gets "a line or
+two"; a question, a shared link or picture, and anything that offers room (a request for her view,
+"continue", a scene's "open direction", forty words or more) gets no note. Replayed on real turns
+against the live model with real retrieval, 24 asides went from a median of 52 words to 16 with her
+voice intact. The same note on short questions was tried and dropped: 3 of 12 replies came back
+capitalised or in assistant phrasing, and scene questions went flat. Do not add length advice to another injection; the hour's note is
+tone only. A new cue that should offer room goes in `_INVITATION`, checked against her logs first.
+
+**A belief is recalled when the message is about it** (`utils/core/belief_recall.py`): one of its
+phrases whole (topic, a part of the topic, an alias of two words or more), or several distinctive
+words with one from its topic. The old test was any one shared word, read from the *enriched*
+message. On 354 real turns it put "you have a formed opinion on…" into 28% of prompts, nearly all
+wrongly ("open direction" recalled her view on AI and open source), 410 of 497 aliases were phrases a
+word-set intersection could never match, and every false recall counted as a use, which is what
+protects a belief from eviction: the ones with the most ordinary topic words had 400 to 668 uses.
+Recall is narrow on purpose (about 2% of turns); her reflections also arrive through retrieval.
+
+**A note that reports no reading is not sent.** The theory-of-mind line said "seems neutral, energy
+moderate, likely intent: casual_chat" on most turns; it now names only what was read. The last file
+she ingested is mentioned only when the speaker's words touch its title, not on every turn to every
+person. The identity stream is shown in whole entries (`recent_entries`), not a character slice that
+began mid-word.
+
 ### Direct messages stay private
 
 A DM is answered, but it is logged to `memory/dm_logs/<user id>.md` (`utils/core/dm_log.py`), never to

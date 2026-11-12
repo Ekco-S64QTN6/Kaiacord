@@ -808,10 +808,19 @@ class BotState:
         if not state or (time.time() - state.get('updated_at', 0) > 7200):
             return ""
 
-        return (
-            f"[your read on {user_name}: seems {state['apparent_mood']}, "
-            f"energy {state['energy']}, likely intent: {state['likely_intent']}]"
-        )
+        # Only what was actually read. "seems neutral, energy moderate, likely
+        # intent: casual_chat" is the absence of a reading, and it went into
+        # every prompt as if it were one.
+        parts = []
+        if state.get('apparent_mood') not in (None, "", "neutral"):
+            parts.append(f"seems {state['apparent_mood']}")
+        if state.get('energy') not in (None, "", "moderate"):
+            parts.append(f"energy {state['energy']}")
+        if state.get('likely_intent') not in (None, "", "casual_chat"):
+            parts.append(f"likely {str(state['likely_intent']).replace('_', ' ')}")
+        if not parts:
+            return ""
+        return f"[your read on {user_name}: {', '.join(parts)}]"
 
     @property
     def boot_complete(self) -> bool:
