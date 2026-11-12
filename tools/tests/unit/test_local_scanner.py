@@ -792,3 +792,53 @@ def test_a_burst_of_tunes_ends_on_the_last_and_back_to_scan_really_stops(monkeyp
         await scanner.untune()
         await asyncio.sleep(0.1)
     asyncio.run(go())
+
+
+def test_watcher_drains_queued_catches_before_returning(monkeypatch):
+    """A stop cannot let the child publish its process sentinel before the
+    catch-forwarding worker has delivered every catch already in its queue."""
+    import threading
+
+    import utils.radio.dongle as dongle
+    from utils.radio import waterfall as w
+
+    entered = threading.Event()
+    release = threading.Event()
+    received = []
+
+    def consume(catch):
+        entered.set()
+        assert release.wait(timeout=2.0), "test did not release catch consumer"
+        received.append(catch)
+
+    class FakeDongle:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    stop = threading.Event()
+    stop.set()  # exercise the fastest possible child shutdown
+    watcher = w.Watcher(consume, stop=stop, hops=([], []))
+    queued = object()
+    watcher.catches.put(queued)
+
+    monkeypatch.setattr(dongle, "Dongle", FakeDongle)
+    monkeypatch.setattr(w, "span_row", lambda _row: None)
+    monkeypatch.setattr(w, "NbfmDemod", lambda _offset: None)
+
+    run = threading.Thread(target=watcher.run, name="test-watcher-run")
+    run.start()
+    try:
+        assert entered.wait(timeout=1.0), "queued catch was not handed to the worker"
+        assert run.is_alive(), "watcher returned before its catch worker drained"
+    finally:
+        release.set()
+    run.join(timeout=1.0)
+
+    assert not run.is_alive(), "watcher did not finish after the worker was released"
+    assert received == [queued]
