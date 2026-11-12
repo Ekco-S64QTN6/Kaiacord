@@ -233,11 +233,21 @@ def test_two_guilds_reserve_different_global_set_slots(monkeypatch, tmp_path):
     starts = []
     first_started = asyncio.Event()
     release_first = asyncio.Event()
+    second_waiting = asyncio.Event()
+    lock_path_calls = 0
 
     monkeypatch.setattr(handler, "config", SimpleNamespace(get=lambda _key, default=None: default))
     monkeypatch.setattr(library, "load", lambda _path: crate)
     monkeypatch.setattr(setlist, "load", lambda: graph)
-    monkeypatch.setattr(setlist, "_rotation_path", lambda: tmp_path / "set_rotation.json")
+
+    def rotation_path():
+        nonlocal lock_path_calls
+        lock_path_calls += 1
+        if lock_path_calls == 2:
+            second_waiting.set()
+        return tmp_path / "set_rotation.json"
+
+    monkeypatch.setattr(setlist, "_rotation_path", rotation_path)
 
     def peek(_graph, _crate):
         return graph["sets"][rotation["next"]]
@@ -284,7 +294,9 @@ def test_two_guilds_reserve_different_global_set_slots(monkeypatch, tmp_path):
         first = asyncio.create_task(handler._records(message(101), ""))
         await first_started.wait()
         second = asyncio.create_task(handler._records(message(202), ""))
-        # The second guild must wait for the first set's start and rotation commit.
+        # Confirm the second command reached the lock boundary, then prove it
+        # cannot enter the selection/start phase before the first commit.
+        await second_waiting.wait()
         await asyncio.sleep(0.05)
         assert starts == [graph["sets"][0]]
         release_first.set()
