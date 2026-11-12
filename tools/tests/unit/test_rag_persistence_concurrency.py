@@ -290,3 +290,64 @@ def test_flag_nodes_waits_for_the_persistence_transaction(tmp_path):
     assert not worker.is_alive()
     assert errors == []
     assert node.metadata["audit_flags"] == ["reviewed"]
+
+
+def test_persistence_lock_serializes_independent_processes(tmp_path):
+    """A maintenance process must not enter the same RAG directory transaction."""
+    import subprocess
+    import sys
+    import textwrap
+    from types import SimpleNamespace
+
+    from utils.core.rag_persistence_lock import persistence_transaction_lock
+
+    persist_dir = tmp_path / "rag_storage"
+    parent_lock = persistence_transaction_lock(SimpleNamespace(persist_dir=str(persist_dir)))
+    assert parent_lock.acquire(timeout=1.0)
+
+    child_code = textwrap.dedent(
+        """
+        import sys
+        from types import SimpleNamespace
+        from utils.core.rag_persistence_lock import persistence_transaction_lock
+
+        lock = persistence_transaction_lock(SimpleNamespace(persist_dir=sys.argv[1]))
+        first = lock.acquire(timeout=0.2)
+        print("unexpected" if first else "blocked", flush=True)
+        if first:
+            lock.release()
+            raise SystemExit(2)
+        if not lock.acquire(timeout=3.0):
+            raise SystemExit(3)
+        print("acquired", flush=True)
+        lock.release()
+        """
+    )
+    root = Path(__file__).resolve().parents[3]
+    child = subprocess.Popen(
+        [sys.executable, "-c", child_code, str(persist_dir)],
+        cwd=str(root),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    try:
+        assert child.stdout is not None
+        assert child.stdout.readline().strip() == "blocked"
+    finally:
+        parent_lock.release()
+
+    stdout, stderr = child.communicate(timeout=5.0)
+    assert child.returncode == 0, stderr
+    assert "acquired" in stdout
+
+
+def test_distinct_rag_instances_share_the_same_persistence_lock(tmp_path):
+    from types import SimpleNamespace
+    from utils.core.rag_persistence_lock import persistence_transaction_lock
+
+    first = persistence_transaction_lock(SimpleNamespace(persist_dir=str(tmp_path / "rag")))
+    second = persistence_transaction_lock(SimpleNamespace(persist_dir=str(tmp_path / "rag" / ".")))
+
+    assert first is second
