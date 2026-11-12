@@ -863,3 +863,58 @@ def test_watcher_drains_queued_catches_before_returning(monkeypatch):
 
     assert not run.is_alive(), "watcher did not finish after the worker was released"
     assert received == [queued]
+
+
+def test_transcription_allowance_is_reserved_atomically_across_consumers(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setattr(scanner, "SPEECH_PER_NIGHT", 1)
+    monkeypatch.setattr(scanner, "TRANSCRIBE_PER_NIGHT", 0)
+    today = datetime.now().strftime("%Y-%m-%d")
+    monkeypatch.setattr(scanner, "_transcribed", {"date": today, "count": 0, "speech": 0})
+
+    def reserve(_):
+        return scanner._reserve_transcription_allowance(
+            today, net=False, digital=False, packet=False,
+            speechlike=True, quiet_channel=False,
+        )
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        results = list(pool.map(reserve, range(64)))
+
+    assert results.count("speech") == 1
+    assert results.count(None) == 63
+    assert scanner._transcribed["speech"] == 1
+
+
+def test_scanner_budget_rolls_over_once_under_concurrent_reservations(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setattr(scanner, "SPEECH_PER_NIGHT", 4)
+    monkeypatch.setattr(scanner, "TRANSCRIBE_PER_NIGHT", 0)
+    today = datetime.now().strftime("%Y-%m-%d")
+    monkeypatch.setattr(scanner, "_transcribed", {"date": "yesterday", "count": 99, "speech": 99})
+
+    def reserve(_):
+        return scanner._reserve_transcription_allowance(
+            today, net=False, digital=False, packet=False,
+            speechlike=True, quiet_channel=False,
+        )
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        results = list(pool.map(reserve, range(48)))
+
+    assert results.count("speech") == 4
+    assert scanner._transcribed == {"date": today, "count": 0, "speech": 4}
+
+
+def test_morse_clip_interval_reservation_is_atomic(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setattr(scanner, "_id_clips", {})
+    now = time.time()
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        results = list(pool.map(lambda _i: scanner._reserve_morse_clip(146_520_000, now), range(64)))
+
+    assert results.count(True) == 1
+    assert results.count(False) == 63
