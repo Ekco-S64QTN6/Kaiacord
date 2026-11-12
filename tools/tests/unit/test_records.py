@@ -262,11 +262,15 @@ def test_the_set_ends_when_nothing_comes_next():
     first = Deck(rec("one", 124, "8A"), 1.0, 0.4, tone(500, 0.4))
     src = CrossfadeSource(first, lambda deck: None, grid_at=lambda *a: None)
     wait_for(first, 20)
-    frames = []
+    # This is an EOF-only test: wait for the explicit no-next result rather
+    # than letting a speculative end planner race the synthetic frame loop.
+    deadline = time.monotonic() + 1.0
+    while src._picking and time.monotonic() < deadline:
+        time.sleep(0.001)
+    assert not src._picking and src._exhausted
+    src._begin_planning = lambda _mode: None
     try:
-        for _ in range(60):
-            frames.append(src.read())
-            time.sleep(0.02)  # match the 20 ms producer cadence; let planners acquire the frame lock
+        frames = [src.read() for _ in range(60)]
         assert b"" in frames
     finally:
         src.cleanup()
