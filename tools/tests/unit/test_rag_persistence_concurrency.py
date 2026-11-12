@@ -11,6 +11,9 @@ class _SnapshotStore:
     def __init__(self, name, writes):
         self.name = name
         self.writes = writes
+        # Match the storage_context contract used by mutation paths such as
+        # flag_nodes(); these snapshot-only tests otherwise lack a docstore.
+        self.docstore = SimpleNamespace(docs={}, get_node=lambda _node_id: None)
 
     def persist(self, persist_dir):
         path = Path(persist_dir)
