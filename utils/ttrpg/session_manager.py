@@ -6,16 +6,16 @@ import asyncio
 import copy
 import functools
 import inspect
-from typing import Dict
+from weakref import WeakValueDictionary
 
 from utils.infrastructure.monitoring.async_lock_metrics import (
     MeasuredAsyncLock,
-    record_registry_lock_created,
+    track_registry_lock,
 )
 
 SESSIONS_DIR = os.path.join("memory", "ttrpg", "sessions")
 _lock = threading.Lock()
-_chan_locks: Dict[str, asyncio.Lock] = {}
+_chan_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 _chan_global_lock = asyncio.Lock()
 
 # Distinct from the locks above, and it has to be. Those are held *inside*
@@ -26,7 +26,7 @@ _chan_global_lock = asyncio.Lock()
 # save discards the first round's damage. Players saw HP go *up*: a Wyrm at
 # 80/116 reappearing at 101/116, exactly the 21 damage that had just been
 # dealt. This lock is held across the whole read-modify-write instead.
-_action_locks: Dict[str, asyncio.Lock] = {}
+_action_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
 
 async def get_action_lock(channel_id: str) -> asyncio.Lock:
@@ -36,7 +36,7 @@ async def get_action_lock(channel_id: str) -> asyncio.Lock:
         if lock is None:
             lock = MeasuredAsyncLock("rpg_action")
             _action_locks[channel_id] = lock
-            record_registry_lock_created("rpg_action", len(_action_locks))
+            track_registry_lock("rpg_action", _action_locks, lock)
         return lock
 
 
@@ -132,7 +132,7 @@ async def get_session_lock(channel_id: str) -> asyncio.Lock:
         if lock is None:
             lock = MeasuredAsyncLock("rpg_session")
             _chan_locks[channel_id] = lock
-            record_registry_lock_created("rpg_session", len(_chan_locks))
+            track_registry_lock("rpg_session", _chan_locks, lock)
         return lock
 
 
