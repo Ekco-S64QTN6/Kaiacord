@@ -1,10 +1,19 @@
 """!download and !youtube file their document at once."""
 import asyncio
+import importlib.util
 import subprocess
 import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
+
+
+def _load_ingress_processor():
+    spec = importlib.util.spec_from_file_location(
+        "process_ingress_under_test", "tools/maintenance/process_ingress.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _reply():
@@ -68,7 +77,7 @@ def test_ingress_processor_lock_is_shared_across_independent_file_descriptors(tm
     import fcntl
     import threading
 
-    processor = _load_ingress()
+    processor = _load_ingress_processor()
     lock_path = tmp_path / "ingress_process.lock"
     monkeypatch.setattr(processor, "_process_lock_path", lambda: lock_path)
     entered = threading.Event()
@@ -93,7 +102,7 @@ def test_ingress_processor_lock_is_shared_across_independent_file_descriptors(tm
 def test_cli_main_holds_the_lock_around_the_entire_processor_run():
     import inspect
 
-    processor = _load_ingress()
+    processor = _load_ingress_processor()
     source = inspect.getsource(processor.main)
     assert "with _processing_lock()" in source
     assert "return _main_locked()" in source
