@@ -184,7 +184,11 @@ def test_clear_removes_the_index_and_keeps_runtime_state(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         asyncio.run(mod.rebuild_rag(clear_storage=True))
 
-    assert sorted(p.name for p in store.iterdir()) == ["dream_history.json", "kaia_continuity.md"]
+    # The persistent flock sidecar must survive index clearing: another
+    # process may be waiting on it, so it is not safe to unlink while held.
+    assert sorted(p.name for p in store.iterdir()) == [
+        ".rag-persistence.lock", "dream_history.json", "kaia_continuity.md",
+    ]
 
 
 def test_the_news_quick_reference_is_not_indexed():

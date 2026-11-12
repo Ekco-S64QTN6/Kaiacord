@@ -44,4 +44,6 @@ def test_a_good_save_replaces_it_and_leaves_no_temporaries(tmp_path):
     (tmp_path / "knowledge_tmp").mkdir()                   # left by an earlier cut-off save
     _rag(tmp_path, fail=False)._persist_index_atomic("knowledge")
     assert (live / "docstore.json").read_text() == '{"new": true}'
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["knowledge"]
+    # The lock file is a durable coordination primitive, not a stale
+    # staging artifact. All other temporary paths must be gone.
+    assert {p.name for p in tmp_path.iterdir()} == {"knowledge", ".rag-persistence.lock"}

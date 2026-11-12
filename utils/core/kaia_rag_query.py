@@ -730,11 +730,12 @@ class RAGQueryMixin:
                     log_warning(f"Detected stale Node ID {stale_node_id} in {itype} index. Repairing automatically...")
                     try:
                         with self._data_lock:
-                            self._delete_nodes(itype, [stale_node_id])
-                            
-                            # The index changed; BM25 rebuilds on next use
-                            self.bm25_cache.pop(itype, None)
-                            self.persist_needed = True
+                            with self._get_persistence_transaction_lock():
+                                self._delete_nodes(itype, [stale_node_id])
+
+                                # The index changed; BM25 rebuilds on next use.
+                                self.bm25_cache.pop(itype, None)
+                                self.persist_needed = True
                             
                         log_success(f"Repaired {itype} index by removing stale Node {stale_node_id} in-memory. Retrying retrieval...")
                         
