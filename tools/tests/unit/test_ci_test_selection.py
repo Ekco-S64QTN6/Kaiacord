@@ -218,3 +218,13 @@ def test_records_changes_select_deferred_planner_race_regressions():
         for path in selector["select_tests"](["utils/audio/records.py"])
     }
     assert "tools/tests/unit/test_records.py" in selected
+
+
+
+def test_download_handler_changes_select_staging_filename_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/commands/download_handler.py"])
+    }
+    assert "tools/tests/unit/test_download_sidecar.py" in selected
