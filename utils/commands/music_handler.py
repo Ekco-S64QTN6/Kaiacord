@@ -242,7 +242,16 @@ def _records_status(session) -> discord.Embed:
 
 
 async def _records(msg, query: str) -> None:
-    """Start a set from the local record library."""
+    """Start records; automatic global rotation is one cross-guild transaction."""
+    if query:
+        return await _records_locked(msg, query)
+    from utils.audio import setlist
+    async with setlist.rotation_transaction():
+        return await _records_locked(msg, query)
+
+
+async def _records_locked(msg, query: str) -> None:
+    """Start a set while the caller owns the global rotation transaction."""
     from utils.audio import library, records
     voice_state = getattr(msg.author, "voice", None)
     if not voice_state or not voice_state.channel:
