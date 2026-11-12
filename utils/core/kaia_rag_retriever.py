@@ -264,6 +264,24 @@ def thread_safe_rag_operation(func):
 _VEC_CACHE: dict = {}
 _VEC_VERSION: dict = {}
 _VEC_SLICE = 256
+_VEC_STORE_LOCKS: dict = {}
+_VEC_STORE_LOCKS_GUARD = threading.Lock()
+
+
+def _store_lock(store):
+    """One re-entrant lock for a store's query snapshot and all mutations."""
+    key = id(store)
+    with _VEC_STORE_LOCKS_GUARD:
+        lock = _VEC_STORE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _VEC_STORE_LOCKS[key] = lock
+            try:
+                import weakref
+                weakref.finalize(store, _forget_store, key)
+            except TypeError:
+                pass
+        return lock
 
 
 def _store_matrix(store):
@@ -284,15 +302,6 @@ def _store_matrix(store):
     if len(matrix):
         norms = np.linalg.norm(matrix, axis=1, keepdims=True)
         matrix = matrix / np.where(norms == 0, 1.0, norms)
-    if key not in _VEC_CACHE:
-        # The entry goes with its store: a reloaded index would otherwise keep
-        # the old store's matrix for the life of the bot, and a recycled id()
-        # could hand a new store the old one's rows.
-        try:
-            import weakref
-            weakref.finalize(store, _forget_store, key)
-        except TypeError:
-            pass
     _VEC_CACHE[key] = (version, len(data), ids, matrix)
     return ids, matrix
 
@@ -300,6 +309,7 @@ def _store_matrix(store):
 def _forget_store(key: int) -> None:
     _VEC_CACHE.pop(key, None)
     _VEC_VERSION.pop(key, None)
+    _VEC_STORE_LOCKS.pop(key, None)
 
 
 def install_fast_vector_query() -> None:
@@ -323,6 +333,10 @@ def install_fast_vector_query() -> None:
         _VEC_VERSION[id(self)] = _VEC_VERSION.get(id(self), 0) + 1
 
     def query(self, query, **kwargs):
+        with _store_lock(self):
+            return _query_locked(self, query, **kwargs)
+
+    def _query_locked(self, query, **kwargs):
         if query.mode != VectorStoreQueryMode.DEFAULT or query.query_embedding is None:
             return original_query(self, query, **kwargs)
         if query.filters is not None and self.data.embedding_dict and not self.data.metadata_dict:
@@ -354,22 +368,25 @@ def install_fast_vector_query() -> None:
         return VectorStoreQueryResult(similarities=[float(sims[i]) for i in top], ids=[ids[i] for i in pick])
 
     def add(self, *a, **kw):
-        out = original_add(self, *a, **kw)
-        bump(self)
-        return out
+        with _store_lock(self):
+            out = original_add(self, *a, **kw)
+            bump(self)
+            return out
 
     def delete(self, *a, **kw):
-        out = original_delete(self, *a, **kw)
-        bump(self)
-        return out
+        with _store_lock(self):
+            out = original_delete(self, *a, **kw)
+            bump(self)
+            return out
 
     SimpleVectorStore.query = query
     SimpleVectorStore.add = add
     SimpleVectorStore.delete = delete
     if original_delete_nodes:
         def delete_nodes(self, *a, **kw):
-            out = original_delete_nodes(self, *a, **kw)
-            bump(self)
-            return out
+            with _store_lock(self):
+                out = original_delete_nodes(self, *a, **kw)
+                bump(self)
+                return out
         SimpleVectorStore.delete_nodes = delete_nodes
     SimpleVectorStore._kaia_fast = True

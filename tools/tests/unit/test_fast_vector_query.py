@@ -108,3 +108,119 @@ def test_a_freed_store_takes_its_cached_matrix_with_it():
     del store
     gc.collect()
     assert key not in R._VEC_CACHE
+
+
+
+def test_vector_store_query_waits_for_the_same_store_mutation_lock(monkeypatch):
+    """The cached IDs, embedding rows and filter metadata must be one snapshot."""
+    import threading
+    from llama_index.core.schema import TextNode
+    from llama_index.core.vector_stores.types import VectorStoreQuery
+
+    kr.install_fast_vector_query()
+    store, _rng = _store(n=20)
+    query = VectorStoreQuery(query_embedding=[1.0] * 16, similarity_top_k=20)
+    entered_matrix = threading.Event()
+    release_matrix = threading.Event()
+    writer_started = threading.Event()
+    writer_done = threading.Event()
+    original_matrix = kr._store_matrix
+    query_errors = []
+    
+    def blocked_matrix(current):
+        entered_matrix.set()
+        if not release_matrix.wait(timeout=3.0):
+            raise TimeoutError("test did not release vector snapshot")
+        return original_matrix(current)
+
+    monkeypatch.setattr(kr, "_store_matrix", blocked_matrix)
+
+    def run_query():
+        try:
+            store.query(query)
+        except Exception as exc:
+            query_errors.append(exc)
+
+    query_thread = threading.Thread(target=run_query, daemon=True)
+    query_thread.start()
+    assert entered_matrix.wait(timeout=2.0), "query did not reach the cached matrix"
+
+    fresh = TextNode(text="fresh", id_="fresh-during-query", metadata={"kind": "knowledge", "user": "u9"})
+    fresh.embedding = [1.0] * 16
+
+    def add_while_query_runs():
+        writer_started.set()
+        store.add([fresh])
+        writer_done.set()
+
+    writer_thread = threading.Thread(target=add_while_query_runs, daemon=True)
+    writer_thread.start()
+    try:
+        assert writer_started.wait(timeout=1.0)
+        assert not writer_done.wait(timeout=0.1), "mutation entered while query held its snapshot lock"
+    finally:
+        release_matrix.set()
+        query_thread.join(timeout=3.0)
+        writer_thread.join(timeout=3.0)
+
+    assert not query_thread.is_alive() and not writer_thread.is_alive()
+    assert not query_errors, query_errors
+    assert writer_done.is_set()
+    monkeypatch.setattr(kr, "_store_matrix", original_matrix)
+    got = store.query(VectorStoreQuery(query_embedding=[1.0] * 16, similarity_top_k=1))
+    assert got.ids == ["fresh-during-query"]
+
+
+def test_vector_store_delete_waits_for_a_query_snapshot(monkeypatch):
+    import threading
+    from llama_index.core.vector_stores.types import VectorStoreQuery
+
+    kr.install_fast_vector_query()
+    store, _rng = _store(n=20)
+    query = VectorStoreQuery(query_embedding=[1.0] * 16, similarity_top_k=20)
+    entered_matrix = threading.Event()
+    release_matrix = threading.Event()
+    delete_started = threading.Event()
+    delete_done = threading.Event()
+    original_matrix = kr._store_matrix
+    errors = []
+
+    def blocked_matrix(current):
+        entered_matrix.set()
+        if not release_matrix.wait(timeout=3.0):
+            raise TimeoutError("test did not release vector snapshot")
+        return original_matrix(current)
+
+    monkeypatch.setattr(kr, "_store_matrix", blocked_matrix)
+
+    def run_query():
+        try:
+            store.query(query)
+        except Exception as exc:
+            errors.append(exc)
+
+    query_thread = threading.Thread(target=run_query, daemon=True)
+    query_thread.start()
+    assert entered_matrix.wait(timeout=2.0)
+
+    def delete_while_query_runs():
+        delete_started.set()
+        store.delete_nodes(node_ids=["id0"])
+        delete_done.set()
+
+    delete_thread = threading.Thread(target=delete_while_query_runs, daemon=True)
+    delete_thread.start()
+    try:
+        assert delete_started.wait(timeout=1.0)
+        assert not delete_done.wait(timeout=0.1), "delete entered while query held its snapshot lock"
+    finally:
+        release_matrix.set()
+        query_thread.join(timeout=3.0)
+        delete_thread.join(timeout=3.0)
+
+    assert not query_thread.is_alive() and not delete_thread.is_alive()
+    assert not errors, errors
+    assert delete_done.is_set()
+    monkeypatch.setattr(kr, "_store_matrix", original_matrix)
+    got = store.query(VectorStoreQuery(query_embedding=[1.0] * 16, similarity_top_k=20))
+    assert "id0" not in got.ids
