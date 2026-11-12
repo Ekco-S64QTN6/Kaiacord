@@ -118,7 +118,7 @@ def test_sanitized_channel_turn_is_the_content_written_to_bot_state_json(tmp_pat
     try:
         state.save()
     finally:
-        state._executor.shutdown(wait=True)
+        state.close()
 
     saved = json.loads(path.read_text(encoding="utf-8"))
     persisted = saved["channel_memory"]["123"][0]["content"]

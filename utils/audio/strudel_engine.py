@@ -182,15 +182,23 @@ class StrudelEngine:
         handler_cls = type("QuietHandler", (handler.func,),
                            {"log_message": lambda *a, **k: None})
         socketserver.TCPServer.allow_reuse_address = True
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
-            self.port = s.getsockname()[1]
+        # Let the OS choose and bind the port in one operation. Reserving a
+        # temporary socket, closing it and binding a second server left a race
+        # in which another local process could steal the selected port.
         self._srv = socketserver.TCPServer(
-            ("127.0.0.1", self.port),
+            ("127.0.0.1", 0),
             functools.partial(handler_cls, directory=str(ASSET_DIR)))
+        self.port = int(self._srv.server_address[1])
         self._srv_thread = threading.Thread(target=self._srv.serve_forever,
                                             daemon=True, name="kaia-strudel-http")
-        self._srv_thread.start()
+        try:
+            self._srv_thread.start()
+        except BaseException:
+            self._srv.server_close()
+            self._srv = None
+            self._srv_thread = None
+            self.port = 0
+            raise
 
     def start(self) -> None:
         self._call(self._start_impl)
@@ -461,13 +469,34 @@ class StrudelEngine:
         finally:
             self._pool.shutdown(wait=False)
 
+    def _close_server(self) -> None:
+        """Stop the HTTP worker and close its listening socket exactly once."""
+        server, self._srv = self._srv, None
+        thread, self._srv_thread = self._srv_thread, None
+        if server is not None:
+            try:
+                # shutdown() waits for serve_forever() to leave its loop.
+                server.shutdown()
+            except Exception as exc:
+                log_debug(f"[music] stopping HTTP server: {exc}")
+            finally:
+                try:
+                    server.server_close()
+                except Exception as exc:
+                    log_debug(f"[music] closing HTTP server socket: {exc}")
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2.0)
+            if thread.is_alive():
+                log_warning("[music] HTTP server thread did not stop within 2s")
+        self.port = 0
+
     def _close_impl(self) -> None:
         self.close_capture()
         for shut, what in ((lambda: self._browser and self._browser.close(), "browser"),
-                           (lambda: self._pw and self._pw.stop(), "playwright"),
-                           (lambda: self._srv and self._srv.shutdown(), "http server")):
+                           (lambda: self._pw and self._pw.stop(), "playwright")):
             try:
                 shut()
             except Exception as exc:
                 log_debug(f"[music] closing {what}: {exc}")
-        self._browser = self._pw = self._srv = self._page = None
+        self._close_server()
+        self._browser = self._pw = self._page = None
