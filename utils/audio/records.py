@@ -2049,6 +2049,7 @@ class RecordsSession:
                     if generation == self._load_generation:
                         self.loading = None
         threading.Thread(target=run, daemon=True, name="kaia-records-load").start()
+
     def _choose(self, deck: Deck) -> Optional[Next]:
         from utils.audio import beatgrid
         _envelope(deck.record.path)                    # the record on air, measured against at plan time
