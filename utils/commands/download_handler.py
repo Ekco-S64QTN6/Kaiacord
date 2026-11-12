@@ -497,7 +497,9 @@ def _classify_folder(url: str, title: str, file_type: str, word_count: int) -> s
 
 
 def _make_filename(title: str, dt: datetime) -> str:
-    """Create a filesystem-safe filename from a title."""
+    """Create a filesystem-safe, per-submission filename from a title."""
+    import uuid
+
     # Sanitize title
     safe = re.sub(r'[^\w\s-]', '', title.lower())
     safe = re.sub(r'[\s_]+', '-', safe).strip('-')
@@ -507,7 +509,11 @@ def _make_filename(title: str, dt: datetime) -> str:
         safe = 'untitled'
     
     date_prefix = dt.strftime('%Y-%m-%d')
-    return f"{date_prefix}_{safe}.md"
+    # The date/title alone is not an identity: two people can submit the same
+    # article title on the same day while an earlier item is still being filed.
+    # A UUID keeps both the Markdown path and its sidecar unique per submission.
+    submission_id = uuid.uuid4().hex
+    return f"{date_prefix}_{safe}_{submission_id}.md"
 
 
 def _title_from_url(url: str) -> str:

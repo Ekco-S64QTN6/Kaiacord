@@ -51,3 +51,19 @@ def test_the_downloader_no_longer_builds_frontmatter_it_discards():
     src = Path("utils/commands/download_handler.py").read_text(encoding="utf-8")
     assert "dump_frontmatter" not in src
     assert "'page_summary'" in src and "'author'" in src
+
+
+
+def test_same_title_downloads_on_the_same_day_get_distinct_staged_names():
+    from datetime import datetime
+    from utils.commands.download_handler import _make_filename
+
+    submitted_at = datetime(2026, 11, 11, 5, 30, 0)
+    names = {
+        _make_filename("A Shared Article Title", submitted_at)
+        for _ in range(12)
+    }
+
+    assert len(names) == 12
+    assert all(name.startswith("2026-11-11_a-shared-article-title_") for name in names)
+    assert all(name.endswith(".md") for name in names)
