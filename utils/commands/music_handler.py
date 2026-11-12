@@ -250,6 +250,22 @@ async def _records(msg, query: str) -> None:
         return await _records_locked(msg, query)
 
 
+async def _commit_records_rotation(setlist, graph, crate) -> bool:
+    """Finish the durable rotation commit before a cancelled command releases its lock."""
+    commit = asyncio.create_task(asyncio.to_thread(setlist.advance_rotation, graph, crate))
+    try:
+        return await asyncio.shield(commit)
+    except asyncio.CancelledError:
+        # Voice playback has already started. Do not let a second guild enter
+        # the transaction and select the same slot while this disk commit is
+        # still running in a worker thread.
+        try:
+            await asyncio.shield(commit)
+        except Exception as exc:
+            log_warning(f"[records] rotation commit failed during cancellation: {_why(exc)}")
+        raise
+
+
 async def _records_locked(msg, query: str) -> None:
     """Start a set while the caller owns the global rotation transaction."""
     from utils.audio import library, records
@@ -307,7 +323,7 @@ async def _records_locked(msg, query: str) -> None:
     if chosen and first.path == chosen[0]:
         # Disk I/O belongs off the command's event loop. Advance only once
         # start_records has installed a playing session successfully.
-        await asyncio.to_thread(setlist.advance_rotation, graph, crate)
+        await _commit_records_rotation(setlist, graph, crate)
     meta = " · ".join(x for x in (f"{first.bpm:g} bpm" if first.bpm else "", first.key or "") if x)
     await msg.channel.send(embed=box(
         f"🎧  Records in {channel.name}",
