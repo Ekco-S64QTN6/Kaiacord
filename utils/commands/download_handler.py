@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning, log_debug
-from utils.core.sanitizer import is_safe_url, public_only_connector
+from utils.core.sanitizer import is_safe_url, public_only_connector, redact_url
 from utils.core.atomic_write import write_atomic
 from utils.commands.embed_style import COLOR_INFO, add_field, box, clean, notice
 
@@ -23,6 +23,11 @@ SUPPORTED_TYPES = {
     'text/markdown': 'text',
     'text/csv': 'text',
 }
+
+#: Fetches in flight. A download is up to 10 MiB fetched and converted, open to
+#: everyone, so one person runs one at a time and the bot a few.
+MAX_CONCURRENT_DOWNLOADS = 2
+_downloading: set = set()
 
 # Blog domain patterns
 BLOG_DOMAINS = ['medium.com', 'substack.com', 'dev.to', 'hashnode.dev', 'wordpress.com', 'blogger.com', 'ghost.io']
@@ -74,17 +79,28 @@ async def handle_download_command(ctx, msg, send_kaia_response):
         await msg.channel.send(embed=notice("couldn't parse that url.", error=True))
         return
 
-    # Show typing while downloading
-    async with msg.channel.typing():
-        try:
-            result = await _download_and_convert(url, msg.author.display_name, str(msg.author.id))
-        except DownloadError as e:
-            await msg.channel.send(embed=notice(f"download failed: {e}", error=True))
-            return
-        except Exception as e:
-            log_error(f"Download command error: {e}")
-            await msg.channel.send(embed=notice("something went wrong during the download. check the url and try again.", error=True))
-            return
+    who = str(msg.author.id)
+    if who in _downloading:
+        await msg.channel.send(embed=notice("one download at a time. the last one is still coming in."))
+        return
+    if len(_downloading) >= MAX_CONCURRENT_DOWNLOADS:
+        await msg.channel.send(embed=notice("already fetching a couple of documents. try again in a minute."))
+        return
+    _downloading.add(who)
+    try:
+        # Show typing while downloading
+        async with msg.channel.typing():
+            try:
+                result = await _download_and_convert(url, msg.author.display_name, who)
+            except DownloadError as e:
+                await msg.channel.send(embed=notice(f"download failed: {e}", error=True))
+                return
+            except Exception as e:
+                log_error(f"Download command error: {e}")
+                await msg.channel.send(embed=notice("something went wrong during the download. check the url and try again.", error=True))
+                return
+    finally:
+        _downloading.discard(who)
 
     # Staged outside the indexed tree, then filed straight away; filing
     # requests the reindex. The footer says where it went.
@@ -97,7 +113,7 @@ async def handle_download_command(ctx, msg, send_kaia_response):
     reply = await msg.channel.send(embed=embed)
     from utils.core import ingress
     ingress.start_filing(Path(result['filepath']), reply)
-    log_action(f"Staged {url} -> {result['filepath']} ({result['word_count']} words) "
+    log_action(f"Staged {redact_url(url)} -> {result['filepath']} ({result['word_count']} words) "
                f"by {msg.author.display_name}")
 
 
@@ -227,7 +243,7 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     # up a document whose sidecar has not landed yet.
     sidecar = {
         'title': title,
-        'source_url': url,
+        'source_url': redact_url(url),      # kept and retrievable: no credentials
         'submitted_by': username,
         'submitted_by_id': user_id,
         'submitted_at': now.isoformat(),

@@ -69,7 +69,7 @@ from utils.infrastructure.monitoring.async_task_registry import task_registry
 from utils.social.kaia_social_responder import load_persona_async
 from utils.commands.memory_handler import handle_memory_command
 from utils.commands.profile_handler import handle_profile_query
-from utils.commands.registry import dispatch_command
+from utils.commands.registry import dispatch_command, resolve as resolve_command
 from utils.infrastructure.system.messaging import send_kaia_response
 from utils.core.sanitizer import (
     sanitize_prompt, pointed_at, is_safe_url, public_only_connector, read_capped,
@@ -442,7 +442,16 @@ class MessageProcessor:
                 except Exception: pass
                 return
 
-        # 3. Command dispatch, through utils/commands/registry.py.
+        # 3. Command dispatch, through utils/commands/registry.py. A command
+        # starts work and writes state like any other turn, so it is held to
+        # the same shutdown guard and per-user rate limit as conversation.
+        if resolve_command(msg.content) is not None:
+            if self.shutdown_manager.shutting_down:
+                log_info(f"Command from {msg.author.name} ignored: shutting down")
+                return
+            if not self.rate_limiter.is_allowed(msg.author.id):
+                log_warning(f"Rate limit hit for user {msg.author.name} (command)")
+                return
         if await dispatch_command(self.ctx, msg, load_persona_async, send_kaia_response):
             if is_social: log_debug("Social message handled by command dispatcher")
             return
