@@ -131,3 +131,12 @@ def test_a_sidecar_staged_with_a_credential_is_filed_without_it(tmp_path, monkey
     text = filed.read_text(encoding="utf-8")
     assert "https://files.example.com/notes.txt?page=2" in text
     assert "SECRETTOKEN" not in text and "alice" not in text and "pw@" not in text
+
+
+@pytest.mark.parametrize("handler", ["utils/commands/youtube_handler.py", "utils/commands/download_handler.py"])
+def test_a_staged_document_never_exists_without_its_sidecar(handler):
+    """The hourly processor files whatever document it finds: the sidecar is written first, off the loop."""
+    src = open(handler, encoding="utf-8").read()
+    writes = [line.strip() for line in src.splitlines() if "write_atomic" in line and "import" not in line]
+    assert len(writes) == 2 and ".meta.json" in writes[0] and ".meta.json" not in writes[1]
+    assert all(w.startswith("await asyncio.to_thread(write_atomic") for w in writes)

@@ -119,11 +119,12 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
         while path.exists():
             path = INGRESS / safe_filename(f"{stats['title']} ({n})")
             n += 1
-        write_atomic(path, markdown)
         # preformatted: the converter already produced knowledge-base Markdown
         # with frontmatter, headings and timestamp anchors. Running the ingress
-        # normaliser over it would reflow the paragraphs and destroy them.
-        write_atomic(path.with_suffix(".meta.json"), json.dumps({
+        # normaliser over it would reflow the paragraphs and destroy them. So
+        # the sidecar lands first: the hourly processor must never find the
+        # document without it. Both writes fsync; neither runs on the loop.
+        await asyncio.to_thread(write_atomic, path.with_suffix(".meta.json"), json.dumps({
             "title": stats["title"],
             "author": stats.get("channel", ""),
             "source_url": stats["url"],
@@ -139,6 +140,7 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
             # found and reversed.
             "name_corrections": {h: corrections[h] for h in counts},
         }, indent=2))
+        await asyncio.to_thread(write_atomic, path, markdown)
     except Exception as e:
         log_error(f"[youtube] staging failed: {e}")
         await _fail(msg, placeholder, "got the transcript but couldn't stage it.")

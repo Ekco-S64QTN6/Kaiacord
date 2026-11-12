@@ -257,8 +257,8 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
         sidecar['page_summary'] = meta_info['summary']
     if keywords:
         sidecar['keywords'] = keywords[:10]
-    write_atomic(filepath.with_suffix('.meta.json'), json.dumps(sidecar, indent=2))
-    write_atomic(filepath, markdown_body)
+    await asyncio.to_thread(write_atomic, filepath.with_suffix('.meta.json'), json.dumps(sidecar, indent=2))
+    await asyncio.to_thread(write_atomic, filepath, markdown_body)      # up to 10 MiB and an fsync: off the loop
 
     word_count = len(markdown_body.split())
 
