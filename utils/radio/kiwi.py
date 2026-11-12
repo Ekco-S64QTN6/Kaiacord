@@ -15,14 +15,17 @@ needs, and never hold a slot while nothing is scheduled.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import re
 import signal
+import socket
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 from utils.radio.fetch import FeedError, USER_AGENT, is_stale, read_cache, write_cache
@@ -59,6 +62,7 @@ class Receiver:
     low_hz: int
     high_hz: int
     ext_api: int = 0          # listener slots the owner allows non-browser clients
+    connect_host: str = ""   # public IP pinned before the subprocess is launched
 
 
     def covers(self, khz: float) -> bool:
@@ -70,10 +74,112 @@ class Receiver:
 
 
 def _host_port(url: str) -> tuple[str, int]:
-    hit = re.match(r"^\w+://([^/:]+)(?::(\d+))?", url or "")
-    if not hit:
-        raise ValueError(url)
-    return hit[1], int(hit[2] or DEFAULT_PORT)
+    """Parse a directory endpoint without accepting credentials or odd URL forms."""
+    try:
+        parts = urlsplit(str(url or ""))
+        if (
+            parts.scheme.lower() not in {"http", "https"}
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+            or parts.query
+            or parts.fragment
+            or parts.path not in {"", "/"}
+            or parts.netloc.endswith(":")
+        ):
+            raise ValueError(url)
+        host = parts.hostname.strip().strip("[]")
+        if not host:
+            raise ValueError(url)
+        # Reject unsafe IP literals while parsing the directory. Hostnames are
+        # resolved later, immediately before a subprocess is launched, where
+        # every DNS answer is checked and one public IP is pinned.
+        try:
+            literal = ipaddress.ip_address(host.split("%", 1)[0])
+        except ValueError:
+            literal = None
+        if literal is not None and (not literal.is_global or literal.is_multicast):
+            raise ValueError(f"receiver host is not public: {host}")
+        port = parts.port or DEFAULT_PORT
+        if not 1 <= port <= 65535:
+            raise ValueError(url)
+        return host, port
+    except ValueError as exc:
+        raise ValueError(f"invalid receiver URL {url!r}: {exc}") from exc
+
+
+def _public_ip(value: str):
+    """Parse an IP literal and reject every non-globally-routable address."""
+    try:
+        address = ipaddress.ip_address(str(value).split("%", 1)[0])
+    except ValueError as exc:
+        raise FeedError(f"receiver address is not an IP literal: {value!r}") from exc
+    # ipaddress marks multicast as is_global on some Python versions,
+    # but multicast is never a valid unicast receiver destination.
+    if not address.is_global or address.is_multicast:
+        raise FeedError(f"receiver address is not public: {address}")
+    return address
+
+
+def _resolve_public_host(host: str) -> str:
+    """Resolve a receiver host and pin one public answer for the subprocess.
+
+    Every answer must be public; accepting one public answer alongside a private
+    answer would leave the external client free to choose the private address.
+    The selected literal IP is passed to kiwirecorder, so a later DNS change
+    cannot rebind the actual connection after validation.
+    """
+    host = str(host or "").strip().strip("[]")
+    if not host:
+        raise FeedError("receiver hostname is empty")
+    try:
+        address = _public_ip(host)
+        return str(address)
+    except FeedError:
+        # A non-literal hostname is resolved below. Do not fall back to the
+        # original hostname: the subprocess must receive the pinned IP.
+        try:
+            ipaddress.ip_address(host.split("%", 1)[0])
+        except ValueError:
+            pass
+        else:
+            raise
+
+    try:
+        answers = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise FeedError(f"could not resolve receiver {host}: {exc}") from exc
+
+    addresses = set()
+    for family, _socktype, _proto, _canonname, sockaddr in answers:
+        if family not in (socket.AF_INET, socket.AF_INET6) or not sockaddr:
+            continue
+        addresses.add(_public_ip(sockaddr[0]))
+    if not addresses:
+        raise FeedError(f"receiver {host} has no usable IP addresses")
+    # Reject the entire name if even one DNS answer is private/reserved. This
+    # avoids accepting a mixed public/private response and choosing by order.
+    # Prefer IPv4 for older kiwirecorder builds when both families are public.
+    ordered = sorted(addresses, key=lambda ip: (ip.version != 4, int(ip)))
+    return str(ordered[0])
+
+
+async def resolve_receiver(receiver: Receiver) -> Receiver:
+    """Return a copy whose subprocess destination is a validated public IP."""
+    if receiver.connect_host:
+        pinned = str(_public_ip(receiver.connect_host))
+    else:
+        pinned = await asyncio.to_thread(_resolve_public_host, receiver.host)
+    return replace(receiver, connect_host=pinned)
+
+
+def _pinned_host(receiver: Receiver) -> str:
+    """Enforce a resolved public literal at every recorder command boundary."""
+    if not receiver.connect_host:
+        raise FeedError(
+            f"{receiver.host} has not been resolved to a public address; refusing subprocess"
+        )
+    return str(_public_ip(receiver.connect_host))
 
 
 def parse_directory(text: str) -> list[Receiver]:
@@ -266,7 +372,9 @@ def _die_with_parent() -> None:
 
 
 def _recorder_cmd(r: Receiver, khz: float, mode: str) -> list[str]:
-    return [sys.executable, "-u", str(RECORDER), "-s", r.host, "-p", str(r.port),
+    # Never give kiwirecorder the directory hostname: its independent DNS
+    # lookup would bypass the bot's public-address validation.
+    return [sys.executable, "-u", str(RECORDER), "-s", _pinned_host(r), "-p", str(r.port),
             "-f", f"{khz:g}", "-m", mode.lower(), "-u", KIWI_USER, "-q",
             # info level: connection failures are logged there, and -q alone
             # makes a refused connection completely silent.
@@ -298,6 +406,7 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
     written, one file each; without, one file. Returns the WAVs written."""
     if not available():
         raise FeedError("kiwiclient is not installed — run tools/maintenance/fetch_radio_assets.py")
+    receiver = await resolve_receiver(receiver)
     # Absolute: the recorder runs in assets/kiwiclient/, and a relative
     # memory/radio/work sent every file it wrote into a folder that isn't there.
     out_dir = Path(out_dir).resolve()
@@ -386,7 +495,8 @@ async def smeter(receiver: Receiver, khz: float, mode: str, seconds: float) -> l
     from datetime import datetime, timezone
     if not available():
         raise FeedError("kiwiclient is not installed — run tools/maintenance/fetch_radio_assets.py")
-    cmd = [sys.executable, "-u", str(RECORDER), "-s", receiver.host, "-p", str(receiver.port),
+    receiver = await resolve_receiver(receiver)
+    cmd = [sys.executable, "-u", str(RECORDER), "-s", _pinned_host(receiver), "-p", str(receiver.port),
            "-f", f"{khz:g}", "-m", mode, "-u", KIWI_USER, "--S-meter=0", "--ts", "--tlimit", f"{int(seconds)}",
            # the frequency is the centre of the passband, so the carrier sits in it
            "--pbc"]

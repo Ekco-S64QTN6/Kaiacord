@@ -127,7 +127,14 @@ async def start(channel, khz: float, mode: str, region: str, label: str, request
     proc = receiver = None
     head = b""
     for r in receivers:
-        p = kiwi.open_stream(r, khz, mode)
+        try:
+            # Resolve and pin before the synchronous Popen boundary. The child
+            # receives a public IP literal, never the directory-controlled name.
+            r = await kiwi.resolve_receiver(r)
+            p = kiwi.open_stream(r, khz, mode)
+        except kiwi.FeedError as exc:
+            log_debug(f"[radio] refusing receiver {r.host}: {exc}")
+            continue
         if await asyncio.to_thread(kiwi.first_audio, p):
             head = await asyncio.to_thread(_read_up_to, p.stdout, kiwi.SAMPLE_RATE * 2, 4.0)
             if head and not kiwi.silent_pcm(head):

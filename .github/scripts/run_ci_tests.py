@@ -165,6 +165,12 @@ RELATED_TESTS = {
         "tools/tests/unit/test_radio_close_stream.py",
         "tools/tests/unit/test_radio_listening.py",
         "tools/tests/unit/test_radio_live_cleanup.py",
+        "tools/tests/unit/test_kiwi_public_hosts.py",
+    ),
+    "utils/radio/live.py": (
+        "tools/tests/unit/test_radio_listening.py",
+        "tools/tests/unit/test_radio_live_cleanup.py",
+        "tools/tests/unit/test_kiwi_public_hosts.py",
     ),
     "utils/radio/scanner.py": ("tools/tests/unit/test_local_scanner.py", "tools/tests/unit/test_ledger_repair.py",
                                "tools/tests/unit/test_scanner_streets.py"),
