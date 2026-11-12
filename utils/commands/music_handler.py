@@ -272,7 +272,10 @@ async def _records(msg, query: str) -> None:
         # The next of the pre-measured sets, in rotation: every transition in it
         # was measured to lock. Her mood's opener where no set exists yet.
         from utils.audio import setlist
-        chosen = setlist.next_set(await asyncio.to_thread(setlist.load), crate)
+        graph = await asyncio.to_thread(setlist.load)
+        # Selection is a read; rotation is committed only after voice playback
+        # has successfully started below. A failed join must not consume a set.
+        chosen = await asyncio.to_thread(setlist.peek_next_set, graph, crate)
         by_path = {r.path: r for r in crate}
         first = by_path.get(chosen[0]) if chosen else None
         why = f"the start of a set of {len(chosen)} that all lock together" if first else "for the mood i'm in"
@@ -292,6 +295,10 @@ async def _records(msg, query: str) -> None:
     except Exception as exc:
         log_error(f"[records] start failed: {_why(exc)}\n{traceback.format_exc()}")
         return await msg.channel.send(embed=notice("the records wouldn't start; the log has why.", error=True))
+    if chosen and first.path == chosen[0]:
+        # Disk I/O belongs off the command's event loop. Advance only once
+        # start_records has installed a playing session successfully.
+        await asyncio.to_thread(setlist.advance_rotation, graph, crate)
     meta = " · ".join(x for x in (f"{first.bpm:g} bpm" if first.bpm else "", first.key or "") if x)
     await msg.channel.send(embed=box(
         f"🎧  Records in {channel.name}",

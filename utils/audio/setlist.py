@@ -652,23 +652,41 @@ def peek_rotation(n_sets: int) -> Optional[int]:
         return 0
 
 
-def next_set(g: dict, crate: list) -> Optional[list]:
-    """The next set in rotation (paths still in the crate), advancing the
-    rotation kept beside the graph so each session starts the next one."""
+def peek_next_set(g: dict, crate: list) -> Optional[list]:
+    """Return the next live set without consuming its rotation slot.
+
+    The caller commits the rotation only after the corresponding records
+    session has successfully started. A failed voice join must not skip a set.
+    """
     sets = live_sets(g, crate)
     if not sets:
         return None
+    k = peek_rotation(len(sets))
+    return sets[k or 0]
+
+
+def advance_rotation(g: dict, crate: list) -> bool:
+    """Commit one rotation step after a records session successfully starts."""
+    count = len(live_sets(g, crate))
+    if not count:
+        return False
     from utils.core.atomic_write import write_atomic
     path = _rotation_path()
+    k = peek_rotation(count) or 0
     try:
-        k = int(json.loads(path.read_text(encoding="utf-8")).get("next", 0))
-    except (OSError, ValueError):
-        k = 0
-    try:
-        write_atomic(path, json.dumps({"next": k + 1}))
-    except OSError:
-        pass
-    return sets[k % len(sets)]
+        write_atomic(path, json.dumps({"next": (k + 1) % count}))
+        return True
+    except OSError as exc:
+        log_warning(f"[sets] could not advance set rotation: {exc}")
+        return False
+
+
+def next_set(g: dict, crate: list) -> Optional[list]:
+    """Compatibility helper: choose and immediately consume the next set."""
+    chosen = peek_next_set(g, crate)
+    if chosen is not None:
+        advance_rotation(g, crate)
+    return chosen
 
 
 def build_in_background(crate: list, budget_s: Optional[float] = None,

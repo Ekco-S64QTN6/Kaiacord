@@ -156,3 +156,45 @@ def test_set_method_upgrade_rebuilds_sets_without_invalidating_audio_edges():
     assert setlist.pending(graph, []) == {"records": 0, "pairs": 0}
     graph["sets_method"] = setlist.SET_METHOD
     assert not setlist.needs_build(graph, [])
+
+
+def test_peeking_a_set_does_not_consume_rotation(tmp_path, monkeypatch):
+    from utils.audio.library import Record
+
+    path = tmp_path / "set_rotation.json"
+    monkeypatch.setattr(setlist, "_rotation_path", lambda: path)
+    crate = [
+        Record(f"/m/{i}.mp3", "Artist", f"Track {i}", 124.0, "8A", "House")
+        for i in range(8)
+    ]
+    graph = {"sets": [
+        [r.path for r in crate[:4]],
+        [r.path for r in crate[4:]],
+    ]}
+
+    first = setlist.peek_next_set(graph, crate)
+    assert first == [r.path for r in crate[:4]]
+    assert setlist.peek_next_set(graph, crate) == first
+    assert not path.exists(), "peeking must not write/advance rotation"
+
+    assert setlist.advance_rotation(graph, crate) is True
+    assert setlist.peek_next_set(graph, crate) == [r.path for r in crate[4:]]
+    assert setlist.advance_rotation(graph, crate) is True
+    assert setlist.peek_next_set(graph, crate) == first
+
+
+def test_legacy_next_set_still_selects_and_advances(tmp_path, monkeypatch):
+    from utils.audio.library import Record
+
+    path = tmp_path / "set_rotation.json"
+    monkeypatch.setattr(setlist, "_rotation_path", lambda: path)
+    crate = [
+        Record(f"/m/{i}.mp3", "Artist", f"Track {i}", 124.0, "8A", "House")
+        for i in range(8)
+    ]
+    graph = {"sets": [
+        [r.path for r in crate[:4]],
+        [r.path for r in crate[4:]],
+    ]}
+    assert setlist.next_set(graph, crate) == [r.path for r in crate[:4]]
+    assert setlist.peek_next_set(graph, crate) == [r.path for r in crate[4:]]

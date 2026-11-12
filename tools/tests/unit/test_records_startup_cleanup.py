@@ -135,3 +135,77 @@ def test_a_second_start_while_one_is_starting_is_refused(monkeypatch):
         assert 55 not in R._starting               # released for the next start
 
     asyncio.run(run())
+
+
+def _records_command_fixture(monkeypatch, start_records):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from utils.audio import library, setlist
+    from utils.commands import music_handler as handler
+
+    crate = [
+        R.library.Record("/music/one.mp3", "Artist", "One", 124, "8A", "House"),
+        R.library.Record("/music/two.mp3", "Artist", "Two", 124, "8A", "House"),
+        R.library.Record("/music/three.mp3", "Artist", "Three", 124, "8A", "House"),
+        R.library.Record("/music/four.mp3", "Artist", "Four", 124, "8A", "House"),
+    ]
+    graph = {"sets": [[r.path for r in crate]]}
+    chosen = graph["sets"][0]
+    calls = []
+
+    monkeypatch.setattr(handler, "config", SimpleNamespace(get=lambda _k, default=None: default))
+    monkeypatch.setattr(library, "load", lambda _path: crate)
+    monkeypatch.setattr(setlist, "load", lambda: graph)
+    monkeypatch.setattr(setlist, "peek_next_set", lambda _g, _crate: chosen)
+    monkeypatch.setattr(setlist, "advance_rotation", lambda _g, _crate: calls.append("advance") or True)
+
+    async def start(*_args, **kwargs):
+        calls.append("start")
+        return await start_records(kwargs)
+
+    monkeypatch.setattr(R, "start_records", start)
+
+    class Typing:
+        async def __aenter__(self):
+            return None
+        async def __aexit__(self, *_args):
+            return False
+
+    channel = SimpleNamespace(
+        guild=SimpleNamespace(me=object()),
+        name="test voice",
+        permissions_for=lambda _me: SimpleNamespace(connect=True, speak=True),
+    )
+    msg = SimpleNamespace(
+        author=SimpleNamespace(
+            voice=SimpleNamespace(channel=channel),
+            display_name="tester",
+        ),
+        guild=channel.guild,
+        channel=SimpleNamespace(typing=lambda: Typing(), send=AsyncMock()),
+    )
+    return handler, msg, calls, chosen
+
+
+def test_failed_records_voice_start_does_not_consume_the_set_rotation(monkeypatch):
+    from utils.commands import music_handler
+
+    async def fail(_kwargs):
+        raise RuntimeError("voice player failed")
+
+    handler, msg, calls, chosen = _records_command_fixture(monkeypatch, fail)
+    asyncio.run(handler._records(msg, ""))
+
+    assert calls == ["start"]
+    assert msg.channel.send.await_count == 1
+
+
+def test_successful_records_start_commits_rotation_after_session_start(monkeypatch):
+    async def succeed(_kwargs):
+        return object()
+
+    handler, msg, calls, chosen = _records_command_fixture(monkeypatch, succeed)
+    asyncio.run(handler._records(msg, ""))
+
+    assert calls == ["start", "advance"]
+    msg.channel.send.assert_awaited_once()
