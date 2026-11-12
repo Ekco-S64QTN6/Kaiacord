@@ -125,14 +125,39 @@ def build_prompt(belief: dict, args: List[dict]) -> str:
     )
 
 
+def validate_verdict(verdict) -> dict:
+    """Require a complete, recognized model decision before consuming a review.
+
+    A schema-valid JSON value is not necessarily a valid verdict: models
+    sometimes return {}, [], or an unsupported label. Those responses must be
+    retried on a later night rather than silently counted as "keep" for 14 days.
+    """
+    if not isinstance(verdict, dict):
+        raise ValueError("belief review verdict must be a JSON object")
+    kind = verdict.get("verdict")
+    if not isinstance(kind, str) or kind.lower() not in ("keep", "weaker", "revise"):
+        raise ValueError("belief review verdict must be keep, weaker, or revise")
+    kind = kind.lower()
+    position = verdict.get("position", "")
+    if kind == "revise":
+        if not isinstance(position, str) or len(position.strip()) < 10:
+            raise ValueError("a revise verdict requires a substantive position")
+        position = position.strip()[:200]
+    else:
+        position = ""
+    why = verdict.get("why", "")
+    if not isinstance(why, str):
+        why = ""
+    return {"verdict": kind, "position": position, "why": why[:200]}
+
+
 def apply_verdict(topic: str, verdict: dict) -> Optional[dict]:
     """Write a bounded change through beliefs_store. Returns the growth event, or None."""
-    kind = str(verdict.get("verdict", "keep")).lower()
-    if kind not in ("weaker", "revise"):
+    verdict = validate_verdict(verdict)
+    kind = verdict["verdict"]
+    if kind == "keep":
         return None
-    new_position = str(verdict.get("position") or "").strip()[:200]
-    if kind == "revise" and len(new_position) < 10:
-        kind = "weaker"
+    new_position = verdict["position"]
 
     def _change(beliefs):
         for b in beliefs:
@@ -188,7 +213,7 @@ async def nightly_review(ctx, log_growth=None) -> int:
                     options=chat_options(temperature=0.2, num_predict=200), format="json",
                     keep_alive=-1), timeout=120),
                 task_id=f"belief_review_{uuid.uuid4().hex[:8]}")
-            verdict = json.loads(resp["message"]["content"])
+            verdict = validate_verdict(json.loads(resp["message"]["content"]))
         except Exception as e:
             log_warning(f"Belief review of '{topic}' failed: {type(e).__name__}: {e}")
             continue
