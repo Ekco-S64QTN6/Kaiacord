@@ -169,3 +169,13 @@ def test_shutdown_module_selects_bot_state_writer_lifecycle_regressions():
         for path in selector["select_tests"](["utils/infrastructure/system/shutdown_fixed.py"])
     }
     assert "tools/tests/unit/test_bot_state_save.py" in selected
+
+
+
+def test_strudel_engine_changes_select_http_server_lifecycle_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/audio/strudel_engine.py"])
+    }
+    assert "tools/tests/unit/test_strudel_engine_environment.py" in selected
