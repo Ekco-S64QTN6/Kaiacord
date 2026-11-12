@@ -543,13 +543,28 @@ async def _handle_link(ctx, msg, forum_id: int):
             challenge,
             expires_at=time.time() + 15 * 60,
         )
-        await msg.channel.send(embed=box(
-            "🔐  Verify forum account ownership",
-            f"Post this exact one-time code as a standalone line in a public forum post from "
-            f"{clean(profile['username'], 80)}:\n\n{challenge}\n\n"
-            f"Then run forum verify {forum_id} here. The code expires in 15 minutes. "
-            "The link will not be active until the forum post is fetched and its author ID is verified. "
-            "If the bot restarts, start a new challenge.",
+        try:
+            # The one-time token must never be posted to a shared channel or
+            # written to logs. Deliver the proof instructions directly to the
+            # claimant; if DMs are unavailable, discard the pending challenge.
+            await msg.author.send(embed=box(
+                "🔐  Verify forum account ownership",
+                f"Post this exact one-time code as a standalone line in a public forum post from "
+                f"{clean(profile['username'], 80)}:\n\n{challenge}\n\n"
+                f"Then run forum verify {forum_id} here. The code expires in 15 minutes. "
+                "The link will not be active until the forum post is fetched and its author ID is verified. "
+                "If the bot restarts, start a new challenge.",
+            ))
+        except Exception as exc:
+            registry.cancel_pending_forum_link(discord_id, forum_id)
+            log_error(f"Forum identity instructions could not be delivered privately: {type(exc).__name__}")
+            await msg.channel.send(embed=notice(
+                "I couldn't send the verification instructions privately. Enable direct messages from this server, then try again.",
+                error=True,
+            ))
+            return
+        await msg.channel.send(embed=notice(
+            "I sent the forum ownership-verification instructions in a private message. The link is not active yet."
         ))
     except ValueError as exc:
         await msg.channel.send(embed=notice(str(exc), error=True))
