@@ -753,15 +753,25 @@ class MessageProcessor:
         # 4. Process Results & Diversify
         await self._process_retrieval_results(ctx, results, ask_whats_new, is_news_query, clean_query)
 
-        # 4c. Capture retrieval confidence from RAG instance and store on context
-        if self.rag and hasattr(self.rag, '_last_retrieval_confidence'):
-            ctx.retrieval_confidence = self.rag._last_retrieval_confidence
-            ctx.retrieval_node_count = getattr(self.rag, '_last_retrieval_node_count', 0)
-            # Update Kaia's coherence state with this retrieval's quality
-            if self.bot_state:
-                self.bot_state.update_kaia_state(coherence_sample=ctx.retrieval_confidence)
-            log_debug(f"Retrieval confidence: {ctx.retrieval_confidence:.2f} "
-                      f"({ctx.retrieval_node_count} nodes)")
+        # 4c. Read quality from this turn's primary RAG task result.
+        # RAG retrieval is deliberately concurrent; instance-level "last"
+        # metrics can already belong to another request by the time gather()
+        # returns. RetrievalResults is list-compatible and carries the metadata
+        # produced by the exact retrieve()/search_recent_events() call.
+        primary_rag_result = results.get("rag")
+        ctx.retrieval_confidence = float(
+            getattr(primary_rag_result, "retrieval_confidence", 0.0) or 0.0
+        )
+        ctx.retrieval_node_count = int(
+            getattr(primary_rag_result, "retrieval_node_count",
+                    len(primary_rag_result) if isinstance(primary_rag_result, list) else 0)
+            or 0
+        )
+        # Update Kaia's coherence state with this retrieval's own quality.
+        if self.bot_state:
+            self.bot_state.update_kaia_state(coherence_sample=ctx.retrieval_confidence)
+        log_debug(f"Retrieval confidence: {ctx.retrieval_confidence:.2f} "
+                  f"({ctx.retrieval_node_count} nodes)")
 
         # Cache history in context early to avoid redundant list conversions
         try:
@@ -1433,14 +1443,20 @@ class MessageProcessor:
                     }]
                 elif memory_nodes:
                     log_info(f"RECAP: injecting {len(memory_nodes)} channel_memory turns as context nodes")
-                    # Also expose to !explain by updating the RAG result cache.
-                    # _last_retrieval_results is set by search_recent_events; we prepend
-                    # the live-session nodes so the audit trail reflects what's actually in the prompt.
-                    if hasattr(self, 'rag') and self.rag:
-                        if hasattr(self.rag, '_last_retrieval_results'):
-                            self.rag._last_retrieval_results = memory_nodes + (self.rag._last_retrieval_results or [])
-                
-                return combined_results
+
+                # Preserve the metadata from this task's own observational
+                # retrieval. Do not read or prepend the mutable channel-level
+                # last-results cache: another overlapping recap can replace it.
+                from utils.core.kaia_rag_query import RetrievalResults
+                confidence = float(getattr(rag_results, "retrieval_confidence", 0.5))
+                node_count = int(getattr(rag_results, "retrieval_node_count", len(rag_results or [])))
+                from utils.infrastructure.monitoring.retrieval_trace import record
+                record(clean_query, confidence, combined_results, channel=ctx.channel_id)
+                return RetrievalResults(
+                    combined_results,
+                    confidence=confidence,
+                    node_count=node_count,
+                )
 
             tasks['rag'] = asyncio.create_task(_recap_with_memory_fallback())
         else:
