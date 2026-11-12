@@ -86,13 +86,17 @@ async def rebuild_rag(clear_storage: bool = False, file_path: str = None,
         # been dreamed) and kaia_continuity.md — and an rmtree of the whole
         # directory erased both.
         log_warning(f"CLEARING RAG indices in: {persist_dir}")
-        for name in INDEX_ARTEFACTS:
-            target = os.path.join(persist_dir, name)
-            if os.path.isdir(target):
-                shutil.rmtree(target)
-            elif os.path.exists(target):
-                os.remove(target)
-        os.makedirs(persist_dir, exist_ok=True)
+        from types import SimpleNamespace
+        from utils.core.rag_persistence_lock import persistence_transaction_lock
+        # Coordinate destructive cleanup with the live bot's snapshot swaps.
+        with persistence_transaction_lock(SimpleNamespace(persist_dir=persist_dir)):
+            for name in INDEX_ARTEFACTS:
+                target = os.path.join(persist_dir, name)
+                if os.path.isdir(target):
+                    shutil.rmtree(target)
+                elif os.path.exists(target):
+                    os.remove(target)
+            os.makedirs(persist_dir, exist_ok=True)
         log_success("Indices cleared; other files in the directory kept.")
 
     # Embeddings default to CPU so a running bot keeps the 12b chat model in
