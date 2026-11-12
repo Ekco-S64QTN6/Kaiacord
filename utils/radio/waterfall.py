@@ -654,6 +654,10 @@ class Catch:
     seconds: float
     peak_db: float
     audio: np.ndarray
+    # Capture-time provenance: classification happens asynchronously in the
+    # parent after the dongle has been released. Do not infer this from the
+    # parent's later, mutable current-pin state.
+    pinned: bool = False
 
 
 @dataclass
@@ -849,7 +853,8 @@ class Watcher:
     # ── holding one channel ──────────────────────────────────────────
 
     def _hold(self, dongle, center: int, freq: int, peak_db: float, live: bool = False,
-              demod: Optional[NbfmDemod] = None, squelch=None, source=None) -> Catch:
+              demod: Optional[NbfmDemod] = None, squelch=None, source=None,
+              pinned: bool = False) -> Catch:
         """Record the channel until it's been quiet SILENCE_S, or MAX_HOLD_S.
 
         If what was recorded sounds like voice, stay for the reply: each over
@@ -991,7 +996,7 @@ class Watcher:
         # Cooldowns stay on the trigger's frequency, which the next trigger
         # rounds the same way. A tuned channel is filed where it was tuned.
         heard = freq if live or not keyed.any() else carrier_freq(keyed, center, freq)
-        return Catch(heard, started, time.time() - started, peak_db, audio)
+        return Catch(heard, started, time.time() - started, peak_db, audio, pinned=pinned)
 
     def _peek(self, dongle, center: int) -> Optional[tuple]:
         """Visit the next PEEK_SLICES slices of the schedule (not `center`);
@@ -1112,7 +1117,7 @@ class Watcher:
             self._span(center, iq, "pinned", pin["freq"], level, live.is_open or self.squelch_open())
             if level > GATE_DB:
                 self.catches.put(self._hold(d, center, pin["freq"], level, live=True, demod=demod, squelch=live,
-                                            source=source))
+                                            source=source, pinned=True))
                 floor = None
 
     # ── what the dashboard draws ─────────────────────────────────────
