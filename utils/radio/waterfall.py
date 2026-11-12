@@ -1195,7 +1195,12 @@ class Watcher:
         """Blocking: hop, or sit on `pin`, until `stop` is set. Opens and
         closes the dongle; commands switch between the two in place."""
         from utils.radio.dongle import Dongle
-        worker = threading.Thread(target=self._worker, name="scanner-catches", daemon=True)
+        # This worker forwards held catches to the parent process. It must
+        # drain the in-process queue before child_main sends the process-level
+        # sentinel; otherwise a fast stop can return while the daemon worker
+        # still owns catches, and those final recordings disappear at process
+        # exit.
+        worker = threading.Thread(target=self._worker, name="scanner-catches", daemon=False)
         worker.start()
         try:
             with Dongle(sample_rate=FS, gain_db=self.gain_db, ppm=self.ppm) as d:
@@ -1213,7 +1218,10 @@ class Watcher:
                     else:
                         self._pass(d)
         finally:
+            # FIFO sentinel: every already-queued catch is sent before run()
+            # returns and before child_main publishes its process sentinel.
             self.catches.put(None)
+            worker.join()
 
     def run_pinned(self, freq_hz: int, until: float) -> None:
         """Blocking: sit on one channel until `until` (a net), recording each
