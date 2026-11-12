@@ -16,8 +16,10 @@ from utils.radio.fetch import FeedError
     "169.254.169.254",
     "100.64.0.1",
     "224.0.0.1",
+    "255.255.255.255",
     "0.0.0.0",
     "::1",
+    "ff02::1",
     "fc00::1",
     "fe80::1",
 ])
@@ -64,7 +66,7 @@ def test_resolve_receiver_returns_a_pinned_copy_without_mutating_directory_entry
     assert receiver.connect_host == ""
     assert pinned.host == "receiver.example"
     assert pinned.connect_host == "8.8.4.4"
-    assert kiwi._recorder_cmd(pinned, 8992, "usb")[4:6] == ["-s", "8.8.4.4"]
+    assert kiwi._recorder_cmd(pinned, 8992, "usb")[3:5] == ["-s", "8.8.4.4"]
 
 
 def test_recorder_refuses_an_unpinned_receiver():
