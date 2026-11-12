@@ -270,6 +270,52 @@ async def read_capped(response, cap: int) -> bytes:
     return bytes(buf[:cap])
 
 
+#: Query parameters that carry a credential rather than say which document it is.
+_SECRET_PARAM = re.compile(
+    r"(?:^|[_\-.])(?:token|key|apikey|sig|signature|auth|authorization|credential|password|passwd|pwd|secret|"
+    r"session|sessionid|sid|jwt|code|otp|sas)(?:$|[_\-.])|^x-(?:amz|goog|ms)-|^(?:se|sp|sv|sr|st|skoid|sktid)$",
+    re.IGNORECASE)
+
+
+def redact_url(url: str) -> str:
+    """`url` as it may be written down: no user:password, no credential parameters, no fragment.
+
+    A signed link (object storage, a share token, an API key in the query) is
+    what was fetched, but what is kept as a document's source is retrievable
+    by everyone and read back in logs. The host, path and ordinary parameters
+    stay, so the source is still recognisable.
+    """
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        netloc = f"{host}:{parts.port}" if parts.port else host
+        kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not _SECRET_PARAM.search(k)]
+        return urlunsplit((parts.scheme, netloc, parts.path, urlencode(kept), ""))
+    except ValueError:
+        return ""
+
+
+def local_request_ok(host: str | None, origin: str | None, port: int) -> bool:
+    """Whether a request to a loopback-only dashboard reached it under a loopback name.
+
+    Binding to 127.0.0.1 keeps other machines out, not other web pages: a page
+    whose hostname is re-pointed at 127.0.0.1 is same-origin with itself, and
+    its requests arrive carrying that hostname. So the Host header must be this
+    server's own loopback address, and an Origin, when a browser sends one,
+    must be too. A request with no Origin is a local program, not a page.
+    """
+    allowed = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    if (host or "").strip().lower() not in allowed:
+        return False
+    if origin is None:
+        return True
+    origin = origin.strip().lower()
+    return origin.startswith("http://") and origin[len("http://"):] in allowed
+
+
 def is_safe_url(url: str) -> bool:
     """
     Validate that a URL uses http/https and does not resolve to private,

@@ -324,7 +324,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _local(self) -> bool:
+        from utils.core.sanitizer import local_request_ok
+        return local_request_ok(self.headers.get("Host"), self.headers.get("Origin"), self.server.server_address[1])
+
     def do_GET(self):
+        if not self._local():
+            return self._send(403, b"", "text/plain")
         path = self.path.split("?", 1)[0]
         try:
             if path in ("/", "/index.html"):
@@ -432,6 +438,9 @@ class _Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_POST(self):
+        # Loopback Host and Origin only: a page elsewhere cannot work the mixer.
+        if not self._local():
+            return self._send(403, b"", "text/plain")
         s = _session()
         if s is None or s.source is None:
             return self._send(409, b"", "text/plain")
