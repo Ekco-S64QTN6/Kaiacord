@@ -91,6 +91,7 @@ clip, the message) and check it. [Testing](docs/04-development/testing.md) has t
 | **How it works** | [How Kaia works](docs/03-architecture/how-she-works.md) · [Architecture](docs/03-architecture/overview.md) · [Retrieval](docs/03-architecture/rag-system.md) · [Intelligence layer](docs/03-architecture/intelligence-layer.md) · [GPU](docs/03-architecture/gpu-management.md) · [Records & booth](docs/03-architecture/records-and-booth.md) · [Radio](docs/03-architecture/radio.md) · [`utils/`](docs/03-architecture/utils-reference.md) |
 | **Aethelgard** | [System](docs/ttrpg/aethelgard_system.md) · [Lore](docs/ttrpg/aethelgard_lore_bible.md) |
 | **Working on it** | [Contributing](CONTRIBUTING.md) · [Testing](docs/04-development/testing.md) · [Maintenance](docs/05-maintenance/procedures.md) · [Troubleshooting](docs/06-troubleshooting/common-issues.md) · [Roadmap](docs/ROADMAP.md) |
+| **Security** | [Reporting a vulnerability](SECURITY.md) — privately, never in a public issue |
 
 ## License
 

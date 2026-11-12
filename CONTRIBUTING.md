@@ -142,6 +142,11 @@ All PRs are reviewed by a human before merge. Common rejection reasons:
 
 Open an issue with the `question` label.
 
+## Security Issues
+
+Do not open an issue or a PR for a vulnerability. Report it privately as described in
+[SECURITY.md](SECURITY.md).
+
 ## Licensing
 
 Kaiacord is released under the [MIT License](LICENSE). By submitting a pull request you agree
