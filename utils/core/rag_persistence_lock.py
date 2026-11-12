@@ -77,9 +77,11 @@ class PersistenceTransactionLock:
             lock_file = getattr(self._local, "lock_file", None)
             try:
                 if lock_file is not None:
-                    import fcntl
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-                    lock_file.close()
+                    try:
+                        import fcntl
+                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                    finally:
+                        lock_file.close()
             finally:
                 self._local.depth = 0
                 self._local.lock_file = None
