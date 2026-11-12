@@ -327,6 +327,9 @@ def test_a_failed_voice_join_closes_the_receiver_stream(monkeypatch):
     closed = []
     monkeypatch.setattr(kiwi, "directory", AsyncMock(return_value=[rec]))
     monkeypatch.setattr(kiwi, "choose", lambda *a, **k: [rec])
+    from dataclasses import replace
+    monkeypatch.setattr(kiwi, "resolve_receiver",
+                        AsyncMock(return_value=replace(rec, connect_host="8.8.8.8")))
     monkeypatch.setattr(kiwi, "open_stream", lambda *a: MagicMock())
     monkeypatch.setattr(kiwi, "first_audio", lambda p: True)
     monkeypatch.setattr(live, "_read_up_to", lambda pipe, n, timeout: b"\x00\x10" * 100)
@@ -368,7 +371,8 @@ def _fake_kiwiclient(tmp_path, monkeypatch, mode=""):
     (client / "mode").write_text(mode)
     monkeypatch.setattr(kiwi, "KIWICLIENT", client)
     monkeypatch.setattr(kiwi, "RECORDER", client / "kiwirecorder.py")
-    return kiwi.Receiver("rx.example", 8073, "rx", "", 0, 0, 0, 4, 20, 0, 30_000_000)
+    return kiwi.Receiver("rx.example", 8073, "rx", "", 0, 0, 0, 4, 20, 0, 30_000_000,
+                         connect_host="8.8.8.8")
 
 
 def test_a_recording_lands_in_a_relative_work_folder(tmp_path, monkeypatch):
