@@ -163,3 +163,130 @@ def test_two_writers_cannot_delete_each_others_shared_staging_directory(tmp_path
     assert errors == []
     assert call_count == 2
     assert (Path(harness.persist_dir) / "a" / "writer.txt").read_text() == "2"
+
+
+def test_forced_persist_bounds_wait_for_the_transaction_lock(tmp_path):
+    harness = _PersistenceHarness(tmp_path)
+    harness.persist_needed = True
+
+    class RefusingLock:
+        def __init__(self):
+            self.timeouts = []
+
+        def acquire(self, timeout=None):
+            self.timeouts.append(timeout)
+            return False
+
+        def release(self):
+            raise AssertionError("a lock that was not acquired must not be released")
+
+    refusing = RefusingLock()
+    harness._get_persistence_transaction_lock = lambda: refusing
+
+    assert harness.persist(force=True) is False
+    assert refusing.timeouts == [5.0]
+    assert harness.persist_needed is True
+    assert harness.writes == []
+    assert harness._data_lock.acquire(timeout=0.1), "data lock leaked after transaction timeout"
+    harness._data_lock.release()
+
+
+def test_failed_directory_swap_restores_the_last_good_index(tmp_path, monkeypatch):
+    import os
+    import pytest
+
+    harness = _PersistenceHarness(tmp_path)
+    index_dir = Path(harness.persist_dir) / "a"
+    index_dir.mkdir()
+    (index_dir / "snapshot.txt").write_text("last-good", encoding="utf-8")
+
+    original_rename = os.rename
+    temp_dir = Path(f"{index_dir}_tmp")
+    failed = {"once": False}
+
+    def fail_new_snapshot_once(source, destination):
+        if Path(source) == temp_dir and Path(destination) == index_dir and not failed["once"]:
+            failed["once"] = True
+            raise OSError("injected temp-to-live rename failure")
+        return original_rename(source, destination)
+
+    monkeypatch.setattr("utils.core.kaia_rag_persistence.os.rename", fail_new_snapshot_once)
+
+    with pytest.raises(OSError, match="injected temp-to-live"):
+        harness._persist_index_atomic("a")
+
+    assert (index_dir / "snapshot.txt").read_text(encoding="utf-8") == "last-good"
+    assert not Path(f"{index_dir}_old").exists()
+    # The failed staged copy may remain, but it must never replace the restored
+    # live index. The next save removes this staging directory before writing.
+    assert temp_dir.is_dir()
+
+
+def test_partial_snapshot_batch_does_not_advance_the_manifest(tmp_path):
+    harness = _PersistenceHarness(tmp_path)
+    manifest_writes = []
+    harness._save_indexed_files = lambda: manifest_writes.append("write") or True
+
+    def fail_second_index(persist_dir):
+        raise OSError("injected second-index failure")
+
+    harness.indices["b"].storage_context.persist = fail_second_index
+
+    result = harness._persist_updated_indices({"a", "b"})
+
+    assert result == {"a"}
+    assert manifest_writes == []
+    assert harness._get_pending_index_persist_types() == {"a", "b"}
+    assert (Path(harness.persist_dir) / "a" / "snapshot.txt").is_file()
+
+
+def test_manifest_failure_keeps_the_whole_snapshot_batch_pending(tmp_path):
+    harness = _PersistenceHarness(tmp_path)
+    manifest_attempts = []
+    harness._save_indexed_files = lambda: manifest_attempts.append("write") or False
+
+    result = harness._persist_updated_indices({"a", "b"})
+
+    assert result == set()
+    assert manifest_attempts == ["write"]
+    assert harness._get_pending_index_persist_types() == {"a", "b"}
+    assert (Path(harness.persist_dir) / "a" / "snapshot.txt").is_file()
+    assert (Path(harness.persist_dir) / "b" / "snapshot.txt").is_file()
+
+
+def test_flag_nodes_waits_for_the_persistence_transaction(tmp_path):
+    from types import SimpleNamespace
+
+    harness = _PersistenceHarness(tmp_path)
+    node = SimpleNamespace(metadata={})
+    docstore = SimpleNamespace(
+        docs={"node-1": node},
+        get_node=lambda node_id: node if node_id == "node-1" else None,
+    )
+    harness.indices["a"].storage_context.docstore = docstore
+    harness.persist = lambda force=False: True
+
+    transaction_lock = harness._get_persistence_transaction_lock()
+    transaction_lock.acquire()
+    errors = []
+
+    def flag():
+        try:
+            assert harness.flag_nodes(["node-1"], "reviewed") == 1
+        except Exception as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=flag, name="flag-nodes")
+    worker.start()
+    try:
+        # flag_nodes must wait for an in-flight snapshot transaction before it
+        # mutates the docstore, even though it has already requested _data_lock.
+        assert not node.metadata
+        assert worker.is_alive()
+    finally:
+        transaction_lock.release()
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert errors == []
+    assert node.metadata["audit_flags"] == ["reviewed"]
