@@ -35,6 +35,36 @@ def _cfg(key: str, default):
     except Exception:
         return default
 
+async def _await_worker_completion(task: asyncio.Task):
+    """Drain a worker task even when the calling coroutine is cancelled."""
+    while True:
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.done():
+                return task.result()
+
+
+async def _acquire_monitor_lease() -> bool:
+    """Acquire the speaker loopback without leaking it on startup cancellation.
+
+    Cancelling asyncio.to_thread() does not stop its underlying thread. Keep
+    the worker shielded, and if the caller is cancelled, wait for its result
+    and release any lease it acquired before propagating cancellation.
+    """
+    worker = asyncio.create_task(asyncio.to_thread(monitor_to_speakers, True))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        try:
+            acquired = await _await_worker_completion(worker)
+            if acquired:
+                release = asyncio.create_task(asyncio.to_thread(monitor_to_speakers, False))
+                await _await_worker_completion(release)
+        except Exception as exc:
+            log_warning(f"[music] speaker monitor cleanup after startup cancellation failed: {exc}")
+        raise
+
 
 class MusicSession:
     def __init__(self, vc: discord.VoiceClient, engine: StrudelEngine,
@@ -199,7 +229,13 @@ class MusicSession:
     async def _next_pass_at(self, delay: float) -> None:
         try:
             await asyncio.sleep(max(0.0, delay))
-            if self._closing or await self._held_for_human():
+            if self._closing:
+                return
+            if await self._held_for_human():
+                return
+            # The editor query is off-thread and can outlive stop(). Recheck
+            # lifecycle ownership before mutating the performance or browser.
+            if self._closing:
                 return
             self.perf.next_pass()
             if await self._push():
@@ -207,8 +243,10 @@ class MusicSession:
             else:
                 log_warning("[music] the next pass was rejected; holding the current one.")
         finally:
-            await asyncio.sleep(1.0)
-            self._pass_task = None
+            if not self._closing:
+                await asyncio.sleep(1.0)
+            if getattr(self, "_pass_task", None) is asyncio.current_task():
+                self._pass_task = None
 
     async def _held_for_human(self) -> bool:
         """Pause while the editor has unapplied changes without blocking the loop."""
@@ -242,6 +280,15 @@ class MusicSession:
         self._closing = True
         _sessions.pop(self.guild_id, None)
 
+        # Stop session-owned coroutines before retiring the engine they use.
+        # A scheduled pass can be waiting on an off-thread editor query.
+        current = asyncio.current_task()
+        for attr in ("_pass_task", "_task"):
+            task = getattr(self, attr, None)
+            if isinstance(task, asyncio.Task) and task is not current and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
         # Playwright, FFmpeg and capture-thread teardown can wait; never run it
         # synchronously on Discord's event loop.
         try:
@@ -272,9 +319,6 @@ class MusicSession:
             await self.vc.disconnect(force=True)
         except Exception as exc:
             log_debug(f"[music] disconnect: {exc}")
-        task = self._task
-        if task and not task.done() and task is not asyncio.current_task():
-            task.cancel()
         minutes = (time.time() - self.started_at) / 60
         log_action(f"[music] session ended after {minutes:.1f} min.")
         await self._remember(minutes)
@@ -360,7 +404,7 @@ async def start_session(channel, *, genre: str, requested_by: str,
         from utils.audio.strudel_patterns import warmup_program
         await loop.run_in_executor(None, engine.warm_up, warmup_program())
         if _cfg("monitor_on_speakers", False):
-            monitor_acquired = await asyncio.to_thread(monitor_to_speakers, True)
+            monitor_acquired = await _acquire_monitor_lease()
             if not monitor_acquired:
                 log_warning("[music] local speaker monitor could not be enabled")
 
