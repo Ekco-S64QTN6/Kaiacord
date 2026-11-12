@@ -45,6 +45,9 @@ flowchart TD
    or something she read. The persona is not retrieved; it goes into every prompt whole.
 3. **Context** is budgeted once, by `optimize_context`: a system reserve and the reply are set
    aside, and what remains is split between retrieval and conversation history.
+   A turn is also read for how much it asks of her: a passing remark or a quick question carries a
+   note beside the message to answer at that size, and a turn that offers room carries none. Her
+   beliefs reach the prompt only when the speaker's own words are about them.
 4. **Generation** uses two temperatures: 0.70 for conversation and 0.35 for answers grounded in
    documents. A reply the guards reject is regenerated; if every attempt is rejected, the best one
    is repaired and must pass the full pipeline on its own before it is used.
