@@ -110,7 +110,7 @@ class MusicSession:
                 # show_window on that is a normal thing to do. Treat it as "end
                 # the set", not as a pattern failure — otherwise the session
                 # stays up streaming silence and logs an error every tick.
-                if not self.engine.alive():
+                if not await asyncio.to_thread(self.engine.alive):
                     if self.text_channel:
                         try:
                             await self.text_channel.send(
@@ -199,7 +199,7 @@ class MusicSession:
     async def _next_pass_at(self, delay: float) -> None:
         try:
             await asyncio.sleep(max(0.0, delay))
-            if self._closing or self._held_for_human():
+            if self._closing or await self._held_for_human():
                 return
             self.perf.next_pass()
             if await self._push():
@@ -210,17 +210,16 @@ class MusicSession:
             await asyncio.sleep(1.0)
             self._pass_task = None
 
-    def _held_for_human(self) -> bool:
-        """Pause the script while the editor has unapplied human changes."""
+    async def _held_for_human(self) -> bool:
+        """Pause while the editor has unapplied changes without blocking the loop."""
         try:
-            if not self.engine.human_edited():
-                self._held = 0
-                return False
+            edited = await asyncio.to_thread(self.engine.human_edited)
         except Exception:
             return False
+        if not edited:
+            self._held = 0
+            return False
         self._held = getattr(self, "_held", 0) + 1
-        # Do not wait forever: if the editor is left dirty and abandoned, the
-        # performance would freeze on one state for the rest of the session.
         if self._held * WATCHDOG_PERIOD_S > float(_cfg("human_edit_grace_seconds", 180)):
             log_info("[music] resuming the script; the editor has been left dirty.")
             self._held = 0
@@ -242,16 +241,27 @@ class MusicSession:
             return
         self._closing = True
         _sessions.pop(self.guild_id, None)
-        for step, what in (
-            (lambda: self.engine.stop(), "stop pattern"),
-            (lambda: self.vc.is_playing() and self.vc.stop(), "stop playback"),
-            (lambda: self.source.cleanup(), "cleanup source"),
-            (lambda: self.engine.close(), "close engine"),
-        ):
-            try:
-                step()
-            except Exception as exc:
-                log_debug(f"[music] {what}: {exc}")
+
+        # Playwright, FFmpeg and capture-thread teardown can wait; never run it
+        # synchronously on Discord's event loop.
+        try:
+            await asyncio.to_thread(self.engine.stop)
+        except Exception as exc:
+            log_debug(f"[music] stop pattern: {exc}")
+        try:
+            if self.vc.is_playing():
+                self.vc.stop()
+        except Exception as exc:
+            log_debug(f"[music] stop playback: {exc}")
+        try:
+            await asyncio.to_thread(self.source.cleanup)
+        except Exception as exc:
+            log_debug(f"[music] cleanup source: {exc}")
+        try:
+            await asyncio.to_thread(self.engine.close)
+        except Exception as exc:
+            log_debug(f"[music] close engine: {exc}")
+
         if self._monitor_on_speakers:
             self._monitor_on_speakers = False
             try:
