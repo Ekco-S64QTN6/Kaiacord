@@ -452,6 +452,15 @@ question, not pasted text); the old patterns kept "want to see it? yes or no?" a
 remark ("a line or two, then stop") took 24 replayed asides from a median of 52 words to 16 and shipped
 on 12 Nov; it was taken out the same day. The hour's note is tone only.
 
+**What she can't see or can't place, she is told beside the message** (`utils/core/grounding_notes.py`). Asked
+about a picture that never reached her, she described a sunset three times in three; asked who said an invented line,
+she named Charles Simic, Heraclitus and a Snow Crash character. The CORE RULES block forbade both, and without that
+block she also claimed to run on Claude and Gemini, so it stays; but a rule at the end of an eleven-thousand-token
+system prompt is not what she reads. The note goes on the user message when no picture loaded for the turn (a failed
+load keeps the vision note, Q40) or when a quoted line she is asked to attribute is in nothing she was given. Replayed
+(`tools/maintenance/replay_turns.py --probes`, three seeds): 0/3 to 3/3 on both, Gibson and Shakespeare still named.
+A note that only said "never guess a name" made her forget Hamlet; keep the escape for lines everyone knows.
+
 **A belief is recalled when the message is about it** (`utils/core/belief_recall.py`): one of its
 phrases whole (topic, a part of the topic, an alias of two words or more), or several distinctive
 words with one from its topic. The old test was any one shared word, read from the *enriched*
