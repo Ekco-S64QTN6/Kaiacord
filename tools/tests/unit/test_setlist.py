@@ -53,3 +53,37 @@ def test_blend_length_does_not_outweigh_a_bad_key_by_itself():
     # rank, so key compatibility is never sacrificed for a shorter difference.
     assert setlist.blend_rank({"beats": 32}) + 0 <= setlist.blend_rank({"beats": 64}) + 1
     assert setlist.blend_rank({}) == setlist.blend_rank({"beats": 16})
+
+
+def test_set_builder_widens_beyond_five_dead_ends_to_find_a_full_set():
+    """The sixth-ranked edge is the only route to a set above SET_MIN_S."""
+    live = {}
+
+    def add(name):
+        path = f"/m/{name}.mp3"
+        rec = Record(path, f"Artist {name}", name, 124.0, "8A", "house")
+        live[path] = rec
+        return rec
+
+    start = add("Start")
+    dead_ends = [add(f"Dead{i}") for i in range(5)]
+    viable = [add(f"Viable{i}") for i in range(8)]
+
+    long_edge = {"beats": 64, "back": 0, "cue": 0, "agree": 16}
+    short_edge = {"beats": 16, "back": 0, "cue": 0, "agree": 4}
+    edges = {start.path: {r.path: dict(long_edge) for r in dead_ends}}
+    # This valid route ranks sixth because its first measured blend is shorter.
+    edges[start.path][viable[0].path] = dict(short_edge)
+    for a, b in zip(viable, viable[1:]):
+        edges[a.path] = {b.path: dict(long_edge)}
+
+    graph = {
+        "records": {path: {"seconds": 500.0} for path in live},
+        "edges": edges,
+    }
+    sets = setlist.make_sets(graph, live, random.Random(1))
+
+    assert sets
+    assert sets[0][0] == start.path
+    assert viable[0].path in sets[0]
+    assert len(sets[0]) >= 7
