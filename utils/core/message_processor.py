@@ -17,6 +17,21 @@ from urllib.parse import urljoin
 
 current_channel_id_var = contextvars.ContextVar("current_channel_id", default=None)
 
+
+
+def _retrieval_metrics(result) -> tuple[float, int]:
+    """Return metrics carried by one retrieval result, never shared RAG state."""
+    try:
+        confidence = float(getattr(result, "retrieval_confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    try:
+        default_count = len(result) if isinstance(result, list) else 0
+        node_count = int(getattr(result, "retrieval_node_count", default_count) or 0)
+    except (TypeError, ValueError):
+        node_count = 0
+    return max(0.0, min(1.0, confidence)), max(0, node_count)
+
 #: Exact prompts of turns the consistency watchdog flagged, newest kept.
 WATCHDOG_PROMPTS_DIR = "memory/watchdog_prompts"
 WATCHDOG_PROMPTS_KEEP = 50
@@ -759,14 +774,7 @@ class MessageProcessor:
         # returns. RetrievalResults is list-compatible and carries the metadata
         # produced by the exact retrieve()/search_recent_events() call.
         primary_rag_result = results.get("rag")
-        ctx.retrieval_confidence = float(
-            getattr(primary_rag_result, "retrieval_confidence", 0.0) or 0.0
-        )
-        ctx.retrieval_node_count = int(
-            getattr(primary_rag_result, "retrieval_node_count",
-                    len(primary_rag_result) if isinstance(primary_rag_result, list) else 0)
-            or 0
-        )
+        ctx.retrieval_confidence, ctx.retrieval_node_count = _retrieval_metrics(primary_rag_result)
         # Update Kaia's coherence state with this retrieval's own quality.
         if self.bot_state:
             self.bot_state.update_kaia_state(coherence_sample=ctx.retrieval_confidence)
