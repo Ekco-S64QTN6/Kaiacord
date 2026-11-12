@@ -23,7 +23,8 @@ def store(monkeypatch):
 
 def _rx(host, snr=30, lat=60.0, lon=25.0):
     return kiwi.Receiver(host=host, port=8073, name=host, location=host, lat=lat, lon=lon,
-                         users=0, users_max=4, snr=snr, low_hz=0, high_hz=30_000_000, ext_api=4)
+                         users=0, users_max=4, snr=snr, low_hz=0, high_hz=30_000_000,
+                         ext_api=4, connect_host="8.8.8.8")
 
 
 def test_silence_benches_a_receiver_on_that_frequency_only(store):
