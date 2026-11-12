@@ -53,7 +53,7 @@ def track_registry_lock(registry: str, locks, lock) -> None:
     WeakValueDictionary cannot retire a lock that still has owners or waiters.
     """
     record_registry_lock_created(registry, len(locks))
-    weakref.finalize(lock, _record_registry_lock_evicted, registry, locks)
+    weakref.finalize(lock, _record_registry_lock_evicted, registry, locks, atexit=False)
 
 
 def _record_acquisition(registry: str, contended: bool, wait_ms: float) -> None:
