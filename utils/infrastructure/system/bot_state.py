@@ -327,15 +327,19 @@ class BotState:
             with self._lock:
                 if self._writer_closing or self._writer_closed:
                     return
-                now = time.time()
-                if now - self._last_channel_prune >= self._channel_prune_interval_s:
-                    evicted = self._prune_channel_memory_locked(now)
-                    self._last_channel_prune = now
                 # Copying live maps/deques must remain on the caller thread and
                 # under the state lock. Serializing the detached snapshot is safe
                 # on the single writer thread and avoids JSON work on Discord's loop.
                 for attempt in range(20):
                     try:
+                        # Pruning participates in the same retry loop as the
+                        # detached snapshot. A concurrently mutating mapping may
+                        # raise RuntimeError while pruning just as it can while
+                        # the snapshot comprehension is being built.
+                        now = time.time()
+                        if now - self._last_channel_prune >= self._channel_prune_interval_s:
+                            evicted = self._prune_channel_memory_locked(now)
+                            self._last_channel_prune = now
                         state = {
                             'last_active_channel_id': self.last_active_channel_id,
                             'consecutive_quips': self.consecutive_quips,
