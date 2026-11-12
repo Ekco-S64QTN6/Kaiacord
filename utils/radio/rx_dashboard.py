@@ -38,7 +38,7 @@ import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 
@@ -296,7 +296,13 @@ class _Handler(BaseHTTPRequestHandler):
             fh.seek(start)
             self.wfile.write(fh.read(end - start + 1))
 
+    def _local(self) -> bool:
+        from utils.core.sanitizer import local_request_ok
+        return local_request_ok(self.headers.get("Host"), self.headers.get("Origin"), cast(ThreadingHTTPServer, self.server).server_port)
+
     def do_GET(self):
+        if not self._local():
+            return self._send(403, b"", "text/plain")
         from utils.radio import scanner, spectrogram
         from utils.radio.rx_scope import scope
         path = self.path.split("?", 1)[0]
@@ -492,9 +498,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         from utils.radio import bookmarks, scanner
-        # Same-origin only: a page elsewhere cannot tune the dongle or edit bookmarks.
-        origin = self.headers.get("Origin")
-        if origin and origin.split("//", 1)[-1] != self.headers.get("Host", ""):
+        # Loopback Host and Origin only: a page elsewhere cannot tune the dongle or edit bookmarks.
+        if not self._local():
             return self._send(403, b"", "text/plain")
         body = self._body()
         try:

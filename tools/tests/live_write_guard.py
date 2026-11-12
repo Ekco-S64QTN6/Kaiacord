@@ -6,6 +6,11 @@ knowledge_base/ or logs/ has to go to a path with ".test" in it
 each went unredirected for months, found one at a time by the damage. An audit
 hook sees all of it, whichever module does the writing. Creating a directory is
 not counted: `mkdir(exist_ok=True)` changes nothing that exists.
+
+A path is judged by where it leads, not how it is spelled: symlinks are
+resolved, so a write through an alias of the checkout is still a write to it.
+A hard link has no path to resolve, so making one to live data is itself the
+offence.
 """
 from __future__ import annotations
 
@@ -28,10 +33,11 @@ def live_path(path) -> str:
         name = os.fsdecode(path)
     except TypeError:
         return ""
-    full = os.path.abspath(name)
-    if not full.startswith(_root):
+    root = os.path.realpath(_root) + os.sep
+    full = os.path.realpath(name)
+    if not full.startswith(root):
         return ""
-    rel = full[len(_root):]
+    rel = full[len(root):]
     if not rel.startswith(LIVE) or any(".test" in part for part in rel.split(os.sep)):
         return ""
     return rel
@@ -58,8 +64,10 @@ def _hook(event, args) -> None:
                 _note(path)
         elif event in ("os.remove", "shutil.rmtree"):
             _note(args[0])
-        elif event == "os.rename":
+        elif event in ("os.rename", "os.link"):
             _note(args[0])
+            _note(args[1])
+        elif event == "os.symlink":
             _note(args[1])
     except Exception:
         pass

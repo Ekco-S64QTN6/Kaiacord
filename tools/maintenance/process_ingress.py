@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from utils.core.atomic_write import write_atomic  # noqa: E402
+from utils.core.sanitizer import redact_url  # noqa: E402
 
 from tools.maintenance.ebook_to_kb_md import (  # noqa: E402
     build_frontmatter,
@@ -354,7 +355,7 @@ def process_one(md_path: Path, dry_run: bool = False) -> tuple[bool, str]:
     if better_title and better_title != title:
         title = better_title
     author = meta.get("author") or ""
-    source = meta.get("source_url") or ""
+    source = redact_url(meta.get("source_url") or "")      # a sidecar staged before the handler redacted
     submitter = meta.get("submitted_by") or "unknown"
 
     folder = meta.get("folder") or DEFAULT_FOLDER

@@ -339,3 +339,33 @@ def test_the_art_listing_is_pieces_and_names_a_sheep(tmp_path, monkeypatch):
     pieces = sources.art()["pieces"]
     assert [p["id"] for p in pieces] == ["abc"]
     assert pieces[0]["title"] == "electricsheep.248.27801"
+
+
+def test_a_check_that_times_out_takes_its_children_with_it(tmp_path):
+    """The timed-out check's grandchild holds the output pipe; the run must still end, with both gone."""
+    import os
+    import subprocess
+    import sys
+    import time
+    from utils.admin import server
+    pidfile = tmp_path / "grandchild.pid"
+    script = ("import subprocess, sys, time; "
+              "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+              f"open({str(pidfile)!r}, 'w').write(str(p.pid)); time.sleep(60)")
+    started = time.time()
+    try:
+        server._run_group([sys.executable, "-c", script], dict(os.environ), 1.5)
+        raise AssertionError("the run should have timed out")
+    except subprocess.TimeoutExpired:
+        pass
+    assert time.time() - started < 15
+    grandchild = int(pidfile.read_text())
+    for _ in range(50):
+        try:
+            state = open(f"/proc/{grandchild}/stat").read().split()[2]
+        except (FileNotFoundError, ProcessLookupError):
+            return
+        if state == "Z":
+            return
+        time.sleep(0.1)
+    raise AssertionError("the grandchild outlived the timed-out check")

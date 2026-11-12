@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -22,6 +23,7 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from typing import cast
 
 from utils.admin import sources as S
 from utils.admin.logscan import LEVELS, LogScanner
@@ -31,6 +33,8 @@ ASSETS = ROOT / "assets" / "admin"
 AVATAR = ROOT / "assets" / "kaia-avatar"
 DEFAULT_PORT = 47433
 SAMPLE_S = 3.0
+#: A check that has not finished by now is killed, with everything it started.
+CHECK_TIMEOUT_S = 600
 RING_S = 24 * 3600
 #: A process counts as a spike over either of these between two samples.
 SPIKE_CPU = 150.0
@@ -217,16 +221,44 @@ class State:
         started = time.time()
         try:
             env = {**os.environ, "KAIACORD_LOG_FILE": str(ROOT / "logs" / "kaia_admin.log")}
-            p = subprocess.run(["nice", "-n", "15", *cmd], cwd=ROOT, capture_output=True, text=True, timeout=600, env=env)
-            out = {"name": name, "label": label, "cmd": " ".join(cmd[1:]), "rc": p.returncode,
-                   "stdout": p.stdout[-60000:], "stderr": p.stderr[-8000:]}
+            rc, stdout, stderr = _run_group(["nice", "-n", "15", *cmd], env, CHECK_TIMEOUT_S)
+            out = {"name": name, "label": label, "cmd": " ".join(cmd[1:]), "rc": rc,
+                   "stdout": stdout[-60000:], "stderr": stderr[-8000:]}
         except subprocess.TimeoutExpired:
-            out = {"name": name, "label": label, "rc": None, "stdout": "", "stderr": "timed out after 600 s"}
+            out = {"name": name, "label": label, "rc": None, "stdout": "",
+                   "stderr": f"timed out after {CHECK_TIMEOUT_S} s"}
         finally:
             self.run_lock.release()
         out["started"], out["seconds"] = started, round(time.time() - started, 1)
         self.runs[name] = out
         return out
+
+
+def _run_group(cmd: list, env: dict, timeout: float) -> tuple:
+    """Run a check in its own process group; on timeout the whole group is killed and reaped.
+
+    `subprocess.run(timeout=)` kills only the child it started and then waits on
+    the pipes with no bound, so a grandchild still holding one would keep the
+    run, and the lock around it, forever.
+    """
+    proc = subprocess.Popen(cmd, cwd=ROOT, env=env, text=True, start_new_session=True,
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return proc.returncode, stdout, stderr
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            for pipe in (proc.stdout, proc.stderr):
+                if pipe:
+                    pipe.close()
+        proc.wait()
+        raise
 
 
 STATE: State = None  # type: ignore[assignment]
@@ -258,7 +290,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, b"not found", "text/plain")
         self._send(200, p.read_bytes(), _TYPES.get(p.suffix, "application/octet-stream"), cache=p.suffix != ".html")
 
+    def _local(self) -> bool:
+        from utils.core.sanitizer import local_request_ok
+        return local_request_ok(self.headers.get("Host"), self.headers.get("Origin"), cast(ThreadingHTTPServer, self.server).server_port)
+
     def do_GET(self):
+        if not self._local():
+            return self._send(403, b"forbidden", "text/plain")
         u = urlparse(self.path)
         path, q = u.path, parse_qs(u.query)
         try:
@@ -296,10 +334,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        # Same-origin only: a page elsewhere cannot start a check here.
-        origin = self.headers.get("Origin")
-        host = self.headers.get("Host", "")
-        if origin and origin.split("//", 1)[-1] != host:
+        # Loopback Host and Origin only: a page elsewhere cannot start a check here.
+        if not self._local():
             return self._json({"error": "cross-origin"}, 403)
         if (m := re.fullmatch(r"/api/run/(\w+)", path)):
             return self._json(STATE.run_check(m.group(1)))

@@ -1343,6 +1343,7 @@ def test_dashboard_fader_change_waits_for_audio_frame_boundary(monkeypatch):
     handler = object.__new__(dj_dashboard._Handler)
     handler.path = "/control"
     handler._body = lambda: {"slot": 1, "name": "fader", "value": 0.0}
+    handler._local = lambda: True                    # the request came from the booth's own page
     handler._send = lambda *args: sent.append(args)
     monkeypatch.setattr(dj_dashboard, "_session", lambda: SimpleNamespace(source=source))
 

@@ -38,6 +38,46 @@ def test_a_real_open_for_writing_is_recorded(monkeypatch, tmp_path):
     assert list(seen) == [os.path.join("memory", "state.json")]
 
 
+def _checkout(tmp_path, monkeypatch):
+    """A stand-in checkout under tmp_path; nothing of the repo's is opened."""
+    root = tmp_path / "checkout"
+    (root / "memory").mkdir(parents=True)
+    monkeypatch.setattr(guard, "_root", str(root) + os.sep)
+    seen = {}
+    monkeypatch.setattr(guard, "offences", seen)
+    return root, seen
+
+
+def test_a_write_through_a_symlink_to_the_checkout_is_recorded(monkeypatch, tmp_path):
+    root, seen = _checkout(tmp_path, monkeypatch)
+    alias = tmp_path / "alias"
+    alias.symlink_to(root, target_is_directory=True)
+    with open(alias / "memory" / "state.json", "w") as f:
+        f.write("{}")
+    assert list(seen) == [os.path.join("memory", "state.json")]
+
+
+def test_a_test_named_symlink_to_a_live_file_is_not_an_exemption(monkeypatch, tmp_path):
+    root, seen = _checkout(tmp_path, monkeypatch)
+    (root / "memory" / "state.json").write_text("{}")
+    seen.clear()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "state.test.json").symlink_to(root / "memory" / "state.json")
+    with open(scratch / "state.test.json", "w") as f:
+        f.write("[]")
+    assert list(seen) == [os.path.join("memory", "state.json")]
+
+
+def test_a_hard_link_to_live_data_is_recorded_when_it_is_made(monkeypatch, tmp_path):
+    root, seen = _checkout(tmp_path, monkeypatch)
+    (root / "memory" / "state.json").write_text("{}")
+    seen.clear()
+    (root / "scratch").mkdir()
+    os.link(root / "memory" / "state.json", root / "scratch" / "copy.json")
+    assert list(seen) == [os.path.join("memory", "state.json")]
+
+
 def test_the_shared_bot_state_is_redirected():
     from utils.infrastructure.system.bot_state import BotState, bot_state
     assert ".test" in bot_state.state_file

@@ -1318,8 +1318,13 @@ class CrossfadeSource(_AudioSource):
             if self._planning:
                 # NEXT supersedes a speculative end-of-record transition. The
                 # current worker owns the planner slot until it releases it.
-                if mode == "skip" and self.planning_mode != "skip":
+                # A caller may also have called off a published plan while its
+                # worker is still unwinding (for example, a blend-length change).
+                # Queue that replacement instead of dropping it on the floor.
+                if mode == "skip":
                     self._pending_planning_mode = "skip"
+                elif self.plan is None and self._pending_planning_mode is None:
+                    self._pending_planning_mode = mode
                 return
             if self.plan or self.current is None or self.hand is not None or self._hand_starting:
                 return
