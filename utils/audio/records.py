@@ -1511,6 +1511,11 @@ class CrossfadeSource(_AudioSource):
         return shift
 
     def read(self) -> bytes:
+        """Render one complete frame from a single committed mixer state."""
+        with self._lock:
+            return self._read_locked()
+
+    def _read_locked(self) -> bytes:
         cur = self.current
         if cur is None:
             return b""
@@ -1771,11 +1776,13 @@ class CrossfadeSource(_AudioSource):
         self._prefetch()
 
     def cleanup(self) -> None:
-        self._cancel_splice()
-        for deck in (self.current, self.incoming, self.hand):
-            if deck:
-                deck.close()
-        self.current = self.incoming = self.hand = None
+        """Retire decks only at a frame boundary."""
+        with self._lock:
+            self._cancel_splice()
+            for deck in (self.current, self.incoming, self.hand):
+                if deck:
+                    deck.close()
+            self.current = self.incoming = self.hand = None
 
 
 class BufferedRecordsSource(_AudioSource):
@@ -1993,9 +2000,10 @@ class RecordsSession:
     def load(self, rec: library.Record) -> None:
         """Put the newest booth choice on the free deck after its analysis finishes.
 
-        Preparations run concurrently so a slow read does not block the booth.
-        The generation is checked at commit: a late older worker cannot replace
-        the record chosen by a more recent request or clear its loading state.
+        Preparations run off-thread. The commit uses the global nested lock order
+        mixer lock -> session load lock. Dashboard handlers take the mixer lock
+        before calling session operations, so a worker must never hold _load_lock
+        while waiting for the mixer lock.
         """
         with self._load_lock:
             if self._closing:
@@ -2012,21 +2020,25 @@ class RecordsSession:
         def run():
             try:
                 nxt = self._prepare(rec)
-                with self._load_lock:
-                    # A later booth choice or session shutdown invalidates this
-                    # result before it can mutate the mixer's queued deck.
-                    if generation != self._load_generation or self._closing:
-                        return
-                    src = self.source
-                    if nxt is None or src is None:
+                src = self.source
+                if nxt is None or src is None:
+                    with self._load_lock:
+                        if generation != self._load_generation or self._closing:
+                            return
                         log_warning(f"[records] {rec.name} could not be read; not loaded")
                         self.last_load = {"name": rec.name, "result": "unreadable", "ts": time.time()}
-                        return
-                    nxt.source = "hand"
-                    result = src.load(nxt)
-                    if result == "after" and rec.path not in self.requests:
-                        self.requests.append(rec.path)
-                    self.last_load = {"name": rec.name, "result": result, "ts": time.time()}
+                    return
+                nxt.source = "hand"
+                # Acquire the mixer first. Once the load lock is acquired,
+                # commit is atomic against newer requests and session stop.
+                with src._lock:
+                    with self._load_lock:
+                        if generation != self._load_generation or self._closing:
+                            return
+                        result = src.load(nxt)  # CrossfadeSource uses an RLock.
+                        if result == "after" and rec.path not in self.requests:
+                            self.requests.append(rec.path)
+                        self.last_load = {"name": rec.name, "result": result, "ts": time.time()}
             except Exception as exc:
                 log_warning(f"[records] could not load {rec.name}: {type(exc).__name__}: {exc}")
                 with self._load_lock:
@@ -2037,7 +2049,6 @@ class RecordsSession:
                     if generation == self._load_generation:
                         self.loading = None
         threading.Thread(target=run, daemon=True, name="kaia-records-load").start()
-
     def _choose(self, deck: Deck) -> Optional[Next]:
         from utils.audio import beatgrid
         _envelope(deck.record.path)                    # the record on air, measured against at plan time
