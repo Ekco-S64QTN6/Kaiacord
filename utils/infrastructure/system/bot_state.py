@@ -15,7 +15,7 @@ import time
 import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Deque, Optional
+from typing import Callable, Deque, Dict, Optional
 from collections import deque
 from utils.infrastructure.logging.kaia_logger import log_info, log_warning
 from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
@@ -49,7 +49,7 @@ class BotState:
         self.max_memory_channels = _lifecycle_setting("performance.max_memory_channels", 200)
         self.memory_channel_retention_s = 86400.0 * _lifecycle_setting("performance.memory_channel_retention_days", 90)
         self.memory_channel_active_grace_s = 60.0 * _lifecycle_setting("performance.memory_channel_active_grace_minutes", 60)
-        self._channel_eviction_listeners = []
+        self._channel_eviction_listeners: list[Callable[[int], None]] = []
         self._last_channel_prune = 0.0
         self._channel_prune_interval_s = 300.0
         self._channel_evicted_total = 0
@@ -284,7 +284,7 @@ class BotState:
             last = float(self.channel_memory_activity.get(channel_id, 0.0) or 0.0)
             if not last: last = max((self._turn_timestamp(t) for t in list(turns)), default=0.0) or now
             self.channel_memory_activity[channel_id] = min(last, now); activity[channel_id] = min(last, now)
-        evict = set()
+        evict: set[int] = set()
         if self.memory_channel_retention_s > 0:
             evict.update(cid for cid,last in activity.items() if now-last > self.memory_channel_retention_s and cid not in pending)
         remaining = [cid for cid in activity if cid not in evict]
