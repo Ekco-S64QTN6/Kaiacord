@@ -305,15 +305,19 @@ def main() -> int:
 
     # These checks are deterministic unit tests only. Never include tests
     # needing an external service, network, GPU, or a long-running sweep.
-    return subprocess.run(
-        [
-            sys.executable, "-m", "pytest", "-q",
-            "-m", "not ollama and not gpu and not slow and not network",
-            *[str(p.relative_to(ROOT)) for p in tests],
-        ],
-        cwd=ROOT,
-        check=False,
-    ).returncode
+    pytest_args = [
+        sys.executable, "-m", "pytest", "-q",
+        "-m", "not ollama and not gpu and not slow and not network",
+        *[str(p.relative_to(ROOT)) for p in tests],
+    ]
+    if os.environ.get("CI_COVERAGE") == "1":
+        pytest_args.extend([
+            "--cov=utils",
+            "--cov-report=term-missing:skip-covered",
+            "--cov-report=xml:coverage.xml",
+            "--cov-report=json:coverage.json",
+        ])
+    return subprocess.run(pytest_args, cwd=ROOT, check=False).returncode
 
 
 if __name__ == "__main__":
