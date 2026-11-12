@@ -551,8 +551,12 @@ def test_stop_cancels_the_scheduled_pass_before_engine_teardown():
         session._pass_task = pass_task
         session._task = None
         session.vc = voice
+        def stop_engine():
+            assert cancelled.is_set(), "scheduled pass was not drained before engine shutdown"
+            events.append("engine.stop")
+
         session.engine = SimpleNamespace(
-            stop=lambda: (events.append("engine.stop"), cancelled.is_set()),
+            stop=stop_engine,
             close=lambda: events.append("engine.close"),
         )
         session.source = SimpleNamespace(cleanup=lambda: events.append("source.cleanup"))
