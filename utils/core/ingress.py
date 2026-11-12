@@ -2,8 +2,9 @@
 
 `!download` and `!youtube` stage a document and file it right away; the hourly
 ingress task files whatever is left (a failed attempt, a hand-placed file).
-Both run tools/maintenance/process_ingress.py under one lock, so two runs never
-file the same document twice.
+The asyncio lock serializes callers in this process; process_ingress.py also
+takes an OS file lock so CLI and bot processes cannot file the same document
+concurrently.
 """
 import asyncio
 import subprocess

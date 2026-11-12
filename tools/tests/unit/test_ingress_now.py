@@ -1,10 +1,19 @@
 """!download and !youtube file their document at once."""
 import asyncio
+import importlib.util
 import subprocess
 import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
+
+
+def _load_ingress_processor():
+    spec = importlib.util.spec_from_file_location(
+        "process_ingress_under_test", "tools/maintenance/process_ingress.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _reply():
@@ -61,3 +70,39 @@ def test_a_video_already_filed_is_not_fetched_again(tmp_path, monkeypatch):
     monkeypatch.setattr(yt, "INGRESS", tmp_path / "missing")
     assert yt._already_have("abcdefghijk") == "The CUDA Moat is Gone"
     assert yt._already_have("zzzzzzzzzzz") is None
+
+
+
+def test_ingress_processor_lock_is_shared_across_independent_file_descriptors(tmp_path, monkeypatch):
+    import fcntl
+    import threading
+
+    processor = _load_ingress_processor()
+    lock_path = tmp_path / "ingress_process.lock"
+    monkeypatch.setattr(processor, "_process_lock_path", lambda: lock_path)
+    entered = threading.Event()
+    finished = threading.Event()
+
+    def contender():
+        with processor._processing_lock():
+            entered.set()
+        finished.set()
+
+    with open(lock_path, "a+", encoding="utf-8") as holder:
+        fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
+        worker = threading.Thread(target=contender, daemon=True)
+        worker.start()
+        assert not entered.wait(timeout=0.1), "second ingress pass entered while the first held the OS lock"
+        fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
+        assert entered.wait(timeout=2.0), "second ingress pass did not enter after lock release"
+        assert finished.wait(timeout=2.0)
+        worker.join(timeout=2.0)
+
+
+def test_cli_main_holds_the_lock_around_the_entire_processor_run():
+    import inspect
+
+    processor = _load_ingress_processor()
+    source = inspect.getsource(processor.main)
+    assert "with _processing_lock()" in source
+    assert "return _main_locked()" in source
