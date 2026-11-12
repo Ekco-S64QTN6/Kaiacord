@@ -422,3 +422,151 @@ def test_human_editor_query_is_offloaded_from_the_event_loop():
     assert len(query_threads) == 1
     assert query_threads[0] != loop_thread
 
+
+
+def test_cancelled_monitor_acquire_releases_the_lease_before_startup_exits(monkeypatch):
+    import threading
+
+    entered = threading.Event()
+    release_acquire = threading.Event()
+    monitor_calls = []
+    engine_events = []
+
+    class FakeEngine:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            engine_events.append("start")
+
+        def warm_up(self, _code):
+            engine_events.append("warm_up")
+
+        def play(self, _code):
+            engine_events.append("play")
+            return True
+
+        def close(self):
+            engine_events.append("close")
+
+    def monitor(enable=True):
+        monitor_calls.append(enable)
+        if enable:
+            entered.set()
+            assert release_acquire.wait(timeout=3.0), "test did not release monitor acquisition"
+            return True
+        return True
+
+    async def scenario():
+        guild = SimpleNamespace(id=8846, voice_client=None)
+        channel = SimpleNamespace(guild=guild, name="test-channel")
+        monkeypatch.setattr(ss.discord.opus, "is_loaded", lambda: True)
+        monkeypatch.setattr(ss, "StrudelEngine", FakeEngine)
+        monkeypatch.setattr(ss, "monitor_to_speakers", monitor)
+        monkeypatch.setattr(
+            ss, "_cfg",
+            lambda key, default: True if key == "monitor_on_speakers" else default,
+        )
+
+        startup = asyncio.create_task(
+            ss.start_session(channel, genre="house", requested_by="pytest")
+        )
+        assert await asyncio.to_thread(entered.wait, 1.0), "monitor acquisition did not start"
+        startup.cancel()
+        release_acquire.set()
+        try:
+            await startup
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("startup cancellation was not propagated")
+
+        assert monitor_calls == [True, False]
+        assert engine_events == ["start", "warm_up", "close"]
+        assert 8846 not in ss._sessions
+
+    asyncio.run(scenario())
+
+
+def test_next_pass_does_not_push_when_session_closes_during_editor_query():
+    import threading
+    from unittest.mock import Mock
+
+    entered = threading.Event()
+    release_query = threading.Event()
+    perf = SimpleNamespace(next_pass=Mock(), passes=0, key="C")
+
+    def human_edited():
+        entered.set()
+        assert release_query.wait(timeout=3.0), "test did not release editor query"
+        return False
+
+    session = object.__new__(ss.MusicSession)
+    session._closing = False
+    session._held = 0
+    session._pass_task = None
+    session.engine = SimpleNamespace(human_edited=human_edited)
+    session.perf = perf
+    session.genre = "house"
+    session._push = AsyncMock(return_value=True)
+
+    async def scenario():
+        task = asyncio.create_task(session._next_pass_at(0.0))
+        session._pass_task = task
+        assert await asyncio.to_thread(entered.wait, 1.0), "editor query did not start"
+        session._closing = True
+        release_query.set()
+        await task
+
+    asyncio.run(scenario())
+    perf.next_pass.assert_not_called()
+    session._push.assert_not_awaited()
+    assert session._pass_task is None
+
+
+def test_stop_cancels_the_scheduled_pass_before_engine_teardown():
+    from unittest.mock import Mock
+    import time
+
+    events = []
+    cancelled = asyncio.Event()
+
+    async def scenario():
+        voice = SimpleNamespace(
+            guild=SimpleNamespace(id=8847),
+            is_playing=lambda: False,
+            disconnect=AsyncMock(),
+        )
+
+        async def pending_pass():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        pass_task = asyncio.create_task(pending_pass())
+        await asyncio.sleep(0)
+        session = object.__new__(ss.MusicSession)
+        session._closing = False
+        session._pass_task = pass_task
+        session._task = None
+        session.vc = voice
+        session.engine = SimpleNamespace(
+            stop=lambda: (events.append("engine.stop"), cancelled.is_set()),
+            close=lambda: events.append("engine.close"),
+        )
+        session.source = SimpleNamespace(cleanup=lambda: events.append("source.cleanup"))
+        session._monitor_on_speakers = False
+        session.started_at = time.time()
+        session.listeners_seen = set()
+        session.requested_by = "pytest"
+        session.requests = 0
+        session._remember = AsyncMock()
+
+        await session.stop()
+        assert cancelled.is_set()
+        assert pass_task.done()
+        assert events == ["engine.stop", "source.cleanup", "engine.close"]
+        voice.disconnect.assert_awaited_once_with(force=True)
+
+    asyncio.run(scenario())
