@@ -49,9 +49,13 @@ def test_only_exact_unexpired_pending_proof_activates_canonical_snowflake(regist
     assert registry.pending_forum_link_challenge(DISCORD_ID, FORUM_ID) is None
 
 
-def test_pending_proof_expires_and_cannot_be_replayed(registry):
+def test_pending_proof_expires_and_cannot_be_replayed(registry, monkeypatch):
+    expires_at = time.time() + 10
     registry.begin_pending_forum_link(
-        DISCORD_ID, FORUM_ID, CHALLENGE, expires_at=time.time() - 1
+        DISCORD_ID, FORUM_ID, CHALLENGE, expires_at=expires_at
+    )
+    monkeypatch.setattr(
+        "utils.social.kaia_identities.time.time", lambda: expires_at + 1
     )
     assert registry.pending_forum_link_challenge(DISCORD_ID, FORUM_ID) is None
     assert not registry.complete_pending_forum_link(DISCORD_ID, FORUM_ID, CHALLENGE)
