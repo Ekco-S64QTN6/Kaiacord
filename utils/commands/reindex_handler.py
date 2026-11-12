@@ -21,17 +21,22 @@ def _wipe(rag) -> int:
     the index.
     """
     removed = 0
-    with rag._data_lock:
-        for itype, index in rag.indices.items():
-            ids = list(index.storage_context.docstore.docs.keys())
-            if ids:
-                removed += rag._delete_nodes(itype, ids)
-            rag.bm25_cache.pop(itype, None)
-        rag.indexed_files.clear()
-        file_nodes = getattr(rag, '_file_to_nodes', None)
-        if file_nodes is not None:
-            file_nodes.clear()
-        rag.persist_needed = True
+    # Serialize against refresh and persistence before removing live nodes.
+    # The command runs this helper in a worker thread, so waiting here does not
+    # block Discord's event loop.
+    with rag._index_lock:
+        with rag._data_lock:
+            with rag._get_persistence_transaction_lock():
+                for itype, index in rag.indices.items():
+                    ids = list(index.storage_context.docstore.docs.keys())
+                    if ids:
+                        removed += rag._delete_nodes(itype, ids)
+                    rag.bm25_cache.pop(itype, None)
+                rag.indexed_files.clear()
+                file_nodes = getattr(rag, '_file_to_nodes', None)
+                if file_nodes is not None:
+                    file_nodes.clear()
+                rag.persist_needed = True
     return removed
 
 
