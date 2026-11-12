@@ -318,23 +318,24 @@ class RAGPersistenceMixin:
     def flag_nodes(self, node_ids: list, construct_name: str) -> int:
         """Flag nodes with a Data Rot construct label. Returns count of nodes flagged."""
         flagged = 0
-        with self._data_lock: # Lock for modifying indices
-            for itype, index in self.indices.items():
-                docstore = index.storage_context.docstore
-                for node_id in node_ids:
-                    try:
-                        node = docstore.get_node(node_id)
-                        if node:
-                            if 'audit_flags' not in node.metadata:
-                                node.metadata['audit_flags'] = []
-                            # Avoid duplicate flags of the same construct
-                            if construct_name not in node.metadata['audit_flags']:
-                                node.metadata['audit_flags'].append(construct_name)
-                                flagged += 1
-                    except Exception:
-                        continue
-            if flagged:
-                self.persist_needed = True
+        with self._data_lock: # Lock order: data lock, then persistence transaction.
+            with self._get_persistence_transaction_lock():
+                for itype, index in self.indices.items():
+                    docstore = index.storage_context.docstore
+                    for node_id in node_ids:
+                        try:
+                            node = docstore.get_node(node_id)
+                            if node:
+                                if 'audit_flags' not in node.metadata:
+                                    node.metadata['audit_flags'] = []
+                                # Avoid duplicate flags of the same construct
+                                if construct_name not in node.metadata['audit_flags']:
+                                    node.metadata['audit_flags'].append(construct_name)
+                                    flagged += 1
+                        except Exception:
+                            continue
+                if flagged:
+                    self.persist_needed = True
         # Persist outside the lock
         if flagged:
             self.persist(force=True)
@@ -408,48 +409,55 @@ class RAGPersistenceMixin:
             raise
 
     def persist(self, force: bool = False, shutdown: bool = False) -> Optional[bool]:
-        """Persist all hierarchical indices to storage if needed.
+        """Persist all hierarchical indices under a bounded lock order.
 
-        Returns True when every index was written, False when a write failed or
-        the lock could not be had, None when nothing was waiting to be saved.
-        `force` rewrites every index even if none changed. `shutdown` only
-        shortens the lock wait: every change is saved when it is made
-        (`_persist_updated_indices`), so a clean index is already on disk, and
-        rewriting all of them on the way out (the knowledge store alone is
-        ~170 MB, 8 s+) is what a second signal cut short on 31 Oct 2026.
+        Lock order is always _data_lock -> persistence transaction lock.
+        Shutdown/forced saves use the same five-second bound for both locks,
+        so an in-flight refresh batch cannot hold shutdown indefinitely.
+        The transaction lock serializes directory swaps and the manifest.
         """
         if not force and not self.persist_needed:
             return None
 
-        # Never wait long on the lock during shutdown.
         lock_timeout = 5.0 if (force or shutdown) else 30.0
-        acquired = self._data_lock.acquire(timeout=lock_timeout)
-        if not acquired:
-            log_error(f"Failed to acquire data lock for RAG persistence{' (SHUTDOWN)' if (force or shutdown) else ''}")
+        if not self._data_lock.acquire(timeout=lock_timeout):
+            log_error(
+                f"Failed to acquire data lock for RAG persistence"
+                f"{' (SHUTDOWN)' if (force or shutdown) else ''}"
+            )
             return False
 
+        transaction_lock = self._get_persistence_transaction_lock()
+        transaction_acquired = False
         persisted, failed = [], []
         try:
-            # Lock order: _data_lock, then the persistence transaction lock.
-            # The refresh batch releases _data_lock before taking this lock and
-            # never reacquires it while the persistence transaction is active.
-            with self._get_persistence_transaction_lock():
-                for itype, index in self.indices.items():
-                    try:
-                        self._persist_index_atomic(itype)
-                        persisted.append(itype)
-                    except Exception as e:
-                        failed.append(itype)
-                        log_error(f"Failed to persist {itype} index: {e}")
+            transaction_acquired = transaction_lock.acquire(timeout=lock_timeout)
+            if not transaction_acquired:
+                log_error(
+                    "Failed to acquire RAG persistence transaction lock"
+                    f"{' (SHUTDOWN)' if (force or shutdown) else ''}"
+                )
+                return False
+
+            for itype in self.indices:
+                try:
+                    # Reentrant acquisition keeps this helper safe when called
+                    # directly elsewhere while the batch lock is already held.
+                    self._persist_index_atomic(itype)
+                    persisted.append(itype)
+                except Exception as e:
+                    failed.append(itype)
+                    log_error(f"Failed to persist {itype} index: {e}")
+
+            if not failed:
+                # Clear the dirty flag while _data_lock is still held. Clearing
+                # it after release can erase a concurrent flag_nodes mutation.
+                self.persist_needed = False
         finally:
+            if transaction_acquired:
+                transaction_lock.release()
             self._data_lock.release()
 
-        # Only clear the dirty flag if everything actually reached disk.
-        #
-        # Clearing it unconditionally makes the guard at the top of this function
-        # a no-op on every later call, so failed writes are never retried and the
-        # index changes are lost — while the line below still reports success and
-        # the next restart comes back stale.
         if failed:
             log_warning(
                 f"RAG persistence partial: {', '.join(persisted) or 'none'} saved; "
@@ -457,6 +465,5 @@ class RAGPersistenceMixin:
             )
             return False
 
-        self.persist_needed = False
         log_success(f"RAG indices persisted ({len(persisted)}).")
         return True
