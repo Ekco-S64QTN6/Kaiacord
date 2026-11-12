@@ -155,6 +155,23 @@ The repository has two relevant unit-test workflows:
   This workflow runs the full `tools/tests/unit/ttrpg` directory and also supports manual
   `workflow_dispatch`.
 
+### Focused coverage and the incremental gate
+
+The general unit workflow installs `pytest-cov` and collects coverage while running the same
+changed-path-selected offline tests. Each run uploads a machine-readable `coverage.xml` and
+`coverage.json` artifact named `offline-unit-coverage`, and publishes a Markdown summary in the
+Actions run summary.
+
+The initial ratchet is **20% of added, non-excluded lines in changed `utils/*.py` files**. A changed
+line absent from coverage data counts as uncovered; a change with no added production lines under
+`utils/` is informational. This is deliberately a changed-line gate rather than a blanket module
+or repository threshold, so legacy uncovered code is not made blocking all at once.
+
+The report covers only the focused offline tests selected for the diff. It is not whole-project
+coverage and says nothing about hardware, live Ollama, network, or real Discord behavior. Those
+acceptance boundaries remain separate. The first uploaded report is the CI baseline for this
+focused signal; the threshold can be raised once the artifact history shows a stable trend.
+
 For changes under `utils/ttrpg/`, the general selector also adds the full RPG test directory,
 so RPG code changes should receive both workflows. Non-TTRPG changes do not automatically
 trigger the RPG-specific workflow. Review the `Focused test files:` list printed by
