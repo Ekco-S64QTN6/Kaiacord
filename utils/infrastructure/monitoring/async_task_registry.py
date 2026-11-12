@@ -38,6 +38,7 @@ class AsyncTaskRegistry:
         self._tasks: Dict[str, asyncio.Task] = {}
         self._lock = threading.Lock()
         self._shutdown_requested = False
+        self._shutdown_draining = False
         
     @staticmethod
     def _cancel_task(task: asyncio.Task) -> None:
@@ -61,45 +62,50 @@ class AsyncTaskRegistry:
             except Exception:
                 pass
 
-    def register(self, name: str, task: asyncio.Task) -> None:
-        """Register a task unless shutdown has already begun.
+    def _track_locked(self, name: str, task: asyncio.Task) -> None:
+        """Track a task and remove it when it finishes. Caller holds _lock."""
+        if name in self._tasks:
+            existing = self._tasks[name]
+            if existing.done():
+                del self._tasks[name]
+            else:
+                name = f"{name}_{id(task)}"
 
-        The shutdown check and insertion share one lock with cancel_all()'s
-        shutdown flag/snapshot. Otherwise a thread can pass the check, pause,
-        and insert after cancel_all() already took its snapshot.
+        self._tasks[name] = task
+
+        def cleanup_callback(t, name=name):
+            with self._lock:
+                to_remove = [k for k, v in self._tasks.items() if v is t]
+                for key in to_remove:
+                    del self._tasks[key]
+            if not t.cancelled():
+                exc = t.exception()
+                if exc is not None:
+                    logger.log(
+                        f"Background task '{name}' failed: {type(exc).__name__}: {exc}",
+                        "ERROR",
+                    )
+
+        task.add_done_callback(cleanup_callback)
+
+    def register(self, name: str, task: asyncio.Task) -> None:
+        """Register a task, or cancel it when shutdown has started.
+
+        Tasks spawned by a cancelling task are still tracked while cancel_all()
+        is draining. Otherwise a detached child could suppress cancellation and
+        outlive shutdown while the registry incorrectly reports zero pending work.
         """
         cancel = False
         with self._lock:
             if self._shutdown_requested:
                 cancel = True
+                if self._shutdown_draining:
+                    self._track_locked(name, task)
             else:
-                # Clean up any existing task with this name if it's done.
-                if name in self._tasks:
-                    existing = self._tasks[name]
-                    if existing.done():
-                        del self._tasks[name]
-                    else:
-                        # Task with this name still running - append unique suffix.
-                        name = f"{name}_{id(task)}"
-
-                self._tasks[name] = task
-
-                def cleanup_callback(t, name=name):
-                    with self._lock:
-                        to_remove = [k for k, v in self._tasks.items() if v is t]
-                        for k in to_remove:
-                            del self._tasks[k]
-                    # A background task that died with an exception said nothing:
-                    # nobody awaits these, so the error was never retrieved.
-                    if not t.cancelled() and t.exception() is not None:
-                        logger.log(f"Background task '{name}' failed: "
-                                   f"{type(t.exception()).__name__}: {t.exception()}", "ERROR")
-
-                task.add_done_callback(cleanup_callback)
+                self._track_locked(name, task)
 
         if cancel:
             self._cancel_task(task)
-
     def get_pending_count(self) -> int:
         """Get count of pending (non-completed) tasks."""
         with self._lock:
@@ -111,72 +117,81 @@ class AsyncTaskRegistry:
             return self._tasks.copy()
     
     async def cancel_all(self, timeout: float = 5.0) -> int:
+        """Cancel and drain all registered tasks, including children registered
+        by cancellation cleanup, within one shared timeout budget.
         """
-        Cancel all registered tasks and await their completion.
-        
-        Args:
-            timeout: Maximum time to wait for tasks to complete
-            
-        Returns:
-            Number of tasks that were cancelled
-        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, float(timeout))
         with self._lock:
             self._shutdown_requested = True
-            # Drop already-completed entries before taking the shutdown snapshot.
-            # Their done callbacks normally do this; pruning here also handles a
-            # callback that has not had its next event-loop turn yet.
+            self._shutdown_draining = True
             self._tasks = {name: task for name, task in self._tasks.items() if not task.done()}
             tracked = self._tasks.copy()
 
         if not tracked:
+            with self._lock:
+                self._shutdown_draining = False
             logger.log("No async tasks to cancel", "INFO")
             return 0
 
-        # A task may have been registered under more than one name. Cancel and
-        # wait for each task object exactly once.
-        tasks = list(dict.fromkeys(tracked.values()))
-        task_names = list(tracked.keys())
-        logger.log(
-            f"Cancelling {len(tasks)} async tasks: "
-            f"{', '.join(task_names[:5])}{'...' if len(task_names) > 5 else ''}",
-            "ACTION",
-        )
-
+        # Cancel the initial snapshot exactly once. Tasks registered from a
+        # cancellation handler are cancelled by register() and picked up below.
+        seen = set(tracked.values())
         cancelled_count = 0
-        for task in tasks:
+        for task in seen:
             if not task.done():
                 self._cancel_task(task)
                 cancelled_count += 1
 
-        if not cancelled_count:
+        task_names = list(tracked.keys())
+        logger.log(
+            f"Cancelling {len(seen)} async tasks: "
+            f"{', '.join(task_names[:5])}{'...' if len(task_names) > 5 else ''}",
+            "ACTION",
+        )
+
+        wait_error = None
+        while True:
             with self._lock:
-                self._tasks = {name: task for name, task in self._tasks.items() if not task.done()}
-            logger.log("All tasks already completed", "INFO")
-            return 0
+                live = {name: task for name, task in self._tasks.items() if not task.done()}
+                current = set(live.values())
+                # Late registrations were cancelled synchronously by register().
+                late = current - seen
+                cancelled_count += sum(1 for task in late if not task.done())
+                seen.update(late)
+                if not current:
+                    self._shutdown_draining = False
+                    break
 
-        # Do not use wait_for(gather(...)) here. wait_for cancels the gather
-        # and then waits for child cancellation to finish; a task that suppresses
-        # CancelledError can therefore make the advertised timeout unbounded.
-        # asyncio.wait returns at the deadline without cancelling the children
-        # again, so tasks that have not stopped remain visible in the registry.
-        try:
-            _done, pending = await asyncio.wait(tasks, timeout=timeout)
-        except Exception as e:
-            logger.log(f"Error during task cancellation: {e}", "ERROR")
-            pending = {task for task in tasks if not task.done()}
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            try:
+                _done, pending = await asyncio.wait(current, timeout=remaining)
+            except Exception as exc:
+                wait_error = exc
+                break
+            if pending:
+                # The deadline expired. Refresh below so late children remain
+                # visible even when they were not in the wait set at its start.
+                break
+            # Every task in this snapshot finished. Loop again in case one of
+            # their cleanup paths registered another task before completing.
 
-        # Keep pending tasks tracked. Their existing done callbacks remove them
-        # when they finally finish. Shutdown callers can then see that cleanup
-        # is incomplete rather than persisting/closing resources as though all
-        # background work had stopped.
         with self._lock:
+            live = {name: task for name, task in self._tasks.items() if not task.done()}
+            pending = set(live.values())
+            late = pending - seen
+            cancelled_count += sum(1 for task in late if not task.done())
+            seen.update(late)
             self._tasks = {name: task for name, task in self._tasks.items() if not task.done()}
+            self._shutdown_draining = False
+
+        if wait_error is not None:
+            logger.log(f"Error during task cancellation: {wait_error}", "ERROR")
 
         if pending:
-            pending_names = [
-                name for name, task in tracked.items()
-                if task in pending
-            ]
+            pending_names = [name for name, task in live.items() if task in pending]
             logger.log(
                 f"Timed out waiting for tasks; {len(pending)} remain running "
                 f"and stay tracked: {', '.join(pending_names[:5])}"
@@ -187,7 +202,6 @@ class AsyncTaskRegistry:
             logger.log(f"All {cancelled_count} tasks cancelled cleanly", "SUCCESS")
 
         return cancelled_count
-    
     def force_clear(self) -> int:
         """
         Force clear all tasks without awaiting.
@@ -198,6 +212,7 @@ class AsyncTaskRegistry:
         """
         with self._lock:
             self._shutdown_requested = True
+            self._shutdown_draining = False
             tasks = list(self._tasks.values())
             self._tasks.clear()
 
@@ -217,6 +232,7 @@ class AsyncTaskRegistry:
         with self._lock:
             self._tasks.clear()
             self._shutdown_requested = False
+            self._shutdown_draining = False
 
 
 # Global registry instance

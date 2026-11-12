@@ -409,3 +409,54 @@ async def test_shutdown_does_not_close_shared_resources_while_cancelled_task_is_
     rag.persist.assert_not_called()
     app_ctx.close.assert_not_awaited()
     assert shutdown._shutdown_complete.is_set() is False
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_tracks_children_spawned_during_cancellation_cleanup():
+    """A late child must remain visible when it suppresses shutdown cancellation."""
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    registry = AsyncTaskRegistry()
+    parent_started = asyncio.Event()
+    child_started = asyncio.Event()
+    child_cancelled = asyncio.Event()
+    release_child = asyncio.Event()
+    child_tasks = []
+
+    async def detached_cleanup():
+        child_started.set()
+        try:
+            await release_child.wait()
+        except asyncio.CancelledError:
+            child_cancelled.set()
+            await release_child.wait()
+
+    async def parent_task():
+        parent_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            child = asyncio.create_task(detached_cleanup())
+            child_tasks.append(child)
+            await child_started.wait()
+            registry.register("late_cleanup", child)
+            # Let the child receive cancellation and enter its slow cleanup.
+            await child_cancelled.wait()
+
+    parent = asyncio.create_task(parent_task())
+    registry.register("parent", parent)
+    await parent_started.wait()
+
+    cancelled = await registry.cancel_all(timeout=0.05)
+
+    assert cancelled == 2
+    assert child_cancelled.is_set()
+    assert len(child_tasks) == 1 and not child_tasks[0].done()
+    assert registry.get_pending_count() == 1
+    assert any(task is child_tasks[0] for task in registry.get_all_tasks().values())
+
+    release_child.set()
+    await asyncio.wait_for(child_tasks[0], timeout=1.0)
+    await asyncio.sleep(0)  # Let the completion callback remove the child.
+    assert registry.get_pending_count() == 0
+    assert registry.get_all_tasks() == {}
