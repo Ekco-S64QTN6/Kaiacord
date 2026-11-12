@@ -262,8 +262,14 @@ def test_the_set_ends_when_nothing_comes_next():
     first = Deck(rec("one", 124, "8A"), 1.0, 0.4, tone(500, 0.4))
     src = CrossfadeSource(first, lambda deck: None, grid_at=lambda *a: None)
     wait_for(first, 20)
-    frames = [src.read() for _ in range(60)]
-    assert b"" in frames
+    frames = []
+    try:
+        for _ in range(60):
+            frames.append(src.read())
+            time.sleep(0.02)  # match the 20 ms producer cadence; let planners acquire the frame lock
+        assert b"" in frames
+    finally:
+        src.cleanup()
 
 
 def test_a_quiet_record_is_raised_but_never_past_its_peak(tmp_path):
