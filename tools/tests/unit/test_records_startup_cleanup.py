@@ -137,7 +137,7 @@ def test_a_second_start_while_one_is_starting_is_refused(monkeypatch):
     asyncio.run(run())
 
 
-def _records_command_fixture(monkeypatch, start_records):
+def _records_command_fixture(monkeypatch, start_records, tmp_path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from utils.audio import library, setlist
@@ -156,6 +156,7 @@ def _records_command_fixture(monkeypatch, start_records):
     monkeypatch.setattr(handler, "config", SimpleNamespace(get=lambda _k, default=None: default))
     monkeypatch.setattr(library, "load", lambda _path: crate)
     monkeypatch.setattr(setlist, "load", lambda: graph)
+    monkeypatch.setattr(setlist, "_rotation_path", lambda: tmp_path / "set_rotation.json")
     monkeypatch.setattr(setlist, "peek_next_set", lambda _g, _crate: chosen)
     monkeypatch.setattr(setlist, "advance_rotation", lambda _g, _crate: calls.append("advance") or True)
 
@@ -193,7 +194,7 @@ def test_failed_records_voice_start_does_not_consume_the_set_rotation(monkeypatc
     async def fail(_kwargs):
         raise RuntimeError("voice player failed")
 
-    handler, msg, calls, chosen = _records_command_fixture(monkeypatch, fail)
+    handler, msg, calls, chosen = _records_command_fixture(monkeypatch, fail, tmp_path)
     asyncio.run(handler._records(msg, ""))
 
     assert calls == ["start"]
@@ -204,8 +205,92 @@ def test_successful_records_start_commits_rotation_after_session_start(monkeypat
     async def succeed(_kwargs):
         return object()
 
-    handler, msg, calls, chosen = _records_command_fixture(monkeypatch, succeed)
+    handler, msg, calls, chosen = _records_command_fixture(monkeypatch, succeed, tmp_path)
     asyncio.run(handler._records(msg, ""))
 
     assert calls == ["start", "advance"]
     msg.channel.send.assert_awaited_once()
+
+
+
+def test_two_guilds_reserve_different_global_set_slots(monkeypatch, tmp_path):
+    """The rotation lock covers peek, voice startup and commit, not only the file write."""
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from utils.audio import library, setlist
+    from utils.commands import music_handler as handler
+
+    crate = [
+        R.library.Record(f"/music/{i}.mp3", "Artist", f"Track {i}", 124, "8A", "House")
+        for i in range(8)
+    ]
+    graph = {"sets": [
+        [r.path for r in crate[:4]],
+        [r.path for r in crate[4:]],
+    ]}
+    rotation = {"next": 0}
+    starts = []
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+
+    monkeypatch.setattr(handler, "config", SimpleNamespace(get=lambda _key, default=None: default))
+    monkeypatch.setattr(library, "load", lambda _path: crate)
+    monkeypatch.setattr(setlist, "load", lambda: graph)
+    monkeypatch.setattr(setlist, "_rotation_path", lambda: tmp_path / "set_rotation.json")
+
+    def peek(_graph, _crate):
+        return graph["sets"][rotation["next"]]
+
+    def advance(_graph, _crate):
+        rotation["next"] = (rotation["next"] + 1) % len(graph["sets"])
+        return True
+
+    monkeypatch.setattr(setlist, "peek_next_set", peek)
+    monkeypatch.setattr(setlist, "advance_rotation", advance)
+
+    async def start(_channel, _crate, first, **kwargs):
+        chosen = list(kwargs["set_list"])
+        starts.append(chosen)
+        if len(starts) == 1:
+            first_started.set()
+            await release_first.wait()
+        return object()
+
+    monkeypatch.setattr(R, "start_records", start)
+
+    class Typing:
+        async def __aenter__(self):
+            return None
+        async def __aexit__(self, *_args):
+            return False
+
+    def message(guild_id):
+        channel = SimpleNamespace(
+            guild=SimpleNamespace(id=guild_id, me=object()),
+            name=f"voice {guild_id}",
+            permissions_for=lambda _me: SimpleNamespace(connect=True, speak=True),
+        )
+        return SimpleNamespace(
+            author=SimpleNamespace(
+                voice=SimpleNamespace(channel=channel),
+                display_name=f"tester {guild_id}",
+            ),
+            guild=channel.guild,
+            channel=SimpleNamespace(typing=lambda: Typing(), send=AsyncMock()),
+        )
+
+    async def run():
+        first = asyncio.create_task(handler._records(message(101), ""))
+        await first_started.wait()
+        second = asyncio.create_task(handler._records(message(202), ""))
+        # The second guild must wait for the first set's start and rotation commit.
+        await asyncio.sleep(0.05)
+        assert starts == [graph["sets"][0]]
+        release_first.set()
+        await asyncio.gather(first, second)
+
+    asyncio.run(run())
+
+    assert starts == graph["sets"]
+    assert rotation["next"] == 0
