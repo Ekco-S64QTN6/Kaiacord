@@ -1,7 +1,6 @@
 """KiwiSDR subprocess destinations must be public, pinned IP literals."""
 import asyncio
 import socket
-from dataclasses import replace
 
 import pytest
 
