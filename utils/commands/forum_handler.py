@@ -556,7 +556,7 @@ async def _handle_link(ctx, msg, forum_id: int):
                 "If the bot restarts, start a new challenge.",
             ))
         except Exception as exc:
-            registry.cancel_pending_forum_link(discord_id, forum_id)
+            registry.cancel_pending_forum_link(discord_id, forum_id, challenge)
             log_error(f"Forum identity instructions could not be delivered privately: {type(exc).__name__}")
             await msg.channel.send(embed=notice(
                 "I couldn't send the verification instructions privately. Enable direct messages from this server, then try again.",
