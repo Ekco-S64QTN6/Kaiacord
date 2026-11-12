@@ -245,8 +245,11 @@ def _changed(entry: Optional[dict], path: str) -> bool:
 
 
 def needs_build(g: dict, crate: list) -> bool:
-    """Something to measure: a record new or changed since the graph saw it,
-    or pairs left from an older way of measuring."""
+    """Whether measurements or their derived set paths need rebuilding.
+
+    METHOD versions the audio evidence; SET_METHOD versions the ranking built
+    from that evidence. A SET_METHOD change never invalidates measured pairs.
+    """
     if g.get("method", 2) < METHOD or g.get("sets_method", 1) < SET_METHOD:
         return True
     recs = g.get("records", {})
@@ -671,10 +674,12 @@ def next_set(g: dict, crate: list) -> Optional[list]:
 def build_in_background(crate: list, budget_s: Optional[float] = None,
                         on_done: Optional[Callable[[dict], None]] = None,
                         sets_only: bool = False) -> bool:
-    """Measure what is new in `crate` in a separate, niced process
-    (`tools/maintenance/records_graph.py`): the measuring is numpy-heavy, and in
-    the bot's own process it holds the GIL against the voice thread. `on_done`
-    gets the graph when it finishes. True if started."""
+    """Rebuild graph measurements, or only derived set paths, in a niced process.
+
+    Full measurement is numpy-heavy and would hold the bot's GIL against the
+    voice thread. `sets_only` is safe only when the audio graph is current and
+    all compatible pairs have already been checked. `on_done` receives the graph.
+    """
     import subprocess
     import sys
     import tempfile
