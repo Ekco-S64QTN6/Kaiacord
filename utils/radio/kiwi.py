@@ -98,7 +98,7 @@ def _host_port(url: str) -> tuple[str, int]:
             literal = ipaddress.ip_address(host.split("%", 1)[0])
         except ValueError:
             literal = None
-        if literal is not None and not literal.is_global:
+        if literal is not None and (not literal.is_global or literal.is_multicast):
             raise ValueError(f"receiver host is not public: {host}")
         port = parts.port or DEFAULT_PORT
         if not 1 <= port <= 65535:
@@ -114,7 +114,9 @@ def _public_ip(value: str):
         address = ipaddress.ip_address(str(value).split("%", 1)[0])
     except ValueError as exc:
         raise FeedError(f"receiver address is not an IP literal: {value!r}") from exc
-    if not address.is_global:
+    # ipaddress marks multicast as is_global on some Python versions,
+    # but multicast is never a valid unicast receiver destination.
+    if not address.is_global or address.is_multicast:
         raise FeedError(f"receiver address is not public: {address}")
     return address
 
