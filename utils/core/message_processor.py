@@ -1793,7 +1793,25 @@ class MessageProcessor:
                     f"Vision: {_attempted - len(images)} of {_attempted} image(s) "
                     "not loaded; told her so."
                 )
-        
+
+        # 2.6 A picture spoken of that never reached her, and a quoted line she
+        # was given nothing about: a note beside the message, or she invents
+        # the picture and the author (utils/core/grounding_notes.py).
+        try:
+            if messages and messages[-1].get("role") == "user":
+                from utils.core import grounding_notes
+                _own = ctx.own_words or ""
+                _given = "\n".join(str(m.get("content", "")) for m in messages[:-1])
+                _given += "\n" + str(messages[-1].get("content", "")).replace(_own, " ", 1)
+                _ground = grounding_notes.notes_for(
+                    _own, has_picture=bool(messages[-1].get("images")),
+                    tried_pictures=bool(attachments_to_process), given=_given)
+                if _ground:
+                    messages[-1]["content"] += f"\n\n{_ground}"
+                    log_info(f"[grounding_notes] {_ground[:60]}…")
+        except Exception:
+            pass
+
         # 3. LLM Generation (flag active to block quips/dreams)
         if self.bot_state:
             self.bot_state.is_generating = True
