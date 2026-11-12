@@ -123,7 +123,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_dj_dashboard.py",
         "tools/tests/unit/test_records.py",
     ),
-        "utils/audio/library.py": (
+    "utils/audio/library.py": (
         "tools/tests/unit/test_records.py",
         "tools/tests/unit/test_setlist.py",
     ),
