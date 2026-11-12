@@ -44,6 +44,10 @@ def _defuse_turn_stamps(text: str) -> str:
 class RAGPersistenceMixin:
     """Mixin class providing persistence, logging, and state management methods for KaiaRAG."""
 
+    def _get_persistence_transaction_lock(self):
+        from utils.core.rag_persistence_lock import persistence_transaction_lock
+        return persistence_transaction_lock(self)
+
     @thread_safe_rag_operation
     async def add_memory_async(self, user_id: int, user_name: str, text: str) -> bool:
         """Async wrapper for add_memory."""
@@ -366,6 +370,11 @@ class RAGPersistenceMixin:
         return await asyncio.to_thread(self.persist, force, shutdown)
 
     def _persist_index_atomic(self, itype: str) -> None:
+        """Serialize the complete staging, swap, rollback and cleanup sequence."""
+        with self._get_persistence_transaction_lock():
+            self._persist_index_atomic_locked(itype)
+
+    def _persist_index_atomic_locked(self, itype: str) -> None:
         """Write one index beside its directory, then swap it in.
 
         Every save goes through here. The batch save after a refresh wrote the
@@ -421,13 +430,17 @@ class RAGPersistenceMixin:
 
         persisted, failed = [], []
         try:
-            for itype, index in self.indices.items():
-                try:
-                    self._persist_index_atomic(itype)
-                    persisted.append(itype)
-                except Exception as e:
-                    failed.append(itype)
-                    log_error(f"Failed to persist {itype} index: {e}")
+            # Lock order: _data_lock, then the persistence transaction lock.
+            # The refresh batch releases _data_lock before taking this lock and
+            # never reacquires it while the persistence transaction is active.
+            with self._get_persistence_transaction_lock():
+                for itype, index in self.indices.items():
+                    try:
+                        self._persist_index_atomic(itype)
+                        persisted.append(itype)
+                    except Exception as e:
+                        failed.append(itype)
+                        log_error(f"Failed to persist {itype} index: {e}")
         finally:
             self._data_lock.release()
 

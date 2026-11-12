@@ -142,6 +142,10 @@ class ConversationTurnSplitter:
 
 class RAGIndexerMixin:
     """Mixin class providing document ingestion and indexing methods for KaiaRAG."""
+
+    def _get_persistence_transaction_lock(self):
+        from utils.core.rag_persistence_lock import persistence_transaction_lock
+        return persistence_transaction_lock(self)
     
     import re as _re
     _LOG_TS_PATTERN = _re.compile(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]')
@@ -883,6 +887,11 @@ class RAGIndexerMixin:
         return changed, manifest_changed
 
     def _save_indexed_files(self):
+        """Serialize manifest replacement with the RAG index snapshot batch."""
+        with self._get_persistence_transaction_lock():
+            return self._save_indexed_files_locked()
+
+    def _save_indexed_files_locked(self):
         """Persist the mapping of indexed files to disk."""
         try:
             if not os.path.exists(self.persist_dir):
@@ -1276,33 +1285,36 @@ class RAGIndexerMixin:
             for itype in types_to_persist:
                 self.bm25_cache.pop(itype, None)
 
-        # 2. Heavy Disk I/O (NO LOCK HELD). Persist all dirty types, not just
-        # the types that happened to be discovered as changed in this pass.
-        persisted: Set[str] = set()
-        for itype in types_to_persist:
-            try:
-                self._persist_index_atomic(itype)
-                log_success(f"Index '{itype}' persisted.")
-                persisted.add(itype)
-            except Exception as e:
-                log_error(f"Failed to persist {itype}: {e}")
+        # Lock order is always _data_lock -> persistence transaction. The data
+        # lock above is released before waiting here; forced persistence follows
+        # the same order. Hold the transaction through every snapshot and the
+        # matching manifest commit so no forced save can interleave the batch.
+        with self._get_persistence_transaction_lock():
+            # Heavy Disk I/O. Persist all dirty types, not just the types that
+            # happened to be discovered as changed in this pass.
+            persisted: Set[str] = set()
+            for itype in types_to_persist:
+                try:
+                    self._persist_index_atomic(itype)
+                    log_success(f"Index '{itype}' persisted.")
+                    persisted.add(itype)
+                except Exception as e:
+                    log_error(f"Failed to persist {itype}: {e}")
 
-        # The manifest is global across index types. A partial snapshot batch
-        # cannot advance it, and none of the pending types can be forgotten:
-        # even successfully-written snapshots must be included on the retry so
-        # the manifest is committed only after one complete successful batch.
-        if persisted == types_to_persist:
-            if not self._save_indexed_files():
-                log_warning("RAG index snapshots persisted, but the file manifest did not; keeping persistence work queued.")
-                return set()
-            pending.clear()
-        else:
-            failed = types_to_persist - persisted
-            log_warning(
-                "Leaving the RAG file manifest unchanged and retaining pending "
-                f"index persistence for: {', '.join(sorted(failed))}"
-            )
-        return persisted
+            # The manifest is global across index types. A partial snapshot batch
+            # cannot advance it, and none of the pending types can be forgotten.
+            if persisted == types_to_persist:
+                if not self._save_indexed_files():
+                    log_warning("RAG index snapshots persisted, but the file manifest did not; keeping persistence work queued.")
+                    return set()
+                pending.clear()
+            else:
+                failed = types_to_persist - persisted
+                log_warning(
+                    "Leaving the RAG file manifest unchanged and retaining pending "
+                    f"index persistence for: {', '.join(sorted(failed))}"
+                )
+            return persisted
 
     async def refresh_knowledge_base(self, max_concurrent_files: int = 2) -> bool:
         """Refresh the knowledge base; True means the sweep and persistence completed.
