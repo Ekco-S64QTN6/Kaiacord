@@ -231,6 +231,28 @@ class CleanShutdown:
             # rather than racing a task that is still cleaning up.
             return
 
+        # BotState has a private single-worker writer outside the task registry.
+        # Capture one final snapshot after application tasks stop, then drain
+        # its queue before the dashboard can force-exit the process.
+        try:
+            state = getattr(app_ctx, "bot_state", None) if app_ctx is not None else None
+            if state is None:
+                from utils.infrastructure.system.bot_state import bot_state as state
+            save = getattr(state, "save", None)
+            close = getattr(state, "close", None)
+            if callable(save) and callable(close):
+                # save() snapshots live event-loop-owned containers; only the
+                # queued serialization/write drain belongs on a worker thread.
+                save()
+                await asyncio.wait_for(asyncio.to_thread(close), timeout=5.0)
+                log_info("  ✅ BotState snapshot writer drained")
+            else:
+                log_warning("  ⚠️ BotState writer has no close() method; final snapshot may not be drained")
+        except asyncio.TimeoutError:
+            log_error("  ❌ BotState writer did not drain within 5s; its final snapshot may be incomplete")
+        except Exception as exc:
+            log_error(f"  ❌ Could not drain BotState writer: {exc}")
+
         # 2. Force Ollama Model Unload (Crucial for VRAM release - DO THIS BEFORE RAG I/O)
         try:
             from utils.infrastructure.gpu.gpu_manager import OllamaGPUManager
