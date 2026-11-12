@@ -98,8 +98,16 @@ class InnerMonologue:
                 try:
                     if not is_discord_channel(channel_id):
                         continue
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # An unverified channel may be a legacy forum thread or a
+                    # private conversation. Public monologue generation fails
+                    # closed when the identity check cannot establish that it
+                    # is a real Discord channel.
+                    log_debug(
+                        f"Skipping channel in public monologue: Discord identity "
+                        f"check failed ({type(exc).__name__})"
+                    )
+                    continue
             for msg in list(messages)[-5:]:
                 if msg.get("external") or msg.get("private"):
                     continue  # a forum/social turn, or a DM: not for a public thought
