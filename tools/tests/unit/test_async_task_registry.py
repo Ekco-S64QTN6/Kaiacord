@@ -460,3 +460,63 @@ async def test_cancel_all_tracks_children_spawned_during_cancellation_cleanup():
     await asyncio.sleep(0)  # Let the completion callback remove the child.
     assert registry.get_pending_count() == 0
     assert registry.get_all_tasks() == {}
+
+@pytest.mark.asyncio
+async def test_cancel_all_tracks_children_registered_after_the_deadline():
+    """A slow parent may spawn a detached child after the registry timed out."""
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    registry = AsyncTaskRegistry()
+    parent_started = asyncio.Event()
+    parent_cancelled = asyncio.Event()
+    release_parent = asyncio.Event()
+    child_started = asyncio.Event()
+    child_cancelled = asyncio.Event()
+    release_child = asyncio.Event()
+    children = []
+
+    async def late_child():
+        child_started.set()
+        try:
+            await release_child.wait()
+        except asyncio.CancelledError:
+            child_cancelled.set()
+            await release_child.wait()
+
+    async def slow_parent():
+        parent_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            parent_cancelled.set()
+            # This continuation happens after cancel_all() has returned.
+            await release_parent.wait()
+            child = asyncio.create_task(late_child())
+            children.append(child)
+            await child_started.wait()
+            registry.register("late_descendant", child)
+            await child_cancelled.wait()
+
+    parent = asyncio.create_task(slow_parent())
+    registry.register("slow_parent", parent)
+    await parent_started.wait()
+
+    assert await registry.cancel_all(timeout=0.05) == 1
+    assert parent_cancelled.is_set()
+    assert not parent.done()
+    assert registry.get_pending_count() == 1
+
+    release_parent.set()
+    await asyncio.wait_for(parent, timeout=1.0)
+    await asyncio.sleep(0)  # Run the parent's registry cleanup callback.
+
+    assert len(children) == 1
+    assert not children[0].done(), "the child should still be suppressing cancellation"
+    assert registry.get_pending_count() == 1
+    assert any(task is children[0] for task in registry.get_all_tasks().values())
+
+    release_child.set()
+    await asyncio.wait_for(children[0], timeout=1.0)
+    await asyncio.sleep(0)
+    assert registry.get_pending_count() == 0
+    assert registry.get_all_tasks() == {}
