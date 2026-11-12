@@ -29,6 +29,7 @@ import argparse
 import json
 import re
 import shutil
+from contextlib import contextmanager
 import sys
 import time
 from pathlib import Path
@@ -413,7 +414,36 @@ def process_one(md_path: Path, dry_run: bool = False) -> tuple[bool, str]:
     return True, f"filed as {dest.relative_to(KB)} ({len(body.split())} words)"
 
 
+def _process_lock_path() -> Path:
+    """One lock shared by the bot, CLI and hourly ingress processes."""
+    from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
+    return Path(telemetry_path("memory/ingress_process.lock"))
+
+
+@contextmanager
+def _processing_lock():
+    """Serialize the full ingress pass across independent Python processes."""
+    import fcntl
+
+    path = _process_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def main() -> int:
+    # utils.core.ingress also holds an asyncio.Lock, but CLI/manual runs are
+    # separate processes. This OS lock makes enumeration, destination checks,
+    # writes and staged-file removal one cross-process critical section.
+    with _processing_lock():
+        return _main_locked()
+
+
+def _main_locked() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="report without writing")
