@@ -1250,6 +1250,57 @@ class ForumClient:
         # (Though we prefer the full text)
         return full_posts
 
+    async def verify_user_public_post(self, user_id: int, challenge: str,
+                                      max_pages: int = 10, max_threads: int = 8) -> bool:
+        """Prove account control using a fresh public post authored by user_id.
+
+        Search results only identify candidate threads. A candidate is accepted
+        only after fetching the thread and matching both the parsed numeric
+        author ID and an exact standalone line in PostInfo.own_text. Quoted
+        blocks are removed by _parse_posts, so quoting somebody else's token
+        cannot prove ownership.
+        """
+        uid = int(user_id)
+        token = str(challenge or "").strip()
+        if not token or "\n" in token or "\r" in token:
+            return False
+
+        snippets = await self.scrape_user_post_history(
+            uid, max_pages=max(1, min(int(max_pages), 20))
+        )
+        thread_ids = []
+        seen = set()
+        for snippet in snippets:
+            try:
+                thread_id = int(snippet.get("thread_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if thread_id > 0 and thread_id not in seen:
+                seen.add(thread_id)
+                thread_ids.append(thread_id)
+            if len(thread_ids) >= max(1, min(int(max_threads), 12)):
+                break
+
+        for index, thread_id in enumerate(thread_ids):
+            try:
+                thread_data = await self.scrape_thread(thread_id, last_n_posts=50)
+                for post in thread_data.get("posts", []):
+                    if int(getattr(post, "user_id", 0) or 0) != uid:
+                        continue
+                    own_text = str(getattr(post, "own_text", "") or "")
+                    # Exact line matching rejects substring collisions and
+                    # tokens that appear only inside a quoted post.
+                    if any(line.strip() == token for line in own_text.splitlines()):
+                        return True
+            except Exception as exc:
+                log_debug(
+                    f"Forum ownership proof could not inspect thread {thread_id}: "
+                    f"{type(exc).__name__}"
+                )
+            if index + 1 < len(thread_ids):
+                await asyncio.sleep(0.5)
+        return False
+
     def _write_profile_file(self, username: str, user_id: int,
                             metadata: Dict[str, Any], body: str) -> None:
         """Write user_profile.md, recording the Discord identity when known."""

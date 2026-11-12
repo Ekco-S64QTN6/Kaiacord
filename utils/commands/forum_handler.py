@@ -8,12 +8,16 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
     parts = msg.content.strip().split(None, 2)
     subcommand = parts[1].lower() if len(parts) > 1 else "status"
 
-    if subcommand == "link":
-        user_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
-        if not user_id:
-            await msg.channel.send(embed=notice("usage: `!forum link <forum_id>`"))
+    if subcommand in {"link", "verify"}:
+        forum_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        if not forum_id:
+            command = "link" if subcommand == "link" else "verify"
+            await msg.channel.send(embed=notice(f"usage: forum {command} <forum_id>"))
             return
-        await _handle_link(ctx, msg, user_id)
+        if subcommand == "link":
+            await _handle_link(ctx, msg, forum_id)
+        else:
+            await _handle_verify_link(ctx, msg, forum_id)
         return
 
     is_owner = ctx.config.is_owner(msg.author.name, msg.author.display_name, str(msg.author.id))
@@ -39,6 +43,12 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
             await msg.channel.send(embed=notice("usage: `!forum user <user_id>`"))
             return
         await _handle_user(ctx, msg, user_id)
+    elif subcommand == "unlink":
+        forum_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        if not forum_id:
+            await msg.channel.send(embed=notice("usage: forum unlink <forum_id>"))
+            return
+        await _handle_unlink(ctx, msg, forum_id)
     elif subcommand == "post":
         await _handle_post(ctx, msg, parts)
     elif subcommand == "reply":
@@ -56,7 +66,9 @@ async def handle_forum_command(ctx, msg, send_kaia_response):
             "`!forum post <id> <message>` — post a reply",
             "`!forum reply <id>` — draft a reply for review",
             "`!forum user <id>` — deep-scrape a user's post history",
-            "`!forum link <id>` — link your Discord account to a forum id",
+            "`!forum link <id>` — start forum-account ownership verification",
+            "`!forum verify <id>` — activate a pending link after posting its challenge",
+            "`!forum unlink <id>` — owner-only removal of an existing identity link",
         ))))
 
 
@@ -502,31 +514,144 @@ async def _handle_user(ctx, msg, user_id: int):
 
 
 async def _handle_link(ctx, msg, forum_id: int):
-    """Link a Discord account to a Forum ID."""
+    """Start a short-lived proof-of-control challenge; do not activate a link yet."""
+    import secrets
+    import time
+
     from utils.social.kaia_identities import registry
     from utils.social.kaia_forum import get_forum_client
 
-    discord_id = f"{msg.author.name}_{msg.author.id}"
-    
+    discord_id = str(msg.author.id)
     try:
         client = await get_forum_client()
         if not client:
             await msg.channel.send(embed=notice("forum client failure", error=True))
             return
 
-        # Optional: Verify user exists on forum
         profile = await client.scrape_user_profile(forum_id)
-        forum_name = profile.get('username', 'Unknown')
-        
-        registry.link_discord_to_forum(discord_id, forum_id)
-        
-        embed = box("🔗  Identity linked")
-        add_field(embed, "Discord", str(discord_id), inline=True)
-        add_field(embed, "Forum", f"{clean(forum_name, 100)} ({forum_id})", inline=True)
-        await msg.channel.send(embed=embed)
-    except Exception as e:
-        log_error(f"Identity link error: {e}")
-        await msg.channel.send(embed=notice(f"link failed: {e}", error=True))
+        if not profile or not profile.get("username"):
+            await msg.channel.send(embed=notice("that forum profile could not be verified.", error=True))
+            return
+        if int(profile.get("user_id") or 0) != int(forum_id):
+            await msg.channel.send(embed=notice("the forum profile ID did not match the requested account.", error=True))
+            return
+
+        challenge = secrets.token_urlsafe(24)
+        registry.begin_pending_forum_link(
+            discord_id,
+            forum_id,
+            challenge,
+            expires_at=time.time() + 15 * 60,
+        )
+        try:
+            # The one-time token must never be posted to a shared channel or
+            # written to logs. Deliver the proof instructions directly to the
+            # claimant; if DMs are unavailable, discard the pending challenge.
+            await msg.author.send(embed=box(
+                "🔐  Verify forum account ownership",
+                f"Post this exact one-time code as a standalone line in a public forum post from "
+                f"{clean(profile['username'], 80)}:\n\n{challenge}\n\n"
+                f"Then run forum verify {forum_id} here. The code expires in 15 minutes. "
+                "The link will not be active until the forum post is fetched and its author ID is verified. "
+                "If the bot restarts, start a new challenge.",
+            ))
+        except Exception as exc:
+            registry.cancel_pending_forum_link(discord_id, forum_id, challenge)
+            log_error(f"Forum identity instructions could not be delivered privately: {type(exc).__name__}")
+            await msg.channel.send(embed=notice(
+                "I couldn't send the verification instructions privately. Enable direct messages from this server, then try again.",
+                error=True,
+            ))
+            return
+        await msg.channel.send(embed=notice(
+            "I sent the forum ownership-verification instructions in a private message. The link is not active yet."
+        ))
+    except ValueError as exc:
+        await msg.channel.send(embed=notice(str(exc), error=True))
+    except Exception as exc:
+        log_error(f"Forum identity challenge failed: {type(exc).__name__}")
+        await msg.channel.send(embed=notice("could not start forum identity verification.", error=True))
+
+
+async def _handle_verify_link(ctx, msg, forum_id: int):
+    """Activate a forum mapping only after checking an authored public post."""
+    from utils.social.kaia_identities import registry
+    from utils.social.kaia_forum import get_forum_client
+
+    discord_id = str(msg.author.id)
+    challenge = registry.pending_forum_link_challenge(discord_id, forum_id)
+    if not challenge:
+        await msg.channel.send(embed=notice(
+            "there is no active proof request for that forum ID; start forum link first.",
+            error=True,
+        ))
+        return
+
+    try:
+        client = await get_forum_client()
+        if not client:
+            await msg.channel.send(embed=notice("forum client failure", error=True))
+            return
+        profile = await client.scrape_user_profile(forum_id)
+        if not profile or not profile.get("username"):
+            await msg.channel.send(embed=notice("the forum profile could not be re-fetched.", error=True))
+            return
+        if int(profile.get("user_id") or 0) != int(forum_id):
+            await msg.channel.send(embed=notice("the forum profile ID did not match.", error=True))
+            return
+
+        async with msg.channel.typing():
+            verified = await client.verify_user_public_post(forum_id, challenge)
+        if not verified:
+            await msg.channel.send(embed=notice(
+                "I couldn't find that code in a public post authored by this forum account. "
+                "Post it as a standalone line, then try again before it expires.",
+                error=True,
+            ))
+            return
+
+        # complete_pending_forum_link rechecks expiry, requester, token, and
+        # existing ownership under the registry lock before atomically saving.
+        if not registry.complete_pending_forum_link(discord_id, forum_id, challenge):
+            await msg.channel.send(embed=notice(
+                "the proof request expired or changed before it could be completed; start again.",
+                error=True,
+            ))
+            return
+        registry.set_display_name(discord_id, msg.author.display_name)
+        request_reindex()
+        log_action(f"[forum] verified identity link Discord {discord_id} to Forum UID {forum_id}")
+
+        await msg.channel.send(embed=box(
+            "🔗  Forum identity verified",
+            f"Discord: {clean(msg.author.display_name, 80)} ({discord_id})\n"
+            f"Forum: {clean(profile['username'], 100)} ({forum_id})\n\n"
+            "The identity mapping is now active.",
+        ))
+    except ValueError as exc:
+        await msg.channel.send(embed=notice(str(exc), error=True))
+    except Exception as exc:
+        log_error(f"Forum identity verification failed: {type(exc).__name__}")
+        await msg.channel.send(embed=notice("forum identity verification failed; no link was activated.", error=True))
+
+
+async def _handle_unlink(ctx, msg, forum_id: int):
+    """Owner-only removal of both sides of an existing identity mapping."""
+    from utils.social.kaia_identities import registry
+
+    discord_id = str(msg.author.id)
+    try:
+        removed = registry.unlink_forum_from_discord(discord_id, forum_id)
+    except Exception as exc:
+        log_error(f"Forum identity unlink failed: {type(exc).__name__}")
+        await msg.channel.send(embed=notice("the identity registry could not be updated.", error=True))
+        return
+    if not removed:
+        await msg.channel.send(embed=notice("that forum ID is not linked to your Discord account.", error=True))
+        return
+    request_reindex()
+    log_action(f"[forum] owner unlinked Forum UID {forum_id} from Discord {discord_id}")
+    await msg.channel.send(embed=notice(f"unlinked forum account {forum_id}."))
 
 
 async def _handle_post(ctx, msg, parts):
