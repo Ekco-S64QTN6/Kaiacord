@@ -8,7 +8,7 @@
 | **[Development](04-development/)** | [Testing](04-development/testing.md) — markers, and the rules that keep a test out of live state |
 | **[Maintenance](05-maintenance/)** | [Procedures](05-maintenance/procedures.md) — routine tasks, re-indexing, caches |
 | **[Troubleshooting](06-troubleshooting/)** | [Common issues](06-troubleshooting/common-issues.md) |
-| **[Security](07-security/)** | [X / twikit credentials](07-security/x-twikit-credentials.md) |
+| **[Security](07-security/)** | [Security policy](../SECURITY.md) — how to report a vulnerability privately · [X / twikit credentials](07-security/x-twikit-credentials.md) |
 | **[Aethelgard](ttrpg/)** | [System](ttrpg/aethelgard_system.md) — rules, formulas, classes, balance targets · [Lore](ttrpg/aethelgard_lore_bible.md) |
 | **Planning** | [Roadmap](ROADMAP.md) — what is open, with a decision on each |
 

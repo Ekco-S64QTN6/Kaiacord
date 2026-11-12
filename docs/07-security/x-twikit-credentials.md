@@ -1,5 +1,8 @@
 # X/Twitter (twikit) Credential Security
 
+To report a vulnerability, see the [security policy](../../SECURITY.md). This page covers how
+the X session credentials are stored and rotated.
+
 ## Risk Summary
 
 Kaiacord uses [twikit](https://github.com/d60/twikit) for X/Twitter integration. Twikit authenticates via browser session cookies (not OAuth), which means:
