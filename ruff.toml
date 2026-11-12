@@ -1,0 +1,15 @@
+# The lint gate: rules that are errors, not style. Every one of them is clean
+# across the repository, so CI checks the whole tree (docs/04-development/quality-gate.md).
+#   E9   syntax and I/O errors          F7   statements that cannot run where they are
+#   F63  comparisons that are always wrong   F82  undefined names
+# Style rules (unused imports, one-line ifs, import order) are reported in CI
+# as a count and block nothing. There is no formatter.
+target-version = "py312"
+
+[lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[lint.per-file-ignores]
+# `Optional["beatgrid.Grid"]` is a quoted annotation on a dataclass field that
+# is never evaluated; beatgrid is imported where it is used.
+"utils/audio/records.py" = ["F821"]

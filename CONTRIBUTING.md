@@ -43,8 +43,9 @@ venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harde
 venv/bin/python3 -c "from utils.ttrpg.combat_engine import *; print('ok')"
 ```
 
-There is no linter or formatter in this project, so a green suite plus an exercised code path is
-the bar. A bug fix comes with a test that fails without the fix — stash the fix and run it to be
+CI lints for outright errors and holds changed files to their existing type-check state
+([Quality gate](docs/04-development/quality-gate.md)); there is no formatter and no style gate, so
+a green suite plus an exercised code path is the bar. A bug fix comes with a test that fails without the fix — stash the fix and run it to be
 sure. New tests go in `tools/tests/unit/`; see `tools/tests/README.md` for the markers and the
 suite-hygiene rules (every collected file must assert, no hardcoded home directories, no
 module-level execution, no writes into `memory/`).

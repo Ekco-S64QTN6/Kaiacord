@@ -119,6 +119,7 @@ def date_lines(raw_lines: list, anchor: float) -> list:
 def extract(scan: Scan, dated: list) -> None:
     """Fold dated lines into the scan's event lists."""
     pending_boot = None
+    pending_boot_idx = 0
     for idx, (ts, level, text) in enumerate(dated):
         scan.seq += 1
         scan.lines.append((scan.seq, ts, level, text))
