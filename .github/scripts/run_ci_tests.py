@@ -76,6 +76,7 @@ RELATED_TESTS = {
     "utils/core/kaia_rag_query.py": (
         "tools/tests/unit/test_rag_index_hygiene.py",
         "tools/tests/unit/test_rag_identity_scoping.py",
+        "tools/tests/unit/test_rag_retrieval_metadata.py",
     ),
     "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py",),
     "utils/infrastructure/system/shutdown_fixed.py": (
@@ -97,6 +98,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_speaker_heuristics.py",
         "tools/tests/unit/test_dm_privacy.py",
         "tools/tests/unit/test_vision_fetch_security.py",
+        "tools/tests/unit/test_rag_retrieval_metadata.py",
     ),
     "utils/core/sanitizer.py": (
         "tools/tests/unit/test_context_enricher_files.py",
