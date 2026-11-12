@@ -1003,10 +1003,9 @@ class MessageProcessor:
         # These lightweight prompt injections create the illusion of inner life
         # by subtly varying Kaia's behavior based on context. No LLM calls.
 
-        # 8d. The hour colours her tone. It says nothing about length: how much
-        # a turn asks for is read from the turn (utils/core/turn_shape.py), and
-        # length advice keyed to the clock told her to answer a passing remark
-        # at night with an essay. The afternoon is her ordinary self: no note.
+        # 8d. The hour colours her tone and says nothing about length: advice
+        # keyed to the clock applied to every message alike, whatever was said.
+        # The afternoon is her ordinary self: no note.
         try:
             _current_time_str, _hour, _tz_name = _get_user_time_info(ctx.author_name, message_instant(ctx.message))
             if 6 <= _hour < 12:
@@ -2243,24 +2242,6 @@ class MessageProcessor:
                 log_info(f"[unknown_subject] nothing in her context mentions what "
                          f"{ctx.author_name} asked about; told her so")
                 held_note += f"\n\n{unknown_note}"
-        except Exception:
-            pass
-
-        # How much this turn asks of her (utils/core/turn_shape.py), beside the
-        # message like the notes above. Not when she was pointed at a message
-        # or handed a file: the subject there is not the few words typed.
-        try:
-            if not ctx.pointed_at and "[ATTACHED_FILE_CONTEXT]" not in (ctx.sanitized_content or ""):
-                from utils.core import turn_shape
-                _shared = "http" in (ctx.own_words or "")
-                try:
-                    from utils.core.sanitizer import attachment_citations
-                    _shared = _shared or bool(attachment_citations(ctx.message))
-                except Exception:
-                    pass
-                _shape = turn_shape.note_for(ctx.own_words or "", shared=_shared)
-                if _shape:
-                    held_note += f"\n\n{_shape}"
         except Exception:
             pass
 
