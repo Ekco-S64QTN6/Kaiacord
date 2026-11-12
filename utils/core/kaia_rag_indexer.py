@@ -212,6 +212,12 @@ class RAGIndexerMixin:
         """Initialize hierarchical indices from storage or create new ones."""
         with self._data_lock:
             with self._get_persistence_transaction_lock():
+                # initialize_async loads the manifest before calling this
+                # method to keep Phase 0 cheap. Reload it here, inside the same
+                # process-wide transaction as the index-directory reads, so a
+                # writer in another process cannot advance snapshots+manifest
+                # between our manifest read and index initialization.
+                self._load_indexed_files()
                 index_types = ['persona', 'user_profiles', 'knowledge', 'logs', 'dreams']
                 for itype in index_types:
                     itype_dir = os.path.join(self.persist_dir, itype)
