@@ -204,3 +204,66 @@ def test_verify_handler_activates_only_after_forum_client_confirms_authored_post
     assert registry.get_forum_ids(DISCORD_ID) == [FORUM_ID]
     assert registry.describe_forum_user(FORUM_ID) == "NewName"
     assert fake_client.verify_user_public_post.await_count == 2
+
+
+def test_legacy_composite_key_is_canonicalized_only_after_new_proof(registry):
+    legacy_key = "OldNickname_" + DISCORD_ID
+    registry.link_discord_to_forum(legacy_key, FORUM_ID)
+    assert registry.get_discord_id(FORUM_ID) == legacy_key
+
+    registry.begin_pending_forum_link(
+        DISCORD_ID, FORUM_ID, CHALLENGE, expires_at=time.time() + 900
+    )
+    assert registry.get_discord_id(FORUM_ID) == legacy_key
+    assert registry.get_forum_ids(DISCORD_ID) == []
+
+    assert registry.complete_pending_forum_link(DISCORD_ID, FORUM_ID, CHALLENGE)
+    assert registry.get_discord_id(FORUM_ID) == DISCORD_ID
+    assert registry.get_forum_ids(DISCORD_ID) == [FORUM_ID]
+    assert registry.get_forum_ids(legacy_key) == []
+
+
+def test_legacy_composite_key_for_a_different_snowflake_cannot_be_claimed(registry):
+    legacy_key = "SomeoneElse_" + OTHER_DISCORD_ID
+    registry.link_discord_to_forum(legacy_key, FORUM_ID)
+
+    with pytest.raises(ValueError, match="already linked"):
+        registry.begin_pending_forum_link(
+            DISCORD_ID, FORUM_ID, CHALLENGE, expires_at=time.time() + 900
+        )
+
+
+def test_verified_link_updates_registry_only_after_forum_post_recheck(monkeypatch, registry):
+    import utils.commands.forum_handler as handler
+    from utils.social import kaia_forum, kaia_identities
+
+    monkeypatch.setattr(kaia_identities, "registry", registry)
+    monkeypatch.setattr(handler, "request_reindex", lambda: None)
+    registry.begin_pending_forum_link(
+        DISCORD_ID, FORUM_ID, CHALLENGE, expires_at=time.time() + 900
+    )
+    fake_client = SimpleNamespace(
+        scrape_user_profile=AsyncMock(return_value={"user_id": FORUM_ID, "username": "Starkind"}),
+        verify_user_public_post=AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(kaia_forum, "get_forum_client", AsyncMock(return_value=fake_client))
+
+    class Typing:
+        async def __aenter__(self):
+            return None
+        async def __aexit__(self, *_args):
+            return False
+
+    author = SimpleNamespace(id=int(DISCORD_ID), display_name="NewName")
+    channel = SimpleNamespace(send=AsyncMock(), typing=Typing)
+    msg = SimpleNamespace(author=author, channel=channel)
+
+    asyncio.run(handler._handle_verify_link(SimpleNamespace(), msg, FORUM_ID))
+    assert registry.get_discord_id(FORUM_ID) is None
+
+    fake_client.verify_user_public_post.return_value = True
+    asyncio.run(handler._handle_verify_link(SimpleNamespace(), msg, FORUM_ID))
+    assert registry.get_discord_id(FORUM_ID) == DISCORD_ID
+    assert registry.get_forum_ids(DISCORD_ID) == [FORUM_ID]
+    assert registry.describe_forum_user(FORUM_ID) == "NewName"
+    assert fake_client.verify_user_public_post.await_count == 2
