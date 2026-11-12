@@ -48,6 +48,11 @@ ASSET_DIR = PROJECT_ROOT / "assets" / "strudel"
 SINK_NAME = "kaia_music"
 FRAME_BYTES = 960 * 2 * 2          # 20 ms, 48 kHz, stereo, s16le
 
+# Several guilds share this null sink. One loopback is enough; a lease count
+# prevents duplicate local playback and prevents one guild stopping another.
+_MONITOR_LOCK = threading.Lock()
+_MONITOR_USERS = 0
+
 def _browser_environment(base_env=None) -> dict[str, str]:
     """Return Chromium's environment without changing the bot's process env."""
     env = dict(os.environ if base_env is None else base_env)
@@ -87,22 +92,54 @@ def ensure_sink() -> bool:
         return False
 
 
-def monitor_to_speakers(enable: bool = True) -> None:
-    """Loop the sink back to the default output so a human can hear it.
+def _monitor_module_ids() -> list[str]:
+    rows = _pactl("list", "short", "modules").splitlines()
+    return [
+        line.split(None, 1)[0]
+        for line in rows
+        if "module-loopback" in line and f"source={SINK_NAME}.monitor" in line
+    ]
 
-    The null sink has no speakers attached, so by default the operator sees
-    audio meters moving and hears nothing — which reads as a fault and is not.
+
+def monitor_to_speakers(enable: bool = True) -> bool:
+    """Acquire/release a shared loopback from Kaia's sink to local speakers.
+
+    The null sink is shared by every guild. The first live session removes
+    stale Kaia loopbacks left by an interrupted process and creates one; more
+    sessions share it. Only the last matching release unloads it.
     """
-    try:
-        if enable:
-            _pactl("load-module", "module-loopback",
-                   f"source={SINK_NAME}.monitor", "latency_msec=60")
-        else:
-            for line in _pactl("list", "short", "modules").splitlines():
-                if "module-loopback" in line and SINK_NAME in line:
-                    _pactl("unload-module", line.split("\t")[0])
-    except Exception as exc:
-        log_debug(f"[music] loopback toggle failed: {exc}")
+    global _MONITOR_USERS
+    with _MONITOR_LOCK:
+        try:
+            if enable:
+                if _MONITOR_USERS:
+                    _MONITOR_USERS += 1
+                    return True
+
+                # The sink is dedicated to Kaia. Matching modules found at the
+                # first acquisition are residue from a prior bot process.
+                for module_id in _monitor_module_ids():
+                    _pactl("unload-module", module_id)
+
+                loaded = _pactl("load-module", "module-loopback",
+                                f"source={SINK_NAME}.monitor", "latency_msec=60").strip()
+                if not _monitor_module_ids():
+                    raise RuntimeError(f"pactl did not create a loopback (reply: {loaded!r})")
+                _MONITOR_USERS = 1
+                return True
+
+            if _MONITOR_USERS == 0:
+                return False
+            _MONITOR_USERS -= 1
+            if _MONITOR_USERS:
+                return True
+
+            for module_id in _monitor_module_ids():
+                _pactl("unload-module", module_id)
+            return True
+        except Exception as exc:
+            log_debug(f"[music] loopback toggle failed: {exc}")
+            return False
 
 
 # ── the engine ───────────────────────────────────────────────────────
@@ -145,15 +182,23 @@ class StrudelEngine:
         handler_cls = type("QuietHandler", (handler.func,),
                            {"log_message": lambda *a, **k: None})
         socketserver.TCPServer.allow_reuse_address = True
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
-            self.port = s.getsockname()[1]
+        # Let the OS choose and bind the port in one operation. Reserving a
+        # temporary socket, closing it and binding a second server left a race
+        # in which another local process could steal the selected port.
         self._srv = socketserver.TCPServer(
-            ("127.0.0.1", self.port),
+            ("127.0.0.1", 0),
             functools.partial(handler_cls, directory=str(ASSET_DIR)))
+        self.port = int(self._srv.server_address[1])
         self._srv_thread = threading.Thread(target=self._srv.serve_forever,
                                             daemon=True, name="kaia-strudel-http")
-        self._srv_thread.start()
+        try:
+            self._srv_thread.start()
+        except BaseException:
+            self._srv.server_close()
+            self._srv = None
+            self._srv_thread = None
+            self.port = 0
+            raise
 
     def start(self) -> None:
         self._call(self._start_impl)
@@ -424,13 +469,34 @@ class StrudelEngine:
         finally:
             self._pool.shutdown(wait=False)
 
+    def _close_server(self) -> None:
+        """Stop the HTTP worker and close its listening socket exactly once."""
+        server, self._srv = self._srv, None
+        thread, self._srv_thread = self._srv_thread, None
+        if server is not None:
+            try:
+                # shutdown() waits for serve_forever() to leave its loop.
+                server.shutdown()
+            except Exception as exc:
+                log_debug(f"[music] stopping HTTP server: {exc}")
+            finally:
+                try:
+                    server.server_close()
+                except Exception as exc:
+                    log_debug(f"[music] closing HTTP server socket: {exc}")
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2.0)
+            if thread.is_alive():
+                log_warning("[music] HTTP server thread did not stop within 2s")
+        self.port = 0
+
     def _close_impl(self) -> None:
         self.close_capture()
         for shut, what in ((lambda: self._browser and self._browser.close(), "browser"),
-                           (lambda: self._pw and self._pw.stop(), "playwright"),
-                           (lambda: self._srv and self._srv.shutdown(), "http server")):
+                           (lambda: self._pw and self._pw.stop(), "playwright")):
             try:
                 shut()
             except Exception as exc:
                 log_debug(f"[music] closing {what}: {exc}")
-        self._browser = self._pw = self._srv = self._page = None
+        self._close_server()
+        self._browser = self._pw = self._page = None

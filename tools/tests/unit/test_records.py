@@ -934,6 +934,8 @@ def test_next_pressed_while_a_booth_load_is_reading_waits_for_it():
     from types import SimpleNamespace
     calls = []
     session = R.RecordsSession.__new__(R.RecordsSession)
+    session._load_lock = threading.Lock()
+    session._closing = False
     session.loading = "Cam Wales — Ambulance"
     session.source = SimpleNamespace(skip=lambda: calls.append(("skip", session.loading)))
     session.skip()
@@ -1038,3 +1040,211 @@ def test_a_set_waits_for_its_first_record_to_buffer():
             return False
     t0 = time.monotonic()
     assert R._wait_deck(Never(), 25, 0.1) is False and time.monotonic() - t0 < 0.5
+
+
+
+
+def _load_race_session():
+    import threading
+    from types import SimpleNamespace
+
+    session = R.RecordsSession.__new__(R.RecordsSession)
+    session._closing = False
+    session._load_lock = threading.Lock()
+    session._load_generation = 0
+    session.loading = None
+    session.last_load = None
+    session.requests = []
+    session.requested_by = "tester"
+    session.say = lambda *_args: None
+    session.voice_source = None
+    session._task = None
+    session.started_at = time.time()
+    session.names = []
+
+    class Mixer:
+        def __init__(self):
+            self.loaded = []
+
+        def load(self, nxt):
+            self.loaded.append(nxt.record.title)
+            return "loaded"
+
+        def cleanup(self):
+            pass
+
+    session.source = Mixer()
+    return session
+
+
+def _new_load_thread(previous):
+    import threading
+    current = set(threading.enumerate()) - previous
+    return next(t for t in current if t.name == "kaia-records-load")
+
+
+def test_newest_booth_load_wins_when_older_analysis_finishes_last():
+    import threading
+    from types import SimpleNamespace
+
+    session = _load_race_session()
+    started = {name: threading.Event() for name in ("Old", "New")}
+    release = {name: threading.Event() for name in ("Old", "New")}
+
+    def prepare(rec):
+        started[rec.title].set()
+        assert release[rec.title].wait(timeout=3.0)
+        return R.Next(rec, 60.0)
+
+    session._prepare = prepare
+    old = SimpleNamespace(name="Old record", title="Old", path="/old.mp3")
+    new = SimpleNamespace(name="New record", title="New", path="/new.mp3")
+
+    before = set(threading.enumerate())
+    session.load(old)
+    old_worker = _new_load_thread(before)
+    assert started["Old"].wait(timeout=1.0)
+
+    before = set(threading.enumerate())
+    session.load(new)
+    new_worker = _new_load_thread(before)
+    assert started["New"].wait(timeout=1.0)
+
+    release["New"].set()
+    new_worker.join(timeout=1.0)
+    assert not new_worker.is_alive()
+    assert session.loading is None
+    assert session.source.loaded == ["New"]
+
+    # The old worker finishes only after the latest choice has committed.
+    release["Old"].set()
+    old_worker.join(timeout=1.0)
+    assert not old_worker.is_alive()
+    assert session.source.loaded == ["New"]
+    assert session.last_load["name"] == "New record"
+
+
+def test_after_load_waits_for_the_latest_booth_load_not_an_older_worker():
+    import threading
+    from types import SimpleNamespace
+
+    session = _load_race_session()
+    started = {name: threading.Event() for name in ("Old", "New")}
+    release = {name: threading.Event() for name in ("Old", "New")}
+    callbacks = []
+    callback_done = threading.Event()
+
+    def prepare(rec):
+        started[rec.title].set()
+        assert release[rec.title].wait(timeout=3.0)
+        return R.Next(rec, 60.0)
+
+    session._prepare = prepare
+    old = SimpleNamespace(name="Old record", title="Old", path="/old.mp3")
+    new = SimpleNamespace(name="New record", title="New", path="/new.mp3")
+
+    before = set(threading.enumerate())
+    session.load(old)
+    old_worker = _new_load_thread(before)
+    assert started["Old"].wait(timeout=1.0)
+
+    before = set(threading.enumerate())
+    session.load(new)
+    new_worker = _new_load_thread(before)
+    assert started["New"].wait(timeout=1.0)
+
+    def after():
+        callbacks.append(tuple(session.source.loaded))
+        callback_done.set()
+
+    session.after_load(after)
+    release["Old"].set()
+    old_worker.join(timeout=1.0)
+    assert not old_worker.is_alive()
+    assert session.loading == "New record"
+    assert not callback_done.wait(timeout=0.15)
+
+    release["New"].set()
+    new_worker.join(timeout=1.0)
+    assert not new_worker.is_alive()
+    assert callback_done.wait(timeout=1.0)
+    assert callbacks == [("New",)]
+
+
+def test_records_session_stop_invalidates_outstanding_booth_loads():
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    session = _load_race_session()
+    started = threading.Event()
+    release = threading.Event()
+    rec = SimpleNamespace(name="Late record", title="Late", path="/late.mp3")
+
+    def prepare(_rec):
+        started.set()
+        assert release.wait(timeout=3.0)
+        return R.Next(rec, 60.0)
+
+    session._prepare = prepare
+    session.vc = SimpleNamespace(
+        guild=SimpleNamespace(id=99117),
+        is_playing=lambda: False,
+        disconnect=AsyncMock(),
+    )
+    before = set(threading.enumerate())
+    session.load(rec)
+    worker = _new_load_thread(before)
+    assert started.wait(timeout=1.0)
+
+    asyncio.run(session.stop(disconnect=False))
+    assert session.loading is None
+    release.set()
+    worker.join(timeout=1.0)
+    assert not worker.is_alive()
+    assert session.source.loaded == []
+    assert session.last_load is None
+
+
+def test_skip_is_deferred_until_an_in_progress_end_planner_releases_ownership(monkeypatch):
+    import threading
+
+    src, _ = _source()
+    entered = threading.Event()
+    release = threading.Event()
+    original = R._music_end
+    calls = []
+
+    def blocked_end(deck):
+        calls.append(threading.get_ident())
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(timeout=3.0)
+        return original(deck)
+
+    monkeypatch.setattr(R, "_music_end", blocked_end)
+    src._begin_planning("end")
+    assert entered.wait(timeout=1.0)
+    assert src._planning and src.planning_mode == "end"
+
+    src.skip()
+    assert src._planning
+    assert src.planning_mode == "end"
+    assert src._pending_planning_mode == "skip"
+    assert src.plan is None
+
+    # Repeated NEXTs while one is already queued do not move it or spawn another
+    # deferred planner.
+    src.skip()
+    assert src._pending_planning_mode == "skip"
+
+    release.set()
+    deadline = time.time() + 5.0
+    while (src.plan is None or src.plan.mode != "skip") and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert src.plan is not None and src.plan.mode == "skip"
+    assert src._pending_planning_mode is None
+    assert not src._planning or src.planning_mode == "skip"
+
