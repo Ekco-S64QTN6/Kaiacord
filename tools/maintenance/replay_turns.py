@@ -62,6 +62,9 @@ DEFAULT_SANDBOX = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
 STATE_SKIP = frozenset({"radio", "records", "art", "backups", "log_rollup_backup",
                         "log_compaction_backup", "stance_runs", "dm_logs", "diagnostics"})
 
+#: A daily log is interactions_YYYYMMDD.md; older ones are compacted into
+#: interactions_YYYYMM_archive.md.
+LOG_STAMP = re.compile(r"interactions_(\d{6})(\d{2})?")
 HEAD = re.compile(r"^\[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\] ([^:\n]{1,40}): ?(.*)$")
 CITATION = re.compile(r"\[(shared [^\]]*|sticker)\]")
 RULES_START = "\n\n--- CORE RULES REINFORCEMENT ---\n"
@@ -115,15 +118,17 @@ def parse_log(path: Path) -> List[List[str]]:
 
 
 def candidates(user_logs: Path, since: str) -> List[dict]:
-    """Every person's turn that Kaia answered, in Discord logs from `since` (YYYYMMDD)."""
+    """Every person's turn that Kaia answered, in Discord logs (daily and archived) from `since` (YYYYMMDD)."""
     rows = []
     for path in sorted(user_logs.glob("*/interactions_*.md")):
         folder = path.parent.name
-        stamp = re.search(r"(\d{8})", path.name)
-        if folder.startswith(("forum_", "social_")) or not stamp or stamp.group(1) < since:
+        stamp = LOG_STAMP.search(path.name)
+        if folder.startswith(("forum_", "social_")) or not stamp or stamp.group(1) < since[:6]:
             continue
         turns = parse_log(path)
         for i in range(len(turns) - 1):
+            if turns[i][0].replace("-", "") < since:
+                continue
             if turns[i][2].lower() != "kaia" and turns[i + 1][2].lower() == "kaia":
                 rows.append(dict(folder=folder, date=turns[i][0], time=turns[i][1], user=turns[i][2],
                                  text=turns[i][3].strip(), logged=turns[i + 1][3].strip(),
@@ -276,8 +281,16 @@ def _processor():
     return p
 
 
+def later_log(name: str, cutoff: str) -> bool:
+    """Whether an interaction log may hold turns from `cutoff` (YYYYMMDD) on."""
+    m = LOG_STAMP.search(name)
+    if not m:
+        return False
+    return (m.group(1) + m.group(2)) >= cutoff if m.group(2) else m.group(1) >= cutoff[:6]
+
+
 def _exclude_later_logs(rag, cutoff: str) -> None:
-    """Retrieval for this turn leaves out interaction logs from its own day on."""
+    """Retrieval for this turn leaves out interaction logs from its own day on, and its month's archive."""
     real = type(rag).retrieve
 
     async def retrieve(query, *a, **k):
@@ -286,8 +299,7 @@ def _exclude_later_logs(rag, cutoff: str) -> None:
         def later(node):
             meta = node.get("metadata", {}) if isinstance(node, dict) else getattr(node, "metadata", {}) or {}
             path = str(meta.get("file_path", ""))
-            m = re.search(r"(\d{8})", os.path.basename(path))
-            return "interactions_" in path and bool(m) and m.group(1) >= cutoff
+            return later_log(os.path.basename(path), cutoff)
         kept = [n for n in nodes if not later(n)]
         nodes[:] = kept
         return nodes

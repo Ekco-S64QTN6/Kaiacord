@@ -43,6 +43,22 @@ def test_candidates_are_answered_turns_from_discord_logs_since_the_date(tmp_path
     assert all(r["folder"] == "Starkind_1" for r in rows)        # forum folder and older file left out
 
 
+def test_monthly_archives_are_read_and_their_old_turns_left_out(tmp_path):
+    logs = _tree(tmp_path)
+    archive = LOG.replace("2026-11-03", "2026-10-30").replace("morning kaia", "old one") + LOG.replace("morning kaia", "new one")
+    (logs / "Starkind_1" / "interactions_202611_archive.md").write_text(archive, encoding="utf-8")
+    texts = [r["text"] for r in rt.candidates(logs, "20261101")]
+    assert "new one" in texts and "old one" not in texts
+
+
+def test_retrieval_drops_logs_that_can_hold_the_turn_or_later():
+    assert rt.later_log("interactions_20261103.md", "20261103")
+    assert not rt.later_log("interactions_20261102.md", "20261103")
+    assert rt.later_log("interactions_202611_archive.md", "20261103")     # same month: may hold her reply
+    assert not rt.later_log("interactions_202610_archive.md", "20261103")
+    assert not rt.later_log("Book - Neuromancer.md", "20261103")
+
+
 def test_kinds_and_the_sample_leave_out_what_cannot_be_replayed():
     assert rt.kind_of("what are you reading?") == "question"
     assert rt.kind_of("morning kaia") == "short"
