@@ -117,7 +117,7 @@ def test_forum_public_post_verification_checks_author_and_unquoted_own_text(monk
                 # Only an exact standalone line in their own text proves control.
                 SimpleNamespace(
                     user_id=FORUM_ID,
-                    own_text="Here is the requested code:\\n" + CHALLENGE + "\\nThanks.",
+                    own_text="Here is the requested code:\n" + CHALLENGE + "\nThanks.",
                     content="Here is the requested code: " + CHALLENGE,
                 ),
             ]
@@ -186,11 +186,13 @@ def test_verify_handler_activates_only_after_forum_client_confirms_authored_post
     )
     monkeypatch.setattr(kaia_forum, "get_forum_client", AsyncMock(return_value=fake_client))
     author = SimpleNamespace(id=int(DISCORD_ID), display_name="NewName")
-    typing_cm = SimpleNamespace(
-        __aenter__=AsyncMock(return_value=None),
-        __aexit__=AsyncMock(return_value=False),
-    )
-    channel = SimpleNamespace(send=AsyncMock(), typing=lambda: typing_cm)
+    class Typing:
+        async def __aenter__(self):
+            return None
+        async def __aexit__(self, *_args):
+            return False
+
+    channel = SimpleNamespace(send=AsyncMock(), typing=Typing)
     msg = SimpleNamespace(author=author, channel=channel)
 
     asyncio.run(handler._handle_verify_link(SimpleNamespace(), msg, FORUM_ID))
