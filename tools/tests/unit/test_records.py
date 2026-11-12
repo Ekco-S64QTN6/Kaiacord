@@ -1205,3 +1205,46 @@ def test_records_session_stop_invalidates_outstanding_booth_loads():
     assert not worker.is_alive()
     assert session.source.loaded == []
     assert session.last_load is None
+
+
+def test_skip_is_deferred_until_an_in_progress_end_planner_releases_ownership(monkeypatch):
+    import threading
+
+    src, _ = _source()
+    entered = threading.Event()
+    release = threading.Event()
+    original = R._music_end
+    calls = []
+
+    def blocked_end(deck):
+        calls.append(threading.get_ident())
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(timeout=3.0)
+        return original(deck)
+
+    monkeypatch.setattr(R, "_music_end", blocked_end)
+    src._begin_planning("end")
+    assert entered.wait(timeout=1.0)
+    assert src._planning and src.planning_mode == "end"
+
+    src.skip()
+    assert src._planning
+    assert src.planning_mode == "end"
+    assert src._pending_planning_mode == "skip"
+    assert src.plan is None
+
+    # Repeated NEXTs while one is already queued do not move it or spawn another
+    # deferred planner.
+    src.skip()
+    assert src._pending_planning_mode == "skip"
+
+    release.set()
+    deadline = time.time() + 5.0
+    while (src.plan is None or src.plan.mode != "skip") and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert src.plan is not None and src.plan.mode == "skip"
+    assert src._pending_planning_mode is None
+    assert not src._planning or src.planning_mode == "skip"
+
