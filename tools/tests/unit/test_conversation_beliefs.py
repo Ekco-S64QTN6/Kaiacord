@@ -62,3 +62,84 @@ def test_an_ordinary_word_alias_alone_is_not_the_belief():
     assert _mentions(belief, "expertise is overrated because anyone can learn")
     assert _mentions(belief, "domain mastery takes years, since practice compounds")
     assert _mentions(belief, "knowledge without skill is useless, because you can't apply it")
+
+
+@pytest.mark.parametrize("verdict", [
+    {},
+    [],
+    {"verdict": "agree"},
+    {"verdict": "revise"},
+    {"verdict": "revise", "position": "short"},
+])
+def test_invalid_model_verdicts_are_rejected(verdict):
+    with pytest.raises(ValueError):
+        cb.validate_verdict(verdict)
+
+
+def test_apply_verdict_does_not_treat_missing_schema_as_keep(store):
+    with pytest.raises(ValueError):
+        cb.apply_verdict("remote work", {})
+
+
+def _make_due_review(store):
+    now = time.time()
+    with open(cb.ARGUMENTS, "w", encoding="utf-8") as f:
+        for ago in (3, 1):
+            f.write(json.dumps({
+                "ts": now - ago * 86400,
+                "user_id": "1",
+                "user_name": "Ekco",
+                "topic": "remote work",
+                "text": ARG,
+            }) + "\\n")
+
+
+def _fake_review_context(content):
+    from types import SimpleNamespace
+
+    class FakeClient:
+        async def chat(self, **_kwargs):
+            return {"message": {"content": content}}
+
+    return SimpleNamespace(
+        config=SimpleNamespace(chat_model="test-model"),
+        ollama_client=FakeClient(),
+    )
+
+
+def test_schema_invalid_json_does_not_consume_the_fourteen_day_review_window(store, monkeypatch):
+    import asyncio
+    from utils.infrastructure.gpu import gpu_manager
+
+    _make_due_review(store)
+
+    async def run_guard(**kwargs):
+        return await kwargs["coro"]
+
+    monkeypatch.setattr(gpu_manager.gpu_memory_manager, "run_with_gpu_guard", run_guard)
+    asyncio.run(cb.nightly_review(_fake_review_context("{}")))
+
+    with open(cb.REVIEWED, encoding="utf-8") as f:
+        reviewed = json.load(f)
+    assert "remote work" not in reviewed
+    assert list(cb.due_topics()) == ["remote work"], "malformed output must be eligible for retry"
+
+
+def test_valid_keep_verdict_does_consume_the_review_window(store, monkeypatch):
+    import asyncio
+    from utils.infrastructure.gpu import gpu_manager
+
+    _make_due_review(store)
+
+    async def run_guard(**kwargs):
+        return await kwargs["coro"]
+
+    monkeypatch.setattr(gpu_manager.gpu_memory_manager, "run_with_gpu_guard", run_guard)
+    asyncio.run(cb.nightly_review(_fake_review_context(
+        '{"verdict":"keep","why":"the arguments do not overturn the current position"}'
+    )))
+
+    with open(cb.REVIEWED, encoding="utf-8") as f:
+        reviewed = json.load(f)
+    assert "remote work" in reviewed
+    assert cb.due_topics() == {}
