@@ -154,6 +154,16 @@ class IdentityRegistry:
                 return None
             return pending["challenge"]
 
+    def cancel_pending_forum_link(self, discord_id: str, forum_id: int) -> bool:
+        """Discard a pending challenge when private delivery fails."""
+        fid_str = str(int(forum_id))
+        with self._lock:
+            pending = self._pending_forum_links.get(fid_str)
+            if not pending or pending["discord_id"] != str(discord_id):
+                return False
+            self._pending_forum_links.pop(fid_str, None)
+            return True
+
     def complete_pending_forum_link(self, discord_id: str, forum_id: int,
                                     challenge: str) -> bool:
         """Activate a pending link only when its exact one-use challenge matches."""
