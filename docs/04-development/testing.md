@@ -162,8 +162,9 @@ changed-path-selected offline tests. Each run uploads a machine-readable `covera
 `coverage.json` artifact named `offline-unit-coverage`, and publishes a Markdown summary in the
 Actions run summary.
 
-The initial ratchet is **20% of added, non-excluded lines in changed `utils/*.py` files**. A changed
-line absent from coverage data counts as uncovered; a change with no added production lines under
+The initial ratchet is **20% of added, non-excluded statements in changed `utils/*.py` files**.
+Comments, docstrings and the inner lines of a multi-line literal are not statements and are not
+measured. A statement in a file the selected tests never imported counts as uncovered; a change with no added production lines under
 `utils/` is informational. This is deliberately a changed-line gate rather than a blanket module
 or repository threshold, so legacy uncovered code is not made blocking all at once.
 

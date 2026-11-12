@@ -79,12 +79,12 @@ jobs:
         run: python .github/scripts/run_ci_tests.py
       - name: Enforce incremental changed-line coverage floor
         if: steps.offline_tests.outcome == 'success'
-        run: python tools/maintenance/changed_line_coverage.py --coverage coverage.json --base origin/main --head HEAD --minimum 20 --summary coverage-summary.md
+        run: python tools/maintenance/changed_line_coverage.py --coverage coverage.json --base "${CI_DIFF_BASE:-origin/main}" --head HEAD --minimum 20 --summary coverage-summary.md
       - name: Publish coverage summary
         if: always()
         run: |
           if [ -f coverage.json ]; then
-            python tools/maintenance/changed_line_coverage.py --coverage coverage.json --base origin/main --head HEAD --minimum 20 --summary coverage-summary.md || true
+            python tools/maintenance/changed_line_coverage.py --coverage coverage.json --base "${CI_DIFF_BASE:-origin/main}" --head HEAD --minimum 20 --summary coverage-summary.md || true
             cat coverage-summary.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Coverage was not produced (the focused test step may have failed before pytest started)." >> "$GITHUB_STEP_SUMMARY"
