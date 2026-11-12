@@ -294,3 +294,90 @@ def test_two_guilds_reserve_different_global_set_slots(monkeypatch, tmp_path):
 
     assert starts == graph["sets"]
     assert rotation["next"] == 0
+
+
+
+def test_cancelled_voice_command_drains_rotation_commit_before_unlocking(monkeypatch, tmp_path):
+    """Once playback starts, cancellation must not expose the old rotation slot."""
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from utils.audio import library, setlist
+    from utils.commands import music_handler as handler
+
+    crate = [
+        R.library.Record(f"/music/{i}.mp3", "Artist", f"Track {i}", 124, "8A", "House")
+        for i in range(8)
+    ]
+    graph = {"sets": [
+        [r.path for r in crate[:4]],
+        [r.path for r in crate[4:]],
+    ]}
+    rotation = {"next": 0}
+    starts = []
+    commit_entered = threading.Event()
+    commit_release = threading.Event()
+
+    monkeypatch.setattr(handler, "config", SimpleNamespace(get=lambda _key, default=None: default))
+    monkeypatch.setattr(library, "load", lambda _path: crate)
+    monkeypatch.setattr(setlist, "load", lambda: graph)
+    monkeypatch.setattr(setlist, "_rotation_path", lambda: tmp_path / "set_rotation.json")
+    monkeypatch.setattr(setlist, "peek_next_set", lambda _g, _crate: graph["sets"][rotation["next"]])
+
+    def advance(_graph, _crate):
+        commit_entered.set()
+        if not commit_release.wait(3):
+            raise TimeoutError("test did not release the rotation commit")
+        rotation["next"] = (rotation["next"] + 1) % len(graph["sets"])
+        return True
+
+    monkeypatch.setattr(setlist, "advance_rotation", advance)
+
+    async def start(_channel, _crate, _first, **kwargs):
+        starts.append(list(kwargs["set_list"]))
+        return object()
+
+    monkeypatch.setattr(R, "start_records", start)
+
+    class Typing:
+        async def __aenter__(self):
+            return None
+        async def __aexit__(self, *_args):
+            return False
+
+    def message(guild_id):
+        channel = SimpleNamespace(
+            guild=SimpleNamespace(id=guild_id, me=object()),
+            name=f"voice {guild_id}",
+            permissions_for=lambda _me: SimpleNamespace(connect=True, speak=True),
+        )
+        return SimpleNamespace(
+            author=SimpleNamespace(voice=SimpleNamespace(channel=channel),
+                                   display_name=f"tester {guild_id}"),
+            guild=channel.guild,
+            channel=SimpleNamespace(typing=lambda: Typing(), send=AsyncMock()),
+        )
+
+    async def run():
+        first = asyncio.create_task(handler._records(message(101), ""))
+        assert await asyncio.to_thread(commit_entered.wait, 2.0)
+
+        # The records session is live and its rotation commit is in a worker.
+        first.cancel()
+        second = asyncio.create_task(handler._records(message(202), ""))
+        await asyncio.sleep(0.05)
+        assert starts == [graph["sets"][0]]
+
+        commit_release.set()
+        result = await asyncio.gather(first, second, return_exceptions=True)
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert result[1] is None
+
+    try:
+        asyncio.run(run())
+    finally:
+        commit_release.set()
+
+    assert starts == graph["sets"]
+    assert rotation["next"] == 0
