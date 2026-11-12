@@ -333,9 +333,6 @@ def _wait_deck(deck, frames: int, timeout: float) -> bool:
 #: which is heard as a hiccup; a set is music throughout.
 OPUS_SIGNAL = "music"
 
-#: How long a NEXT or ▶ pressed during a booth load waits for it to land.
-LOAD_WAIT_S = 30.0
-
 
 @dataclass
 class Next:
@@ -908,9 +905,7 @@ class CrossfadeSource(_AudioSource):
         self._picking = False
         self._exhausted = False             # the last pick found nothing to play
         self._planning = False
-        # A booth NEXT can arrive while an end-of-record planner is measuring
-        # off-thread. Remember the higher-priority request until that worker
-        # relinquishes the single-planner slot.
+        # Preserve an explicit NEXT requested while an end planner owns the slot.
         self._pending_planning_mode: Optional[str] = None
         self._start_frame: Optional[int] = None
         self.frames_sent = 0
@@ -1322,8 +1317,7 @@ class CrossfadeSource(_AudioSource):
         with self._lock:
             if self._planning:
                 # NEXT supersedes a speculative end-of-record transition. The
-                # current worker owns the planner slot until it notices its
-                # invalidated generation and exits; start the skip afterwards.
+                # current worker owns the planner slot until it releases it.
                 if mode == "skip" and self.planning_mode != "skip":
                     self._pending_planning_mode = "skip"
                 return
@@ -1961,7 +1955,11 @@ class RecordsSession:
         self.set_list: Optional[list] = None
         if setlist.needs_build(self.graph, crate):
             setlist.build_in_background(crate, on_done=self._graph_built)
-        self.loading: Optional[str] = None        # a record being readied for the free deck
+        self.loading: Optional[str] = None        # the newest record being readied for the free deck
+        # Loads are prepared off-thread. A generation token makes a newer
+        # booth choice supersede an older preparation that finishes later.
+        self._load_lock = threading.Lock()
+        self._load_generation = 0
         self.last_load: Optional[dict] = None
 
     @property
@@ -1993,9 +1991,18 @@ class RecordsSession:
                     beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm))
 
     def load(self, rec: library.Record) -> None:
-        """Put `rec` on the free deck, now if it can be (`CrossfadeSource.load`),
-        else next after the blend under way."""
-        self.loading = rec.name
+        """Put the newest booth choice on the free deck after its analysis finishes.
+
+        Preparations run concurrently so a slow read does not block the booth.
+        The generation is checked at commit: a late older worker cannot replace
+        the record chosen by a more recent request or clear its loading state.
+        """
+        with self._load_lock:
+            if self._closing:
+                return
+            self._load_generation += 1
+            generation = self._load_generation
+            self.loading = rec.name
         try:
             from utils.audio import dj_voice
             self.say(dj_voice.hand_load(self.requested_by, rec.title), "hand")
@@ -2005,19 +2012,30 @@ class RecordsSession:
         def run():
             try:
                 nxt = self._prepare(rec)
-                src = self.source
-                if nxt is not None:
+                with self._load_lock:
+                    # A later booth choice or session shutdown invalidates this
+                    # result before it can mutate the mixer's queued deck.
+                    if generation != self._load_generation or self._closing:
+                        return
+                    src = self.source
+                    if nxt is None or src is None:
+                        log_warning(f"[records] {rec.name} could not be read; not loaded")
+                        self.last_load = {"name": rec.name, "result": "unreadable", "ts": time.time()}
+                        return
                     nxt.source = "hand"
-                if nxt is None or src is None:
-                    log_warning(f"[records] {rec.name} could not be read; not loaded")
-                    self.last_load = {"name": rec.name, "result": "unreadable", "ts": time.time()}
-                    return
-                result = src.load(nxt)
-                if result == "after" and rec.path not in self.requests:
-                    self.requests.append(rec.path)
-                self.last_load = {"name": rec.name, "result": result, "ts": time.time()}
+                    result = src.load(nxt)
+                    if result == "after" and rec.path not in self.requests:
+                        self.requests.append(rec.path)
+                    self.last_load = {"name": rec.name, "result": result, "ts": time.time()}
+            except Exception as exc:
+                log_warning(f"[records] could not load {rec.name}: {type(exc).__name__}: {exc}")
+                with self._load_lock:
+                    if generation == self._load_generation and not self._closing:
+                        self.last_load = {"name": rec.name, "result": "error", "ts": time.time()}
             finally:
-                self.loading = None
+                with self._load_lock:
+                    if generation == self._load_generation:
+                        self.loading = None
         threading.Thread(target=run, daemon=True, name="kaia-records-load").start()
 
     def _choose(self, deck: Deck) -> Optional[Next]:
@@ -2311,19 +2329,26 @@ class RecordsSession:
         self.after_load(lambda: self.source.skip() if self.source else None)
 
     def after_load(self, fn) -> None:
-        """Run `fn` now, or once a record being loaded at the booth is on the
-        deck. Loading reads the record first (its beats, its loudness), which
-        can take seconds; a NEXT pressed meanwhile planned with nothing loaded
-        and mixed in her own pick."""
-        if not self.loading:
+        """Run `fn` now, or once the newest booth load has been committed."""
+        with self._load_lock:
+            pending = self.loading
+        if not pending:
             fn()
             return
 
         def wait():
-            deadline = time.time() + LOAD_WAIT_S
-            while self.loading and time.time() < deadline:
+            # _prepare's external probes have their own bounded timeouts. Do
+            # not run NEXT/PLAY against the old queue merely because a slow
+            # decode or beat analysis exceeded an arbitrary booth wait window.
+            while True:
+                with self._load_lock:
+                    pending_now = self.loading
+                    closing = self._closing
+                if not pending_now or closing:
+                    break
                 time.sleep(0.05)
-            fn()
+            if not closing:
+                fn()
         threading.Thread(target=wait, daemon=True, name="kaia-records-after-load").start()
 
     async def stop(self, disconnect: bool = True) -> None:
@@ -2332,6 +2357,9 @@ class RecordsSession:
         if self._closing:
             return
         self._closing = True
+        with self._load_lock:
+            self._load_generation += 1
+            self.loading = None
         _sessions.pop(self.guild_id, None)
         try:
             if self.vc.is_playing():
