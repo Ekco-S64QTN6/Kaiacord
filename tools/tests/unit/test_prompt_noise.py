@@ -42,8 +42,8 @@ def test_one_long_entry_is_cut_back_to_a_sentence_start():
 
 
 def test_the_hour_no_longer_gives_length_advice():
-    """Length has one owner (turn_shape). The hour said "willing to go longer" at
-    night and "shorter responses" in the morning, whatever was said to her."""
+    """The hour said "willing to go longer" at night and "shorter responses" in
+    the morning, whatever was said to her."""
     src = PROC.read_text(encoding="utf-8")
     block = src[src.index("# 8d. The hour colours her tone"):src.index("# 8f. Conversational Fatigue")]
     for phrase in ("shorter responses", "go longer", "balanced responses", "match their brevity",
