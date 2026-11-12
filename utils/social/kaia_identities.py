@@ -7,6 +7,10 @@ Stores mappings in knowledge_base/identity_registry.json.
 """
 
 import json
+import copy
+import hmac
+import threading
+import time
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 
@@ -17,6 +21,10 @@ class IdentityRegistry:
     REGISTRY_PATH = Path("./knowledge_base/identity_registry.json")
 
     def __init__(self):
+        self._lock = threading.RLock()
+        # Short-lived proof challenges are process-local and never persisted.
+        # A restart invalidates them; claim tokens are not written to disk.
+        self._pending_forum_links: Dict[str, Dict[str, Any]] = {}
         self.data: Dict[str, Any] = {
             "discord_to_forum": {},  # discord_id -> List[int]
             "forum_to_discord": {},  # forum_id -> discord_id
@@ -45,42 +53,156 @@ class IdentityRegistry:
             except Exception as e:
                 log_error(f"Failed to load identity registry: {e}")
 
-    def _save(self):
+    def _save(self) -> bool:
         try:
             self.REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
             write_atomic(self.REGISTRY_PATH, json.dumps(self.data, indent=4))
+            return True
         except Exception as e:
             log_error(f"Failed to save identity registry: {e}")
+            return False
+
+    def _link_discord_to_forum_locked(self, discord_id: str, forum_id: int) -> None:
+        """Update both directions consistently; caller holds _lock."""
+        fid = int(forum_id)
+        fid_str = str(fid)
+        current_owner = self.data["forum_to_discord"].get(fid_str)
+        if current_owner and current_owner != discord_id:
+            raise ValueError("forum account is already linked to another Discord account; unlink it first")
+
+        # Repair stale forward references left by older unconditional overwrites.
+        for owner, account_ids in list(self.data["discord_to_forum"].items()):
+            normalized = [account_ids] if isinstance(account_ids, int) else list(account_ids or [])
+            if owner != discord_id and fid in normalized:
+                normalized = [value for value in normalized if int(value) != fid]
+                if normalized:
+                    self.data["discord_to_forum"][owner] = normalized
+                else:
+                    self.data["discord_to_forum"].pop(owner, None)
+                other = self.data["mappings"].get(owner, {}).get("forum", [])
+                other = [other] if isinstance(other, int) else list(other or [])
+                other = [value for value in other if int(value) != fid]
+                if other:
+                    self.data["mappings"][owner]["forum"] = other
+                elif owner in self.data["mappings"]:
+                    self.data["mappings"][owner].pop("forum", None)
+
+        accounts = self.data["discord_to_forum"].setdefault(discord_id, [])
+        if isinstance(accounts, int):
+            accounts = [accounts]
+            self.data["discord_to_forum"][discord_id] = accounts
+        if fid not in accounts:
+            accounts.append(fid)
+
+        mapping = self.data["mappings"].setdefault(discord_id, {})
+        forum_accounts = mapping.setdefault("forum", [])
+        if isinstance(forum_accounts, int):
+            forum_accounts = [forum_accounts]
+            mapping["forum"] = forum_accounts
+        if fid not in forum_accounts:
+            forum_accounts.append(fid)
+        self.data["forum_to_discord"][fid_str] = discord_id
+
+    def begin_pending_forum_link(self, discord_id: str, forum_id: int,
+                                 challenge: str, expires_at: float) -> None:
+        """Create a short-lived, single-use proof request without activating a link."""
+        discord_id = str(discord_id)
+        fid_str = str(int(forum_id))
+        if not self._is_discord_id(discord_id):
+            raise ValueError("Discord identity must be a numeric snowflake")
+        if not challenge or float(expires_at) <= time.time():
+            raise ValueError("invalid or expired proof challenge")
+
+        with self._lock:
+            current_owner = self.data["forum_to_discord"].get(fid_str)
+            if current_owner == discord_id:
+                raise ValueError("this forum account is already linked to you")
+            if current_owner and current_owner != discord_id:
+                raise ValueError("this forum account is already linked; its current owner must unlink it first")
+            pending = self._pending_forum_links.get(fid_str)
+            if pending and pending["expires_at"] > time.time() and pending["discord_id"] != discord_id:
+                raise ValueError("another Discord member already has a pending proof request for this forum account")
+            self._pending_forum_links[fid_str] = {
+                "discord_id": discord_id,
+                "challenge": str(challenge),
+                "expires_at": float(expires_at),
+            }
+
+    def pending_forum_link_challenge(self, discord_id: str, forum_id: int) -> Optional[str]:
+        """Return the challenge only to its requester and only before expiry."""
+        fid_str = str(int(forum_id))
+        with self._lock:
+            pending = self._pending_forum_links.get(fid_str)
+            if not pending:
+                return None
+            if pending["expires_at"] <= time.time():
+                self._pending_forum_links.pop(fid_str, None)
+                return None
+            if pending["discord_id"] != str(discord_id):
+                return None
+            return pending["challenge"]
+
+    def complete_pending_forum_link(self, discord_id: str, forum_id: int,
+                                    challenge: str) -> bool:
+        """Activate a pending link only when its exact one-use challenge matches."""
+        fid_str = str(int(forum_id))
+        discord_id = str(discord_id)
+        with self._lock:
+            pending = self._pending_forum_links.get(fid_str)
+            if not pending or pending["discord_id"] != discord_id:
+                return False
+            if pending["expires_at"] <= time.time():
+                self._pending_forum_links.pop(fid_str, None)
+                return False
+            if not hmac.compare_digest(pending["challenge"], str(challenge or "")):
+                return False
+
+            before = copy.deepcopy(self.data)
+            self._link_discord_to_forum_locked(discord_id, int(forum_id))
+            if not self._save():
+                self.data = before
+                raise RuntimeError("identity registry could not be saved; link was not activated")
+            self._pending_forum_links.pop(fid_str, None)
+            return True
+
+    def unlink_forum_from_discord(self, discord_id: str, forum_id: int) -> bool:
+        """Remove both sides of an existing mapping; caller must authorize this action."""
+        discord_id = str(discord_id)
+        fid = int(forum_id)
+        fid_str = str(fid)
+        with self._lock:
+            if self.data["forum_to_discord"].get(fid_str) != discord_id:
+                return False
+            before = copy.deepcopy(self.data)
+            self.data["forum_to_discord"].pop(fid_str, None)
+            accounts = self.data["discord_to_forum"].get(discord_id, [])
+            accounts = [accounts] if isinstance(accounts, int) else list(accounts or [])
+            accounts = [value for value in accounts if int(value) != fid]
+            if accounts:
+                self.data["discord_to_forum"][discord_id] = accounts
+            else:
+                self.data["discord_to_forum"].pop(discord_id, None)
+            mapping = self.data["mappings"].get(discord_id, {})
+            forum_accounts = mapping.get("forum", [])
+            forum_accounts = [forum_accounts] if isinstance(forum_accounts, int) else list(forum_accounts or [])
+            forum_accounts = [value for value in forum_accounts if int(value) != fid]
+            if forum_accounts:
+                mapping["forum"] = forum_accounts
+            else:
+                mapping.pop("forum", None)
+            if not self._save():
+                self.data = before
+                raise RuntimeError("identity registry could not be saved; mapping was not removed")
+            return True
 
     def link_discord_to_forum(self, discord_id: str, forum_id: int):
-        """Link a Discord ID to a Forum ID (supports multiple)."""
-        fid_str = str(forum_id)
-        
-        # discord_to_forum (list)
-        if discord_id not in self.data["discord_to_forum"]:
-            self.data["discord_to_forum"][discord_id] = []
-        elif isinstance(self.data["discord_to_forum"][discord_id], int):
-            # Migration for old singular integer
-            self.data["discord_to_forum"][discord_id] = [self.data["discord_to_forum"][discord_id]]
-            
-        if forum_id not in self.data["discord_to_forum"][discord_id]:
-            self.data["discord_to_forum"][discord_id].append(forum_id)
-            
-        self.data["forum_to_discord"][fid_str] = discord_id
-        
-        if discord_id not in self.data["mappings"]:
-            self.data["mappings"][discord_id] = {}
-        
-        if "forum" not in self.data["mappings"][discord_id]:
-            self.data["mappings"][discord_id]["forum"] = []
-        elif isinstance(self.data["mappings"][discord_id]["forum"], int):
-            # Migration
-            self.data["mappings"][discord_id]["forum"] = [self.data["mappings"][discord_id]["forum"]]
-            
-        if forum_id not in self.data["mappings"][discord_id]["forum"]:
-            self.data["mappings"][discord_id]["forum"].append(forum_id)
-        
-        self._save()
+        """Link a Discord ID to a Forum ID; never silently reassign an owner."""
+        with self._lock:
+            before = copy.deepcopy(self.data)
+            self._link_discord_to_forum_locked(str(discord_id), int(forum_id))
+            if not self._save():
+                self.data = before
+                raise RuntimeError("identity registry could not be saved; link was not activated")
         log_success(f"Linked Discord {discord_id} to Forum UID {forum_id}")
 
     def get_forum_ids(self, discord_id: str) -> List[int]:
