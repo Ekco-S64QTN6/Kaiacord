@@ -88,10 +88,22 @@ def _host_port(url: str) -> tuple[str, int]:
             or parts.netloc.endswith(":")
         ):
             raise ValueError(url)
+        host = parts.hostname.strip().strip("[]")
+        if not host:
+            raise ValueError(url)
+        # Reject unsafe IP literals while parsing the directory. Hostnames are
+        # resolved later, immediately before a subprocess is launched, where
+        # every DNS answer is checked and one public IP is pinned.
+        try:
+            literal = ipaddress.ip_address(host.split("%", 1)[0])
+        except ValueError:
+            literal = None
+        if literal is not None and not literal.is_global:
+            raise ValueError(f"receiver host is not public: {host}")
         port = parts.port or DEFAULT_PORT
         if not 1 <= port <= 65535:
             raise ValueError(url)
-        return parts.hostname, port
+        return host, port
     except ValueError as exc:
         raise ValueError(url) from exc
 
