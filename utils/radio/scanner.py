@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import re
 import time
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -422,6 +423,42 @@ TRANSCRIBE_PER_NIGHT = 60       # for catches that don't sound like speech: find
 # after about 01:30 was filed as bare carriers, 50–90 calls a night.
 SPEECH_PER_NIGHT = 400
 _transcribed = {"date": "", "count": 0, "speech": 0}
+_classifier_state_lock = threading.Lock()
+
+
+def _reserve_transcription_allowance(today: str, *, net: bool, digital: bool,
+                                     packet: bool, speechlike: bool,
+                                     quiet_channel: bool) -> Optional[str]:
+    """Atomically reserve one nightly transcription slot across all consumers.
+
+    The dongle is released before old catches have all been classified, so a
+    following watch can run another consumer thread at the same time. Budget
+    check-and-increment must therefore be one operation, not two unsynchronized
+    dictionary accesses.
+    """
+    with _classifier_state_lock:
+        if _transcribed["date"] != today:
+            _transcribed.update(date=today, count=0, speech=0)
+        allowance = None
+        if not net and not digital and not packet:
+            if speechlike and _transcribed.get("speech", 0) < SPEECH_PER_NIGHT:
+                allowance = "speech"
+            elif not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT:
+                allowance = "count"
+        if allowance:
+            _transcribed[allowance] = _transcribed.get(allowance, 0) + 1
+        return allowance
+
+
+def _reserve_morse_clip(freq_hz: int, when: float) -> bool:
+    """Reserve the one-per-interval Morse clip without a check-then-set race."""
+    with _classifier_state_lock:
+        recent = [f for f, t in _id_clips.items()
+                  if abs(f - freq_hz) <= 5000 and when - t < ID_CLIP_EVERY_S]
+        if recent:
+            return False
+        _id_clips[freq_hz] = when
+        return True
 
 
 QUIET_CHANNEL_HITS = 8       # catches with no voice before a channel is transcribed only now and then
@@ -478,21 +515,15 @@ def classify(catch) -> None:
     packet = not net and is_packet(catch.audio) and not morse_id(catch.audio)
     kind, transcript = ("data" if m.digital or packet else "carrier"), ""
     today = datetime.now().strftime("%Y-%m-%d")
-    if _transcribed["date"] != today:
-        _transcribed.update(date=today, count=0, speech=0)
     from utils.radio.waterfall import voice_like
     speechlike = voice_like(catch.audio)
-    allowance = None
-    if not net and not m.digital and not packet:
-        if speechlike and _transcribed.get("speech", 0) < SPEECH_PER_NIGHT:
-            allowance = "speech"
-        elif not quiet_channel and _transcribed["count"] < TRANSCRIBE_PER_NIGHT:
-            allowance = "count"
+    allowance = _reserve_transcription_allowance(
+        today, net=net, digital=m.digital, packet=packet,
+        speechlike=speechlike, quiet_channel=bool(quiet_channel),
+    )
     asked = net or allowance is not None
     said = ""
     if asked:
-        if allowance:
-            _transcribed[allowance] = _transcribed.get(allowance, 0) + 1
         text = hear(catch.audio, catch.freq_hz, speechlike)
         if looks_like_speech(text):
             kind, transcript = "voice", fix_streets(text, catch.freq_hz)
@@ -514,11 +545,7 @@ def classify(catch) -> None:
     if not keep and kind == "carrier" and speechlike:
         keep = not asked or short_reply(said, catch.freq_hz)
         if morse_id(catch.audio):
-            recent = [f for f, t in _id_clips.items()
-                      if abs(f - catch.freq_hz) <= 5000 and catch.started - t < ID_CLIP_EVERY_S]
-            keep = not recent
-            if keep:
-                _id_clips[catch.freq_hz] = catch.started
+            keep = _reserve_morse_clip(catch.freq_hz, catch.started)
     clip = _save_clip(catch.audio, catch.freq_hz, catch.started) if keep else None
     ledger.record(catch.freq_hz, kind, round(catch.seconds, 1), m.rms, m.hf_ratio, clip, transcript,
                   _band_of(catch.freq_hz), _service_of(catch.freq_hz), catch.started,
