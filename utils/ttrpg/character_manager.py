@@ -8,12 +8,13 @@ import time
 import threading
 import asyncio
 import functools
+import weakref
 from typing import Optional, Dict, Any, List
 
 from utils.ttrpg.record_scan import ScanFailure, ScanReport, log_scan_failures
 from utils.infrastructure.monitoring.async_lock_metrics import (
     MeasuredAsyncLock,
-    record_registry_lock_created,
+    track_registry_lock,
 )
 
 CHARACTERS_DIR = os.path.join("memory", "ttrpg", "characters")
@@ -21,7 +22,7 @@ _lock = threading.Lock()  # Protects internal file I/O
 # Held inside load() and inside save(), and released between them, so each file
 # operation is atomic on its own. A read-modify-write is NOT atomic: for that the
 # caller must hold session_manager.get_action_lock across the whole sequence.
-_user_locks: Dict[str, asyncio.Lock] = {}
+_user_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 _global_lock = asyncio.Lock()  # Protects access to the _user_locks dict
 
 # Distinct item keys, not stack count; inventory_capacity.py enforces this shared policy.
@@ -75,7 +76,7 @@ async def get_user_lock(user_id: str) -> asyncio.Lock:
         if lock is None:
             lock = MeasuredAsyncLock("rpg_character")
             _user_locks[user_id] = lock
-            record_registry_lock_created("rpg_character", len(_user_locks))
+            track_registry_lock("rpg_character", _user_locks, lock)
         return lock
 
 def _migrate_inventory(sheet: Dict[str, Any]) -> None:
