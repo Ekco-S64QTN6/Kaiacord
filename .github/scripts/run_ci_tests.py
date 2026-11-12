@@ -71,13 +71,20 @@ RELATED_TESTS = {
     "tools/maintenance/process_ingress.py": ("tools/tests/unit/test_ingress_now.py",),
     "tools/maintenance/scrape_tech_news.py": ("tools/tests/unit/test_news_manager.py",),
     "tools/maintenance/update_kaia_news.py": ("tools/tests/unit/test_news_brief.py",),
-    "utils/commands/reindex_handler.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
-    "tools/maintenance/reindex_rag.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
+    "utils/commands/reindex_handler.py": (
+        "tools/tests/unit/test_rag_refresh_callers.py",
+        "tools/tests/unit/test_rag_persistence_concurrency.py",
+    ),
+    "tools/maintenance/reindex_rag.py": (
+        "tools/tests/unit/test_rag_refresh_callers.py",
+        "tools/tests/unit/test_rag_persistence_concurrency.py",
+    ),
     "Kaiacord.py": ("tools/tests/unit/test_rag_refresh_callers.py",),
     "utils/core/kaia_rag_query.py": (
         "tools/tests/unit/test_rag_index_hygiene.py",
         "tools/tests/unit/test_rag_identity_scoping.py",
         "tools/tests/unit/test_rag_retrieval_metadata.py",
+        "tools/tests/unit/test_rag_persistence_concurrency.py",
     ),
     "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py", "tools/tests/unit/test_rag_persistence_concurrency.py"),
     "utils/infrastructure/system/shutdown_fixed.py": (
