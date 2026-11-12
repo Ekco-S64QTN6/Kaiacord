@@ -179,3 +179,22 @@ def test_strudel_engine_changes_select_http_server_lifecycle_regressions():
         for path in selector["select_tests"](["utils/audio/strudel_engine.py"])
     }
     assert "tools/tests/unit/test_strudel_engine_environment.py" in selected
+
+
+
+def test_strudel_engine_changes_select_shared_monitor_lifecycle_tests():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/audio/strudel_engine.py"])
+    }
+    assert "tools/tests/unit/test_strudel_session_lifecycle.py" in selected
+
+
+def test_strudel_session_changes_select_monitor_lifecycle_tests():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/audio/strudel_session.py"])
+    }
+    assert "tools/tests/unit/test_strudel_session_lifecycle.py" in selected
