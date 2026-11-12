@@ -79,6 +79,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_telemetry_honesty.py",
         "tools/tests/unit/test_async_task_registry.py",
         "tools/tests/unit/test_shutdown_prelude.py",
+        "tools/tests/unit/test_bot_state_save.py",
     ),
     "utils/infrastructure/monitoring/async_task_registry.py": ("tools/tests/unit/test_async_task_registry.py",),
     "utils/core/context_enricher.py": (
@@ -135,7 +136,10 @@ RELATED_TESTS = {
         "tools/tests/unit/test_strudel_source_restart.py",
         "tools/tests/unit/test_radio_close_stream.py",
     ),
-    "utils/audio/strudel_engine.py": ("tools/tests/unit/test_strudel_source_restart.py",),
+    "utils/audio/strudel_engine.py": (
+        "tools/tests/unit/test_strudel_source_restart.py",
+        "tools/tests/unit/test_strudel_engine_environment.py",
+    ),
     "utils/commands/art_handler.py": (
         "tools/tests/unit/test_kaia_sheep.py",
         "tools/tests/unit/test_art_intent.py",
