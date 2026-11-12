@@ -18,6 +18,7 @@ the live planner still measures every blend before it starts.
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import threading
@@ -32,6 +33,8 @@ VERSION = 2
 #: again whole: the judge has only ever become stricter, so an old edge is not
 #: evidence.
 METHOD = 4
+# Playlist taste changes rebuild paths, not the expensive measured audio graph.
+SET_METHOD = 2
 MAX_SETS = 16
 #: A set runs about an hour: it is walked until it reaches SET_TARGET_S of
 #: played time, and one that cannot reach SET_MIN_S is not a set.
@@ -242,9 +245,12 @@ def _changed(entry: Optional[dict], path: str) -> bool:
 
 
 def needs_build(g: dict, crate: list) -> bool:
-    """Something to measure: a record new or changed since the graph saw it,
-    or pairs left from an older way of measuring."""
-    if g.get("method", 2) < METHOD:
+    """Whether measurements or their derived set paths need rebuilding.
+
+    METHOD versions the audio evidence; SET_METHOD versions the ranking built
+    from that evidence. A SET_METHOD change never invalidates measured pairs.
+    """
+    if g.get("method", 2) < METHOD or g.get("sets_method", 1) < SET_METHOD:
         return True
     recs = g.get("records", {})
     return any(_changed(recs.get(r.path), r.path) for r in crate if r.bpm and os.path.exists(r.path))
@@ -440,6 +446,58 @@ def blend_rank(edge: Optional[dict]) -> int:
     return 0 if beats >= 64 else 1 if beats >= 32 else 3
 
 
+def transition_rank(current, candidate, edge: Optional[dict], *, history=(),
+                     start_family: Optional[str] = None, onward: int = 0,
+                     rng: Optional[random.Random] = None) -> tuple:
+    """Shared taste rank for set construction, live partners and alternatives.
+
+    Rhythm remains the gate. Blend duration is balanced with harmonic fit;
+    ties prefer exact style, measured agreement confidence, artist variety,
+    gentle tempo correction and useful onward partners.
+    """
+    from utils.audio import library
+
+    edge = edge or {}
+    bars = float(edge.get("bars") or 0.0)
+    agree = float(edge.get("agree") or 0.0)
+    confidence = max(0.0, min(1.0, agree / bars)) if bars > 0 else 0.0
+
+    step = library.key_step(current.key, candidate.key)
+    key_penalty = {0: 0, 1: 0, 2: 1}.get(step, 2)
+
+    current_genre = " ".join(str(getattr(current, "genre", "") or "").casefold().split())
+    next_genre = " ".join(str(getattr(candidate, "genre", "") or "").casefold().split())
+    if current_genre and current_genre == next_genre:
+        style_penalty = 0
+    elif family(current) == family(candidate):
+        style_penalty = 1
+    else:
+        style_penalty = 0
+
+    target_family = start_family or family(current)
+    family_penalty = 0 if family(candidate) == target_family else 2
+    artist_repeats = sum(1 for old in history if library.shares_artist(candidate, old))
+
+    ratio = edge.get("ratio")
+    try:
+        ratio = float(ratio)
+    except (TypeError, ValueError):
+        ratio = library.tempo_ratio(current.bpm, candidate.bpm)
+    stretch_penalty = round(abs(math.log(ratio)), 4) if ratio and ratio > 0 else 1.0
+
+    return (
+        blend_rank(edge) + key_penalty + style_penalty + family_penalty,
+        key_penalty,
+        style_penalty,
+        family_penalty,
+        -round(confidence, 4),
+        artist_repeats,
+        stretch_penalty,
+        -min(max(0, int(onward)), 6),
+        rng.random() if rng is not None else 0.0,
+    )
+
+
 def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
     """Sets walked through the graph, about an hour each: every next record a
     measured lock from the one before, no song twice in a set (another file or
@@ -477,11 +535,13 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
                    and not any(library.same_song(live[b], live[x]) for x in path)]
 
             def score(b):
-                step = library.key_step(live[cur].key, live[b].key)
                 ahead = sum(1 for x in edges.get(b, {}) if x not in path)
-                return (blend_rank(edges[cur][b])
-                        + (0 if step in (0, 1) else 1 if step == 2 else 2) + (0 if fam[b] == fam[start] else 2),
-                        used.get(b, 0), -min(ahead, 6), rng.random())
+                rank = transition_rank(
+                    live[cur], live[b], edges[cur][b],
+                    history=[live[p] for p in path], start_family=fam[start],
+                    onward=ahead,
+                )
+                return rank[:-1] + (used.get(b, 0), rng.random())
             # Keep the whole ranked frontier. The bounded DFS below widens
             # from the best five to further candidates when preferred paths
             # dead-end; truncating here made backtracking unable to see them.
@@ -539,6 +599,7 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
         for p in path:
             used[p] = used.get(p, 0) + 1
     sets.sort(key=lambda st: (family_of(st, live), min(live[p].bpm or 0 for p in st)))
+    g["sets_method"] = SET_METHOD
     return sets
 
 
@@ -611,11 +672,14 @@ def next_set(g: dict, crate: list) -> Optional[list]:
 
 
 def build_in_background(crate: list, budget_s: Optional[float] = None,
-                        on_done: Optional[Callable[[dict], None]] = None) -> bool:
-    """Measure what is new in `crate` in a separate, niced process
-    (`tools/maintenance/records_graph.py`): the measuring is numpy-heavy, and in
-    the bot's own process it holds the GIL against the voice thread. `on_done`
-    gets the graph when it finishes. True if started."""
+                        on_done: Optional[Callable[[dict], None]] = None,
+                        sets_only: bool = False) -> bool:
+    """Rebuild graph measurements, or only derived set paths, in a niced process.
+
+    Full measurement is numpy-heavy and would hold the bot's GIL against the
+    voice thread. `sets_only` is safe only when the audio graph is current and
+    all compatible pairs have already been checked. `on_done` receives the graph.
+    """
     import subprocess
     import sys
     import tempfile
@@ -629,6 +693,8 @@ def build_in_background(crate: list, budget_s: Optional[float] = None,
         json.dump([asdict(r) for r in crate], fh)
     cmd = [sys.executable, str(root / "tools" / "maintenance" / "records_graph.py"), "--apply", "--quiet", "--jobs", "3",
            "--crate", rows]
+    if sets_only:
+        cmd.append("--sets-only")
     if budget_s:
         cmd += ["--budget-min", f"{budget_s / 60:.2f}"]
     env = dict(os.environ)

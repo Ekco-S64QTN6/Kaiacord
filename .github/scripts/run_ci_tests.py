@@ -123,7 +123,14 @@ RELATED_TESTS = {
         "tools/tests/unit/test_dj_dashboard.py",
         "tools/tests/unit/test_records.py",
     ),
-    "utils/audio/setlist.py": ("tools/tests/unit/test_setlist.py",),
+    "utils/audio/library.py": (
+        "tools/tests/unit/test_records.py",
+        "tools/tests/unit/test_setlist.py",
+    ),
+    "utils/audio/setlist.py": (
+        "tools/tests/unit/test_setlist.py",
+        "tools/tests/unit/test_mixcheck.py",
+    ),
     "utils/audio/dj_dashboard.py": ("tools/tests/unit/test_records.py",),
     "utils/commands/music_handler.py": ("tools/tests/unit/test_records_startup_cleanup.py",),
     "utils/social/agent_board_verify.py": ("tools/tests/unit/test_agent_boards.py",),
