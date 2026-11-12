@@ -28,16 +28,13 @@ def remember(kind: str, line: str, *, channel_id: Optional[int] = None,
     """
     if channel_id is not None:
         try:
-            from collections import deque
             from utils.infrastructure.system.bot_state import bot_state
             from utils.infrastructure.system.yaml_config import config
-            memory = bot_state.channel_memory
-            if channel_id not in memory:
-                memory[channel_id] = deque(maxlen=config.max_memory_messages)
             # Marked as an event: the prompt shows it as a note of what she
             # did, not as a turn of hers to copy (`events_as_notes`).
-            memory[channel_id].append({"role": "assistant", "content": line, "event": True,
-                                       "timestamp": time.time()})
+            bot_state.append_channel_turn(channel_id, {"role": "assistant", "content": line,
+                                       "event": True, "timestamp": time.time()},
+                                       maxlen=config.max_memory_messages)
         except Exception as e:
             log_debug(f"[expression] channel memory not updated: {e}")
 

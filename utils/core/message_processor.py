@@ -2711,11 +2711,6 @@ class MessageProcessor:
         async with self._bg_semaphore:
             is_private_dm = _is_private_dm(ctx)
             try:
-                # Update memory
-                if ctx.channel_id not in self.bot_state.channel_memory:
-                     from collections import deque
-                     self.bot_state.channel_memory[ctx.channel_id] = deque(maxlen=self.config.max_memory_messages)
-                
                 # Defensive strip: ctx.response_text should already be clean, but guard against
                 # future refactors that set it earlier in the pipeline.
                 bot_response = ctx.response_text
@@ -2726,7 +2721,7 @@ class MessageProcessor:
                 # ── History Summarization (Item 4) ─────────────────────────────
                 # Before appending new turns, check if deque is near capacity.
                 # If so, summarize oldest 15 turns with a lightweight LLM call.
-                mem = self.bot_state.channel_memory.get(ctx.channel_id)
+                mem = self.bot_state.channel_memory_snapshot(ctx.channel_id)
                 if mem and len(mem) >= 30:
                     # Cooldown: at most one summarization per 5 minutes per channel
                     cooldown_key = f"_summarize_cd_{ctx.channel_id}"
@@ -2734,7 +2729,7 @@ class MessageProcessor:
                     if time.time() - last_summarize > 300:
                         setattr(self, cooldown_key, time.time())
                         try:
-                            oldest_turns = list(mem)[:15]
+                            oldest_turns = list(mem[:15])
                             history_text = "\n".join(
                                 f"{t.get('role','?')}: {t.get('content','')[:300]}" for t in oldest_turns
                             )
@@ -2763,11 +2758,11 @@ class MessageProcessor:
                             # Harden the summary to prevent bot-speak from entering history
                             from utils.core.response_filter import BotSpeakFilter
                             summary = BotSpeakFilter.harden(summary)
-                            for _ in range(15):
-                                if mem:
-                                    mem.popleft()
-                            mem.appendleft({"role": "system", "content": f"[summary of earlier conversation: {summary}]"})
-                            log_debug(f"History summarization completed for channel {ctx.channel_id}")
+                            summary_turn = {"role": "system", "content": f"[summary of earlier conversation: {summary}]", "timestamp": time.time()}
+                            if self.bot_state.apply_channel_history_summary(ctx.channel_id, oldest_turns, summary_turn):
+                                log_debug(f"History summarization completed for channel {ctx.channel_id}")
+                            else:
+                                log_debug(f"History summarization skipped for channel {ctx.channel_id}: history changed during model call")
                         except Exception as e:
                             log_warning(f"History summarization failed: {e}")
 
@@ -2800,8 +2795,10 @@ class MessageProcessor:
                     # A DM's turns are marked private so nothing that reads
                     # across channels (the monologue) carries them into public.
                     _mark = {"private": True} if getattr(ctx, "is_dm", False) else {}
-                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "user", "content": user_msg_with_author, "timestamp": time.time(), **_mark})
-                    self.bot_state.channel_memory[ctx.channel_id].append({"role": "assistant", "content": bot_response, "timestamp": time.time(), **_mark})
+                    self.bot_state.append_channel_turns(ctx.channel_id, [
+                        {"role": "user", "content": user_msg_with_author, "timestamp": time.time(), **_mark},
+                        {"role": "assistant", "content": bot_response, "timestamp": time.time(), **_mark},
+                    ], maxlen=self.config.max_memory_messages)
                 # ----------------------------------------------------
                 
                 if not is_private_dm:

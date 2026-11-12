@@ -21,6 +21,15 @@ from utils.infrastructure.logging.kaia_logger import log_info, log_warning
 from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
 
+def _lifecycle_setting(path: str, default: int) -> int:
+    """Read a non-negative channel-memory lifecycle setting, with a safe fallback."""
+    try:
+        from utils.infrastructure.system.yaml_config import config as _cfg
+        return max(0, int(_cfg.get_path(path, default)))
+    except Exception:
+        return default
+
+
 class BotState:
     """Encapsulates global bot state and persistence (thread-safe)"""
     def __init__(self, state_file: Optional[str] = None):
@@ -36,6 +45,15 @@ class BotState:
         self._writer_closing = False
         self._writer_closed = False
         self.channel_memory: Dict[int, Deque[Dict[str, str]]] = {}
+        self.channel_memory_activity: Dict[int, float] = {}
+        self.max_memory_channels = _lifecycle_setting("performance.max_memory_channels", 200)
+        self.memory_channel_retention_s = 86400.0 * _lifecycle_setting("performance.memory_channel_retention_days", 90)
+        self.memory_channel_active_grace_s = 60.0 * _lifecycle_setting("performance.memory_channel_active_grace_minutes", 60)
+        self._channel_eviction_listeners = []
+        self._last_channel_prune = 0.0
+        self._channel_prune_interval_s = 300.0
+        self._channel_evicted_total = 0
+        self._last_state_bytes = 0
         self.last_interaction_time: float = time.time()
         self.last_active_channel_id: Optional[int] = None
         self.consecutive_quips: int = 0
@@ -157,16 +175,162 @@ class BotState:
                             for k, v in raw_mem.items()
                             if str(k).isdigit()
                         }
+                        raw_memory_activity = state.get("channel_memory_activity", {}) or {}
+                        self.channel_memory_activity = {int(k): float(v) for k, v in raw_memory_activity.items() if str(k).isdigit() and isinstance(v, (int, float))}
+                        saved_at = float(state.get("saved_at", 0.0) or 0.0)
+                        for channel_id, turns in self.channel_memory.items():
+                            latest = max((self._turn_timestamp(turn) for turn in turns), default=0.0)
+                            if channel_id not in self.channel_memory_activity:
+                                self.channel_memory_activity[channel_id] = latest or saved_at or time.time()
+                        now = time.time()
+                        self._prune_channel_memory_locked(now)
+                        self._last_channel_prune = now
 
         except Exception as e:
             log_warning(f"Failed to load bot state: {e}\n{traceback.format_exc()}")
 
+
+    # ── Channel-scoped conversation lifecycle ────────────────────────────────
+
+    @staticmethod
+    def _turn_timestamp(turn) -> float:
+        stamp = turn.get("timestamp") if isinstance(turn, dict) else None
+        return float(stamp) if isinstance(stamp, (int, float)) and not isinstance(stamp, bool) else 0.0
+
+    def _memory_maxlen(self, requested=None) -> int:
+        if requested is not None:
+            try: return max(1, int(requested))
+            except (TypeError, ValueError): pass
+        try:
+            from utils.infrastructure.system.yaml_config import config as _cfg
+            return max(1, int(_cfg.max_memory_messages))
+        except Exception:
+            return 35
+
+    def channel_memory_snapshot(self, channel_id: int) -> list:
+        with self._lock:
+            return list(self.channel_memory.get(channel_id, ()) or ())
+
+    def append_channel_turn(self, channel_id: int, turn: dict, *, maxlen=None) -> bool:
+        if channel_id is None or not isinstance(turn, dict): return False
+        now = time.time()
+        item = dict(turn); item.setdefault("timestamp", now)
+        stamp = self._turn_timestamp(item) or now
+        capacity = self._memory_maxlen(maxlen)
+        with self._lock:
+            if self._writer_closing or self._writer_closed: return False
+            current = self.channel_memory.get(channel_id)
+            if not isinstance(current, deque) or current.maxlen is None or current.maxlen < capacity:
+                current = deque(list(current or ()), maxlen=max(capacity, len(current or ())))
+                self.channel_memory[channel_id] = current
+            current.append(item)
+            self.channel_memory_activity[channel_id] = max(float(self.channel_memory_activity.get(channel_id, 0.0) or 0.0), stamp)
+        return True
+
+    def append_channel_turns(self, channel_id: int, turns, *, maxlen=None) -> bool:
+        if channel_id is None: return False
+        now = time.time(); items = []
+        for turn in turns or ():
+            if isinstance(turn, dict):
+                item = dict(turn); item.setdefault("timestamp", now); items.append(item)
+        if not items: return False
+        capacity = self._memory_maxlen(maxlen)
+        latest = max((self._turn_timestamp(item) or now for item in items), default=now)
+        with self._lock:
+            if self._writer_closing or self._writer_closed: return False
+            current = self.channel_memory.get(channel_id)
+            if not isinstance(current, deque) or current.maxlen is None or current.maxlen < capacity:
+                current = deque(list(current or ()), maxlen=max(capacity, len(current or ())))
+                self.channel_memory[channel_id] = current
+            current.extend(items)
+            self.channel_memory_activity[channel_id] = max(float(self.channel_memory_activity.get(channel_id, 0.0) or 0.0), latest)
+        return True
+
+    def replace_channel_memory(self, channel_id: int, turns, *, maxlen=None) -> bool:
+        if channel_id is None: return False
+        now = time.time(); items = []
+        for turn in turns or ():
+            if isinstance(turn, dict):
+                item = dict(turn); item.setdefault("timestamp", now); items.append(item)
+        capacity = max(self._memory_maxlen(maxlen), len(items), 1)
+        latest = max((self._turn_timestamp(item) or now for item in items), default=now)
+        with self._lock:
+            if self._writer_closing or self._writer_closed: return False
+            self.channel_memory[channel_id] = deque(items, maxlen=capacity)
+            if items: self.channel_memory_activity[channel_id] = latest
+            else: self.channel_memory_activity.pop(channel_id, None)
+        return True
+
+    def apply_channel_history_summary(self, channel_id: int, expected_prefix: list, summary_turn: dict) -> bool:
+        if channel_id is None or not expected_prefix or not isinstance(summary_turn, dict): return False
+        with self._lock:
+            current = self.channel_memory.get(channel_id)
+            if current is None: return False
+            live = list(current)
+            if live[:len(expected_prefix)] != expected_prefix: return False
+            kept = live[len(expected_prefix):]; kept.insert(0, dict(summary_turn))
+            self.channel_memory[channel_id] = deque(kept, maxlen=current.maxlen or self._memory_maxlen())
+        return True
+
+    def add_channel_eviction_listener(self, callback) -> None:
+        if callable(callback):
+            with self._lock:
+                if callback not in self._channel_eviction_listeners: self._channel_eviction_listeners.append(callback)
+
+    def _prune_channel_memory_locked(self, now: float) -> list:
+        pending = {item.get("channel_id") for item in self.pending_afterthoughts if isinstance(item, dict) and item.get("channel_id") is not None}
+        activity = {}
+        for channel_id, turns in list(self.channel_memory.items()):
+            last = float(self.channel_memory_activity.get(channel_id, 0.0) or 0.0)
+            if not last: last = max((self._turn_timestamp(t) for t in list(turns)), default=0.0) or now
+            self.channel_memory_activity[channel_id] = min(last, now); activity[channel_id] = min(last, now)
+        evict = set()
+        if self.memory_channel_retention_s > 0:
+            evict.update(cid for cid,last in activity.items() if now-last > self.memory_channel_retention_s and cid not in pending)
+        remaining = [cid for cid in activity if cid not in evict]
+        if self.max_memory_channels > 0 and len(remaining) > self.max_memory_channels:
+            candidates = sorted((cid for cid in remaining if cid not in pending and now-activity[cid] >= self.memory_channel_active_grace_s), key=lambda cid: activity[cid])
+            for cid in candidates:
+                if len(remaining) <= self.max_memory_channels: break
+                evict.add(cid); remaining.remove(cid)
+        for cid in evict:
+            self.channel_memory.pop(cid, None); self.channel_memory_activity.pop(cid, None)
+        for cid in list(self.channel_memory_activity):
+            if cid not in self.channel_memory: self.channel_memory_activity.pop(cid, None)
+        self._channel_evicted_total += len(evict)
+        return sorted(evict)
+
+    def _notify_channel_evictions(self, evicted: list) -> None:
+        if not evicted: return
+        with self._lock: listeners = list(self._channel_eviction_listeners)
+        for cid in evicted:
+            for callback in listeners:
+                try: callback(cid)
+                except Exception as exc: log_warning(f"[channel_state] eviction listener failed: {exc}")
+
+    def prune_channel_memory(self, now: Optional[float] = None) -> list:
+        prune_at = time.time() if now is None else float(now)
+        with self._lock:
+            evicted = self._prune_channel_memory_locked(prune_at); self._last_channel_prune = prune_at
+        self._notify_channel_evictions(evicted)
+        return evicted
+
+    def channel_state_stats(self) -> dict:
+        with self._lock:
+            return {"channels": len(self.channel_memory), "turns": sum(len(x) for x in list(self.channel_memory.values())),
+                    "evicted": self._channel_evicted_total, "state_bytes": self._last_state_bytes}
+
     def save(self):
         """Snapshot live state here; serialize and write the detached snapshot off-loop."""
         try:
+            evicted = []
             with self._lock:
                 if self._writer_closing or self._writer_closed:
                     return
+                now = time.time()
+                if now - self._last_channel_prune >= self._channel_prune_interval_s:
+                    evicted = self._prune_channel_memory_locked(now)
+                    self._last_channel_prune = now
                 # Copying live maps/deques must remain on the caller thread and
                 # under the state lock. Serializing the detached snapshot is safe
                 # on the single writer thread and avoids JSON work on Discord's loop.
@@ -203,6 +367,7 @@ class BotState:
                             'channel_memory': copy.deepcopy({
                                 str(k): list(v) for k, v in self.channel_memory.items()
                             }),
+                            'channel_memory_activity': {str(k): v for k, v in self.channel_memory_activity.items()},
                             'saved_at': time.time(),
                         }
                         break
@@ -215,6 +380,7 @@ class BotState:
                 # submit snapshots in the reverse order from their snapshot order.
                 # The executor has one worker, so serialization and writes remain FIFO.
                 self._executor.submit(self._persist_to_disk, state)
+            self._notify_channel_evictions(evicted)
         except Exception as e:
             log_warning(f"Failed to initiate bot state save: {e}")
 
@@ -227,6 +393,7 @@ class BotState:
         """Serialize and atomically write a detached snapshot on the writer thread."""
         try:
             payload = self._serialize_snapshot(state)
+            self._last_state_bytes = len(payload.encode("utf-8"))
             from utils.core.atomic_write import write_atomic
             with self._write_lock:
                 write_atomic(self.state_file, payload)

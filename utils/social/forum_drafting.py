@@ -301,11 +301,8 @@ def seed_thread_history(ctx, thread_id: int, earlier_posts: list, username: str,
         })
 
     try:
-        # Bounded, like every other channel. A bare list here grew without a
-        # maxlen and became the largest thing in channel_memory.
-        from collections import deque
-        bot_state.channel_memory[channel_id] = deque(
-            turns, maxlen=max(len(turns), int(config.max_memory_messages)))
+        bot_state.replace_channel_memory(
+            channel_id, turns, maxlen=max(len(turns), int(config.max_memory_messages)))
     except Exception:
         return 0
     log_info(f"Forum: seeded {len(turns)} thread posts as conversation history "

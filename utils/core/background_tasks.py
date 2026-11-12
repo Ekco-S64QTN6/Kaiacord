@@ -506,14 +506,9 @@ class CoreTaskManager:
                             
                             # Append to channel memory
                             try:
-                                if channel.id not in self.ctx.bot_state.channel_memory:
-                                    from collections import deque
-                                    self.ctx.bot_state.channel_memory[channel.id] = deque(maxlen=config.max_memory_messages)
-                                self.ctx.bot_state.channel_memory[channel.id].append({
-                                    "role": "assistant",
-                                    "content": raw,
-                                    "timestamp": time.time()
-                                })
+                                self.ctx.bot_state.append_channel_turn(channel.id, {
+                                    "role": "assistant", "content": raw, "timestamp": time.time()
+                                }, maxlen=config.max_memory_messages)
                                 self.ctx.bot_state.save()
                             except Exception as mem_err:
                                 log_warning(f"Failed to append afterthought to channel memory: {mem_err}")

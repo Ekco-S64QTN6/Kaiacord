@@ -158,6 +158,22 @@ async def memory_audit_task():
             log_critical(f"Memory usage critical ({rss_mb:.1f}MB > {NORMAL_THRESHOLD_MB}MB). "
                          f"Garbage collection freed {freed} objects; RSS now {after:.1f}MB.")
             
+        # Keep conversation histories and their RAG metadata bounded together.
+        try:
+            state = getattr(ctx, "bot_state", None)
+            if state:
+                evicted = state.prune_channel_memory()
+                if evicted:
+                    state.save()
+                stats = state.channel_state_stats()
+                rag = getattr(ctx, "rag", None)
+                retrievals = rag.retrieval_channel_count() if rag and hasattr(rag, "retrieval_channel_count") else 0
+                log_info(f"[channel_state] {stats['channels']} channels, {stats['turns']} turns, "
+                         f"{retrievals} with retrievals held; {stats['evicted']} evicted total, "
+                         f"{stats['state_bytes']:,} serialized bytes (this pass evicted {len(evicted)})")
+        except Exception as channel_state_error:
+            log_warning(f"[channel_state] lifecycle audit unavailable: {channel_state_error}")
+
         # Cleanup rate limiter to prevent unbounded memory growth
         ctx.rate_limiter.cleanup()
         
