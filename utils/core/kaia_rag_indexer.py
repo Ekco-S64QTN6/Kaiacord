@@ -211,70 +211,71 @@ class RAGIndexerMixin:
     def _initialize_indices(self):
         """Initialize hierarchical indices from storage or create new ones."""
         with self._data_lock:
-            index_types = ['persona', 'user_profiles', 'knowledge', 'logs', 'dreams']
-            for itype in index_types:
-                itype_dir = os.path.join(self.persist_dir, itype)
-                # A persist killed between its two renames leaves the last good
-                # copy in <itype>_old and no <itype>: restore it rather than
-                # start an empty index and re-embed everything.
-                old_dir = f"{itype_dir}_old"
-                if not os.path.exists(itype_dir) and os.path.isdir(old_dir):
-                    os.rename(old_dir, itype_dir)
-                    log_warning(f"Restored {itype} index from {old_dir} (an interrupted persist).")
-                try:
-                    if os.path.exists(itype_dir) and os.listdir(itype_dir):
-                        log_debug(f"Loading {itype} index...")
-                        storage_context = StorageContext.from_defaults(persist_dir=itype_dir)
-                        self.indices[itype] = load_index_from_storage(storage_context)
-                    else:
-                        log_debug(f"Initializing {itype} index...")
+            with self._get_persistence_transaction_lock():
+                index_types = ['persona', 'user_profiles', 'knowledge', 'logs', 'dreams']
+                for itype in index_types:
+                    itype_dir = os.path.join(self.persist_dir, itype)
+                    # A persist killed between its two renames leaves the last good
+                    # copy in <itype>_old and no <itype>: restore it rather than
+                    # start an empty index and re-embed everything.
+                    old_dir = f"{itype_dir}_old"
+                    if not os.path.exists(itype_dir) and os.path.isdir(old_dir):
+                        os.rename(old_dir, itype_dir)
+                        log_warning(f"Restored {itype} index from {old_dir} (an interrupted persist).")
+                    try:
+                        if os.path.exists(itype_dir) and os.listdir(itype_dir):
+                            log_debug(f"Loading {itype} index...")
+                            storage_context = StorageContext.from_defaults(persist_dir=itype_dir)
+                            self.indices[itype] = load_index_from_storage(storage_context)
+                        else:
+                            log_debug(f"Initializing {itype} index...")
+                            self.indices[itype] = VectorStoreIndex.from_documents([])
+                            if not os.path.exists(itype_dir):
+                                os.makedirs(itype_dir)
+                            self.indices[itype].storage_context.persist(persist_dir=itype_dir)
+                    except Exception as e:
+                        log_error(f"Error initializing {itype} index (corruption suspected): {e}")
+                        # Auto-repair corrupted storage
+                        try:
+                            import shutil
+                            if os.path.exists(itype_dir):
+                                shutil.rmtree(itype_dir)
+                            os.makedirs(itype_dir, exist_ok=True)
+                        except Exception as rmtree_err:
+                            log_error(f"Failed to clear corrupted directory {itype_dir}: {rmtree_err}")
+                        
                         self.indices[itype] = VectorStoreIndex.from_documents([])
-                        if not os.path.exists(itype_dir):
-                            os.makedirs(itype_dir)
-                        self.indices[itype].storage_context.persist(persist_dir=itype_dir)
-                except Exception as e:
-                    log_error(f"Error initializing {itype} index (corruption suspected): {e}")
-                    # Auto-repair corrupted storage
-                    try:
-                        import shutil
-                        if os.path.exists(itype_dir):
-                            shutil.rmtree(itype_dir)
-                        os.makedirs(itype_dir, exist_ok=True)
-                    except Exception as rmtree_err:
-                        log_error(f"Failed to clear corrupted directory {itype_dir}: {rmtree_err}")
-                    
-                    self.indices[itype] = VectorStoreIndex.from_documents([])
-                    try:
-                        self.indices[itype].storage_context.persist(persist_dir=itype_dir)
-                    except Exception as persist_err:
-                        log_error(f"Failed to persist fresh index for {itype}: {persist_err}")
+                        try:
+                            self.indices[itype].storage_context.persist(persist_dir=itype_dir)
+                        except Exception as persist_err:
+                            log_error(f"Failed to persist fresh index for {itype}: {persist_err}")
+                            
+                        self.bm25_cache.pop(itype, None)
                         
-                    self.bm25_cache.pop(itype, None)
-                    
-                    # Remove files of this index type from manifest so they are re-scanned/re-indexed
-                    if hasattr(self, 'indexed_files') and isinstance(self.indexed_files, dict):
-                        paths_to_remove = []
-                        for path, meta in self.indexed_files.items():
-                            if meta.get("itype") == itype:
-                                paths_to_remove.append(path)
-                            elif itype == 'dreams' and 'kaia_dreams' in path:
-                                paths_to_remove.append(path)
-                            elif itype == 'logs' and 'user_logs' in path and 'user_profile.md' not in path:
-                                paths_to_remove.append(path)
-                            elif itype == 'user_profiles' and 'user_profile.md' in path:
-                                paths_to_remove.append(path)
-                            elif itype == 'persona' and 'kaia_persona.md' in path:
-                                paths_to_remove.append(path)
-                        
-                        if paths_to_remove:
-                            log_info(f"Removing {len(paths_to_remove)} entries from manifest to trigger re-indexing of {itype}.")
-                            for p in paths_to_remove:
-                                self.indexed_files.pop(p, None)
-                            self._save_indexed_files()
-            
-            # Populate indexed files from all indices
-            self._populate_indexed_files()
-            log_debug("All hierarchical indices initialized.")
+                        # Remove files of this index type from manifest so they are re-scanned/re-indexed
+                        if hasattr(self, 'indexed_files') and isinstance(self.indexed_files, dict):
+                            paths_to_remove = []
+                            for path, meta in self.indexed_files.items():
+                                if meta.get("itype") == itype:
+                                    paths_to_remove.append(path)
+                                elif itype == 'dreams' and 'kaia_dreams' in path:
+                                    paths_to_remove.append(path)
+                                elif itype == 'logs' and 'user_logs' in path and 'user_profile.md' not in path:
+                                    paths_to_remove.append(path)
+                                elif itype == 'user_profiles' and 'user_profile.md' in path:
+                                    paths_to_remove.append(path)
+                                elif itype == 'persona' and 'kaia_persona.md' in path:
+                                    paths_to_remove.append(path)
+                            
+                            if paths_to_remove:
+                                log_info(f"Removing {len(paths_to_remove)} entries from manifest to trigger re-indexing of {itype}.")
+                                for p in paths_to_remove:
+                                    self.indexed_files.pop(p, None)
+                                self._save_indexed_files()
+                
+                # Populate indexed files from all indices
+                self._populate_indexed_files()
+                log_debug("All hierarchical indices initialized.")
 
     def _get_node_parser_for_doc(self, itype: str, file_path: str):
         """Dynamic chunking based on content type and index target"""
