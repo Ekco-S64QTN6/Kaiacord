@@ -154,12 +154,17 @@ class IdentityRegistry:
                 return None
             return pending["challenge"]
 
-    def cancel_pending_forum_link(self, discord_id: str, forum_id: int) -> bool:
-        """Discard a pending challenge when private delivery fails."""
+    def cancel_pending_forum_link(self, discord_id: str, forum_id: int,
+                                  challenge: str) -> bool:
+        """Discard only the matching pending challenge when private delivery fails."""
         fid_str = str(int(forum_id))
         with self._lock:
             pending = self._pending_forum_links.get(fid_str)
-            if not pending or pending["discord_id"] != str(discord_id):
+            if (
+                not pending
+                or pending["discord_id"] != str(discord_id)
+                or not hmac.compare_digest(pending["challenge"], str(challenge or ""))
+            ):
                 return False
             self._pending_forum_links.pop(fid_str, None)
             return True
