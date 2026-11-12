@@ -160,7 +160,7 @@ def test_link_handler_uses_numeric_snowflake_and_leaves_link_pending(monkeypatch
     monkeypatch.setattr(kaia_forum, "get_forum_client", AsyncMock(return_value=fake_client))
     monkeypatch.setattr("secrets.token_urlsafe", lambda _n: CHALLENGE)
 
-    author = SimpleNamespace(id=int(DISCORD_ID), name="OldName", display_name="NewName")
+    author = SimpleNamespace(id=int(DISCORD_ID), name="OldName", display_name="NewName", send=AsyncMock())
     channel = SimpleNamespace(send=AsyncMock())
     msg = SimpleNamespace(author=author, channel=channel)
 
@@ -169,6 +169,36 @@ def test_link_handler_uses_numeric_snowflake_and_leaves_link_pending(monkeypatch
     assert registry.get_discord_id(FORUM_ID) is None
     assert registry.get_forum_ids(DISCORD_ID) == []
     assert registry.pending_forum_link_challenge(DISCORD_ID, FORUM_ID) == CHALLENGE
+    assert author.send.await_count == 1
+    delivered_embed = author.send.await_args.kwargs["embed"]
+    assert CHALLENGE in (delivered_embed.description or "")
+    assert CHALLENGE not in repr(channel.send.await_args_list)
+    assert channel.send.await_count == 1
+
+
+def test_failed_private_delivery_discards_pending_forum_challenge(monkeypatch, registry):
+    import utils.commands.forum_handler as handler
+    from utils.social import kaia_forum, kaia_identities
+
+    monkeypatch.setattr(kaia_identities, "registry", registry)
+    fake_client = SimpleNamespace(scrape_user_profile=AsyncMock(return_value={
+        "user_id": FORUM_ID, "username": "Starkind",
+    }))
+    monkeypatch.setattr(kaia_forum, "get_forum_client", AsyncMock(return_value=fake_client))
+    monkeypatch.setattr("secrets.token_urlsafe", lambda _n: CHALLENGE)
+
+    author = SimpleNamespace(
+        id=int(DISCORD_ID), name="OldName", display_name="NewName",
+        send=AsyncMock(side_effect=RuntimeError("DMs disabled")),
+    )
+    channel = SimpleNamespace(send=AsyncMock())
+    msg = SimpleNamespace(author=author, channel=channel)
+
+    asyncio.run(handler._handle_link(SimpleNamespace(), msg, FORUM_ID))
+
+    assert registry.pending_forum_link_challenge(DISCORD_ID, FORUM_ID) is None
+    assert registry.get_discord_id(FORUM_ID) is None
+    assert CHALLENGE not in repr(channel.send.await_args_list)
     assert channel.send.await_count == 1
 
 
