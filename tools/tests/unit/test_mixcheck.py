@@ -189,8 +189,9 @@ def test_a_retagged_record_is_not_measured_again(tmp_path):
     p = tmp_path / "a.mp3"
     _mp3(p, b"TIT2 old title", b"\xff\xfb" + bytes(range(256)) * 400)
     r = library.Record(str(p), "A", "a", 124.0, "8A", "House")
-    g = {"method": setlist.METHOD, "records": {str(p): {"mtime": os.path.getmtime(p) - 100,
-                                                        "sig": library.audio_signature(str(p))}}}
+    g = {"method": setlist.METHOD, "sets_method": setlist.SET_METHOD,
+         "records": {str(p): {"mtime": os.path.getmtime(p) - 100,
+                              "sig": library.audio_signature(str(p))}}}
     _mp3(p, b"TIT2 a much longer new title, with cover art", b"\xff\xfb" + bytes(range(256)) * 400)
     assert not setlist.needs_build(g, [r])
     _mp3(p, b"TIT2 old title", b"\xff\xfb" + bytes(range(255, -1, -1)) * 400)
