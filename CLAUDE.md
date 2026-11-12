@@ -450,7 +450,9 @@ question, not pasted text); the old patterns kept "want to see it? yes or no?" a
 
 **Ekco's call (8 Nov, again 12 Nov): no note that tells her how long to be.** A note beside a passing
 remark ("a line or two, then stop") took 24 replayed asides from a median of 52 words to 16 and shipped
-on 12 Nov; it was taken out the same day. The hour's note is tone only.
+on 12 Nov; it was taken out the same day. The hour's note is tone only. Measure a prompt change on real
+turns with `tools/maintenance/replay_turns.py` before shipping it (it runs in a sandbox copy, never the
+checkout), and read the replies, not only the counts.
 
 **A belief is recalled when the message is about it** (`utils/core/belief_recall.py`): one of its
 phrases whole (topic, a part of the topic, an alias of two words or more), or several distinctive
