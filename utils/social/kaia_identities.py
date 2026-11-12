@@ -67,7 +67,15 @@ class IdentityRegistry:
         fid = int(forum_id)
         fid_str = str(fid)
         current_owner = self.data["forum_to_discord"].get(fid_str)
-        if current_owner and current_owner != discord_id:
+        # Previous versions stored "<display_name>_<snowflake>". Only a fresh
+        # proof from that exact numeric Discord account may canonicalize its
+        # own legacy entry; never import it as verified without the challenge.
+        legacy_same_owner = bool(
+            current_owner
+            and current_owner != discord_id
+            and str(current_owner).endswith("_" + discord_id)
+        )
+        if current_owner and current_owner != discord_id and not legacy_same_owner:
             raise ValueError("forum account is already linked to another Discord account; unlink it first")
 
         # Repair stale forward references left by older unconditional overwrites.
@@ -117,7 +125,11 @@ class IdentityRegistry:
             current_owner = self.data["forum_to_discord"].get(fid_str)
             if current_owner == discord_id:
                 raise ValueError("this forum account is already linked to you")
-            if current_owner and current_owner != discord_id:
+            legacy_same_owner = bool(
+                current_owner
+                and str(current_owner).endswith("_" + discord_id)
+            )
+            if current_owner and current_owner != discord_id and not legacy_same_owner:
                 raise ValueError("this forum account is already linked; its current owner must unlink it first")
             pending = self._pending_forum_links.get(fid_str)
             if pending and pending["expires_at"] > time.time() and pending["discord_id"] != discord_id:
@@ -207,13 +219,15 @@ class IdentityRegistry:
 
     def get_forum_ids(self, discord_id: str) -> List[int]:
         """Get all forum IDs for a discord ID."""
-        val = self.data["discord_to_forum"].get(discord_id, [])
-        if isinstance(val, int):
-            return [val]
-        return val
+        with self._lock:
+            val = self.data["discord_to_forum"].get(str(discord_id), [])
+            if isinstance(val, int):
+                return [val]
+            return list(val or [])
 
     def get_discord_id(self, forum_id: int) -> Optional[str]:
-        return self.data["forum_to_discord"].get(str(forum_id))
+        with self._lock:
+            return self.data["forum_to_discord"].get(str(forum_id))
 
     # ── Self ─────────────────────────────────────────────────────────
 
@@ -239,12 +253,24 @@ class IdentityRegistry:
     # ── Names ────────────────────────────────────────────────────────
 
     def set_display_name(self, discord_id: str, name: str) -> None:
-        if name and self.data["display_names"].get(discord_id) != name:
-            self.data["display_names"][discord_id] = name
-            self._save()
+        if not name:
+            return
+        with self._lock:
+            key = str(discord_id)
+            previous = self.data["display_names"].get(key)
+            if previous == name:
+                return
+            self.data["display_names"][key] = name
+            if not self._save():
+                if previous is None:
+                    self.data["display_names"].pop(key, None)
+                else:
+                    self.data["display_names"][key] = previous
+                raise RuntimeError("identity registry could not save the display name")
 
     def display_name(self, discord_id: str) -> Optional[str]:
-        return self.data.get("display_names", {}).get(str(discord_id))
+        with self._lock:
+            return self.data.get("display_names", {}).get(str(discord_id))
 
     @staticmethod
     def _is_discord_id(value: Any) -> bool:
