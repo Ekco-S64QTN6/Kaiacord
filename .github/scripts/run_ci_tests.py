@@ -32,7 +32,8 @@ RELATED_TESTS = {
         "tools/tests/unit/test_ellipsis_salvage.py",
     ),
     "utils/core/kaia_rag_retriever.py": ("tools/tests/unit/test_fast_vector_query.py",),
-    "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py",),
+    "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py", "tools/tests/unit/test_rag_persistence_concurrency.py"),
+    "utils/core/rag_persistence_lock.py": ("tools/tests/unit/test_rag_persistence_concurrency.py",),
     "utils/core/kaia_proactive.py": ("tools/tests/unit/test_proactive_dedup.py",),
     "utils/infrastructure/system/kaia_sysmon.py": (
         "tools/tests/unit/test_sysmon_subprocess_lifecycle.py",
@@ -78,7 +79,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_rag_identity_scoping.py",
         "tools/tests/unit/test_rag_retrieval_metadata.py",
     ),
-    "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py",),
+    "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py", "tools/tests/unit/test_rag_persistence_concurrency.py"),
     "utils/infrastructure/system/shutdown_fixed.py": (
         "tools/tests/unit/test_telemetry_honesty.py",
         "tools/tests/unit/test_async_task_registry.py",
@@ -165,12 +166,6 @@ RELATED_TESTS = {
         "tools/tests/unit/test_radio_close_stream.py",
         "tools/tests/unit/test_radio_listening.py",
         "tools/tests/unit/test_radio_live_cleanup.py",
-        "tools/tests/unit/test_kiwi_public_hosts.py",
-    ),
-    "utils/radio/live.py": (
-        "tools/tests/unit/test_radio_listening.py",
-        "tools/tests/unit/test_radio_live_cleanup.py",
-        "tools/tests/unit/test_kiwi_public_hosts.py",
     ),
     "utils/radio/scanner.py": ("tools/tests/unit/test_local_scanner.py", "tools/tests/unit/test_ledger_repair.py",
                                "tools/tests/unit/test_scanner_streets.py"),
