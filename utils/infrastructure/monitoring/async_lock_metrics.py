@@ -38,7 +38,10 @@ def record_registry_lock_created(registry: str, current_size: int) -> None:
 
 def _record_registry_lock_evicted(registry: str, locks) -> None:
     """Update live size when the last owner/waiter releases a weakly held lock."""
-    current_size = len(locks)
+    # A finalizer can run before WeakValueDictionary's own weakref callback
+    # removes the dead slot. Iterating live items purges dead refs before
+    # recording the current size.
+    current_size = sum(1 for _ in locks.items())
     with _guard:
         metric = _entry(registry)
         metric["current"] = current_size
@@ -53,7 +56,8 @@ def track_registry_lock(registry: str, locks, lock) -> None:
     WeakValueDictionary cannot retire a lock that still has owners or waiters.
     """
     record_registry_lock_created(registry, len(locks))
-    weakref.finalize(lock, _record_registry_lock_evicted, registry, locks, atexit=False)
+    finalizer = weakref.finalize(lock, _record_registry_lock_evicted, registry, locks)
+    finalizer.atexit = False
 
 
 def _record_acquisition(registry: str, contended: bool, wait_ms: float) -> None:
