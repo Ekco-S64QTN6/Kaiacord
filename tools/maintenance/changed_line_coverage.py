@@ -8,6 +8,7 @@ whole-project or live-service coverage.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -49,8 +50,39 @@ def _normalise_coverage_path(raw: str) -> str | None:
     return PurePosixPath(*parts[index:]).as_posix()
 
 
-def changed_line_report(coverage: dict, changes: dict[str, set[int]], minimum: float) -> tuple[str, bool]:
-    """Create a Markdown summary and return whether the changed-line floor passed."""
+def statement_lines(source: str) -> set[int]:
+    """Lines a statement starts on, as coverage counts them; docstrings are not statements."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    lines = {node.lineno for node in ast.walk(tree) if isinstance(node, ast.stmt)}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            first = node.body[0] if node.body else None
+            if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                lines.discard(first.lineno)
+    return lines
+
+
+def _unmeasured_statements(path: str) -> set[int] | None:
+    """Statement lines of a file coverage never loaded, or None when it cannot be read."""
+    try:
+        with open(path, encoding="utf-8") as stream:
+            return statement_lines(stream.read())
+    except OSError:
+        return None
+
+
+def changed_line_report(coverage: dict, changes: dict[str, set[int]], minimum: float,
+                        statements_of=_unmeasured_statements) -> tuple[str, bool]:
+    """Create a Markdown summary and return whether the changed-line floor passed.
+
+    Only statements are measured. A comment, a blank line, a docstring or the
+    continuation of a multi-line literal is in neither coverage list, and
+    counting it as uncovered failed a comment-only change to a covered file.
+    """
     files = coverage.get("files", {})
     normalised = {}
     for raw, data in files.items():
@@ -63,10 +95,17 @@ def changed_line_report(coverage: dict, changes: dict[str, set[int]], minimum: f
     covered_total = 0
     measured_total = 0
     for path in sorted(changes):
-        data = normalised.get(path, {})
+        data = normalised.get(path)
+        if data is None:
+            # Never imported by the selected tests: every added statement is
+            # uncovered. An unreadable file keeps the strictest reading.
+            known = statements_of(path)
+            data = {}
+        else:
+            known = set(data.get("executed_lines", [])) | set(data.get("missing_lines", []))
         executed = set(data.get("executed_lines", []))
         excluded = set(data.get("excluded_lines", []))
-        measured = changes[path] - excluded
+        measured = (changes[path] if known is None else changes[path] & known) - excluded
         covered = measured & executed
         count = len(measured)
         hits = len(covered)
@@ -87,7 +126,7 @@ def changed_line_report(coverage: dict, changes: dict[str, set[int]], minimum: f
         lines = [
             "## Incremental changed-line coverage",
             "",
-            f"**{outcome}: {covered_total}/{measured_total} added utils/*.py lines covered "
+            f"**{outcome}: {covered_total}/{measured_total} added utils/*.py statements covered "
             f"({percent:.1f}%; required floor: {minimum:.1f}%).**",
             "",
             "| Subsystem | Covered / measured lines | Coverage |",
@@ -109,7 +148,7 @@ def changed_line_report(coverage: dict, changes: dict[str, set[int]], minimum: f
         lines = [
             "## Incremental changed-line coverage",
             "",
-            "No added production lines under utils/ were found in this change. "
+            "No added production statements under utils/ were found in this change. "
             "The gate is informational for this PR.",
         ]
 
@@ -130,6 +169,9 @@ def main() -> int:
     parser.add_argument("--minimum", type=float, default=20.0)
     parser.add_argument("--summary", default="coverage-summary.md")
     args = parser.parse_args()
+    # A push's "before" is all zeros for a new ref, and empty outside CI.
+    if not args.base.strip("0"):
+        args.base = "origin/main"
 
     with open(args.coverage, encoding="utf-8") as stream:
         coverage = json.load(stream)

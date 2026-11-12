@@ -96,9 +96,9 @@ The general unit workflow records focused offline coverage with `pytest-cov`. It
 `coverage.xml` and `coverage.json` as the `offline-unit-coverage` artifact and publishes
 the changed-line result in the Actions run summary.
 
-The initial gate requires 20% coverage of added, non-excluded lines in changed production files
-under `utils/`. It uses the tests selected for the changed paths; added lines missing from the
-coverage data count as uncovered. No added production lines means the gate is informational.
+The initial gate requires 20% coverage of added, non-excluded statements in changed production
+files under `utils/` (comments and docstrings are not measured). It uses the tests selected for the changed paths; added lines missing from the
+coverage data count as uncovered. No added production statements means the gate is informational.
 This is an incremental signal, not a whole-suite or production-runtime coverage percentage.
 Hardware, GPU, Ollama, and network tests remain excluded from this offline measurement.
 

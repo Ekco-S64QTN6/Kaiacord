@@ -1,0 +1,53 @@
+name: Dependency audit
+
+# Advisories are published on their own schedule, so this runs weekly and
+# whenever the requirements change, never as a check on an unrelated change.
+on:
+  pull_request:
+    paths:
+      - "requirements.txt"
+      - ".github/workflows/dependency-audit.yml"
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pip-audit
+        run: python -m pip install --no-input --disable-pip-version-check pip-audit==2.10.1
+      # Resolves requirements.txt in a throwaway environment and reports each
+      # package, its resolved version and the advisories against it.
+      # Report-only: the policy and how it becomes blocking are in
+      # docs/04-development/quality-gate.md.
+      - name: Audit requirements.txt
+        run: |
+          set +e
+          pip-audit -r requirements.txt --progress-spinner off --desc off -f json -o pip-audit.json
+          status=$?
+          pip-audit -r requirements.txt --progress-spinner off --desc off -f markdown > pip-audit.md
+          set -e
+          {
+            echo "## Dependency audit (report-only)"
+            echo
+            if [ -s pip-audit.md ]; then cat pip-audit.md; else echo "No known advisories, or the audit did not run (exit $status)."; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "pip-audit exit status: $status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit
+          path: |
+            pip-audit.json
+            pip-audit.md
+          if-no-files-found: warn

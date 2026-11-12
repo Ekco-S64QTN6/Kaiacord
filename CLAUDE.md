@@ -78,9 +78,12 @@ additionally loads `gemma3:12b`, which evicts the production model from VRAM.
 Markers are declared in `pytest.ini` under `--strict-markers`, so a typo'd marker is an error
 rather than a silently ignored one: `slow`, `gpu`, `ollama`, `network`, `integration`.
 
-**There is no linter or formatter.** No `ruff`, `black`, `pyproject.toml`, `setup.cfg`, or
-pre-commit hook exists, and none is in `requirements.txt`. Don't go looking for one, and don't
-introduce one without asking. Validation is the test suite plus exercising the code you changed.
+**There is no formatter, and the linter is narrow.** CI runs `ruff` for error rules only
+(`ruff.toml`: syntax, undefined names) and a mypy ratchet that stops a changed `utils/` file
+gaining type errors; neither tool is in `requirements.txt` or the venv, and nothing rewrites a
+file. `docs/04-development/quality-gate.md` has the commands and the baseline. Don't widen the
+rule set, add a formatter, `pyproject.toml` or a pre-commit hook without asking. Validation is
+still the test suite plus exercising the code you changed.
 
 **CI is focused, not the suite.** `.github/workflows/` runs on GitHub Actions with fake
 credentials (`DISCORD_TOKEN`, `GEMINI_API_KEY` sentinels) and `OLLAMA_HOST` pointed at a dead port,
@@ -91,6 +94,11 @@ so a mis-marked test fails fast instead of loading a model:
 | `unit-tests.yml` | every PR and push to `main`: `.github/scripts/run_ci_tests.py` — `compileall` over `utils/` and `tools/`, the hygiene baseline (`test_suite_hygiene`, `test_chat_model_calls`, `test_no_shadowed_imports`, `test_no_undefined_globals`), plus the tests for what the diff touched (`test_<stem>.py`, every test file that imports the changed module — skipped for one imported by more than `MAX_IMPORTERS` — `RELATED_TESTS`, all of `tools/tests/unit/ttrpg/` for a `utils/ttrpg/` change) |
 | `ttrpg-tests.yml` | Full `tools/tests/unit/ttrpg/` suite when `utils/ttrpg/**`, `tools/tests/unit/ttrpg/**`, or the workflow file changes; also supports manual dispatch |
 | `records-audio-tests.yml` | `test_records.py` when `utils/audio/records.py` changes |
+| `quality.yml` | every PR and push to `main`: `ruff check .` (error rules), then `tools/maintenance/type_ratchet.py` |
+| `dependency-audit.yml` | weekly and on a `requirements.txt` change: `pip-audit`, report-only |
+
+`unit-tests.yml` also collects coverage from the tests it selected and fails when under 20% of
+the statements a change adds to `utils/*.py` ran (`tools/maintenance/changed_line_coverage.py`).
 
 A green check is therefore not a green suite: run the full no-external-services invocation
 locally before merging anything wider than one module. Tests named by behaviour are found by
