@@ -229,7 +229,8 @@ def test_a_full_reindex_removes_every_node_before_re_embedding():
     index = lambda ids: SimpleNamespace(storage_context=SimpleNamespace(
         docstore=SimpleNamespace(docs={i: None for i in ids})))
     rag = SimpleNamespace(
-        _data_lock=threading.RLock(), indices={"knowledge": index(["a", "b"]), "logs": index(["c"])},
+        _index_lock=threading.RLock(), _data_lock=threading.RLock(),
+        indices={"knowledge": index(["a", "b"]), "logs": index(["c"])},
         bm25_cache={"knowledge": object()}, indexed_files={"/x.md": {}}, _file_to_nodes={"/x.md": ["a"]},
         persist_needed=False,
         _delete_nodes=lambda itype, ids: deleted.setdefault(itype, list(ids)) and len(ids))
