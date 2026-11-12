@@ -354,3 +354,55 @@ def test_distinct_rag_instances_share_the_same_persistence_lock(tmp_path):
     second = persistence_transaction_lock(SimpleNamespace(persist_dir=str(tmp_path / "rag" / ".")))
 
     assert first is second
+
+
+def test_index_initialization_reloads_manifest_under_the_shared_transaction(tmp_path, monkeypatch):
+    """A manifest read and the index-directory reads must share one lock."""
+    from utils.core import kaia_rag_indexer as indexer_module
+
+    class Guard:
+        held = False
+
+        def __enter__(self):
+            assert not self.held
+            self.held = True
+            return self
+
+        def __exit__(self, *_exc):
+            self.held = False
+            return False
+
+    guard = Guard()
+    manifest_reads = []
+
+    class Harness(RAGIndexerMixin):
+        def __init__(self):
+            self.persist_dir = str(tmp_path)
+            self._data_lock = threading.RLock()
+            self.indices = {}
+            self.bm25_cache = {}
+            self.indexed_files = {}
+            self._get_persistence_transaction_lock = lambda: guard
+
+        def _load_indexed_files(self):
+            assert guard.held, "manifest was read outside the snapshot transaction"
+            manifest_reads.append(True)
+            self.indexed_files = {}
+
+        def _populate_indexed_files(self):
+            return None
+
+    for itype in ("persona", "user_profiles", "knowledge", "logs", "dreams"):
+        folder = tmp_path / itype
+        folder.mkdir()
+        (folder / "marker").write_text(itype, encoding="utf-8")
+
+    monkeypatch.setattr(indexer_module.StorageContext, "from_defaults", lambda **_kw: object())
+    monkeypatch.setattr(indexer_module, "load_index_from_storage", lambda _ctx: object())
+
+    harness = Harness()
+    harness._initialize_indices()
+
+    assert manifest_reads == [True]
+    assert not guard.held
+    assert set(harness.indices) == {"persona", "user_profiles", "knowledge", "logs", "dreams"}
