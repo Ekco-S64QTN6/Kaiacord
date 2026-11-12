@@ -188,7 +188,7 @@ def _records_command_fixture(monkeypatch, start_records, tmp_path):
     return handler, msg, calls, chosen
 
 
-def test_failed_records_voice_start_does_not_consume_the_set_rotation(monkeypatch):
+def test_failed_records_voice_start_does_not_consume_the_set_rotation(monkeypatch, tmp_path):
     from utils.commands import music_handler
 
     async def fail(_kwargs):
@@ -201,7 +201,7 @@ def test_failed_records_voice_start_does_not_consume_the_set_rotation(monkeypatc
     assert msg.channel.send.await_count == 1
 
 
-def test_successful_records_start_commits_rotation_after_session_start(monkeypatch):
+def test_successful_records_start_commits_rotation_after_session_start(monkeypatch, tmp_path):
     async def succeed(_kwargs):
         return object()
 
