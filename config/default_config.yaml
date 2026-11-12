@@ -45,6 +45,12 @@ performance:
 
   # Maximum messages to keep in memory per channel
   max_memory_messages: 35
+  # Maximum retained conversation channel histories (soft cap while all are active).
+  max_memory_channels: 200
+  # Expire inactive history after this many days; 0 disables age expiry.
+  memory_channel_retention_days: 90
+  # Never evict a recently active channel merely to meet the count cap.
+  memory_channel_active_grace_minutes: 60
   
   # Maximum number of quips to send in a single idle period
   max_consecutive_quips: 2

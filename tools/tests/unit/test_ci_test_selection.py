@@ -297,3 +297,12 @@ def test_records_changes_select_full_records_and_lifecycle_regressions():
     }
     assert "tools/tests/unit/test_records.py" in selected
     assert "tools/tests/unit/test_records_startup_cleanup.py" in selected
+
+
+def test_bot_state_changes_select_channel_memory_lifecycle_regressions():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    selected = {
+        path.relative_to(ROOT).as_posix()
+        for path in selector["select_tests"](["utils/infrastructure/system/bot_state.py"])
+    }
+    assert "tools/tests/unit/test_channel_memory_lifecycle.py" in selected

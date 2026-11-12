@@ -3,6 +3,7 @@ import asyncio
 import logging
 import threading
 import warnings
+from collections import OrderedDict
 
 # Suppress noisy logs from libraries
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -147,6 +148,7 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         self._channel_retrieval_time = {}
         self._channel_state_lock = threading.Lock()
         self._last_active_channel = "global"
+        self._channel_recency = OrderedDict()
 
     async def initialize_async(self):
         """Asynchronously initialize hierarchical indices."""
@@ -165,9 +167,48 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         await asyncio.to_thread(self._initialize_indices)
         
         self._initialized = True
+        try:
+            from utils.infrastructure.system.bot_state import bot_state
+            bot_state.add_channel_eviction_listener(self.forget_channel)
+        except Exception as exc:
+            log_info(f"RAG channel eviction listener unavailable: {exc}")
         settle("the loaded indices")
         log_success("RAG indices initialized.")
 
+
+
+    MAX_RETRIEVAL_CHANNELS = 64
+    MAX_RETRIEVAL_NODES_PER_CHANNEL = 32
+
+    def _channel_maps(self):
+        return (self._channel_retrieval_results, self._channel_retrieval_confidence,
+                self._channel_retrieval_node_count, self._channel_retrieval_time)
+
+    def _touch_channel_locked(self, key: str) -> None:
+        self._channel_recency[key] = None
+        self._channel_recency.move_to_end(key)
+        for old in list(self._channel_recency):
+            if len(self._channel_recency) <= self.MAX_RETRIEVAL_CHANNELS:
+                break
+            if old in ("global", key, self._last_active_channel):
+                continue
+            self._channel_recency.pop(old, None)
+            for store in self._channel_maps():
+                store.pop(old, None)
+
+    def forget_channel(self, channel_id) -> None:
+        """Drop cached retrieved nodes and metrics when conversation history expires."""
+        key = str(channel_id)
+        with self._channel_state_lock:
+            self._channel_recency.pop(key, None)
+            for store in self._channel_maps():
+                store.pop(key, None)
+            if self._last_active_channel == key:
+                self._last_active_channel = "global"
+
+    def retrieval_channel_count(self) -> int:
+        with self._channel_state_lock:
+            return len(self._channel_recency)
 
     def _get_channel_key(self) -> str:
         from utils.core.message_processor import current_channel_id_var
@@ -193,7 +234,8 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
         with self._channel_state_lock:
             if key != "global":
                 self._last_active_channel = key
-            self._channel_retrieval_results[key] = val
+            self._channel_retrieval_results[key] = list(val or [])[:self.MAX_RETRIEVAL_NODES_PER_CHANNEL]
+            self._touch_channel_locked(key)
 
     @property
     def _last_retrieval_confidence(self) -> float:
@@ -214,6 +256,7 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
             if key != "global":
                 self._last_active_channel = key
             self._channel_retrieval_confidence[key] = val
+            self._touch_channel_locked(key)
 
     @property
     def _last_retrieval_node_count(self) -> int:
@@ -234,6 +277,7 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
             if key != "global":
                 self._last_active_channel = key
             self._channel_retrieval_node_count[key] = val
+            self._touch_channel_locked(key)
 
     @property
     def _last_retrieval_time(self) -> float:
@@ -254,6 +298,7 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
             if key != "global":
                 self._last_active_channel = key
             self._channel_retrieval_time[key] = val
+            self._touch_channel_locked(key)
 
 
 if __name__ == "__main__":

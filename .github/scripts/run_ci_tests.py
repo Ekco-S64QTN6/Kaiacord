@@ -49,6 +49,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_channel_memory_scaffolding.py",
         "tools/tests/unit/test_dm_privacy.py",
         "tools/tests/unit/test_monologue_observation.py",
+        "tools/tests/unit/test_channel_memory_lifecycle.py",
     ),
     "utils/core/kaia_art_intent.py": ("tools/tests/unit/test_art_intent.py",),
     "utils/infrastructure/monitoring/async_lock_metrics.py": ("tools/tests/unit/test_async_lock_metrics.py",),
@@ -107,6 +108,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_dm_privacy.py",
         "tools/tests/unit/test_vision_fetch_security.py",
         "tools/tests/unit/test_rag_retrieval_metadata.py",
+        "tools/tests/unit/test_channel_memory_lifecycle.py",
     ),
     "utils/core/sanitizer.py": (
         "tools/tests/unit/test_context_enricher_files.py",

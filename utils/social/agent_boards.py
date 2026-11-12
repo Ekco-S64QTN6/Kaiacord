@@ -222,7 +222,6 @@ def _seed(platform: str, key: str, turns: list[dict]) -> None:
     """Load a board conversation into channel memory, as the forum does, after a
     note of how she has been talking on Discord (`her_voice`)."""
     try:
-        from collections import deque
         from utils.infrastructure.system.bot_state import bot_state
         from utils.infrastructure.system.external_mention import conversation_channel_id
         from utils.infrastructure.system.yaml_config import config
@@ -232,7 +231,7 @@ def _seed(platform: str, key: str, turns: list[dict]) -> None:
         voice = her_voice(bot_state.channel_memory)
         if voice:
             rows = [voice] + rows
-        bot_state.channel_memory[cid] = deque(rows, maxlen=max(len(rows), int(config.max_memory_messages)))
+        bot_state.replace_channel_memory(cid, rows, maxlen=max(len(rows), int(config.max_memory_messages)))
     except Exception as e:
         log_debug(f"[boards] history not seeded: {e}")
 
