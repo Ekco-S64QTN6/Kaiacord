@@ -137,6 +137,7 @@ RELATED_TESTS = {
     "utils/core/kaia_dream.py": ("tools/tests/unit/test_memory_anchors.py", "tools/tests/unit/test_beliefs_store.py",
                                  "tools/tests/unit/test_memory_layer_regressions.py"),
     "utils/core/kaia_monologue.py": ("tools/tests/unit/test_monologue_observation.py",),
+    "utils/core/conversation_beliefs.py": ("tools/tests/unit/test_conversation_beliefs.py",),
     "utils/core/relationship_manager.py": (
         "tools/tests/unit/test_memory_anchors.py",
         "tools/tests/unit/test_relationship_events.py",
