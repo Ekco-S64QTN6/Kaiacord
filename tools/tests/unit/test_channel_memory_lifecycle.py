@@ -74,7 +74,7 @@ def test_age_expiry_notifies_cache_owner_and_clears_activity(tmp_path):
         state.close()
 
 
-def test_summary_compare_and_swap_does_not_overwrite_a_newer_turn(tmp_path):
+def test_summary_compare_and_swap_keeps_newer_turns_appended_during_summarization(tmp_path):
     state = BotState(state_file=str(tmp_path / "state.json"))
     try:
         state.replace_channel_memory(5, [
@@ -85,9 +85,9 @@ def test_summary_compare_and_swap_does_not_overwrite_a_newer_turn(tmp_path):
         state.append_channel_turn(5, {"role": "user", "content": "newer", "timestamp": 3.0})
         applied = state.apply_channel_history_summary(
             5, snapshot, {"role": "system", "content": "[summary]", "timestamp": 4.0})
-        assert applied is False
+        assert applied is True
         assert [turn["content"] for turn in state.channel_memory_snapshot(5)] == [
-            "first", "reply", "newer"
+            "[summary]", "newer"
         ]
     finally:
         state.close()
