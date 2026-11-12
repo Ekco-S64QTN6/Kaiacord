@@ -662,7 +662,17 @@ async def rotation_transaction():
     path = _rotation_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(path.name + ".lock")
-    lock_file = await asyncio.to_thread(lock_path.open, "a", encoding="utf-8")
+    open_task = asyncio.create_task(asyncio.to_thread(
+        lock_path.open, "a", encoding="utf-8"
+    ))
+    try:
+        lock_file = await asyncio.shield(open_task)
+    except asyncio.CancelledError:
+        # Do not orphan a file descriptor if cancellation races the worker's
+        # open() call.
+        lock_file = await asyncio.shield(open_task)
+        await asyncio.to_thread(lock_file.close)
+        raise
     acquire_task = asyncio.create_task(asyncio.to_thread(
         fcntl.flock, lock_file.fileno(), fcntl.LOCK_EX
     ))
