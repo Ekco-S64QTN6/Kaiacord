@@ -1278,10 +1278,10 @@ class RAGIndexerMixin:
         if not types_to_persist:
             return set()
 
-        self.persist_needed = True
-
-        # 1. Drop the changed indices' BM25; it rebuilds on next use.
+        # Update the dirty flag under the same data lock used by force
+        # persistence and live index metadata mutations.
         with self._data_lock:
+            self.persist_needed = True
             for itype in types_to_persist:
                 self.bm25_cache.pop(itype, None)
 
