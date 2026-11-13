@@ -50,6 +50,14 @@ GENERATION = 248
 CREDIT = "artwork by Scott Draves and the Electric Sheep · electricsheep.org"
 
 
+
+def _temp_mp4() -> Path:
+    """A fresh .mp4 path whose file descriptor is closed (mkstemp opens one, and
+    keeping only the name leaked a descriptor for every video request)."""
+    fd, name = tempfile.mkstemp(suffix=".mp4")
+    os.close(fd)
+    return Path(name)
+
 def _cfg(key: str, default):
     try:
         from utils.infrastructure.system.yaml_config import config
@@ -488,7 +496,7 @@ def make(intent=None, *, seed: Optional[int] = None, lut=None, loop: bool = Fals
             raise RuntimeError(f"no such sheep: {a if not ga else b}")
         if lut is not None:
             ga, gb = recolor(ga, lut), recolor(gb, lut)
-        out_path = out_path or Path(tempfile.mkstemp(suffix=".mp4")[1])
+        out_path = out_path or _temp_mp4()
         image, info = render_transition(ga, gb, out_path)
         params = {"type": "sheep", "action": "morph", "seed": seed, "sheep": [a, b], "shown": [a, b],
                   "bred": False, "recoloured": lut is not None, "credit": kaia_flock.credit([a, b]),
@@ -521,7 +529,7 @@ def make(intent=None, *, seed: Optional[int] = None, lut=None, loop: bool = Fals
               "recoloured": lut is not None, "credit": kaia_flock.credit([name]),
               **describe(genome)}
     if loop:
-        out_path = out_path or Path(tempfile.mkstemp(suffix=".mp4")[1])
+        out_path = out_path or _temp_mp4()
         params.update(render_loop(genome, out_path))
         # A still of the first frame, for her to look at and for the archive.
         image, _ = render_still(genome, width=900, quality=400)

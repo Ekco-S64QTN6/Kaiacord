@@ -21,6 +21,8 @@ from utils.core.hallucination_detector import HallucinationDetector
 from utils.core.response_filter import (EmergencyContaminationFilter, BotSpeakFilter,
                                         excision_broke_grammar)
 
+from utils.core import private_turn
+
 _dogtag_replay_lock = threading.Lock()
 
 
@@ -49,8 +51,8 @@ def log_security_dogtag_replay(
             "matched_rule": matched_rule,
             "author_id": str(author_id or "unknown"),
             "channel_id": str(channel_id or "unknown"),
-            "query": query[:500] if query else "",
-            "raw_response": raw_response[:1000] if raw_response else ""
+            "query": private_turn.text(query[:500] if query else ""),
+            "raw_response": private_turn.text(raw_response[:1000] if raw_response else "")
         }
         
         with _dogtag_replay_lock:

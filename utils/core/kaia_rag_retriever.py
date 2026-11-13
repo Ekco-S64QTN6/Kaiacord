@@ -218,8 +218,24 @@ def thread_safe_rag_operation(func):
             
         acquired = False
         try:
-            # Use a non-blocking lock acquisition in a thread to keep the event loop responsive
-            acquired = await asyncio.to_thread(self._data_lock.acquire, timeout=lock_timeout)
+            # Acquire in a worker thread to keep the event loop responsive. The
+            # wait is shielded: a caller cancelled while the thread still waits
+            # would otherwise never learn that it later won the lock, and nothing
+            # would release it, which stalled every later RAG write.
+            import functools
+            waiting = asyncio.get_running_loop().run_in_executor(
+                None, functools.partial(self._data_lock.acquire, timeout=lock_timeout))
+            try:
+                acquired = await asyncio.shield(waiting)
+            except asyncio.CancelledError:
+                def _release_if_won(done, lock=self._data_lock):
+                    try:
+                        if done.result():
+                            lock.release()
+                    except Exception:
+                        pass
+                waiting.add_done_callback(_release_if_won)
+                raise
             if not acquired:
                 log_warning(f"RAG operation {func.__name__} timed out waiting for data lock")
                 return False if func.__name__ in ['add_memory', 'log_user_interaction'] else None

@@ -166,6 +166,10 @@ def from_mood(m: Optional[dict] = None) -> ArtIntent:
 
 # ── an image's colours ───────────────────────────────────────────────────
 
+#: Source pictures larger than this are not decoded (matches the vision path).
+MAX_SOURCE_PIXELS = 20_000_000
+
+
 def palette_from_image(data: bytes, n_colors: int = 6) -> Optional[np.ndarray]:
     """A 256-entry colour ramp from a picture's dominant colours, dark to light.
 
@@ -173,7 +177,13 @@ def palette_from_image(data: bytes, n_colors: int = 6) -> Optional[np.ndarray]:
     """
     try:
         from PIL import Image
-        img = Image.open(io.BytesIO(data)).convert("RGB")
+        img = Image.open(io.BytesIO(data))
+        # Decoding a picture whole is up to half a gigabyte for a 12 MiB file; the
+        # vision path caps source images at 20 megapixels, and so does this one.
+        if img.width * img.height > MAX_SOURCE_PIXELS:
+            return None
+        img.draft("RGB", (320, 320))            # JPEG: decode at reduced size
+        img = img.convert("RGB")
         img.thumbnail((160, 160))
         quant = img.quantize(colors=n_colors, method=Image.Quantize.MEDIANCUT)
         pal = quant.getpalette()[: n_colors * 3]

@@ -455,18 +455,18 @@ class MessageProcessor:
         # 3. Command dispatch, through utils/commands/registry.py. A command
         # starts work and writes state like any other turn, so it is held to
         # the same shutdown guard and per-user rate limit as conversation.
-        if resolve_command(msg.content) is not None:
+        # Commands are for Discord. A Bluesky or X mention reaches this method as a
+        # MockMessage from an anonymous account (and a handle can spell an owner's
+        # name), so a post that opens with "!download ..." must not run one.
+        if not is_social and resolve_command(msg.content) is not None:
             if self.shutdown_manager.shutting_down:
                 log_info(f"Command from {msg.author.name} ignored: shutting down")
                 return
             if not self.rate_limiter.is_allowed(msg.author.id):
                 log_warning(f"Rate limit hit for user {msg.author.name} (command)")
                 return
-        if await dispatch_command(self.ctx, msg, load_persona_async, send_kaia_response):
-            if is_social: log_debug("Social message handled by command dispatcher")
+        if not is_social and await dispatch_command(self.ctx, msg, load_persona_async, send_kaia_response):
             return
-
-        if is_social: log_debug("Social message passed command dispatch")
 
         # 4. Trigger Logic
         bot_name = self.bot.user.display_name.lower() if (self.bot and self.bot.user) else "kaia"
@@ -518,9 +518,10 @@ class MessageProcessor:
         if self.shutdown_manager.shutting_down:
             return
 
-        # Update engagement: Kaia was just talked to
+        # Update engagement: Kaia was just talked to. Not by a DM: this float drives
+        # her public status text and idle timers, which a DM must not move.
         try:
-            if self.bot_state:
+            if self.bot_state and not is_dm:
                 self.bot_state.update_kaia_state(engagement_delta=0.05)
         except Exception:
             pass
@@ -612,12 +613,16 @@ class MessageProcessor:
 
 
 
-        # 7. Specific Command Handling
-        if await handle_memory_command(msg, sanitized_content, self.run_rag, self.rag):
-            return
+        # 7. Specific Command Handling. Both write what the speaker said into
+        # knowledge_base/user_logs/, which retrieval serves to everyone, so a DM
+        # (or an invitation-only thread) never takes this route: it goes to the
+        # ordinary pipeline, whose log is the private one.
+        if not is_dm:
+            if await handle_memory_command(msg, sanitized_content, self.run_rag, self.rag):
+                return
 
-        if await handle_profile_query(msg, sanitized_content, send_kaia_response, self.run_rag, self.rag):
-            return
+            if await handle_profile_query(msg, sanitized_content, send_kaia_response, self.run_rag, self.rag):
+                return
 
         # Proceed to intelligence pipeline in a tracked task
         # 8. Start intelligence pipeline
@@ -639,6 +644,15 @@ class MessageProcessor:
             await self._send_response(msg.channel, "Something went wrong in my head. Try again?")
 
     async def _run_intelligence_pipeline(self, ctx: MessageContext):
+        """Stage 2, with the turn's privacy known to the diagnostic loggers."""
+        from utils.core import private_turn
+        token = private_turn.enter(getattr(ctx, "is_dm", False))
+        try:
+            return await self._run_intelligence_pipeline_inner(ctx)
+        finally:
+            private_turn.leave(token)
+
+    async def _run_intelligence_pipeline_inner(self, ctx: MessageContext):
         """Stage 2: Intelligence, Retrieval, and Response Generation."""
         # 2. Classification (Regex Fast-Path Only)
         c_start = time.perf_counter()
@@ -2381,10 +2395,6 @@ class MessageProcessor:
                 pass
         temp_scaling = self.config.generation_temperature_scaling
         
-        last_failed_short = False
-        best_fallback_response = None
-        best_fallback_words = -1
-
         salvage_candidates: list[str] = []
 
         for attempt in range(max_attempts):
@@ -2393,17 +2403,6 @@ class MessageProcessor:
             current_options['temperature'] = round(base_temp + (temp_scaling * attempt), 3)
             
             attempt_messages = [msg.copy() for msg in messages]
-            if last_failed_short:
-                # Find the last user message and append the length reinforcement directly to its content
-                for i in range(len(attempt_messages) - 1, -1, -1):
-                    if attempt_messages[i]['role'] == 'user':
-                        attempt_messages[i]['content'] += (
-                            "\n\n[System note: Your previous response was too short. You must write a longer, "
-                            "more detailed response of at least 3 sentences and at least 30 words. Do not include "
-                            "any intro, preamble, or metadata.]"
-                        )
-                        break
-
             try:
                 log_action(f"Calling ollama.chat (Attempt {attempt + 1}/{max_attempts})...")
                 
@@ -2469,13 +2468,6 @@ class MessageProcessor:
             except Exception as e:
                 log_error(f"Attempt {attempt + 1} failed: {e}")
                 
-        # No platform special-case: the forum takes the same fallback as
-        # Discord.
-        if best_fallback_response:
-            log_warning(f"All retry attempts failed to meet length constraints. "
-                        f"Falling back to longest reply ({best_fallback_words} words).")
-            return best_fallback_response
-
         # Last resort: defuse the cadence and re-validate.
         #
         # gemma3 reaches for the affect-ellipsis cadence constantly on reflective
@@ -2511,7 +2503,8 @@ class MessageProcessor:
             except Exception as salvage_err:
                 log_debug(f"Salvage pass failed (non-fatal): {salvage_err}")
 
-        log_warning(f"[GENERATION_FAILURE] All {max_attempts} attempts exhausted for {getattr(ctx, 'author_name', 'unknown')}. Query: {getattr(ctx, 'sanitized_content', '')[:120]}")
+        _query = "(private turn)" if getattr(ctx, "is_dm", False) else getattr(ctx, 'sanitized_content', '')[:120]
+        log_warning(f"[GENERATION_FAILURE] All {max_attempts} attempts exhausted for {getattr(ctx, 'author_name', 'unknown')}. Query: {_query}")
         return "i'm drawing a blank on that one. hit me again?"
 
     async def _run_consistency_watchdog(self, ctx: MessageContext, response_text: str):
@@ -2593,8 +2586,11 @@ class MessageProcessor:
                             'contradiction_flag': True,
                             'reasons': reasons
                         }) + "\n")
-                await asyncio.to_thread(_log_to_disk)
-                await asyncio.to_thread(_save_watchdog_prompt, ctx, response_text, reasons)
+                # The reasons are acted on either way; the turn itself (the
+                # query, the reply, the whole prompt) is kept only when it is public.
+                if not getattr(ctx, "is_dm", False):
+                    await asyncio.to_thread(_log_to_disk)
+                    await asyncio.to_thread(_save_watchdog_prompt, ctx, response_text, reasons)
             return reasons
         except Exception as ce:
             log_debug(f"Self-Consistency Watchdog failed (non-fatal): {ce}")

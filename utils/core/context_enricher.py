@@ -219,12 +219,16 @@ class ContextEnricher:
         content = await self.resolve_mentions(content, msg)
 
         # 2. Resolve Replies (Highest priority context)
-        reply_context = await self.resolve_replies(msg)
+        # Everything fetched or quoted is neutralised like an attached file: a
+        # line that opens "[" ends the enrichment block and the rest of the page
+        # is then stored as something the user said, and "[USER_MESSAGE]" inside
+        # it would take over what the pipeline reads as their own words.
+        reply_context = _neutralise_markers(await self.resolve_replies(msg))
         if reply_context:
             content = f"[REPLYING_TO]\n{reply_context}\n\n[USER_MESSAGE]\n{content}"
 
         # 3. Extract Appendages (Embeds)
-        embed_text = self.extract_embed_text(msg)
+        embed_text = _neutralise_markers(self.extract_embed_text(msg))
         if embed_text:
             content += f"\n\n[ATTACHED_EMBED_CONTEXT]\n{embed_text}"
 
@@ -234,7 +238,7 @@ class ContextEnricher:
             content += f"\n\n[ATTACHED_FILE_CONTEXT]\n{file_text}"
 
         # 4. Resolve Links
-        linked_context = await self.resolve_message_links(msg)
+        linked_context = _neutralise_markers(await self.resolve_message_links(msg))
         if linked_context:
             content += f"\n\n[LINKED_MESSAGE_CONTEXT]\n{linked_context}"
             
@@ -694,7 +698,7 @@ class ContextEnricher:
                 
         context_parts = []
         if resolved_texts:
-            context_parts.append("\n\n".join(resolved_texts))
+            context_parts.append("\n\n".join(_neutralise_markers(t) for t in resolved_texts))
         if failed_urls:
             failed_info = "\n".join(f"- {url}" for url in failed_urls)
             context_parts.append(

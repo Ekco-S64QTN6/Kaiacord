@@ -2126,7 +2126,7 @@ class CoreTaskManager:
             if filed.exists():
                 log_info("Grounded-news follow-up skipped: today's brief has already been filed.")
                 if self.ctx and self.ctx.news_manager:
-                    self.ctx.news_manager.refresh()
+                    await asyncio.to_thread(self.ctx.news_manager.refresh)
                 _request_rag_retry("already-filed grounded-news follow-up")
                 return
 
@@ -2238,7 +2238,7 @@ class CoreTaskManager:
                     _request_rag_retry("daily news refresh")
 
             if self.ctx.news_manager:
-                self.ctx.news_manager.refresh()
+                await asyncio.to_thread(self.ctx.news_manager.refresh)
             if global_brief_succeeded and tech_aggregator_succeeded and rag_refresh_completed:
                 log_success("Integrated news refresh completed: global brief, tech digest, and RAG index are current.")
             else:
@@ -3855,7 +3855,6 @@ async def run_caravan_arrival(bot_ctx, channel):
 
     # ── Pre-build stock data (shared across all player views) ────────────
     gear_keys, consumable_keys = get_caravan_stock()
-    gear_buyers = set()  # UIDs who already bought gear — shared across clicks
 
     ALL_REGS = {
         **{k: ("weapon", WEAPONS[k]) for k in WEAPONS},
@@ -3922,6 +3921,39 @@ async def run_caravan_arrival(bot_ctx, channel):
         return embed
 
     # ── Per-player shop view (sent ephemeral on Visit click) ─────────────
+    async def _caravan_purchase(uid: str, chosen: str, *, equip: bool):
+        """One purchase from the caravan, as one action of this player.
+
+        Under their action lock, on a freshly loaded sheet (a press that
+        overlaps another action used to save a copy loaded before that action
+        finished), with the caravan named as the merchant: `process_purchase`
+        takes the merchant from the sheet's location, and a player standing in
+        town would be sold from Hemlock's shelves, which hold none of this stock.
+        The one-gear limit is the persistent `caravan_gear_bought` flag, reset
+        when a caravan arrives."""
+        from utils.ttrpg.session_manager import get_action_lock
+        async with await get_action_lock(f"user:{uid}"):
+            sheet = await load(uid)
+            if not sheet:
+                return False, "No character found. (`!rpg new`)"
+            if sheet.get("location") not in TOWN_LOCATIONS:
+                return False, "You need to be in town to buy from the caravan."
+            cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
+            success, text, updated = process_purchase(
+                sheet, chosen, 1, sheet.get("reputation", 0), cha_mod=cha_mod, merchant="caravan")
+            if not success:
+                return False, text
+            if equip:
+                item = find_item(chosen)
+                if item and item["category"] in ("weapon", "armor", "head", "boots", "accessory"):
+                    slot = item["category"]
+                    if not updated["equipment"].get(slot):
+                        updated["inventory"].remove(item["key"])
+                        updated["equipment"][slot] = item
+                        text += f"\nAuto-equipped **{item['name']}**."
+            await save(updated)
+            return True, text
+
     def _make_caravan_shop_view():
         """Create a fresh CaravanShopView — each player gets their own."""
         view = discord.ui.View(timeout=300)  # 5 min per player session
@@ -3945,57 +3977,12 @@ async def run_caravan_arrival(bot_ctx, channel):
 
                 async def _buy_gear(interaction: discord.Interaction):
                     await interaction.response.defer(ephemeral=True)
-                    uid = str(interaction.user.id)
-                    sheet = await load(uid)
-                    if not sheet:
-                        await interaction.followup.send(
-                            embed=discord.Embed(description="No character found. (`!rpg new`)", color=0xcc4444),
-                            ephemeral=True
-                        )
-                        return
-                    if sheet.get("location") not in TOWN_LOCATIONS:
-                        await interaction.followup.send(
-                            embed=discord.Embed(description="You need to be in town to buy from the caravan.", color=0xcc4444),
-                            ephemeral=True
-                        )
-                        return
-                    if uid in gear_buyers:
-                        await interaction.followup.send(
-                            embed=discord.Embed(
-                                description=(
-                                    "*The merchant shakes his head.*\n\n"
-                                    "\"One piece of gear, friend. I told you — I need stock for the next town. "
-                                    "Consumables are still open if you need supplies.\""
-                                ),
-                                color=0xcc4444
-                            ), ephemeral=True
-                        )
-                        return
-
-                    chosen = interaction.data["values"][0]
-                    cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
-                    success, purchase_msg, updated = process_purchase(
-                        sheet, chosen, 1, sheet.get("reputation", 0), cha_mod=cha_mod
-                    )
-                    if success:
-                        item = find_item(chosen)
-                        if item and item["category"] in ("weapon", "armor", "head", "boots", "accessory"):
-                            slot = item["category"]
-                            if not updated["equipment"].get(slot):
-                                updated["inventory"].remove(item["key"])
-                                updated["equipment"][slot] = item
-                                purchase_msg += f"\nAuto-equipped **{item['name']}**."
-                        await save(updated)
-                        gear_buyers.add(uid)
-                        await interaction.followup.send(
-                            embed=discord.Embed(description=f"🐪 {purchase_msg}", color=0x44aa44),
-                            ephemeral=True
-                        )
-                    else:
-                        await interaction.followup.send(
-                            embed=discord.Embed(description=purchase_msg, color=0xcc4444),
-                            ephemeral=True
-                        )
+                    ok, text = await _caravan_purchase(
+                        str(interaction.user.id), interaction.data["values"][0], equip=True)
+                    await interaction.followup.send(
+                        embed=discord.Embed(description=(f"🐪 {text}" if ok else text),
+                                            color=0x44aa44 if ok else 0xcc4444),
+                        ephemeral=True)
 
                 gear_sel.callback = _buy_gear
                 view.add_item(gear_sel)
@@ -4016,37 +4003,12 @@ async def run_caravan_arrival(bot_ctx, channel):
 
             async def _buy_consumable(interaction: discord.Interaction):
                 await interaction.response.defer(ephemeral=True)
-                uid = str(interaction.user.id)
-                sheet = await load(uid)
-                if not sheet:
-                    await interaction.followup.send(
-                        embed=discord.Embed(description="No character found.", color=0xcc4444),
-                        ephemeral=True
-                    )
-                    return
-                if sheet.get("location") not in TOWN_LOCATIONS:
-                    await interaction.followup.send(
-                        embed=discord.Embed(description="You need to be in town to buy from the caravan.", color=0xcc4444),
-                        ephemeral=True
-                    )
-                    return
-
-                chosen = interaction.data["values"][0]
-                cha_mod = (sheet.get("stats", {}).get("cha", 10) - 10) // 2
-                success, purchase_msg, updated = process_purchase(
-                    sheet, chosen, 1, sheet.get("reputation", 0), cha_mod=cha_mod
-                )
-                if success:
-                    await save(updated)
-                    await interaction.followup.send(
-                        embed=discord.Embed(description=f"🐪 {purchase_msg}", color=0x44aa44),
-                        ephemeral=True
-                    )
-                else:
-                    await interaction.followup.send(
-                        embed=discord.Embed(description=purchase_msg, color=0xcc4444),
-                        ephemeral=True
-                    )
+                ok, text = await _caravan_purchase(
+                    str(interaction.user.id), interaction.data["values"][0], equip=False)
+                await interaction.followup.send(
+                    embed=discord.Embed(description=(f"🐪 {text}" if ok else text),
+                                        color=0x44aa44 if ok else 0xcc4444),
+                    ephemeral=True)
 
             cons_sel.callback = _buy_consumable
             view.add_item(cons_sel)
@@ -6011,7 +5973,7 @@ async def run_iron_magpies_heist(bot_ctx, channel):
                     f"🛡️ **{character_name}** survived, but {thief['name']} overpowered the defense and escaped with the loot."
                 )
         if stolen_details:
-            result_lines.append("\\n**Stolen Bank Balances (5% Vault Heist Loss):**\\n" + "\\n".join(stolen_details))
+            result_lines.append("\n**Stolen Bank Balances (5% Vault Heist Loss):**\n" + "\n".join(stolen_details))
 
     embed = discord.Embed(
         title="🕳️ Bank Defense Outcome",

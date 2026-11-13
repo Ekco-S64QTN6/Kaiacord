@@ -1,5 +1,6 @@
 """KiwiSDR subprocess destinations must be public, pinned IP literals."""
 import asyncio
+from pathlib import Path
 import socket
 
 import pytest
@@ -140,7 +141,8 @@ def test_record_subprocess_receives_the_pinned_ip_not_the_directory_hostname(
 
     async def fake_exec(*cmd, **_kwargs):
         captured["cmd"] = list(cmd)
-        output = tmp_path / "capture.wav"
+        # The recorder is told where to write (`-d`): a folder of its own.
+        output = Path(cmd[cmd.index("-d") + 1]) / "capture.wav"
         with wave.open(str(output), "wb") as wav:
             wav.setnchannels(1)
             wav.setsampwidth(2)

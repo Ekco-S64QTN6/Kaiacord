@@ -10,6 +10,7 @@ beside its destination rather than in `/tmp`.
 """
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import os
 import threading
@@ -77,6 +78,24 @@ def write_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
             pass
         raise
     return dest
+
+
+@contextlib.contextmanager
+def append_lock(path: PathLike):
+    """Hold the sidecar lock that serialises appends to `path`.
+
+    The live logger appends under this lock, so a tool that rewrites a log it
+    read earlier takes it, re-reads, and writes only if nothing was appended in
+    between; otherwise whatever arrived since is overwritten and lost."""
+    dest = Path(path)
+    lock_path = dest.with_name(f".{dest.name}.append.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield dest
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 def append_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:

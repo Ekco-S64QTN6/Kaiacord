@@ -411,8 +411,22 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
     # memory/radio/work sent every file it wrote into a folder that isn't there.
     out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    before = set(out_dir.glob("*.wav"))
-    cmd = _recorder_cmd(receiver, khz, mode) + ["-d", str(out_dir), "--station", label]
+    # Each call records into a folder of its own and hands back what it wrote.
+    # Choosing its files as "every .wav in out_dir that was not there before"
+    # claimed another job's clips whenever two recordings shared the work
+    # folder (the HFGCS and number-station jobs do).
+    import shutil
+    import tempfile
+    run_dir = Path(tempfile.mkdtemp(prefix=".rec-", dir=out_dir))
+    try:
+        return await _record_in(receiver, khz, mode, seconds, out_dir, run_dir, label, squelch_db)
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
+async def _record_in(receiver, khz, mode, seconds, out_dir: Path, run_dir: Path, label,
+                     squelch_db) -> list[Path]:
+    cmd = _recorder_cmd(receiver, khz, mode) + ["-d", str(run_dir), "--station", label]
     if squelch_db is not None:
         cmd += ["-T", f"{squelch_db:g}", "--squelch-tail", "3"]
     else:
@@ -425,7 +439,7 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
     refused, last = await _watch_stderr(proc, seconds + 20)
     quit_early = proc.returncode is not None
     await _stop(proc)
-    written = sorted(set(out_dir.glob("*.wav")) - before)
+    written = sorted(run_dir.glob("*.wav"))
     if refused and not written:
         note_failed(receiver, refused)
         raise FeedError(f"{receiver.host} {refused}")
@@ -451,7 +465,12 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
             kept.append(p)
         else:
             p.unlink(missing_ok=True)
-    return kept
+    moved = []
+    for p in kept:
+        dest = out_dir / p.name
+        p.replace(dest)
+        moved.append(dest)
+    return moved
 
 
 _REFUSALS = ("Failed to connect", "server closed the connection", "Too busy", "too many users",

@@ -41,6 +41,9 @@ def _defuse_turn_stamps(text: str) -> str:
     return _TURN_STAMP.sub(r"(\1)", text or "")
 
 
+_BOT_NAME = re.compile(r"(?i)(kaia|nexus|system)([\s:-].*)?$")
+
+
 class RAGPersistenceMixin:
     """Mixin class providing persistence, logging, and state management methods for KaiaRAG."""
 
@@ -48,7 +51,9 @@ class RAGPersistenceMixin:
         from utils.core.rag_persistence_lock import persistence_transaction_lock
         return persistence_transaction_lock(self)
 
-    @thread_safe_rag_operation
+    # No @thread_safe_rag_operation: it holds _data_lock across the call, and
+    # add_memory (in the worker thread) takes the same non-reentrant lock in
+    # log_user_interaction, so the decorated version could never get it.
     async def add_memory_async(self, user_id: int, user_name: str, text: str) -> bool:
         """Async wrapper for add_memory."""
         return await asyncio.to_thread(self.add_memory, user_id, user_name, text)
@@ -100,11 +105,13 @@ class RAGPersistenceMixin:
             return True
 
         # ECHO CHAMBER PROTECTION: Prevent self-logging of bots and reflections.
-        _BOT_NAME_PREFIXES = ["Kaia", "KAIA", "Nexus", "System"]
+        # By identity: her own name (and "Kaia-Autonomous" style variants) and
+        # the system voices, matched as whole names. A member called "Kaiara" or
+        # "Systemd_fan" is a person and is logged.
         bot_ids = [self._bot_user_id, "KAIA_SYSTEM", "KAIA_DREAM"]
         if (
             str(user_id) in [str(bid) for bid in bot_ids if bid] or
-            any(user_name.startswith(p) for p in _BOT_NAME_PREFIXES)
+            _BOT_NAME.match(str(user_name or "").strip())
         ):
             log_debug(f"Skipping log_user_interaction for bot identity: {user_name} ({user_id})")
             return True
