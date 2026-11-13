@@ -387,7 +387,10 @@ Verified 2026-11-10: **369 monsters**, **395 gear + 58 consumables = 453 items**
 - **Shutdown has a real upper bound and still saves what matters.** `AsyncTaskRegistry.cancel_all(timeout)`
   uses `asyncio.wait(..., timeout=...)`, not `wait_for(gather(...))`: a task that catches `CancelledError`
   made `wait_for` wait past its timeout. Voice and radio stop first, as tracked tasks sharing one
-  `timeouts.shutdown_task_cancel_seconds` budget (the dashboard force-exits ~18 s after asking the bot to stop).
+  `timeouts.shutdown_task_cancel_seconds` budget. The parent waits for the bot thread itself, up to
+  `dashboard_manager.BOT_SHUTDOWN_DEADLINE_S`; the screen closing is not the bot having stopped, and for months the
+  wait was released by it, three seconds before the exit. `force_exit` stops the log worker first, or the last
+  second of lines is lost.
   One that overruns is cancelled and shutdown carries on: none of them touch the index, Ollama or the GPU, and
   `scanner.shutdown()` waits up to 80 s for a last transcription. A *background* task still running after the
   registry's deadline does hold back the resource teardown (index save, model unload, AppContext), since it
@@ -493,6 +496,13 @@ continuity/growth logs, or the delayed-afterthought queue. The DM's own transcri
 channel-memory turns are the only conversational memory writes. It must not mark its DM channel
 as the server's last active channel or proactive destination. Aggregate operational counters may
 still count a message, but they must not retain the content or channel identity of the DM.
+
+**An invitation-only thread is kept as a DM is** (`_in_private_thread`): its turns set `ctx.is_dm`, so they
+go to the author's DM log and are held to everything above, and a watched channel does not log its private
+threads. She still needs her name there. A role-restricted *channel* is not covered: a channel's name is
+not its audience, and whether the configured channels are restricted is a fact of the live server.
+A pasted message link into a private thread is read only for someone invited to it or holding
+`manage_threads` (`_requester_can_read`): a thread's permissions are its parent's.
 
 ### Token budget
 

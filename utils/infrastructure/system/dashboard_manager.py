@@ -19,20 +19,47 @@ from utils.infrastructure.monitoring.async_task_registry import task_registry
 
 # --- MULTIPROCESSING TARGETS (Must be at module level for pickling) ---
 
-def _run_dashboard_process(shared_stats, log_queue, stop_event, cleanup_complete_event, error_queue):
+# How long the bot's own shutdown may take once it has been asked to stop. It
+# saves her state and the RAG indices; ending the process under it loses both.
+BOT_SHUTDOWN_DEADLINE_S = 40.0
+# A new instance waits this long for the one it replaces, so longer than the above.
+OTHER_INSTANCE_GRACE_S = 45.0
+# Tasks still running when the bot's loop closes get this long to take a cancel.
+LOOP_DRAIN_S = 5.0
+
+
+def wait_for_bot_shutdown(bot_thread, dashboard_process, logger,
+                          deadline_s: float = BOT_SHUTDOWN_DEADLINE_S) -> bool:
+    """Wait for the bot thread to finish shutting down; True when it did, cleanly.
+
+    The screen closing is not the bot having stopped: the dashboard exits the
+    moment it is asked to, and the bot is then still saving. Only the bot thread
+    ending says its shutdown ran, and only `_shutdown_complete` says it ran whole.
+    """
+    if dashboard_process is not None:
+        dashboard_process.join(timeout=2.0)
+    # Nothing reads the log queue once the screen is gone; the rest goes to the console.
+    logger.set_dashboard_mode(False)
+    bot_thread.join(timeout=deadline_s)
+    if bot_thread.is_alive():
+        log_error(f"Shutdown incomplete: the bot was still shutting down after {deadline_s:.0f}s; "
+                  "exiting anyway. State or index changes from this run may not be saved.")
+        return False
+    if not shutdown_manager._shutdown_complete.is_set():
+        log_error("Shutdown incomplete: the bot stopped without finishing its teardown.")
+        return False
+    return True
+
+
+def _run_dashboard_process(shared_stats, log_queue, stop_event, error_queue):
     """Entry point for the isolated dashboard process."""
     try:
         dashboard = BtopDashboardV2(
             shared_stats=shared_stats,
             log_queue=log_queue,
             stop_event=stop_event,
-            cleanup_complete_event=cleanup_complete_event
         )
         dashboard.run()
-        try:
-            cleanup_complete_event.set()
-        except Exception:
-            pass
     except Exception as e:
         err_info = (str(e), traceback.format_exc())
         try:
@@ -135,9 +162,8 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
                 pass
         await asyncio.sleep(1.0)
 
-def _run_bot_in_thread(shared_stats, stats_tracker, stats_poller, stop_event, 
-                       m_cleanup_complete_event, initialize_logic_layer, run_bot_async,
-                       ctx=None):
+def _run_bot_in_thread(shared_stats, stats_tracker, stats_poller, stop_event,
+                       initialize_logic_layer, run_bot_async, ctx=None):
     """Isolated bot thread runner."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -163,7 +189,8 @@ def _run_bot_in_thread(shared_stats, stats_tracker, stats_poller, stop_event,
                 pending = asyncio.all_tasks(loop)
                 for task in pending:
                     if not task.done(): task.cancel()
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                # A task may swallow the cancel; it does not get to hold the process open.
+                loop.run_until_complete(asyncio.wait(pending, timeout=LOOP_DRAIN_S))
             loop.run_until_complete(loop.shutdown_asyncgens())
         except Exception: pass
         
@@ -192,7 +219,8 @@ class DashboardManager:
         """Kill-other instances of Kaiacord and clear GPU memory."""
         current_pid = os.getpid()
         log_action(f"Startup cleanup (PID: {current_pid})...")
-        
+        survivors = []
+
         for proc in psutil.process_iter(['pid', 'ppid', 'name', 'cmdline', 'exe']):
             try:
                 ppid = proc.info.get('ppid')
@@ -213,18 +241,21 @@ class DashboardManager:
                     # that takes ~15 s, most of it persisting the RAG indices, and
                     # 5 s killed it partway through the write.
                     log_action(f"  - Stopping the other running instance: PID {pid}")
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=45)
-                        log_success(f"  - PID {proc.info['pid']} terminated.")
-                    except psutil.TimeoutExpired:
-                        log_warning(f"  - PID {proc.info['pid']} didn't terminate, killing...")
-                        proc.kill()
-                        log_success(f"  - PID {proc.info['pid']} killed.")
+                    from utils.infrastructure.gpu.clear_gpu_memory import stop_and_reap
+                    if stop_and_reap(proc, grace=OTHER_INSTANCE_GRACE_S, kill_wait=10.0):
+                        log_success(f"  - PID {pid} has exited.")
+                    else:
+                        survivors.append(pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
             except Exception as e:
                 log_warning(f"Error checking process: {e}")
+
+        if survivors:
+            # Two processes on one token answer every message twice and write
+            # the same state files; starting beside it is worse than not starting.
+            log_critical(f"Another Kaiacord instance survived SIGKILL (PID {survivors}); not starting beside it.")
+            raise SystemExit(1)
 
         # Clear GPU memory
         try:
@@ -351,7 +382,7 @@ class DashboardManager:
         log_queue = multiprocessing.Queue(maxsize=1000)
         ui_error_queue = multiprocessing.Queue()
         m_stop_event = multiprocessing.Event()
-        m_cleanup_complete_event = multiprocessing.Event()
+        clean = False
         
         # Signal dashboard mode to suppress console and enable queue
         self.logger.set_dashboard_mode(True, queue=log_queue)
@@ -360,7 +391,7 @@ class DashboardManager:
             # 3. Start UI in separate process (Isolates psutil and curses from bot GIL)
             self.dashboard_process = multiprocessing.Process(
                 target=_run_dashboard_process,
-                args=(shared_stats, log_queue, m_stop_event, m_cleanup_complete_event, ui_error_queue),
+                args=(shared_stats, log_queue, m_stop_event, ui_error_queue),
                 name="KaiaDashboard",
                 daemon=True
             )
@@ -369,9 +400,8 @@ class DashboardManager:
             # 4. Start Bot in separate thread of MAIN process
             self.bot_thread = threading.Thread(
                 target=_run_bot_in_thread, 
-                args=(shared_stats, self.stats_tracker, self.stats_poller, self.stop_event, 
-                      m_cleanup_complete_event, initialize_logic_layer, run_bot_async,
-                      self.ctx),
+                args=(shared_stats, self.stats_tracker, self.stats_poller, self.stop_event,
+                      initialize_logic_layer, run_bot_async, self.ctx),
                 daemon=True, 
                 name="DiscordBot"
             )
@@ -412,15 +442,7 @@ class DashboardManager:
                     pass
             self.stop_event.set()
             
-            # Wait for bot thread cleanup to signal completion (async_shutdown finishes)
-            # This allows dashboard to stay alive long enough to show the final logs
-            if not m_cleanup_complete_event.is_set():
-                log_action("Waiting for bot cleanup to finalize...")
-                m_cleanup_complete_event.wait(timeout=15.0) # Reduced from 25.0
-            
-            # Ensure bot thread is joined
-            if self.bot_thread.is_alive():
-                self.bot_thread.join(timeout=3.0) # Reduced from 5.0
+            clean = wait_for_bot_shutdown(self.bot_thread, self.dashboard_process, self.logger)
 
         except KeyboardInterrupt:
             print("\n⚠️  Keyboard interrupt received")
@@ -482,11 +504,12 @@ class DashboardManager:
                 sys.__stdout__.flush()
             except Exception:
                 pass
-            sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
+            sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n" if clean else
+                                 "\n[WARNING] Kaia stopped before her shutdown finished; see logs/kaiacord.log.\n")
             sys.__stdout__.flush()
             
             # Direct clean force exit - avoids lingering threads or unjoined multiprocessing server
-            shutdown_manager.force_exit(0)
+            shutdown_manager.force_exit(0 if clean else 1)
 
     async def run_simple_mode(self, initialize_logic_layer, run_bot_async):
         """Run in simple ANSI mode."""

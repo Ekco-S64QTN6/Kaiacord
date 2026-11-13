@@ -46,6 +46,58 @@ def test_a_link_into_a_channel_the_requester_cannot_see_is_not():
     channel.fetch_message.assert_not_called()
 
 
+def _private_thread(invited: bool, manage_threads: bool = False, parent_cached: bool = True):
+    """The parent channel is readable by the requester; the thread is invitation-only."""
+    import discord
+    enricher, msg, _ = _setup(can_read=True)
+    thread = MagicMock(spec=discord.Thread)
+    thread.name = "mod-notes"
+    thread.guild = MagicMock()
+    thread.guild.id = GUILD
+    thread.guild.get_member = MagicMock(return_value=object())
+    thread.is_private = MagicMock(return_value=True)
+    perms = SimpleNamespace(view_channel=True, read_message_history=True, manage_threads=manage_threads)
+    thread.permissions_for = MagicMock(return_value=perms) if parent_cached else MagicMock(
+        side_effect=discord.ClientException("Parent channel not found"))
+    thread.fetch_member = AsyncMock(return_value=object()) if invited else AsyncMock(
+        side_effect=discord.NotFound(MagicMock(status=404), "Unknown Member"))
+    linked = MagicMock()
+    linked.author.display_name = "Mod"
+    linked.content = "what the moderators said in private"
+    thread.fetch_message = AsyncMock(return_value=linked)
+    enricher.bot.get_channel = MagicMock(return_value=thread)
+    return enricher, msg, thread
+
+
+def test_a_private_thread_is_closed_to_someone_who_can_only_read_its_parent():
+    enricher, msg, thread = _private_thread(invited=False)
+    assert asyncio.run(enricher.resolve_message_links(msg)) == ""
+    thread.fetch_message.assert_not_called()
+
+
+def test_a_private_thread_is_read_for_someone_invited_to_it():
+    enricher, msg, _ = _private_thread(invited=True)
+    assert "what the moderators said in private" in asyncio.run(enricher.resolve_message_links(msg))
+
+
+def test_a_private_thread_is_read_for_a_moderator_of_its_parent():
+    enricher, msg, thread = _private_thread(invited=False, manage_threads=True)
+    assert "what the moderators said in private" in asyncio.run(enricher.resolve_message_links(msg))
+    thread.fetch_member.assert_not_called()
+
+
+def test_a_thread_whose_parent_is_unknown_is_not_read():
+    enricher, msg, thread = _private_thread(invited=True, parent_cached=False)
+    assert asyncio.run(enricher.resolve_message_links(msg)) == ""
+    thread.fetch_message.assert_not_called()
+
+
+def test_a_public_thread_needs_only_its_parent():
+    enricher, msg, thread = _private_thread(invited=False)
+    thread.is_private = MagicMock(return_value=False)
+    assert "what the moderators said in private" in asyncio.run(enricher.resolve_message_links(msg))
+
+
 def test_a_link_whose_guild_does_not_match_the_channel_is_not_resolved():
     enricher, msg, channel = _setup(can_read=True, channel_guild=999)
     assert asyncio.run(enricher.resolve_message_links(msg)) == ""

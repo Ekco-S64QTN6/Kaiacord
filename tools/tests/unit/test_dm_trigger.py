@@ -139,3 +139,67 @@ async def test_guild_message_with_kaia_triggers(mock_processor):
     called_ctx = mock_processor._run_intelligence_pipeline.call_args[0][0]
     assert called_ctx.is_dm is False
     assert called_ctx.is_mention is True
+
+
+def _thread_message(private: bool, parent_name: str = "kaia-opolis", content: str = "hey kaia, between us"):
+    parent = MagicMock(spec=discord.TextChannel)
+    parent.name = parent_name
+    thread = MagicMock(spec=discord.Thread)
+    thread.id = 777777
+    thread.name = "side-room"
+    thread.parent = parent
+    thread.is_private = MagicMock(return_value=private)
+    user = MagicMock(spec=discord.Member)
+    user.id = 333333
+    user.name = user.display_name = "Cara"
+    user.bot = False
+    msg = MagicMock(spec=discord.Message)
+    msg.platform = "discord"
+    msg.author = user
+    msg.guild = MagicMock(spec=discord.Guild)
+    msg.channel = thread
+    msg.mentions = []
+    msg.role_mentions = []
+    msg.attachments = []
+    msg.stickers = []
+    msg.content = content
+    return msg
+
+
+@pytest.mark.asyncio
+async def test_a_private_thread_is_kept_as_a_dm_is(mock_processor):
+    """Invitation-only: its turns must not reach the logs retrieval serves to everyone."""
+    await mock_processor._process_internal(_thread_message(private=True))
+    ctx = mock_processor._run_intelligence_pipeline.call_args[0][0]
+    assert ctx.is_dm is True
+    mock_processor.bot_state.update_interaction.assert_called_once_with(None)
+
+
+@pytest.mark.asyncio
+async def test_a_private_thread_still_needs_her_name(mock_processor):
+    await mock_processor._process_internal(_thread_message(private=True, content="lunch at noon?"))
+    assert not mock_processor._run_intelligence_pipeline.called
+
+
+@pytest.mark.asyncio
+async def test_a_public_thread_is_an_ordinary_channel(mock_processor):
+    msg = _thread_message(private=False)
+    await mock_processor._process_internal(msg)
+    ctx = mock_processor._run_intelligence_pipeline.call_args[0][0]
+    assert ctx.is_dm is False
+    mock_processor.bot_state.update_interaction.assert_called_once_with(msg.channel.id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("private, logged", [(True, False), (False, True)])
+async def test_a_watched_channel_logs_its_public_threads_only(mock_processor, private, logged):
+    mock_processor.config.blacklisted_channels = ["general"]
+    mock_processor.rag = MagicMock()
+    mock_processor.rag.log_user_interaction_async = AsyncMock()
+    mock_processor._reactions = MagicMock()
+    mock_processor._reactions.maybe_react = AsyncMock()
+    await mock_processor._process_internal(_thread_message(private=private, parent_name="general"))
+    import asyncio
+    await asyncio.sleep(0)
+    assert mock_processor.rag.log_user_interaction_async.called is logged
+    assert not mock_processor._run_intelligence_pipeline.called
