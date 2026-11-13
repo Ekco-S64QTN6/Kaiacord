@@ -211,6 +211,9 @@ class ContextEnricher:
         Main entry point to get full context from a message.
         """
         content = msg.content
+        if not (content or "").strip():
+            # A forward posted straight to her carries its text only in the snapshot.
+            content = self._forwarded_text(msg) or content
         
         # 1. Resolve Mentions (Resolve <@ID> to Names)
         content = await self.resolve_mentions(content, msg)
@@ -481,15 +484,34 @@ class ContextEnricher:
             
         return ""
 
+    def _forwarded_text(self, msg) -> str:
+        """What a forwarded message carries. A forward has no text of its own:
+        Discord keeps the original in `message_snapshots`, so a reply to one
+        quoted only the forwarder's name and she was left with nothing to read."""
+        snapshots = getattr(msg, "message_snapshots", None)
+        if not isinstance(snapshots, (list, tuple)):
+            return ""
+        parts = []
+        for snapshot in snapshots[:3]:
+            text = str(getattr(snapshot, "content", "") or "").strip()
+            embeds = self.extract_embed_text(snapshot)[:QUOTED_EMBED_CHARS]
+            body = "\n".join(part for part in (text, embeds) if part)
+            if body:
+                parts.append(body)
+        return "(forwarded)\n" + "\n\n".join(parts) if parts else ""
+
     def _with_embeds(self, content: str, msg) -> str:
-        """A quoted message's text with its embeds. Every command of hers
-        answers in an embed with no message text, so without them a reply to
-        one quoted her as "Kaia:" and nothing else."""
+        """A quoted message's text with its embeds and anything it forwards.
+        Every command of hers answers in an embed with no message text, so
+        without them a reply to one quoted her as "Kaia:" and nothing else."""
+        parts = [content] if (content or "").strip() else []
+        forwarded = self._forwarded_text(msg)
+        if forwarded:
+            parts.append(forwarded)
         embeds = self.extract_embed_text(msg)
-        if not embeds:
-            return content
-        embeds = embeds[:QUOTED_EMBED_CHARS]
-        return f"{content}\n{embeds}" if (content or "").strip() else embeds
+        if embeds:
+            parts.append(embeds[:QUOTED_EMBED_CHARS])
+        return "\n".join(parts) if parts else content
 
     def extract_embed_text(self, msg: discord.Message) -> str:
         """Extract titles, descriptions, and fields from Discord embeds."""

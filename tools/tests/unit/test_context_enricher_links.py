@@ -264,6 +264,51 @@ def test_a_linked_message_carries_its_embeds_too():
     assert "a reply waiting for moderation" in out
 
 
+def _forward(text="", embeds=()):
+    """A forwarded message as discord.py 2.7 shows it: no text of its own, the
+    original in `message_snapshots`."""
+    snapshot = SimpleNamespace(content=text, embeds=list(embeds))
+    return MagicMock(spec=["author", "content", "embeds", "mentions", "message_snapshots"],
+                     author=SimpleNamespace(id=5, display_name="Ekco"), content="",
+                     mentions=[], embeds=[], message_snapshots=[snapshot])
+
+
+def test_a_reply_to_a_forwarded_message_quotes_what_was_forwarded():
+    """Ekco forwarded a post to #kaia-opolis and replied "Kaia". The forward's
+    own content is empty, so she was quoted "Ekco:" and nothing else (5 chars),
+    and answered from retrieval with eight unrelated thoughts."""
+    target = _forward("TVs can emit near-ultrasonic beacons that phones pick up")
+    msg = MagicMock()
+    msg.reference = SimpleNamespace(message_id=1, resolved=None)
+    msg.channel.fetch_message = AsyncMock(return_value=target)
+    enricher = ContextEnricher(MagicMock())
+    out = asyncio.run(enricher.resolve_replies(msg))
+    assert out.startswith("Ekco: ")
+    assert "(forwarded)" in out and "near-ultrasonic beacons" in out
+
+
+def test_a_forwarded_embed_is_read_too():
+    target = _forward("", [_embed("Outage", "banks fall back to fax")])
+    enricher = ContextEnricher(MagicMock())
+    assert "banks fall back to fax" in enricher._with_embeds("", target)
+
+
+def test_a_forward_posted_straight_to_her_is_read():
+    msg = _forward("a forwarded line")
+    msg.reference = None
+    msg.attachments = []
+    enricher = ContextEnricher(MagicMock())
+    out = asyncio.run(enricher.enrich_content(msg))
+    assert "a forwarded line" in out
+
+
+def test_a_message_without_snapshots_is_quoted_as_before():
+    enricher = ContextEnricher(MagicMock())
+    plain = SimpleNamespace(embeds=[], message_snapshots=[])
+    assert enricher._with_embeds("hello", plain) == "hello"
+    assert enricher._with_embeds("hello", SimpleNamespace(embeds=[])) == "hello"
+
+
 def test_a_quoted_embed_is_capped():
     enricher = ContextEnricher(MagicMock())
     big = SimpleNamespace(embeds=[_embed("t", "x" * 20_000)])

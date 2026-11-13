@@ -183,6 +183,9 @@ _DISCORD_LINK = re.compile(
     r"https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/channels/\S+", re.IGNORECASE)
 
 
+_LABEL_ONLY = re.compile(r"^[^:\n]{1,64}:\s*$")
+
+
 def pointed_at(sanitized_content: str, parent_context: str | None) -> str | None:
     """The message a turn points at, when pointing is all the turn does.
 
@@ -197,8 +200,8 @@ def pointed_at(sanitized_content: str, parent_context: str | None) -> str | None
         linked = text.split("[LINKED_MESSAGE_CONTEXT]", 1)[1]
         linked = linked.split("\n\n[LINKED_WEB_CONTENT]", 1)[0].strip()
     subject = linked or (parent_context or "").strip()
-    if not subject:
-        return None
+    if not subject or _LABEL_ONLY.match(subject):
+        return None     # nothing quoted but an author's name: there is no subject to point at
 
     own = _DISCORD_LINK.sub(" ", user_authored_text(text))
     if re.search(r"https?://", own):

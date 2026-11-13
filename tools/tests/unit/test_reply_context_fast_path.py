@@ -130,3 +130,12 @@ def test_pointing_turn_is_not_told_to_greet():
     i_point = src.index("if ctx.pointed_at:\n                # The message it points at")
     i_greet = src.index("User just called your name")
     assert i_point < i_greet
+
+
+def test_a_quote_that_is_only_an_author_label_is_not_a_subject():
+    """A reply to a forward quoted "Ekco:" and nothing after it; that is no
+    message to point at, and treating it as the subject sent her to retrieval."""
+    from utils.core.sanitizer import pointed_at
+    assert pointed_at("kaia", "Ekco:") is None
+    assert pointed_at("kaia", "Ekco: ") is None
+    assert pointed_at("kaia", "Ekco: something quoted") == "Ekco: something quoted"
