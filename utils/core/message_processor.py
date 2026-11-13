@@ -1836,6 +1836,19 @@ class MessageProcessor:
         except Exception:
             pass
 
+        # 2.7 "do me next": a clipped follow-up that turns the last question on
+        # the speaker is read as being about her (utils/core/followup_note.py).
+        try:
+            if messages and messages[-1].get("role") == "user":
+                from utils.core import followup_note
+                _follow = followup_note.note(ctx.own_words or "", getattr(ctx, "author_name", "") or "",
+                                             messages[:-1])
+                if _follow:
+                    messages[-1]["content"] += f"\n\n{_follow}"
+                    log_info("[followup_note] a short follow-up was tied to the speaker's last question")
+        except Exception:
+            pass
+
         # 3. LLM Generation (flag active to block quips/dreams)
         if self.bot_state:
             self.bot_state.is_generating = True
