@@ -125,7 +125,8 @@ class PostLedger:
             # and with it the daily cap and the spacing between posts.
             try:
                 import shutil
-                shutil.copy2(self.path, self.path.with_name(self.path.name + ".corrupt"))
+                if self.path is not None:
+                    shutil.copy2(self.path, self.path.with_name(self.path.name + ".corrupt"))
             except OSError:
                 pass
 
