@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -82,6 +83,8 @@ class PostingWindow:
 
 # ── How often ────────────────────────────────────────────────────────
 
+_LEDGER_LOCK = threading.RLock()
+
 @dataclass
 class PostLedger:
     """Durable record of what Kaia has posted, and where.
@@ -118,6 +121,13 @@ class PostLedger:
         except Exception as e:
             log_debug(f"Forum ledger load failed (starting empty): {e}")
             self.posts = []
+            # The next save would replace an unreadable file with an empty one,
+            # and with it the daily cap and the spacing between posts.
+            try:
+                import shutil
+                shutil.copy2(self.path, self.path.with_name(self.path.name + ".corrupt"))
+            except OSError:
+                pass
 
     def save(self) -> None:
         try:
@@ -131,6 +141,15 @@ class PostLedger:
 
     def record(self, thread_id: int, title: str = "", kind: str = INITIATION,
                body: str = "", last_seen_post_id=None) -> None:
+        # A ledger object can be held across awaits (the reply watcher keeps one
+        # for a whole pass) while another one records a post. Re-read the file
+        # under the lock so this write is added to what is there now, not put
+        # over it from the copy loaded at construction.
+        with _LEDGER_LOCK:
+            self.load()
+            self._append(thread_id, title, kind, body, last_seen_post_id)
+
+    def _append(self, thread_id, title, kind, body, last_seen_post_id) -> None:
         self.posts.append({
             "ts": time.time(),
             "thread_id": int(thread_id),
@@ -237,6 +256,11 @@ class PostLedger:
         rejections in a row each regenerated from an identical starting point and
         drifted the same way — the operator's "compounding slop".
         """
+        with _LEDGER_LOCK:
+            self.load()
+            self._note_skip(thread_id, newest_post_id, body)
+
+    def _note_skip(self, thread_id: int, newest_post_id, body: str) -> None:
         key = str(int(thread_id))
         prior = self.skips.get(key) or {}
         bodies = [b for b in (prior.get("rejected") or []) if isinstance(b, str)]

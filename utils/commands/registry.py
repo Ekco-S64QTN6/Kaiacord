@@ -268,6 +268,19 @@ async def dispatch_command(ctx, msg, load_persona_async, send_kaia_response):
     if cmd is None:
         return False
 
+    # The gate lives here as well as in each handler: a new owner-only command
+    # that forgets its own check is still closed.
+    if cmd.owner_only:
+        from utils.infrastructure.system.yaml_config import config
+        author = msg.author
+        if not config.is_owner(getattr(author, "name", ""), getattr(author, "display_name", None),
+                               str(getattr(author, "id", ""))):
+            try:
+                await msg.channel.send(embed=notice("you aren't my architect. restricted.", error=True))
+            except Exception:
+                pass
+            return True
+
     extras = {RESPONDER: send_kaia_response, PERSONA: load_persona_async}
     args = (ctx, msg) if cmd.extra is None else (ctx, msg, extras[cmd.extra])
 

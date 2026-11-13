@@ -52,6 +52,10 @@ def _when(dt: datetime | None) -> str:
     return f"{dt:%d %b %H:%M}Z" if dt else "time unknown"
 
 
+#: Manual `!radio listen` jobs in flight.
+_LISTENS: set = set()
+
+
 def _age(cache: dict) -> str:
     fetched = cache.get("fetched_at")
     if not fetched:
@@ -61,7 +65,9 @@ def _age(cache: dict) -> str:
 
 
 def _message_line(i: int, m: eam_watch.Message) -> str:
-    code = f"`{m.preamble} {m.body}`" if m.preamble else f"`{m.body}`"
+    # The text is a volunteer-run site's: no backtick of its own may close the span.
+    body = clean(m.body, 200)
+    code = f"`{clean(m.preamble, 40)} {body}`" if m.preamble else f"`{body}`"
     audio = " 🔊" if m.recordings else ""
     return f"**{i}** · {_when(m.time)} · **{clean(m.sender, 40)}** {code}{audio}"
 
@@ -89,18 +95,20 @@ def detail_embed(msgs: list[eam_watch.Message], number: int):
         return box("📻  Emergency Action Messages",
                    f"There are {len(eams)} in the list — pick one from `!skyking`.", COLOR_ERROR)
     m = eams[number - 1]
-    embed = box(f"📻  EAM from {clean(m.sender, 60)}", f"`{m.text}`", COLOR_RADIO,
+    embed = box(f"📻  EAM from {clean(m.sender, 60)}", f"`{clean(m.text, 400)}`", COLOR_RADIO,
                 footer=f"via eam.watch · {m.url}\n{_others('detail')}")
     add_field(embed, "Heard", _when(m.time), inline=True)
     if m.preamble:
-        add_field(embed, "Preamble", f"`{m.preamble}`", inline=True)
+        add_field(embed, "Preamble", f"`{clean(m.preamble, 40)}`", inline=True)
     add_field(embed, "Length", f"{len(m.body)} characters", inline=True)
     if m.repeats:
         add_field(embed, "Repeats", str(m.repeats), inline=True)
     if m.comments:
         add_field(embed, "Comments", f"{m.comments} on eam.watch", inline=True)
     if m.recordings:
-        add_field(embed, "Recording", "\n".join(f"[listen]({u})" for u in m.recordings[:3]))
+        links = [u for u in m.recordings[:3] if str(u).startswith(("https://", "http://")) and ")" not in str(u) and " " not in str(u)]
+        if links:
+            add_field(embed, "Recording", "\n".join(f"[listen]({u})" for u in links))
     return embed
 
 
@@ -386,6 +394,11 @@ async def handle_radio_command(ctx, msg, send_kaia_response=None):
                 await msg.channel.send(embed=box("📡  Radio", "kiwiclient isn't installed — "
                                                  "`tools/maintenance/fetch_radio_assets.py`.", COLOR_ERROR))
                 return
+            # One manual listen at a time: each is a recording slot on someone else's
+            # receiver and then a CPU transcription, and the command is open to everyone.
+            if _LISTENS:
+                await msg.channel.send(embed=box("📡  Radio", "already listening. let that one finish.", COLOR_RADIO))
+                return
             minutes = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 10
             minutes = max(2, min(30, minutes))
             job = {"key": f"manual:{datetime.now(timezone.utc):%Y%m%dT%H%M}", "kind": "hfgcs", "station": "HFGCS",
@@ -394,8 +407,11 @@ async def handle_radio_command(ctx, msg, send_kaia_response=None):
             bot = getattr(ctx, "bot", None)
             import asyncio
             from utils.infrastructure.monitoring.async_task_registry import task_registry
-            task_registry.register(f"radio_listen_{int(time.time())}", asyncio.create_task(
-                watch.run_job(job, (lambda e: post_entry(bot, e)) if bot else None)))
+            task = asyncio.create_task(
+                watch.run_job(job, (lambda e: post_entry(bot, e)) if bot else None))
+            _LISTENS.add(task)
+            task.add_done_callback(_LISTENS.discard)
+            task_registry.register(f"radio_listen_{time.time_ns()}", task)
             await msg.channel.send(embed=box("📡  Listening", f"on 8992 kHz for {minutes} minutes. Anything that "
                                              "sounds like an EAM goes to the log and #kaia-opolis.", COLOR_RADIO,
                                              footer=_others('radio')))

@@ -399,7 +399,7 @@ class _ForumReplyConfirmView:
             label="❌ Cancel", style=discord.ButtonStyle.danger
         )
         regen_btn = discord.ui.Button(
-            label="🔄 Regenerate", style=discord.ButtonStyle.secondary
+            label="🗑️ Discard (draft again)", style=discord.ButtonStyle.secondary
         )
 
         async def _confirm(interaction: discord.Interaction):
@@ -407,6 +407,11 @@ class _ForumReplyConfirmView:
                 await interaction.response.send_message("not your button.", ephemeral=True)
                 return
             await interaction.response.defer()
+            # Stop the view before the slow post: two quick presses used to both
+            # post, with only the client's daily and spacing limits behind them.
+            if view.is_finished():
+                return
+            view.stop()
             success = await client.post_reply(thread_id, reply_text)
             if success:
                 await interaction.followup.send(embed=notice(f"✅ posted to '{title[:80]}'."))
