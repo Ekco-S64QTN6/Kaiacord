@@ -449,13 +449,20 @@ commands are carries the registry's lines for them. Asked about `!help` she had 
 The open loop in her "returning" dossier is the speaker's own plan (`open_loops.find`: "i" as its subject, not a
 question, not pasted text); the old patterns kept "want to see it? yes or no?" as Starkind's intention.
 
-### Long replies are fine
+### Length has one owner, and it reads the turn
 
-**Ekco's call (8 Nov, again 12 Nov): no note that tells her how long to be.** A note beside a passing
-remark ("a line or two, then stop") took 24 replayed asides from a median of 52 words to 16 and shipped
-on 12 Nov; it was taken out the same day. The hour's note is tone only. Measure a prompt change on real
-turns with `tools/maintenance/replay_turns.py` before shipping it (it runs in a sandbox copy, never the
-checkout), and read the replies, not only the counts.
+**How much a reply should be is read from the speaker's own words, in one place**
+(`utils/core/turn_shape.py`), and the note goes beside the message. The median reply to a message of
+twelve words or fewer went from 40 words in early September to 69 in early November, and nothing in
+the prompt was reading the message for its size: length advice came from the hour ("willing to go
+longer" at night), from the average of the speaker's last five messages, and from how long the
+conversation had run, each appended on its own. A passing remark in plain text now gets "a line or
+two"; a question, a shared link or picture, and anything that offers room (a request for her view,
+"continue", a scene's "open direction", forty words or more) gets no note. Replayed on real turns
+against the live model with real retrieval, 24 asides went from a median of 52 words to 16 with her
+voice intact. The same note on short questions was tried and dropped: 3 of 12 replies came back
+capitalised or in assistant phrasing, and scene questions went flat. Do not add length advice to another injection; the hour's note is
+tone only. A new cue that should offer room goes in `_INVITATION`, checked against her logs first. Ekco reversed his 12 Nov removal on 13 Nov: replies had become long again (a forwarded post she could not read drew 448 words), and "a line or two" on passing remarks had worked before.
 
 **What she can't see or can't place, she is told beside the message** (`utils/core/grounding_notes.py`). Asked
 about a picture that never reached her, she described a sunset three times in three; asked who said an invented line,
