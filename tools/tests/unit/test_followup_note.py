@@ -57,3 +57,51 @@ def test_a_quote_in_the_question_cannot_close_the_note():
 def test_a_very_long_question_is_not_quoted():
     history = [{"role": "user", "content": "Cara: " + "why " * 100 + "?"}]
     assert f.note("do me next", "Cara", history) == ""
+
+
+# ── the wiring: the note reaches the message the model is given ─────────────
+
+import asyncio
+import types
+
+from utils.core.message_processor import MessageProcessor
+
+
+class _Stop(BaseException):
+    pass
+
+
+def _run_stage(own_words, history, speaker="Cara"):
+    p = MessageProcessor.__new__(MessageProcessor)
+    p.bot_state = types.SimpleNamespace(channel_memory={}, is_generating=False)
+    p.context_optimizer = types.SimpleNamespace(optimize_context=lambda **k: {})
+    p._construct_messages = lambda ctx, opt: (
+        [{"role": "system", "content": "persona"}] + history
+        + [{"role": "user", "content": f"[You are speaking exclusively to {speaker}.]\n{speaker}: {own_words}"}])
+    seen = {}
+
+    async def call(ctx, messages):
+        seen["messages"] = messages
+        raise _Stop
+
+    p._call_ollama_with_retries = call
+    msg = types.SimpleNamespace(attachments=[], embeds=[], reference=None, content=own_words,
+                                channel=types.SimpleNamespace(), platform="discord")
+    ctx = types.SimpleNamespace(message=msg, own_words=own_words, channel_id=1, category="GENERAL", system_prompt="",
+                                context_nodes=[], intent=None, sanitized_content=own_words, author_id=1,
+                                author_name=speaker)
+    with pytest.raises(_Stop):
+        asyncio.run(p._generate_response_stage(ctx))
+    return seen["messages"]
+
+
+def test_the_generation_stage_puts_the_note_beside_a_handover():
+    messages = _run_stage("do me next", HISTORY)
+    assert messages[-1]["content"].endswith('"me" is Cara, not you.]')
+    assert "What did you find distinctive" in messages[-1]["content"]
+    assert "do me next" not in messages[0]["content"]
+
+
+def test_the_generation_stage_leaves_an_ordinary_message_alone():
+    messages = _run_stage("tell me more", HISTORY)
+    assert "not you.]" not in messages[-1]["content"]
