@@ -2468,10 +2468,14 @@ async def _dungeon_complete(ctx_obj, interaction, uid, uname, is_owner,
     await _broadcast_world_event(ctx_obj, dungeon_embed)
 
 
+# The channel's lock as well as the player's: it adds a monster to the channel's
+# shared session, as a hunt does.
+@serialize_combat_action
 async def _handle_raid_blockade(ctx, msg, send, rest, uid, uname, is_owner):
     """Assault the Bandit Blockade to eliminate price inflation and loot stolen crates."""
     sheet = await load(uid)
     if not sheet: return await no_character(msg)
+    await _recover_pending_combat_outcomes(uid, sheet)
 
     from utils.ttrpg.world_state import load_world_state
     wstate = load_world_state()
@@ -2501,6 +2505,15 @@ async def _handle_raid_blockade(ctx, msg, send, rest, uid, uname, is_owner):
     if not s:
         s = {"channel_id": chan_id, "active": True, "monsters": [], "combat_active": False, "created_at": time.time()}
 
+    # One fight at a time. Every Bandit Captain pays the full reward (and a crate)
+    # when it falls, so a raid started again before the first was finished was
+    # a way to stock the session with captains and collect each of them.
+    if any(isinstance(m, dict) and str(m.get("aggro_uid")) == str(uid) for m in s.get("monsters", [])):
+        return await msg.channel.send(embed=discord.Embed(
+            description="You already have a fight under way. Finish it, or `!rpg flee`, before you raid the blockade.",
+            color=0xcc4444,
+        ))
+
     from utils.ttrpg.monster_registry import get as get_monster
     m_data = get_monster("bandit_captain")
     if not m_data:
@@ -2514,7 +2527,7 @@ async def _handle_raid_blockade(ctx, msg, send, rest, uid, uname, is_owner):
     monster_instance["origin_location"] = loc
     monster_instance["is_blockade_raid"] = True
     
-    s["monsters"].append(monster_instance)
+    s.setdefault("monsters", []).append(monster_instance)
     s["combat_active"] = True
     await save_session(s)
 

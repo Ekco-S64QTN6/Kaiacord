@@ -7,6 +7,11 @@ from utils.ttrpg.equipment_registry import (
 
 _REVERSE_ALIASES = {v: k for k, v in ALIASES.items()}
 
+#: The most of one item a single purchase may take. Stacks are unbounded by
+#: design, but an absurd quantity overflowed the price arithmetic and a rich
+#: character could add a hundred thousand entries to their sheet.
+MAX_PURCHASE_QUANTITY = 99
+
 # Items deliberately retained by the bulk-sale path because they are used for
 # quests, dungeon access, progression, or crafting progression. Keep the same
 # policy in individual sales so a single-item menu cannot bypass it.
@@ -199,15 +204,21 @@ def _in_stock(loc: str, key: str) -> bool:
     return key in set().union(*(set(d) for d in get_shop_inventory(loc)))
 
 
-def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: int = 0, cha_mod: int = 0) -> tuple[bool, str, dict]:
-    """Processes a purchase. Returns (Success, Message, Updated Sheet)"""
-    loc = sheet.get("location", "hemlocks_store")
+def process_purchase(sheet: dict, item_key: str, quantity: int = 1, reputation: int = 0, cha_mod: int = 0,
+                     merchant: str | None = None) -> tuple[bool, str, dict]:
+    """Processes a purchase. Returns (Success, Message, Updated Sheet).
+
+    The merchant is where the sheet stands unless one is named: the noon caravan's
+    shop sells to players in town, so it names itself."""
+    loc = merchant or sheet.get("location", "hemlocks_store")
     
     if loc == "hemlocks_store" and reputation < -50:
         return False, "Hemlock glares at you. 'I don't trade with outlaws. Get out.'", sheet
     
     if not isinstance(quantity, int) or quantity < 1:
         return False, "Buy how many?", sheet
+    if quantity > MAX_PURCHASE_QUANTITY:
+        return False, f"{MAX_PURCHASE_QUANTITY} at a time, at most.", sheet
 
     item = find_item(item_key)
     if not item:

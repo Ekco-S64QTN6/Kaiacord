@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 from dataclasses import dataclass
 
@@ -58,3 +59,18 @@ def log_scan_failures(store_name: str, report: ScanReport) -> None:
             f"[rpg storage] {store_name} scan incomplete: "
             f"{len(fresh)} new failure(s) reported; {details}"
         )
+
+
+_RECORD_ID = re.compile(r"[A-Za-z0-9_\-]{1,64}")
+
+
+def safe_record_id(value) -> str:
+    """An id that is safe to put in a record's file name.
+
+    Per-player records are named `<id>.json`. Ids come from Discord, but one
+    command passed typed text straight through, and `../../x` read any `.json`
+    file the bot could open. No separator or dot is ever part of an id."""
+    text = str(value)
+    if not _RECORD_ID.fullmatch(text):
+        raise ValueError(f"not a valid record id: {text[:40]!r}")
+    return text

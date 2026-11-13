@@ -18,6 +18,7 @@ Design philosophy:
 import secrets
 import json
 import os
+from utils.ttrpg.record_scan import safe_record_id
 from typing import Dict, List, Optional, Tuple, Set
 
 GRID_SIZE = 9          # 9×9 grid gives good spacing
@@ -835,12 +836,12 @@ import asyncio
 async def save_dungeon(user_id: str, state: dict):
     from utils.core.atomic_write import write_atomic
     text = json.dumps(state, indent=2)        # on the caller's thread: the state is live
-    await asyncio.to_thread(write_atomic, os.path.join(DUNGEON_DIR, f"{user_id}.json"), text)
+    await asyncio.to_thread(write_atomic, os.path.join(DUNGEON_DIR, f"{safe_record_id(user_id)}.json"), text)
 
 
 async def load_dungeon(user_id: str) -> Optional[dict]:
     def _load():
-        path = os.path.join(DUNGEON_DIR, f"{user_id}.json")
+        path = os.path.join(DUNGEON_DIR, f"{safe_record_id(user_id)}.json")
         if not os.path.exists(path):
             return None
         with open(path) as f:
@@ -850,7 +851,7 @@ async def load_dungeon(user_id: str) -> Optional[dict]:
 
 async def clear_dungeon(user_id: str):
     def _clear():
-        path = os.path.join(DUNGEON_DIR, f"{user_id}.json")
+        path = os.path.join(DUNGEON_DIR, f"{safe_record_id(user_id)}.json")
         if os.path.exists(path):
             os.remove(path)
     await asyncio.to_thread(_clear)

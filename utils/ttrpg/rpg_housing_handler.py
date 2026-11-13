@@ -1019,7 +1019,9 @@ async def _handle_visit_plots(ctx, msg, send, rest, uid, uname, is_owner):
     from utils.ttrpg.furniture import FURNITURE
 
     target_uid = rest.strip()
-    if not target_uid:
+    # A plot is picked from the housing list (a Discord id). Typed text is not an
+    # id and is never turned into a file name.
+    if not target_uid.isdigit():
         return await msg.channel.send(embed=discord.Embed(
             description="No plot selected.", color=0x888888))
 
