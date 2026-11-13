@@ -551,8 +551,22 @@ class ContextEnricher:
                 member = await guild.fetch_member(requester.id)
             except Exception:
                 return False
-        perms = channel.permissions_for(member)
-        return bool(perms.view_channel and perms.read_message_history)
+        try:
+            perms = channel.permissions_for(member)
+        except Exception:
+            return False                       # a thread whose parent is not cached
+        if not (perms.view_channel and perms.read_message_history):
+            return False
+        if isinstance(channel, discord.Thread) and channel.is_private():
+            # A thread's permissions are its parent's. A private thread is also
+            # closed to everyone not invited to it, short of manage_threads.
+            if perms.manage_threads:
+                return True
+            try:
+                await channel.fetch_member(requester.id)
+            except Exception:
+                return False
+        return True
 
     def _prune(self, cache: dict, now: float) -> None:
         """Remove expired entries, then evict the oldest until the hard cap holds."""

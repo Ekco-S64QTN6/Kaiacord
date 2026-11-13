@@ -278,6 +278,16 @@ def _is_private_dm(ctx) -> bool:
     return bool(getattr(ctx, "is_dm", False))
 
 
+def _in_private_thread(msg) -> bool:
+    """Whether the message was sent in an invitation-only thread."""
+    import discord
+    channel = getattr(msg, "channel", None)
+    try:
+        return isinstance(channel, discord.Thread) and bool(channel.is_private())
+    except Exception:
+        return False
+
+
 #: Platforms whose "message" is her own prompt, not a person speaking to her.
 UNADDRESSED_PLATFORMS = frozenset(("broadcast", "overnight"))
 
@@ -389,7 +399,7 @@ class MessageProcessor:
                         from utils.core.sanitizer import attachment_citations, summarize_link_context
                         observed = " ".join(x for x in (summarize_link_context(msg.content or "").strip(),
                                                         attachment_citations(msg)) if x)
-                        if self.rag and observed:
+                        if self.rag and observed and not _in_private_thread(msg):
                             author_display = msg.author.display_name or msg.author.name
                             task_registry.register(
                                 f"observe_log_{uuid.uuid4().hex[:6]}",
@@ -494,6 +504,11 @@ class MessageProcessor:
             log_debug(f"Social message triggger check passed (is_mention={is_mention})")
         elif is_dm:
             log_debug(f"Direct message trigger check passed (is_dm=True, is_mention={is_mention})")
+
+        # An invitation-only thread is kept as a DM is: its turns stay out of the
+        # shared logs, and out of everything else a DM is kept out of.
+        if not is_social and _in_private_thread(msg):
+            is_dm = True
 
         # 5. Rate Limiting & Shutdown Guard
         if not self.rate_limiter.is_allowed(msg.author.id):

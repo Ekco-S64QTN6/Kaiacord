@@ -1,4 +1,4 @@
-from utils.infrastructure.logging.kaia_logger import log_info
+from utils.infrastructure.logging.kaia_logger import log_error, log_info
 #!/usr/bin/env python3
 """
 Utility script to aggressively clear GPU memory when Kaiacord has OOM issues.
@@ -117,6 +117,29 @@ def force_clear_gpu() -> bool:
         return False
 
 
+def stop_and_reap(proc, grace: float, kill_wait: float = 5.0) -> bool:
+    """Ask a process to end, kill it if it does not, and say whether it is gone.
+
+    Sending SIGKILL is not the process ending: the caller goes on to use what
+    the process held (the GPU, the bot's token), so it is told the truth.
+    """
+    import psutil
+    try:
+        proc.terminate()
+        try:
+            proc.wait(timeout=grace)
+            return True
+        except psutil.TimeoutExpired:
+            pass
+        proc.kill()
+        proc.wait(timeout=kill_wait)
+        return True
+    except psutil.NoSuchProcess:
+        return True
+    except psutil.TimeoutExpired:
+        return False
+
+
 def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, force_all: bool = False):
     """Aggressively unload VRAM via sync HTTP, then kill any lingering ollama runners."""
     import psutil
@@ -167,6 +190,7 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, 
 
     # 2. Hard Kill lingering rogue runners
     current_pid = os.getpid()
+    still_running = []
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
             cmdline = proc.info.get('cmdline') or []
@@ -176,15 +200,16 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, 
             if 'ollama' in proc_name or 'ollama' in cmd_str:
                 if 'runner' in cmd_str:
                     if proc.info['pid'] != current_pid:
-                        try:
-                            proc.terminate()
-                            proc.wait(timeout=2)
-                        except (psutil.TimeoutExpired, Exception):
-                            proc.kill()
+                        if not stop_and_reap(proc, grace=2.0):
+                            still_running.append(proc.info['pid'])
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-    
-    log_info("✨ Ollama cleanup finalized.")
+
+    if still_running:
+        log_error(f"Ollama cleanup incomplete: runner(s) {still_running} survived SIGKILL and still hold VRAM.")
+    else:
+        log_info("✨ Ollama cleanup finalized.")
+    return still_running
 
 
 if __name__ == "__main__":

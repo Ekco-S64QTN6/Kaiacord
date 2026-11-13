@@ -156,9 +156,10 @@ class CleanShutdown:
 
         # 0. Stop voice/radio operations before cancelling the background registry.
         # Graceful Discord disconnects should complete where possible, but all four
-        # share one configured budget: the dashboard force-exits about 18 s after
-        # it asks the bot to stop. A step that overruns is cancelled and shutdown
-        # carries on — none of these touch the RAG index, Ollama or the GPU, so
+        # share one configured budget: the process exits a fixed time after the
+        # bot is asked to stop (dashboard_manager.BOT_SHUTDOWN_DEADLINE_S). A step
+        # that overruns is cancelled and shutdown carries on — none of these
+        # touch the RAG index, Ollama or the GPU, so
         # giving up on them must not cost the index save and the model unload
         # below. The scanner's forked watcher dies with the process (PDEATHSIG).
         prelude_deadline = asyncio.get_running_loop().time() + _shutdown_prelude_timeout()
@@ -374,6 +375,13 @@ class CleanShutdown:
         """Emergency force exit if shutdown hangs"""
         log_warning(f"Forcing exit with code {exit_code}")
         self.restore_terminal()
+        # The log is written in batches by a worker thread, and os._exit drops
+        # whatever it holds: the last lines of the shutdown, every time.
+        try:
+            from utils.infrastructure.logging.unified_logging import logger
+            logger.stop()
+        except Exception:
+            pass
         # Use os._exit to bypass all cleanup and force immediate termination
         import os
         os._exit(exit_code)
