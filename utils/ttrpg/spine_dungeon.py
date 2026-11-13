@@ -12,6 +12,7 @@ import threading
 from typing import Optional
 
 from utils.core.atomic_write import write_atomic
+from utils.ttrpg.record_scan import safe_record_id
 
 # One read-modify-write of a player's floors container at a time: two saves
 # that each read the container and wrote it back could drop a floor.
@@ -332,7 +333,7 @@ def render_spine_map(state: dict) -> str:
 async def save_spine_dungeon(user_id: str, state: dict):
     def _save_unlocked():
         os.makedirs(SPINE_DIR, exist_ok=True)
-        path = os.path.join(SPINE_DIR, f"{user_id}_spine.json")
+        path = os.path.join(SPINE_DIR, f"{safe_record_id(user_id)}_spine.json")
 
         container = {}
         if os.path.exists(path):
@@ -359,7 +360,7 @@ async def save_spine_dungeon(user_id: str, state: dict):
 
 async def load_spine_dungeon(user_id: str, target_floor: int = None) -> Optional[dict]:
     def _load_unlocked():
-        path = os.path.join(SPINE_DIR, f"{user_id}_spine.json")
+        path = os.path.join(SPINE_DIR, f"{safe_record_id(user_id)}_spine.json")
         if not os.path.exists(path):
             return None
         with open(path) as f:

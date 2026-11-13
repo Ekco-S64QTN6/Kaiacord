@@ -33,6 +33,7 @@ from __future__ import annotations
 import functools
 import http.server
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 import os
 import socket
 import socketserver
@@ -169,9 +170,21 @@ class StrudelEngine:
         self._pool = ThreadPoolExecutor(max_workers=1,
                                         thread_name_prefix="kaia-strudel-pw")
 
-    def _call(self, fn, *args):
+    #: How long a call may keep the owning thread. Chromium launch and the
+    #: warm-up are slow and get the long limit; the probes the session makes
+    #: every few seconds get the short one. A renderer that hangs used to block
+    #: the caller (and, from the event loop, every other coroutine) for good.
+    CALL_TIMEOUT_S = 180.0
+    PROBE_TIMEOUT_S = 10.0
+
+    def _call(self, fn, *args, timeout: float | None = None):
         """Run `fn` on the one thread that owns the Playwright objects."""
-        return self._pool.submit(fn, *args).result()
+        future = self._pool.submit(fn, *args)
+        try:
+            return future.result(timeout=self.CALL_TIMEOUT_S if timeout is None else timeout)
+        except FutureTimeout:
+            future.cancel()
+            raise RuntimeError("the Strudel renderer stopped responding") from None
 
     # ── lifecycle ────────────────────────────────────────────────────
 
@@ -351,7 +364,7 @@ class StrudelEngine:
         if self._page is None or self.page_closed:
             return False
         try:
-            if self._call(lambda: self._page.is_closed()):
+            if self._call(lambda: self._page.is_closed(), timeout=self.PROBE_TIMEOUT_S):
                 self.page_closed = True
                 log_warning("[music] the Strudel player window was closed; "
                             "ending the session.")
@@ -370,7 +383,8 @@ class StrudelEngine:
         if self._page is None:
             return None
         try:
-            return self._call(lambda: self._page.evaluate("() => window.__kaia.error")) or (
+            return self._call(lambda: self._page.evaluate("() => window.__kaia.error"),
+                              timeout=self.PROBE_TIMEOUT_S) or (
                 self._eval_errors[-1] if getattr(self, "_eval_errors", None) else None)
         except Exception:
             return None
@@ -382,7 +396,7 @@ class StrudelEngine:
         try:
             self._call(lambda: self._page.evaluate(
                 "a => window.__kaiaSetLabel && window.__kaiaSetLabel(a[0], a[1])",
-                [genre, section]))
+                [genre, section]), timeout=self.PROBE_TIMEOUT_S)
         except Exception as exc:
             log_debug(f"[music] label update failed: {exc}")
 
@@ -397,7 +411,8 @@ class StrudelEngine:
         try:
             return float(self._call(lambda: self._page.evaluate(
                 "() => { const r = document.getElementById('ed').editor.repl;"
-                " return r && r.scheduler ? r.scheduler.now() : null; }")))
+                " return r && r.scheduler ? r.scheduler.now() : null; }"),
+                timeout=self.PROBE_TIMEOUT_S))
         except Exception as exc:
             log_debug(f"[music] cycle read failed: {exc}")
             return None
@@ -412,7 +427,8 @@ class StrudelEngine:
             return False
         try:
             return bool(self._call(
-                lambda: self._page.evaluate("() => !!window.__kaia.dirty")))
+                lambda: self._page.evaluate("() => !!window.__kaia.dirty"),
+                timeout=self.PROBE_TIMEOUT_S))
         except Exception:
             return False
 

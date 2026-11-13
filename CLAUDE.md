@@ -236,6 +236,17 @@ Verified 2026-11-10: **369 monsters**, **395 gear + 58 consumables = 453 items**
   lock; their helper acquires the unique caller and target `user:<uid>` locks in sorted UID order.
   A self-target takes that one lock once. Any new multi-character mutation must preserve this
   global order and keep the complete reload/mutate/save operation inside the locks.
+- **A record id is never a path.** Every per-player or per-channel file name is built with
+  `record_scan.safe_record_id` (letters, digits, `_`, `-`; at most 64): `!rpg visit` once passed typed text
+  to `housing._housing_path`, and `../../x` read any `.json` the bot could open. A loader that is asked for
+  something that is not an id answers "no such record" (`load_housing` returns `None`); a writer raises.
+  New character names are one word of 2-24 characters (`NAME_PATTERN`), so a name cannot carry a mention or
+  markup into every card that repeats it.
+- **Anything that sells, fights or mutates a sheet from a button takes the player's action lock** and reloads
+  the sheet under it. The caravan shop (`_caravan_purchase`) names itself as the merchant
+  (`process_purchase(..., merchant="caravan")`): the merchant defaults to the sheet's location, and a player in
+  town was being sold from Hemlock's shelves, which hold none of the caravan's stock. `!rpg raid` is a combat
+  action (`serialize_combat_action`) and refuses a second fight: every Bandit Captain pays in full.
 - **Atomic writes everywhere**: `utils/core/atomic_write.write_atomic()`. Do not call
   `Path.write_text` on anything under `knowledge_base/` or `memory/`. The rule dates from a
   half-written registry that caused an outage, and it was being followed where people remembered
@@ -329,6 +340,10 @@ Verified 2026-11-10: **369 monsters**, **395 gear + 58 consumables = 453 items**
   tests/bootstrap only. The hunt entry stamina debit is an intentional one-way reservation before
   encounter generation, not a refundable two-file write. Fault-inject each write boundary and test
   repeated recovery.
+- **A tool that rewrites a log the bot appends to takes `atomic_write.append_lock(path)`, re-reads, and writes
+  only if the file is unchanged.** Metadata enrichment held a file for the length of a model call and then
+  wrote its old copy back over the turns appended meanwhile; `enrich_metadata` and `compact_user_logs` now skip
+  a file that moved and leave it for the next pass.
 - **Appends to a user log are serialised by a sidecar `flock`.** `append_atomic` and the RAG
   interaction logger (`_write_interaction_to_disk`) both lock `.<log name>.append.lock` beside the
   log and decide "first write, add the header" inside the lock — two worker threads each carried
@@ -517,6 +532,14 @@ threads. She still needs her name there. A role-restricted *channel* is not cove
 not its audience, and whether the configured channels are restricted is a fact of the live server.
 A pasted message link into a private thread is read only for someone invited to it or holding
 `manage_threads` (`_requester_can_read`): a thread's permissions are its parent's.
+
+**A DM's text stays out of the diagnostic logs too.** `utils/core/private_turn.py` is a context variable set for
+the length of a DM or private-thread turn (`_run_intelligence_pipeline`); the security replay file, the
+hallucination log, the consistency watchdog's prompts and the generation-failure line write
+`private_turn.text(...)` or nothing. Memory commands (`!remember`-style phrases and profile queries), `!snapshot`
+and the engagement meter do nothing in a DM. A forwarded Discord message is read through its
+`message_snapshots` (`context_enricher._forwarded_text`) and, like every block of outside text, has the
+runtime's own markers neutralised before it reaches the prompt.
 
 ### Token budget
 
@@ -1166,6 +1189,13 @@ were once in none of them, so she aired a thought two minutes after every restar
 need at 0.0 on any active server, which caps pressure at 0.16 — so a threshold above that means
 she never speaks first, and at 0.55 she did so once in 102 evaluations. Both the threshold and
 the gate itself are configurable (`desires.initiate_threshold`, `desires.gate_enabled`).
+
+### Who may do what
+
+`Bot(allowed_mentions=...)` turns `@everyone` and role pings off for everything she sends, whatever a user got
+the model to write or named a character; people she answers may still be pinged. `dispatch_command` refuses an
+`owner_only` command for a non-owner before the handler runs, so a new owner command whose handler forgets its
+own check is still closed (handlers keep theirs). The forum draft-review buttons answer to the owner only.
 
 ### Command replies
 

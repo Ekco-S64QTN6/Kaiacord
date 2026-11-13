@@ -1,5 +1,6 @@
 import os
 import json
+from utils.ttrpg.record_scan import safe_record_id
 import time
 import threading
 import asyncio
@@ -138,7 +139,7 @@ async def get_session_lock(channel_id: str) -> asyncio.Lock:
 
 def _path(channel_id: str) -> str:
     os.makedirs(SESSIONS_DIR, exist_ok=True)
-    return os.path.join(SESSIONS_DIR, f"{channel_id}.json")
+    return os.path.join(SESSIONS_DIR, f"{safe_record_id(channel_id)}.json")
 
 def _load_session_sync(channel_id: str) -> dict | None:
     p = _path(channel_id)

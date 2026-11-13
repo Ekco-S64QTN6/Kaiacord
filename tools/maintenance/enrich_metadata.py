@@ -224,7 +224,7 @@ async def generate_metadata(session: aiohttp.ClientSession, category: str, body:
 
 async def process_file(filepath: Path, category: str, session: aiohttp.ClientSession, dry_run: bool) -> str:
     """Process a single file, returning its status.
-    Returns: 'skipped', 'enriched', or 'failed'
+    Returns: 'skipped', 'enriched', 'changed' (the file moved on while the model ran), or 'failed'
     """
     try:
         content = filepath.read_text(encoding='utf-8')
@@ -263,7 +263,15 @@ async def process_file(filepath: Path, category: str, session: aiohttp.ClientSes
         try:
             new_frontmatter_block = dump_frontmatter(merged)
             new_content = new_frontmatter_block + body
-            write_atomic(filepath, new_content)
+            # The model call took seconds, and a live log is appended to meanwhile.
+            # Write only if the file is still what was read; otherwise leave it for
+            # the next pass instead of replacing the new turns with the old text.
+            from utils.core.atomic_write import append_lock
+            with append_lock(filepath):
+                if filepath.read_text(encoding='utf-8') != content:
+                    log_info(f"{filepath.name} changed while it was being enriched; left for the next pass.")
+                    return 'changed'
+                write_atomic(filepath, new_content)
             log_success(f"Enriched {filepath.name}")
         except Exception as e:
             log_error(f"Failed to write {filepath}: {e}")
@@ -353,7 +361,7 @@ async def main_async():
                  f"(use --limit N for more)")
         files = files[:args.limit]
     
-    stats = {'skipped': 0, 'enriched': 0, 'failed': 0, 'malformed': 0}
+    stats = {'skipped': 0, 'enriched': 0, 'failed': 0, 'malformed': 0, 'changed': 0}
     
     async with aiohttp.ClientSession() as session:
         for idx, (filepath, category) in enumerate(files):

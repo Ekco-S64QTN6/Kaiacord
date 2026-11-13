@@ -9,7 +9,7 @@ PLAYER_PLOT_PREFIX = "plot_"
 # ── Housing Tiers ─────────────────────────────────────────────────────────────
 # Each tier unlocks more furniture slots, farming plots, and pet slots.
 
-from utils.ttrpg.record_scan import ScanFailure, ScanReport, log_scan_failures
+from utils.ttrpg.record_scan import ScanFailure, ScanReport, log_scan_failures, safe_record_id
 
 
 HOUSING_TIERS = {
@@ -96,7 +96,7 @@ _lock = threading.Lock()
 
 def _housing_path(user_id: str) -> str:
     os.makedirs(HOUSING_DIR, exist_ok=True)
-    return os.path.join(HOUSING_DIR, f"{user_id}.json")
+    return os.path.join(HOUSING_DIR, f"{safe_record_id(user_id)}.json")
 
 def load_housing(user_id: str) -> dict | None:
     """Read one housing record without applying daily resets or writing it.
@@ -105,7 +105,10 @@ def load_housing(user_id: str) -> dict | None:
     character_manager.load(), which owns the player's lock and commits any
     changed character + housing snapshots through the recovery journal.
     """
-    p = _housing_path(str(user_id))
+    try:
+        p = _housing_path(str(user_id))
+    except ValueError:
+        return None                       # not an id, so there is no such home
     with _lock:
         if not os.path.exists(p):
             return None

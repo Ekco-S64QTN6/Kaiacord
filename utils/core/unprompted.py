@@ -552,6 +552,12 @@ async def speak(ctx, channel, source: str, text: str = "", *,
                 return Spoken(False, reason="recent duplicate opener")
             await _send_to_channel()
 
+    # Spent as soon as the post is out, before the memory write and the
+    # cross-posts (each can take seconds): another source passing `gate` in that
+    # time saw an allowance not yet spent and posted too.
+    if not manual and bot_state is not None:
+        record(bot_state, source=source)
+
     # Memory keeps what she said, not the label: the label is framing for the
     # reader. Not the overnight log: a bulletin of readings held as one of her
     # turns gets copied into later replies as a way of talking.
@@ -597,8 +603,6 @@ async def speak(ctx, channel, source: str, text: str = "", *,
             desire_engine.satisfy("creative", 0.25)    # a quip is a small thing made
         except Exception as e:
             log_debug(f"[unprompted] creative need not discharged: {e}")
-    if not manual and bot_state is not None:
-        record(bot_state, source=source)
     where = "" if bluesky is None else (" + Bluesky" if bluesky else " (Bluesky failed)")
     log_success(f"[unprompted] {source} posted as {label or '(no label)'}{where}: {body[:70]}")
     return Spoken(True, label=label, bluesky=bluesky)

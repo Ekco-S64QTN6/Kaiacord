@@ -87,10 +87,8 @@ class EmotionalArc:
         """Atomically save mood state to disk."""
         try:
             os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
-            tmp_path = STATE_PATH + ".tmp"
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(asdict(self._mood), f, indent=2)
-            os.replace(tmp_path, STATE_PATH)
+            from utils.core.atomic_write import write_atomic
+            write_atomic(STATE_PATH, json.dumps(asdict(self._mood), indent=2))
         except Exception as e:
             log_warning(f"Failed to save mood state: {e}")
 
@@ -114,10 +112,8 @@ class EmotionalArc:
                     with open(HISTORY_PATH, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
                     if len(lines) > MAX_HISTORY_ENTRIES:
-                        tmp_path = HISTORY_PATH + ".tmp"
-                        with open(tmp_path, 'w', encoding='utf-8') as f:
-                            f.writelines(lines[-MAX_HISTORY_ENTRIES:])
-                        os.replace(tmp_path, HISTORY_PATH)
+                        from utils.core.atomic_write import write_atomic
+                        write_atomic(HISTORY_PATH, "".join(lines[-MAX_HISTORY_ENTRIES:]))
             except Exception:
                 pass
         except Exception as e:

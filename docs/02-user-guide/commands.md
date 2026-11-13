@@ -221,7 +221,7 @@ Manages VBulletin 3.x integration and Discord ↔ Forum identity linking.
 - `!forum stats` — Scraper totals (threads, posts, users).
 - `!forum read <thread_id>` — Read last posts from a thread.
 - `!forum post <thread_id> <message>` — Post a manual reply.
-- `!forum reply <thread_id>` — Draft a reply through the same pipeline as the auto-poster (retrieval, thread history, images) and show it with Post / Cancel / Regenerate buttons. Nothing is posted until you press Post.
+- `!forum reply <thread_id>` — Draft a reply through the same pipeline as the auto-poster (retrieval, thread history, images) and show it with Post / Cancel / Discard buttons (Discard drops the draft; run the command again for a new one). Nothing is posted until you press Post, and a second press does not post twice.
 - `!forum user <user_id>` — Deep-scrape a user's full post history.
 
 ---

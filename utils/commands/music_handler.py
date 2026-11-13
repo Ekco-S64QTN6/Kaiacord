@@ -38,6 +38,10 @@ from utils.infrastructure.system.yaml_config import config
 
 COLOR_MUSIC = 0x5B4B8A
 _last_start: dict[int, float] = {}
+#: Guilds whose set is being brought up. A start takes longer than _COOLDOWN_S
+#: (Chromium, the warm-up, the prime), so the cooldown alone let a second
+#: `!music on` begin a second startup that stopped the first.
+_starting: set[int] = set()
 _COOLDOWN_S = 20
 
 _ON = {"on", "start", "play", "join"}
@@ -174,6 +178,9 @@ async def handle_music_command(ctx, msg, send_kaia_response):
         return
 
     now = time.time()
+    if msg.guild.id in _starting:
+        await msg.channel.send(embed=notice("i'm still setting up. one moment."))
+        return
     if now - _last_start.get(msg.guild.id, 0.0) < _COOLDOWN_S:
         await msg.channel.send(embed=notice("give me a moment."))
         return
@@ -196,6 +203,7 @@ async def handle_music_command(ctx, msg, send_kaia_response):
     if genre not in GENRES:
         genre = DEFAULT_GENRE
 
+    _starting.add(msg.guild.id)
     try:
         async with msg.channel.typing():
             await start_session(channel, genre=genre,
@@ -215,6 +223,8 @@ async def handle_music_command(ctx, msg, send_kaia_response):
         log_error(f"[music] start failed: {_why(exc)}\n{traceback.format_exc()}")
         await msg.channel.send(embed=notice("something went wrong starting the sound.", error=True))
         return
+    finally:
+        _starting.discard(msg.guild.id)
 
     lead = f"{why}, so *{genre}*." if why else f"*{genre}*."
     embed = box(f"🎧  In {channel.name}", f"{lead}\n{describe(genre)} — it builds and changes as it goes.",

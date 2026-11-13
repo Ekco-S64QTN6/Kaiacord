@@ -1353,7 +1353,7 @@ class RAGQueryMixin:
                     continue
                 all_node_results.extend(sublist)
             if include_news and _FRESH_NEWS.search(query_lower):
-                all_node_results.extend(self._latest_news_candidates(all_node_results, query_lower))
+                all_node_results.extend(await asyncio.to_thread(self._latest_news_candidates, list(all_node_results), query_lower))
             # Cache raw results BEFORE filtering for !explain
             self._last_raw_results = all_node_results
             

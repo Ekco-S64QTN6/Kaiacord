@@ -11,7 +11,7 @@ import functools
 import weakref
 from typing import Optional, Dict, Any, List
 
-from utils.ttrpg.record_scan import ScanFailure, ScanReport, log_scan_failures
+from utils.ttrpg.record_scan import ScanFailure, ScanReport, log_scan_failures, safe_record_id
 from utils.infrastructure.monitoring.async_lock_metrics import (
     MeasuredAsyncLock,
     track_registry_lock,
@@ -67,7 +67,7 @@ def mark_active(user_id, now: Optional[float] = None) -> None:
 
 def _path(user_id: str) -> str:
     os.makedirs(CHARACTERS_DIR, exist_ok=True)
-    return os.path.join(CHARACTERS_DIR, f"{user_id}.json")
+    return os.path.join(CHARACTERS_DIR, f"{safe_record_id(user_id)}.json")
 
 async def get_user_lock(user_id: str) -> asyncio.Lock:
     """Return an asyncio.Lock dedicated to this user's character sheet."""

@@ -68,6 +68,7 @@ def test_daily_cap_is_enforced(ledger):
     for tid in (1, 2):
         ledger.record(tid, "t")
         ledger.posts[-1]["ts"] -= 5 * 3600
+        ledger.save()
     allowed, why = ledger.may_post(max_per_day=2, min_hours_between=4)
     assert allowed is False and "daily cap" in why
 
@@ -78,6 +79,7 @@ def test_the_cap_survives_a_restart(ledger, tmp_path):
     for tid in (1, 2):
         ledger.record(tid, "t")
         ledger.posts[-1]["ts"] -= 5 * 3600
+        ledger.save()
     ledger.save()
     reopened = PostLedger(path=ledger.path)
     assert reopened.may_post(max_per_day=2, min_hours_between=4)[0] is False
@@ -86,6 +88,7 @@ def test_the_cap_survives_a_restart(ledger, tmp_path):
 def test_posts_outside_the_window_do_not_count_against_today(ledger):
     ledger.record(1, "old")
     ledger.posts[-1]["ts"] -= 30 * 3600          # yesterday
+    ledger.save()
     assert ledger.posts_since(24) == []
     assert ledger.may_post(max_per_day=1, min_hours_between=4)[0] is True
 
@@ -101,6 +104,7 @@ def test_thread_cooldown_prevents_repeat_replies(ledger):
 def test_thread_cooldown_expires(ledger):
     ledger.record(4242, "a thread")
     ledger.posts[-1]["ts"] -= 100 * 3600
+    ledger.save()
     assert ledger.thread_is_cool(4242, cooldown_hours=72) is True
 
 
@@ -315,6 +319,7 @@ def test_only_openers_count_against_the_daily_cap(ledger):
     for tid in (1, 2):
         ledger.record(tid, "t", kind=REPLY)
         ledger.posts[-1]["ts"] -= 5 * 3600
+        ledger.save()
     assert ledger.may_post(max_per_day=2, min_hours_between=4)[0] is True, \
         "replies should not consume the budget for openers"
 
@@ -323,12 +328,14 @@ def test_openers_still_count(ledger):
     for tid in (1, 2):
         ledger.record(tid, "t", kind=INITIATION)
         ledger.posts[-1]["ts"] -= 5 * 3600
+        ledger.save()
     assert ledger.may_post(max_per_day=2, min_hours_between=4)[0] is False
 
 
 def test_spacing_only_looks_at_openers(ledger):
     ledger.record(1, "opener", kind=INITIATION)
     ledger.posts[-1]["ts"] -= 5 * 3600
+    ledger.save()
     ledger.record(1, "a reply", kind=REPLY)          # just now
     assert ledger.may_post(max_per_day=2, min_hours_between=4)[0] is True
 
@@ -340,6 +347,7 @@ def test_replying_is_allowed_in_a_thread_on_opener_cooldown(ledger):
     ledger.record(4242, "t", kind=INITIATION)
     assert ledger.thread_is_cool(4242, cooldown_hours=72) is False
     ledger.posts[-1]["ts"] -= 3600
+    ledger.save()
     assert ledger.may_reply(4242, newest_post_id="p9")[0] is True
 
 
@@ -354,6 +362,7 @@ def test_she_will_not_post_twice_into_the_same_silence(ledger):
     one that matters most if she ever ends up replying to another bot."""
     ledger.record(4242, "t", kind=REPLY, last_seen_post_id="p7")
     ledger.posts[-1]["ts"] -= 3600
+    ledger.save()
     allowed, why = ledger.may_reply(4242, newest_post_id="p7")
     assert allowed is False and "nothing new" in why
 
@@ -373,6 +382,7 @@ def test_the_watch_list_is_where_she_has_spoken(ledger):
     ledger.record(11, "one again", kind=REPLY)
     ledger.record(33, "old", kind=INITIATION)
     ledger.posts[-1]["ts"] -= 40 * 24 * 3600
+    ledger.save()
 
     watch = ledger.threads_posted_in(within_hours=14 * 24)
     assert set(watch) == {11, 22}, "stale threads drop off the watch list"
@@ -713,8 +723,10 @@ def test_a_reply_is_not_blocked_by_the_opener_cap(tmp_path, monkeypatch):
     for tid in (1, 2):                      # opener budget fully spent today
         ledger.record(tid, "t", kind=INITIATION)
         ledger.posts[-1]["ts"] -= 5 * 3600
+        ledger.save()
     ledger.record(77, "a thread", kind=REPLY, last_seen_post_id="p1")
     ledger.posts[-1]["ts"] -= 3 * 3600
+    ledger.save()
     ledger.save()                           # record() saved before this mutation
     monkeypatch.setattr(fp, "LEDGER_PATH", ledger.path)
 
@@ -737,6 +749,7 @@ def test_a_reply_is_still_bounded(tmp_path, monkeypatch):
     assert client._check_rate_limit(config, kind=REPLY, thread_id=77,
                                     newest_post_id="p2") is False   # too soon
     ledger.posts[-1]["ts"] -= 3600
+    ledger.save()
     ledger.save()
     assert client._check_rate_limit(config, kind=REPLY, thread_id=77,
                                     newest_post_id="p1") is False   # nothing new

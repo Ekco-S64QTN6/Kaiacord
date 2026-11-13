@@ -4,6 +4,8 @@ import json
 from typing import Optional
 import threading
 
+from utils.core import private_turn
+
 _hallucination_log_lock = threading.Lock()
 from utils.infrastructure.logging.kaia_logger import log_warning
 
@@ -59,8 +61,8 @@ class HallucinationDetector:
         entry = {
             "timestamp": __import__('time').time(),
             "date": __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            "query_snippet": query[:100],
-            "response_snippet": response_snippet[:200],
+            "query_snippet": private_turn.text(query[:100]),
+            "response_snippet": private_turn.text(response_snippet[:200]),
             "pattern_matched": pattern_matched,
             "confidence": round(confidence, 3),
             "action_taken": action_taken

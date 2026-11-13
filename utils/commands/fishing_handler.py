@@ -35,6 +35,7 @@ from utils.ttrpg.fishing_engine import (
 )
 from utils.ttrpg.calendar import get_season
 from utils.commands.embed_style import notice
+from utils.infrastructure.logging.kaia_logger import log_error
 from utils.ttrpg.session_manager import get_action_lock, serialize_user_action
 
 POND_COLOR = 0x3a8fc1  # deep pond blue
@@ -213,7 +214,10 @@ class FishingMenuView(StaleSafeView):
         fake = _InteractionMsg(interaction)
         send_fn = _make_interaction_send(interaction)
         try:
-            await turn_buttons.run(_handle_talk, self._ctx, fake, send_fn, "gregor", self._uid, self._uname, self._is_owner)
+            # _handle_talk loads, settles quests and saves the sheet and takes no
+            # lock of its own; the typed command runs under the dispatcher's.
+            async with await _player_lock(self._uid):
+                await turn_buttons.run(_handle_talk, self._ctx, fake, send_fn, "gregor", self._uid, self._uname, self._is_owner)
         except Exception as e:
             await interaction.followup.send(embed=notice(f"talk failed: {e}", error=True), ephemeral=True)
 
@@ -316,10 +320,6 @@ class BiteView(StaleSafeView):
                 cat = fish.get("category", "common")
                 cat_emoji = CATEGORY_EMOJIS.get(cat, "⚪")
                 fish_name = fish.get("name", self._fish_key)
-                is_world_record = await asyncio.to_thread(
-                    update_world_records, self._fish_key, self._fish_weight,
-                    sheet["character_name"], self._uid
-                )
 
                 # Check personal record
                 stats = sheet.get("fishing_stats", {})
@@ -327,23 +327,6 @@ class BiteView(StaleSafeView):
                 is_personal_record = (
                     not prev_record or self._fish_weight > prev_record.get("weight", 0)
                 )
-
-                # Broadcast world event for top-tier world records only
-                if cat in ("epic", "legendary", "mythic") and is_world_record:
-                    msg_parts = []
-                    if is_world_record:
-                        msg_parts.append("🌍 **NEW WORLD RECORD!**")
-                    msg_parts.append(f"🎣 **{self._uname}** caught a **{cat_emoji} {fish_name}** ({self._fish_weight:.2f} lbs) at Tricklebrook Pond!")
-
-                    msg_text = " ".join(msg_parts)
-                    await _log_world_event(msg_text)
-            
-                    # Post to main #aethelgard broadcast channel
-                    embed = discord.Embed(
-                        description=msg_text,
-                        color=0x4db3ff
-                    )
-                    await _broadcast_world_event(self._ctx, embed)
 
                 sheet = add_to_fishing_bag(sheet, self._fish_key, self._fish_weight, self._fish_value)
 
@@ -371,6 +354,27 @@ class BiteView(StaleSafeView):
                 await save(sheet)
         finally:
             _LINES_OUT.discard(self._uid)
+
+        # The catch is saved. Only now the shared record book and the broadcast,
+        # outside the player's lock: a failed save must not leave a record held
+        # by a fish no bag contains, and a slow post must not hold the lock.
+        is_world_record = False
+        try:
+            is_world_record = await asyncio.to_thread(
+                update_world_records, self._fish_key, self._fish_weight,
+                sheet["character_name"], self._uid
+            )
+            if cat in ("epic", "legendary", "mythic") and is_world_record:
+                msg_text = (
+                    "🌍 **NEW WORLD RECORD!** "
+                    f"🎣 **{self._uname}** caught a **{cat_emoji} {fish_name}** "
+                    f"({self._fish_weight:.2f} lbs) at Tricklebrook Pond!"
+                )
+                await _log_world_event(msg_text)
+                await _broadcast_world_event(
+                    self._ctx, discord.Embed(description=msg_text, color=0x4db3ff))
+        except Exception as e:
+            log_error(f"[fishing] record or broadcast failed after the catch was saved: {e}")
 
         desc_lines = [
             f"**{cat_emoji} {fish_name}**",
@@ -1425,18 +1429,34 @@ async def handle_fish_shop_command(ctx, msg, send, rest, uid, uname, is_owner):
     if not sheet:
         from utils.ttrpg.rpg_views import no_character
         return await no_character(msg)
+    if sheet.get("location") != "tricklebrook_pond":
+        await msg.channel.send(embed=notice(
+            "Gregor's stall is at Tricklebrook Pond. `!rpg go tricklebrook_pond`", error=True))
+        return
     embed, view = _build_fishing_shop_ui(ctx, uid, uname, is_owner, sheet)
     await msg.channel.send(embed=embed, view=view)
+
+
+def grant_starter_kit(stats: dict) -> bool:
+    """The first-time pole, bag and five worms. Returns whether it was granted.
+
+    Gregor's shop sells bait from anywhere, so a player's first look at the
+    menu can come after they have bought some; the gift adds to the stock and
+    keeps whatever they already chose instead of replacing it."""
+    if "pole" in stats:
+        return False
+    stats["pole"] = "birchwood_rod"
+    stats.setdefault("bait", "earthworm")
+    stock = stats.setdefault("bait_stock", {})
+    stock["earthworm"] = int(stock.get("earthworm", 0) or 0) + 5
+    stats.setdefault("bag", "woven_sack")
+    return True
 
 
 async def _show_fishing_menu(ctx, channel, uid: str, uname: str, is_owner: bool, sheet: dict):
     """Send the fishing HUD to the channel."""
     stats = sheet.setdefault("fishing_stats", {})
-    if "pole" not in stats:
-        stats["pole"] = "birchwood_rod"
-        stats["bait"] = "earthworm"
-        stats.setdefault("bait_stock", {})["earthworm"] = 5  # small starter gift
-        stats["bag"] = "woven_sack"
+    if grant_starter_kit(stats):
         await save(sheet)
 
     pole_key = stats.get("pole")

@@ -1995,6 +1995,21 @@ class ForumDraftReviewView(discord.ui.View):
         # lands, so the guard has to be in memory, not in the button state.
         self._handled = False
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Only an owner decides what is posted under her forum account. The
+        review channel is meant to be the owner's, but a button on a message
+        works for whoever can see it."""
+        from utils.infrastructure.system.yaml_config import config
+        user = interaction.user
+        if config.is_owner(getattr(user, "name", ""), getattr(user, "display_name", None),
+                           str(getattr(user, "id", ""))):
+            return True
+        try:
+            await interaction.response.send_message("only the owner can review forum drafts.", ephemeral=True)
+        except discord.HTTPException:
+            pass
+        return False
+
     @discord.ui.button(label="✅ Accept & Post", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()

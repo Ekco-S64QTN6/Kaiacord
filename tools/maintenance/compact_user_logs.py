@@ -264,7 +264,14 @@ def main() -> int:
             # second run replaced it with the first run's output.
             if not (dest / f.name).exists():
                 shutil.copy2(f, dest / f.name)
-            write_atomic(f, new_text)
+            # Under the live logger's append lock, and only if nothing was
+            # appended since this pass read the file.
+            from utils.core.atomic_write import append_lock
+            with append_lock(f):
+                if f.read_text(encoding="utf-8", errors="replace") != text:
+                    print(f"  ! skipped {f.parent.name}/{f.name}: it changed while compacting")
+                    continue
+                write_atomic(f, new_text)
     print(f"scanned {files} transcripts, {touched} would change" if not args.apply
           else f"scanned {files} transcripts, {touched} changed")
     for k in ("flattened", "scaffolding", "link_dump", "fragments", "preamble"):

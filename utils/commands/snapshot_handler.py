@@ -21,6 +21,15 @@ async def handle_snapshot_command(ctx, msg, send_kaia_response):
         await msg.channel.send(embed=notice("you aren't my architect. restricted.", error=True))
         return
 
+    # A snapshot is filed in knowledge_base/, which retrieval serves to everyone;
+    # a DM or an invitation-only thread is not for that.
+    from utils.core.message_processor import _in_private_thread
+    import discord
+    if msg.guild is None or isinstance(msg.channel, (discord.DMChannel, discord.GroupChannel)) \
+            or _in_private_thread(msg):
+        await msg.channel.send(embed=notice("Snapshots are only taken in a public channel.", error=True))
+        return
+
     if not config.get('features.snapshots_enabled', True):
         await msg.channel.send(embed=notice("Snapshots are switched off.", error=True))
         return

@@ -2,7 +2,13 @@
 import discord
 
 
+import re
+
 STATS_ORDER = ("str", "dex", "con", "int", "wis", "cha")
+
+#: One word, so a name cannot carry a mention, markup or a paragraph into every
+#: card, embed title and prompt that repeats it.
+NAME_PATTERN = re.compile(r"[\w'’\-]{2,24}")
 
 
 def assign_rolls(rolls: list, class_info: dict) -> list:
@@ -43,6 +49,11 @@ async def _handle_new(ctx, msg, send, rest, uid, uname, is_owner, *, load_charac
         ))
     
     char_name = args[0]
+    if not NAME_PATTERN.fullmatch(char_name):
+        return await msg.channel.send(embed=discord.Embed(
+            description="A character's name is 2-24 letters or digits (an apostrophe or hyphen is fine), with no spaces.",
+            color=0xcc4444
+        ))
     race = args[1].title()
     class_name = args[2].title()
     

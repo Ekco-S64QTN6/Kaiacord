@@ -788,6 +788,10 @@ class ProactiveEngine:
                     # someone nobody in the server has heard of turns up mid-chat.
                     if msg.get('external'):
                         continue
+                    # A DM turn lives in channel memory marked private; an opener
+                    # goes to a public channel, so it must never quote one.
+                    if msg.get('private'):
+                        continue
                     ts = msg.get('timestamp', 0)
                     if ts < cutoff:
                         continue

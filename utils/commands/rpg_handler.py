@@ -165,4 +165,4 @@ async def handle_rpg_command(ctx, msg, send_kaia_response):
                     await handler(ctx, msg, _auto_send, rest, author_id, author_name, is_owner)
         except Exception as e:
             log_error(f"[rpg] Handler error in '{sub}': {e}")
-            await _auto_send(msg.channel, f"system fault in `{sub}`. check logs: {e}")
+            await _auto_send(msg.channel, f"system fault in `{sub}`. check the logs.")

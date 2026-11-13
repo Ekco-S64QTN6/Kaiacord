@@ -218,6 +218,10 @@ async def nightly_review(ctx, log_growth=None) -> int:
             log_warning(f"Belief review of '{topic}' failed: {type(e).__name__}: {e}")
             continue
         reviewed[topic] = time.time()
+        # Persisted before the verdict is applied, topic by topic: a failure or a
+        # shutdown part-way used to lose every mark, and the next night reviewed
+        # (and could lower) the same beliefs again.
+        await asyncio.to_thread(write_atomic, REVIEWED, json.dumps(reviewed, indent=1))
         event = await asyncio.to_thread(apply_verdict, topic, verdict if isinstance(verdict, dict) else {})
         if event:
             moved += 1

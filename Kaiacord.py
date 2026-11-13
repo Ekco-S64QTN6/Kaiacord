@@ -98,7 +98,12 @@ _gpu_startup_lock = asyncio.Lock()
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+# Nothing she sends may ping @everyone, @here or a role, whatever a user got the
+# model to write or named a character; people she answers or replies to may be pinged.
+bot = commands.Bot(
+    command_prefix="!", intents=intents,
+    allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, users=True, replied_user=True),
+)
 ctx.bot = bot
 
 

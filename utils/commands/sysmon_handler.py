@@ -28,7 +28,7 @@ from utils.infrastructure.system.kaia_sysmon import (
 from utils.infrastructure.monitoring.stats_poller import stats_poller
 from utils.infrastructure.monitoring.stats_tracker import stats_tracker
 from utils.infrastructure.monitoring.async_lock_metrics import format_lock_registry_metrics
-from utils.commands.embed_style import notice
+from utils.commands.embed_style import add_field, clean, notice
 
 # Outside knowledge_base/: never indexed.
 _SYSMON_LOG_DIR = Path("memory/sysmon")
@@ -303,7 +303,7 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
         for line in auth_log.splitlines()[:5]:
             if not line.strip():
                 continue
-            ssh_bullets.append(f"• `{line.strip()}`")
+            ssh_bullets.append(f"• `{clean(line, 110)}`")
     else:
         ssh_bullets.append("• *No recent SSH log activity*")
     ssh_str = "\n".join(ssh_bullets)
@@ -315,11 +315,8 @@ async def handle_sysmon_command(ctx, msg, send_kaia_response):
         + ssh_str
     )
 
-    embed.add_field(
-        name=security_title,
-        value=security_value,
-        inline=False
-    )
+    # add_field clamps to Discord's 1,024: a long journal excerpt used to be a 400.
+    add_field(embed, security_title, security_value, inline=False)
     
     embed.set_footer(text=f"ekco@kaia | GPU: {gpu_name}")
 
