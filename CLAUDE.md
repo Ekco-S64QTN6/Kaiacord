@@ -466,6 +466,13 @@ load keeps the vision note, Q40) or when a quoted line she is asked to attribute
 (`tools/maintenance/replay_turns.py --probes`, three seeds): 0/3 to 3/3 on both, Gibson and Shakespeare still named.
 A note that only said "never guess a name" made her forget Hamlet; keep the escape for lines everyone knows.
 
+**A clipped follow-up is tied to the question it follows** (`utils/core/followup_note.py`). Cecily asked what was
+distinctive about someone's way of talking, then said "do me next", and she analysed herself (12 Nov). Replayed, the
+model misread it on every seed, with the persona alone and on the code of 8 Nov; with no system prompt it read it
+right. Saying who "me" is did nothing (0/4), nor did the previous question alone (0/5); a note carrying both, beside
+the message, was read right five seeds of five. It is written only for a few words that hand the last question to the
+speaker ("do me next", "what about me?", "my turn") after a question of their own.
+
 **A belief is recalled when the message is about it** (`utils/core/belief_recall.py`): one of its
 phrases whole (topic, a part of the topic, an alias of two words or more), or several distinctive
 words with one from its topic. The old test was any one shared word, read from the *enriched*
