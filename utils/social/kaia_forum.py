@@ -991,6 +991,8 @@ class ForumClient:
             
             if author and uid:
                 key = f"forum_{author}_{uid}"
+                if "/" in key or "\\" in key or ".." in key or "\x00" in key:
+                    continue                      # a scraped name is not a path
                 # If target_user_key is specified, only collect for that user
                 if target_user_key and key != target_user_key:
                     continue
@@ -1038,16 +1040,14 @@ class ForumClient:
                 new_entries.append(f"{marker} [by {author}]\n{content[:2000]}\n\n")
 
             if new_entries:
-                with open(interaction_path, 'a', encoding='utf-8', errors='replace') as f:
-                    if is_new:
-                        f.write("---\n")
-                        f.write('summary: ""\n')
-                        f.write("keywords: []\n")
-                        f.write('document_type: Transcript\n')
-                        f.write(f'platform: vbulletin\n')
-                        f.write("---\n\n")
-
-                    f.write(''.join(new_entries))
+                # Under the log's append lock like every other writer to a user log,
+                # so an interrupted write cannot leave half an entry in an indexed file.
+                from utils.core.atomic_write import append_atomic
+                header = ""
+                if is_new:
+                    header = ("---\nsummary: \"\"\nkeywords: []\ndocument_type: Transcript\n"
+                              "platform: vbulletin\n---\n\n")
+                append_atomic(interaction_path, header + ''.join(new_entries))
 
             # Create or update profile
             # Only apply profile_metadata if it belongs to this author/user_id

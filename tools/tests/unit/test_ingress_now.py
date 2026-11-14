@@ -1,5 +1,7 @@
 """!download and !youtube file their document at once."""
 import asyncio
+
+import pytest
 import importlib.util
 import subprocess
 import sys
@@ -106,3 +108,28 @@ def test_cli_main_holds_the_lock_around_the_entire_processor_run():
     source = inspect.getsource(processor.main)
     assert "with _processing_lock()" in source
     assert "return _main_locked()" in source
+
+
+def test_a_filing_that_runs_too_long_is_ended_with_its_group_and_reaped(monkeypatch):
+    import os
+    import subprocess as sp
+    from utils.core import ingress
+    started = {}
+    real = asyncio.create_subprocess_exec
+
+    async def fake_exec(*cmd, **kwargs):
+        assert kwargs.get("start_new_session") is True          # a session of its own
+        proc = await real(sys.executable, "-c", "import time; time.sleep(60)", **kwargs)
+        started["proc"] = proc
+        return proc
+
+    monkeypatch.setattr(ingress.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(ingress, "TIMEOUT", 0.5)
+
+    async def go():
+        with pytest.raises(sp.TimeoutExpired):
+            await ingress.run()
+    asyncio.run(go())
+    assert started["proc"].returncode is not None               # waited for, not left running
+    with pytest.raises(ProcessLookupError):
+        os.killpg(started["proc"].pid, 0)                        # and nothing of its group is left
