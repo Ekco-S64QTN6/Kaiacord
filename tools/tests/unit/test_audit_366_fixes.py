@@ -337,3 +337,29 @@ def test_the_kb_audit_check_ignores_the_metadata_backlog(monkeypatch):
     assert akb.main() == 0
     monkeypatch.setattr(akb, "audit", lambda: ({"empty_file": ["y.md"]}, Counter(news=1)))
     assert akb.main() == 1
+
+
+# ── the caravan sells from its own stock, once, to someone standing in town ──
+def _town_sheet():
+    return {"location": "oakhaven", "gil": 100000, "inventory": [], "equipment": {},
+            "reputation": 0, "flags": {}, "stats": {"cha": 10}, "level": 10}
+
+
+def test_the_caravan_sells_its_stock_to_a_player_in_town_one_gear_piece_each():
+    from utils.ttrpg import shop
+    from utils.ttrpg.equipment_registry import get_caravan_stock
+    gear, consumables = get_caravan_stock()
+    ok, _, sheet = shop.process_purchase(_town_sheet(), gear[0], 1, 0, cha_mod=0, merchant="caravan")
+    assert ok and sheet["flags"]["caravan_gear_bought"] is True
+    ok, text, _ = shop.process_purchase(sheet, gear[1], 1, 0, cha_mod=0, merchant="caravan")
+    assert not ok and "One piece of gear" in text
+    ok, _, _ = shop.process_purchase(_town_sheet(), consumables[0], 3, 0, cha_mod=0, merchant="caravan")
+    assert ok
+
+
+def test_the_same_gear_is_not_sold_by_the_town_shop():
+    from utils.ttrpg import shop
+    from utils.ttrpg.equipment_registry import get_caravan_stock
+    gear, _ = get_caravan_stock()
+    ok, text, _ = shop.process_purchase(_town_sheet(), gear[0], 1, 0, cha_mod=0)
+    assert not ok and "doesn't sell" in text
