@@ -695,6 +695,9 @@ menu_knowledge_base() {
                 --inputbox "Enter date to purge (YYYYMMDD format):\n(e.g. $(date '+%Y%m%d') for today)" \
                 9 55 "$(date '+%Y%m%d')" 3>&1 1>&2 2>&3) || continue
             [[ -z "$DATE" ]] && { warn "No date entered."; pause; continue; }
+            # Eight digits and nothing else: the value goes into a find -name pattern,
+            # where "*" would match, and then delete, every day's log.
+            [[ "$DATE" =~ ^[0-9]{8}$ ]] || { warn "A date is YYYYMMDD (eight digits)."; pause; continue; }
             echo
             info "Scanning for interactions_${DATE}.md..."
             FOUND=$(find knowledge_base/user_logs -name "interactions_${DATE}.md" 2>/dev/null | wc -l)

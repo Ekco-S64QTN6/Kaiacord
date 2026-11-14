@@ -46,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import yaml
 
+from utils.core.atomic_write import write_atomic
 from utils.core.frontmatter import dump_frontmatter, parse_frontmatter
 
 DREAMS = Path("knowledge_base/kaia_dreams")
@@ -520,9 +521,7 @@ def write_document(key: str, subject: str, entries: list, text: str,
     body = (f"# {subject}\n\n"
             f"*{total} reflections about {kind}, {span}.*\n\n"
             f"{text}\n")
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(front + body, encoding="utf-8")
-    tmp.replace(path)                                  # atomic, CLAUDE.md §4
+    write_atomic(path, front + body)                   # fsynced and per-process (CLAUDE.md §4)
     return path
 
 
