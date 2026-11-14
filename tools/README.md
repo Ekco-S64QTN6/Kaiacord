@@ -90,6 +90,7 @@ nobody is talking to her.
 | `check_indexing_health.py` | Manifest against the files on disk, judged by the indexer's own exclusion rules. |
 | `jspace_probe.py` | Replays prompts through Ollama persona'd, bare and fine-tuned. Bot stopped. |
 | `list_gemini_models.py` | Lists the Gemini models this API key can call. |
+| `scanner_hardware_check.py` | The scanner's own code on the real RTL-SDR against NOAA Weather Radio: levels, crystal error, tuned audio, hopping, and that the dongle is released. Outside watch hours; writes to a temporary folder. |
 
 ## development/
 

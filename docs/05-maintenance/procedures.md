@@ -69,6 +69,23 @@ the "My notes" section is kept as written.
 **Purpose**: Jacobian space behavioral probe harness to verify persona boundaries, apology suppression, and RAG grounding.  
 **Usage**: `./scripts/run_jspace_probe.sh full`
 
+### `scanner_hardware_check.py`
+**Purpose**: Runs the scanner's own code on the real RTL-SDR and antenna, with NOAA Weather Radio as the only reference (seven fixed channels, a continuous public broadcast). The scanner's tests use synthetic IQ; this is the check that the dongle, tuner, antenna and the device hand-over behave. Receive only.  
+**Usage**: `venv/bin/python3 tools/diagnostics/scanner_hardware_check.py --transcribe` outside `radio.local.hours` and nets, or after `!scanner off`. It refuses while the dongle is busy. About three minutes; it writes a `report.json` and one weather clip to a temporary folder (`--out`), never to `memory/`.
+
+What it measures, in order:
+
+1. The dongle and tuner (`rtl_test -t`; the serial is not recorded).
+2. The seven weather channels: each one's level over the noise, and the carrier's offset from nominal. The offset of the channels received gives the crystal error in ppm, the value `radio.local.ppm` takes.
+3. The watcher's tuned mode on the strongest channel: how much of the time it kept as audio (gaps), clipping, squelch, whether the broadcast reads as voice, and with `--transcribe` the transcript.
+4. The `rtl_fm` stream a live listen plays: started, read, stopped and reaped.
+5. The watcher hopping as it does at night: passes, seconds a pass, catches (counted, no frequencies), and that the weather carrier is not held over and over.
+6. After every step, that the dongle can be opened again: the step released it.
+
+Squelch and voice are judged only when the station quiets the channel by 10 dB or more: the watcher follows voice only under a full-quieting carrier, so a weak station reports "not judged" for those two.
+
+Measured on 14 Nov 2026 (RTL2838 / R820T, gain 40, `ppm` 0): one station received, 162.550 at 9 dB over noise, crystal error +1.6 ppm (no correction needed); tuned audio kept 96% of 60 s with no clipping; 118 words of forecast transcribed correctly in 17 s on the CPU; 13 passes of 44 slices in 60 s (4.6 s a pass) at 22% of one core; the weather carrier was never held while hopping; the dongle was released after each of the five steps. The station quiets the channel 7.9 dB, so squelch and voice were not judged.
+
 ---
 
 ## Starting and stopping
