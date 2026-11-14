@@ -525,8 +525,9 @@ class PersonalizationEngine:
             hints.append("Use plain language. Avoid jargon.")
         elif traits.get('technicality', 0.5) > 0.70:
             hints.append("Technical depth is welcome. Be precise.")
-        if traits.get('conciseness', 0.5) > 0.65:
-            hints.append("Keep responses short. This user prefers brevity.")
+        # No length hint here: how long a reply should be is read from the turn in
+        # one place (utils/core/turn_shape.py), and a second voice on it came back
+        # as drift. `conciseness` is still learned but nothing reads it.
         if hints:
             system_prompt += "\n\n[USER PREFERENCE: " + " ".join(hints) + "]"
         return system_prompt

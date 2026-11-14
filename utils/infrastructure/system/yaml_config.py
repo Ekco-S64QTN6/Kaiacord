@@ -588,13 +588,14 @@ class YAMLConfig:
 
     def reload(self):
         """Reload configuration from files"""
-        self._data = load_hierarchical_config()
-        
-        # Validate
-        is_valid, errors = validate_config(self._data)
+        # Validate the new data before it replaces the running configuration: a
+        # bad file must not leave the bot holding it.
+        data = load_hierarchical_config()
+        is_valid, errors = validate_config(data)
         if not is_valid:
             error_msg = "Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
             raise ValueError(error_msg)
+        self._data = data
 
 
 # Global config instance for easy import
