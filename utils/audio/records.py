@@ -2574,7 +2574,7 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
                 session.source.cleanup()
             except Exception as cleanup_exc:
                 log_debug(f"[records] startup mixer cleanup failed: {cleanup_exc}")
-        else:
+        elif deck is not None:
             try:
                 deck.close()
             except Exception as cleanup_exc:

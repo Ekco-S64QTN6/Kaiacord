@@ -88,12 +88,16 @@ def waveform(path: str) -> Optional[dict]:
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return None
+    stdout = proc.stdout
+    if stdout is None:
+        proc.kill()
+        return None
     parts, pending, deadline = [], b"", time.monotonic() + 120
     try:
         while True:
             if time.monotonic() > deadline:
                 return None
-            data = proc.stdout.read(row_bytes * 2000)
+            data = stdout.read(row_bytes * 2000)
             if not data:
                 break
             pending += data
@@ -108,7 +112,7 @@ def waveform(path: str) -> Optional[dict]:
         return None
     finally:
         try:
-            proc.stdout.close()
+            stdout.close()
             if proc.poll() is None:
                 proc.kill()
             proc.wait(timeout=5)
