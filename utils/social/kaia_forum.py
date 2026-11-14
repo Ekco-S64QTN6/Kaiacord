@@ -2001,6 +2001,8 @@ class ForumDraftReviewView(discord.ui.View):
         review channel is meant to be the owner's, but a button on a message
         works for whoever can see it."""
         from utils.infrastructure.system.yaml_config import config
+        if not config.get("forum.review_owner_only", True):
+            return True                      # the owner has opened the review channel to its members
         user = interaction.user
         if config.is_owner(getattr(user, "name", ""), getattr(user, "display_name", None),
                            str(getattr(user, "id", ""))):
