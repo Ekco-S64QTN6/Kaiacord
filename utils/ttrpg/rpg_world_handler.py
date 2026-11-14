@@ -48,16 +48,20 @@ async def _handle_rumor(ctx, msg, send, rest, uid, uname, is_owner):
                 task_id=f"rpg_rumor_{_uuid.uuid4().hex[:8]}"
             )
             rumor = finish_cleanly(resp["message"]["content"].strip().replace("```", ""))
-            if rumor:
-                embed = discord.Embed(
-                    title="🗣️ Rumor Heard",
-                    description=f"*{rumor}*",
-                    color=0x888888
-                )
-                view = _make_status_view(ctx, msg, uid, uname, is_owner)
-                await msg.channel.send(embed=embed, view=view)
+            if not rumor:
+                rumor = "The tavern is quiet tonight. Nobody has anything to say."
+            embed = discord.Embed(
+                title="🗣️ Rumor Heard",
+                description=f"*{rumor}*",
+                color=0x888888
+            )
+            view = _make_status_view(ctx, msg, uid, uname, is_owner)
+            await msg.channel.send(embed=embed, view=view)
         except Exception as e:
+            # The typing indicator ran for up to 30 s; say something instead of nothing.
             log_error(f"[rpg rumor] {e}")
+            await msg.channel.send(embed=discord.Embed(
+                description="*The tavern is too loud to hear anything. Try again in a moment.*", color=0x888888))
 
 
 async def _handle_calendar(ctx, msg, send, rest, uid, uname, is_owner):

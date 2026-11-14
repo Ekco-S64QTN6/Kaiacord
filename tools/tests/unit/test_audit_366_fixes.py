@@ -223,3 +223,13 @@ def test_dream_context_reads_the_dreams_own_source():
 def test_capture_deaths_are_counted_in_a_window():
     src = (ROOT / "utils/audio/strudel_source.py").read_text(encoding="utf-8")
     assert "RESTART_FORGET_S" in src
+
+
+def test_consolidated_documents_are_written_atomically():
+    src = (ROOT / "tools/maintenance/consolidate_dreams.py").read_text(encoding="utf-8")
+    assert "write_atomic(path" in src and ".write_text(" not in src
+
+
+def test_the_delete_logs_menu_takes_only_a_date():
+    src = (ROOT / "scripts/kaia-tools.sh").read_text(encoding="utf-8")
+    assert '[[ "$DATE" =~ ^[0-9]{8}$ ]]' in src
