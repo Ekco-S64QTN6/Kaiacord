@@ -108,7 +108,7 @@ Areas: `ttrpg`, `combat`, `fishing`, `housing`, `alchemy`, `core`, `docs`, `conf
 Open work, with a decision on each, is in [`docs/ROADMAP.md`](docs/ROADMAP.md). Good first contributions:
 
 ### 🟢 Easy Picks
-- Add alchemy recipes (14 exist; the discovery tables support more)
+- Add alchemy recipes (the discovery tables support more than exist)
 - Add monster stat blocks for gaps in tier coverage
 - Fix data consistency issues in registries
 - Improve item descriptions and flavor text

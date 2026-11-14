@@ -776,6 +776,8 @@ menu_documents() {
                 --inputbox "Destination folder under knowledge_base/:" \
                 9 60 "books" 3>&1 1>&2 2>&3) || continue
             [[ -z "$DEST" ]] && DEST="books"
+            # A folder name under knowledge_base/, not a path out of it.
+            [[ "$DEST" =~ ^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$ ]] || { warn "Use letters, digits, _ and - only (a folder under knowledge_base/)."; pause; continue; }
             mkdir -p "knowledge_base/$DEST"
             if [[ -d "$SRC" ]]; then
                 mapfile -t FILES < <(find "$SRC" -maxdepth 1 -type f \

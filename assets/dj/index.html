@@ -1322,7 +1322,7 @@ function updateBottom() {
     $("nxt-t").textContent = nxt.title || nxt.name; $("nxt-a").textContent = nxt.artist || "";
     const chips = [];
     if (cur) { const ck = cur.key_now || cur.key, nk = nxt.key_now || nxt.key, [kr, cls] = keyRelation(ck, nk);
-      chips.push(`<span class="chip ${cls}"><i>KEY</i>${ck || "?"} → ${nk || "?"} · ${kr}${nxt.semitones ? " (synced)" : ""}</span>`); }
+      chips.push(`<span class="chip ${cls}"><i>KEY</i>${esc(ck || "?")} → ${esc(nk || "?")} · ${esc(kr)}${nxt.semitones ? " (synced)" : ""}</span>`); }
     if (cur && cur.tempo && nxt.bpm) { const pct = (cur.tempo / nxt.bpm - 1) * 100; chips.push(`<span class="chip ${Math.abs(pct) < 3 ? "good" : Math.abs(pct) < 6 ? "ok" : "bad"}"><i>TEMPO</i>${nxt.bpm} → ${cur.tempo.toFixed(1)} (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%)</span>`); }
     if (nxt.grid) chips.push(`<span class="chip ${nxt.grid.contrast >= 4 && nxt.grid.bar_known ? "good" : "ok"}"><i>BEAT</i>${nxt.grid.contrast >= 4 ? "steady" : "loose"} ${nxt.grid.contrast.toFixed(1)}${nxt.grid.bar_known ? " · bar 1 at " + nxt.grid.downbeat.toFixed(2) + "s" : ""}</span>`);
     if (nxt.bass_in != null && nxt.grid) chips.push(`<span class="chip"><i>BASS IN</i>bar ${Math.round((nxt.bass_in - nxt.grid.downbeat) / (240 / nxt.grid.bpm)) + 1} · ${fmt(nxt.bass_in)}</span>`);
