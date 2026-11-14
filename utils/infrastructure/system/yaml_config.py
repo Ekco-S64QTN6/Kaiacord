@@ -426,11 +426,6 @@ class YAMLConfig:
         return self.get_path('timeouts.llm_request_seconds', 600.0)
 
     @property
-    def classification_join_seconds(self) -> float:
-        """Join timeout for classification task in seconds"""
-        return self.get_path('timeouts.classification_join_seconds', 40.0)
-
-    @property
     def shutdown_timeout(self) -> float:
         """Overall shutdown timeout in seconds"""
         return self.get_path('timeouts.shutdown_seconds', 120.0)
