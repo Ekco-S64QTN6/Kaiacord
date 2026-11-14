@@ -285,3 +285,9 @@ def test_waveform_reads_the_decode_as_a_stream(tmp_path):
     want = np.clip(out / scale * 255.0, 0, 255).astype(np.uint8)
     have = np.frombuffer(base64.b64decode(got["data"]), dtype=np.uint8).reshape(-1, 3)
     assert have.shape == want.shape and (have == want).all()
+
+
+def test_a_records_start_tears_down_whatever_it_built_before_play():
+    src = (ROOT / "utils/audio/records.py").read_text(encoding="utf-8")
+    start = src[src.index("async def _start_records("):]
+    assert start.index("deck = None\n    try:") < start.index("deck = Deck(first")
