@@ -29,6 +29,33 @@ SUPPORTED_TYPES = {
 MAX_CONCURRENT_DOWNLOADS = 2
 _downloading: set = set()
 
+#: Documents each person has added today (by Discord id). A filed document is
+#: indexed and served to everyone as reference text, so what one person can add
+#: in a day is limited (`download.max_per_user_per_day`; the owner is exempt).
+#: Kept in memory: a restart gives everyone a fresh day, which is acceptable.
+_added_today: dict = {}
+_added_day: str = ""
+
+
+def _daily_limit_reached(msg, who: str) -> bool:
+    global _added_day
+    from utils.infrastructure.system.yaml_config import config
+    cap = int(config.get("download.max_per_user_per_day", 5) or 0)
+    if cap <= 0:
+        return False
+    author = msg.author
+    if config.is_owner(getattr(author, "name", ""), getattr(author, "display_name", None), who):
+        return False
+    today = datetime.now().strftime("%Y-%m-%d")
+    if _added_day != today:
+        _added_day = today
+        _added_today.clear()
+    return _added_today.get(who, 0) >= cap
+
+
+def _note_added(who: str) -> None:
+    _added_today[who] = _added_today.get(who, 0) + 1
+
 # Blog domain patterns
 BLOG_DOMAINS = ['medium.com', 'substack.com', 'dev.to', 'hashnode.dev', 'wordpress.com', 'blogger.com', 'ghost.io']
 
@@ -80,6 +107,9 @@ async def handle_download_command(ctx, msg, send_kaia_response):
         return
 
     who = str(msg.author.id)
+    if _daily_limit_reached(msg, who):
+        await msg.channel.send(embed=notice("that's your limit of documents for today. try again tomorrow.", error=True))
+        return
     if who in _downloading:
         await msg.channel.send(embed=notice("one download at a time. the last one is still coming in."))
         return
@@ -102,6 +132,7 @@ async def handle_download_command(ctx, msg, send_kaia_response):
     finally:
         _downloading.discard(who)
 
+    _note_added(who)
     # Staged outside the indexed tree, then filed straight away; filing
     # requests the reindex. The footer says where it went.
     embed = box(f"📥  {clean(result.get('title') or result['filename'], 200)}",
