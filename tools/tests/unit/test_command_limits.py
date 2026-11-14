@@ -58,3 +58,10 @@ def test_a_bad_config_reload_leaves_the_running_config_alone(monkeypatch):
     with pytest.raises(ValueError):
         cfg.reload()
     assert cfg._data == {"keep": "me"}
+
+
+def test_a_learned_preference_never_adds_a_length_instruction():
+    from utils.core.context_optimizer import PersonalizationEngine
+    out = PersonalizationEngine().adapt_prompt("base", {"conciseness": 1.0, "technicality": 0.9})
+    assert "short" not in out.lower() and "brevity" not in out.lower()
+    assert "Technical depth" in out

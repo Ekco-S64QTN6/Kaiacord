@@ -8,6 +8,8 @@
 # 3. config/default_config.yaml (defaults)
 #
 discord:
-  token: "YOUR_DISCORD_BOT_TOKEN_HERE"  # Or use ${DISCORD_TOKEN} to reference env var
+  # Leave the token out of this file: put DISCORD_TOKEN in .env (git-ignored).
+  # config/kaia.yaml is tracked, so a token pasted here is committed with the next `git add -A`.
+  token: "${DISCORD_TOKEN}"
 api:
   gemini_key: "YOUR_GEMINI_API_KEY_HERE"  # Or use ${GEMINI_API_KEY} for env var

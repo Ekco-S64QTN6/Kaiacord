@@ -228,7 +228,7 @@ Manages VBulletin 3.x integration and Discord ↔ Forum identity linking.
 
 ### `!music`
 
-Puts Kaia in your voice channel performing a live-coded set.
+Puts Kaia in your voice channel performing a live-coded set. Anyone in the server can start, change or stop it from any text channel (it is meant as a shared radio); only the set's text, never a user's words, reaches the browser that plays it.
 
 ```
 !music on                    join; she picks a genre for her mood and the hour
