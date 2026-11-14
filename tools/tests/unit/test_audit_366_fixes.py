@@ -326,3 +326,14 @@ def test_model_metadata_is_cut_to_the_asked_for_fields():
     assert got == {"summary": "a b", "document_type": "guide"}
     assert clean_model_metadata({"keywords": ["a", "", 3, None]}) == {"keywords": ["a", "3"]}
     assert clean_model_metadata("nope") == {}
+
+
+def test_the_kb_audit_check_ignores_the_metadata_backlog(monkeypatch):
+    from collections import Counter
+    from tools.maintenance import audit_knowledge_base as akb
+    monkeypatch.setattr(akb, "audit", lambda: ({"_backfill_pending": ["x.md"]}, Counter(news=1)))
+    monkeypatch.setattr(akb, "KB", Path(__file__).parent)           # exists
+    monkeypatch.setattr("sys.argv", ["audit_knowledge_base.py", "--check"])
+    assert akb.main() == 0
+    monkeypatch.setattr(akb, "audit", lambda: ({"empty_file": ["y.md"]}, Counter(news=1)))
+    assert akb.main() == 1
