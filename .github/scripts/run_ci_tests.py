@@ -239,6 +239,13 @@ def select_tests(paths: list[str]) -> list[Path]:
             if test_rel in available:
                 selected.add(available[test_rel])
 
+        # A handler is reached through the registry, which is what the
+        # acceptance matrix imports: a change to any of them runs it.
+        if rel.startswith("utils/commands/"):
+            matrix = "tools/tests/unit/test_every_command_answers.py"
+            if matrix in available:
+                selected.add(available[matrix])
+
         # TTRPG has its own path-triggered workflow, but run the focused suite
         # here too when the underlying game logic itself changes.
         if rel.startswith("utils/ttrpg/"):

@@ -92,3 +92,44 @@ def test_the_housing_commands_can_send_their_embeds(sandbox):
         _dispatch("700000002", f"!rpg {sub}", out, faults)
     assert not faults, faults
     assert not (sandbox / "memory").is_symlink()
+
+
+#: What a player might type after a subcommand: nothing, a word that names
+#: nothing, a path and a mass mention, a number where a name goes, a full message.
+ARGUMENTS = ("", "zzqx", "../../etc/passwd @everyone", "-1", "999999999999", "word " * 380)
+
+
+def _oversized(out):
+    """Replies Discord would refuse: content over 2,000, an embed over 6,000."""
+    bad = []
+    for a, k in out:
+        for text in [x for x in a if isinstance(x, str)] + ([k["content"]] if isinstance(k.get("content"), str) else []):
+            if len(text) > 2000:
+                bad.append(f"content {len(text)}")
+        embed = k.get("embed")
+        if embed is not None and hasattr(embed, "fields") and (len(embed) > 6000 or len(embed.fields) > 25):
+            bad.append(f"embed {len(embed)}")
+    return bad
+
+
+def test_a_player_with_a_character_is_answered_whatever_they_type(sandbox):
+    """Every subcommand with every kind of argument, on one character carried
+    through all of them: no handler raises, none stays silent, none sends a
+    reply too long to deliver."""
+    out, faults = [], []
+    _dispatch("700000003", "!rpg new Tess Human Warrior", out, faults)
+    assert not faults, faults
+    silent, long_replies = [], []
+    for sub in SUBCOMMANDS:
+        if sub == "new":
+            continue
+        for arg in ARGUMENTS:
+            out = []
+            _dispatch("700000003", f"!rpg {sub} {arg}".rstrip(), out, faults)
+            if not out and sub not in OWNER_ONLY:
+                silent.append((sub, arg[:20]))
+            if _oversized(out):
+                long_replies.append((sub, arg[:20], _oversized(out)))
+    assert not faults, faults[:5]
+    assert not silent, f"no reply to: {silent}"
+    assert not long_replies, long_replies
