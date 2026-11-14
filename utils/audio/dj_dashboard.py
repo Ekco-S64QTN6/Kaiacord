@@ -438,6 +438,14 @@ class _Handler(BaseHTTPRequestHandler):
             return {}
 
     def do_POST(self):
+        try:
+            self._do_post()
+        except (TypeError, ValueError, OverflowError):
+            # A field that is not the number it should be ({"slot": "x"}): a 400,
+            # not a traceback and a dropped connection.
+            self._send(400, b"", "text/plain")
+
+    def _do_post(self):
         # Loopback Host and Origin only: a page elsewhere cannot work the mixer.
         if not self._local():
             return self._send(403, b"", "text/plain")

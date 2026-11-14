@@ -241,3 +241,8 @@ def test_a_correction_with_an_apostrophe_cannot_break_the_summary():
     md = "---\ntitle: t\nsummary: 'about the sandworm group'\n---\n\nthe sandworm group speaks.\n"
     out, _ = apply_corrections(md, {"sandworm group": "O'Brien"})
     yaml.safe_load(out.split("---", 2)[1])        # still parses
+
+
+def test_the_booth_answers_400_to_a_field_that_is_not_a_number():
+    src = (ROOT / "utils/audio/dj_dashboard.py").read_text(encoding="utf-8")
+    assert "def _do_post(self)" in src and "except (TypeError, ValueError, OverflowError)" in src
