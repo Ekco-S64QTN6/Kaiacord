@@ -48,7 +48,7 @@ async def run(staged: Optional[Path] = None) -> subprocess.CompletedProcess:
                 raise subprocess.TimeoutExpired(cmd, TIMEOUT) from None
             raise
         return subprocess.CompletedProcess(
-            cmd, proc.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"))
+            cmd, proc.returncode if proc.returncode is not None else -1, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"))
 
 
 async def _end_group(proc) -> None:
