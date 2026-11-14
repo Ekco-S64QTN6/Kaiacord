@@ -296,7 +296,8 @@ def main() -> int:
               f"(not a defect — these are created with an empty summary)")
         print(f"         raise knowledge_base.auto_enrich_limit to drain it faster\n")
 
-    return 1 if args.check else 0
+    # The backlog is reported but is not a defect, so it must not fail --check.
+    return 1 if (args.check and findings) else 0
 
 
 if __name__ == "__main__":
