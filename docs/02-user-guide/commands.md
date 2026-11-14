@@ -29,7 +29,7 @@ All commands are prefixed with `!`. Admin commands are restricted to the project
 | `!launch` | The next rocket launches (`!launches`) | All |
 | `!quake` | Magnitude 4.5+ earthquakes in the last day (`!quakes`) | All |
 | `!sky` | Tonight overhead: moon, planets, meteor showers, ISS pass | All |
-| `!download <url>` | Submit a URL for the knowledge base (cleaned and filed straight away) | All |
+| `!download <url>` | Submit a URL for the knowledge base (cleaned and filed straight away). Five a day per person (`download.max_per_user_per_day`; the owner is exempt) | All |
 | `!youtube <url>` | Pull a video's transcript into the knowledge base, correcting misheard names (`!yt`) | All |
 | `!quip` | Trigger a social media quip (10m cooldown) | All |
 | `!flag <construct>` | Tag the last answer's retrieved sources with a Data Rot label | Admin |

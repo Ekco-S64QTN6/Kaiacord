@@ -437,6 +437,11 @@ desires:
 # ============================================================================
 # Knowledge base maintenance
 # ============================================================================
+download:
+  # Documents one person (not the owner) can add with !download in a day. A
+  # filed document is indexed and served to everyone as reference text. 0 = no limit.
+  max_per_user_per_day: 5
+
 knowledge_base:
   # Nightly pass that fills in missing summary and keywords on corpus files.
   # Runs in the dream window. Idempotent: only files still missing either
