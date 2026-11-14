@@ -69,6 +69,16 @@ flowchart TD
 - **Dreams.** Between 03:00 and 05:00 she reads over the day, writes reflections, extracts
   beliefs and updates a rolling identity journal.
 
+### Direct messages stay private
+
+A DM (or an invitation-only thread) is answered, but it is kept apart from everything she learns
+in public. It is logged to `memory/dm_logs/`, never to `knowledge_base/user_logs/`, which retrieval
+serves to every public reply. It does not update relationships, mood, beliefs or her proactive
+state, its text never reaches the diagnostic logs (the security replay file, the hallucination log,
+the consistency watchdog's prompts), and the memory phrases ("kaia remember …", "kaia who do you
+know") and `!snapshot` do nothing there. Anything she reads aloud from outside, such as a forwarded
+message or a scraped page, has the pipeline's own markers neutralised before it reaches the prompt.
+
 ## Speaking first
 
 Kaia sometimes speaks without being asked: an opener when she has something on her mind, an
