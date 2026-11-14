@@ -359,6 +359,10 @@ def _something_on_her_mind() -> Optional[tuple[str, str]]:
         source = body.split("Source: ", 1)[1].split("\n", 1)[0].strip() if "Source: " in body else ""
         if "## Kaia's Reflection" not in body or _stale_news(f"{source} {f.name}"):
             continue
+        # A reflection on something a person submitted through !download is theirs,
+        # not hers to publish: the fragment names who sent it.
+        if re.search(r"Submitted by", body):
+            continue
         text = body.split("## Kaia's Reflection", 1)[1].split("\n## ", 1)[0]
         text = " ".join(re.sub(r"^\s*#+\s.*$", "", text, flags=re.M).split())
         if len(text) >= 80:

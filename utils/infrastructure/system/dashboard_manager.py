@@ -119,10 +119,10 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
                 coherence_ema = getattr(bot_state, 'kaia_coherence', 0.85)
 
             # Daily hallucination count
-            h_count = _count_recent_hallucinations(hallucination_log)
+            h_count = await asyncio.to_thread(_count_recent_hallucinations, hallucination_log)
 
             # We use update for bulk modification
-            shared_stats.update({
+            _payload = ({
                 'messages': s.get('messages', 0),
                 'avg_response_time': s.get('avg_response_time', 0.0),
                 'queue_size': s.get('queue_size', 0),
@@ -154,6 +154,8 @@ async def _stats_sync_task(shared_stats, stats_tracker, stats_poller, stop_event
                 'hallucination_count': h_count,
                 'rag_stale': rag_stale,
             })
+            # A call into the manager process: a stalled manager must not stall the loop.
+            await asyncio.to_thread(shared_stats.update, _payload)
         except Exception as e:
             try:
                 from utils.infrastructure.logging.kaia_logger import log_debug

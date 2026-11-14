@@ -279,11 +279,20 @@ class _Handler(BaseHTTPRequestHandler):
         rng = self.headers.get("Range", "")
         if rng.startswith("bytes="):
             a, _, b = rng[6:].split(",")[0].partition("-")
-            if a.strip():
-                start, end = int(a), (int(b) if b.strip() else end)
-            elif b.strip():
-                start = max(0, size - int(b))
+            try:
+                if a.strip():
+                    start, end = int(a), (int(b) if b.strip() else end)
+                elif b.strip():
+                    start = max(0, size - int(b))
+            except ValueError:
+                return self._send(416, b"", "text/plain")
             end = min(end, size - 1)
+            if start > end:                       # past the end of the file
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{size}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             self.send_response(206)
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         else:

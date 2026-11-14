@@ -233,6 +233,11 @@ def _is_public_ip(ip_str: str) -> bool:
     ip = ipaddress.ip_address(ip_str.split("%", 1)[0])
     # Python classifies multicast addresses as global; they are not public
     # unicast destinations and must not pass the SSRF egress guard.
+    if ip.version == 6:
+        # NAT64 (64:ff9b::/96) wraps an IPv4 address, loopback included, and the
+        # deprecated site-local range (fec0::/10) is internal by definition.
+        if ip in ipaddress.ip_network("64:ff9b::/96") or ip in ipaddress.ip_network("fec0::/10"):
+            return False
     return ip.is_global and not ip.is_multicast
 
 

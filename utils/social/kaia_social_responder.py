@@ -130,7 +130,7 @@ def _get_root_uri(mention: Dict[str, Any]) -> str:
 
 def _get_context_type_for_dream(dream: Dict[str, Any]) -> str:
     """Derive a context framing string from a dream's metadata."""
-    source = dream.get('metadata', {}).get('source', '').lower()
+    source = str(dream.get('source') or dream.get('metadata', {}).get('source', '')).lower()
     if any(k in source for k in ('book', 'epub', 'pdf')):
         title = source.replace('_', ' ').replace('.md', '').title()
         return f"reading a book called {title}"
