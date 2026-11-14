@@ -172,6 +172,13 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
         )
         profile_text = response["message"]["content"].strip()
 
+        # What replaces a person's profile is injected into replies about them:
+        # an empty or refusal-shaped reply must not replace a good one.
+        why = unusable_profile(profile_text)
+        if why:
+            print(f"  ✘ {username}: model reply not used ({why}); profile kept")
+            return False
+
         profile_path = user_dir / "user_profile.md"
         header = (
             f"---\ngenerated: {datetime.now().isoformat()}\n"
@@ -194,6 +201,20 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
         except Exception:
             pass
         return False
+
+
+def unusable_profile(text: str) -> str:
+    """Why a generated profile is not fit to replace the one on disk, or "".
+
+    The prompt asks for five `##` sections of first-person notes; a refusal, an
+    apology or a one-line reply has neither the sections nor the length.
+    """
+    if len(text.split()) < 60:
+        return f"only {len(text.split())} words"
+    headings = len(re.findall(r"^#{2,3} ", text, re.M))
+    if headings < 3:
+        return f"{headings} section heading(s)"
+    return ""
 
 
 async def main():

@@ -66,8 +66,14 @@ def build_archive(user: str, month: str, days: list[Path], existing: str = "") -
     """
     from utils.core.frontmatter import dump_frontmatter
     parts = [body_of(existing).strip()] if existing.strip() else []
+    folded = 0
     for f in sorted(days):
         body = body_of(f.read_text(encoding="utf-8", errors="replace")).strip()
+        # A day already in the archive (a run that wrote the archive and stopped
+        # before it removed the daily files) is not merged a second time.
+        if body and existing and body in existing:
+            folded += 1
+            continue
         if body:
             parts.append(body)
     text = "\n\n".join(p for p in parts if p).strip()
@@ -79,7 +85,7 @@ def build_archive(user: str, month: str, days: list[Path], existing: str = "") -
         merged_before = int(m.group(1))
     front = dump_frontmatter({
         "title": f"{user} — {pretty}", "document_type": "Transcript", "month": pretty,
-        "days_merged": merged_before + len(days), "turns": turns, "archived": True,
+        "days_merged": merged_before + len(days) - folded, "turns": turns, "archived": True,
     })
     return front + "\n" + text + "\n", turns
 

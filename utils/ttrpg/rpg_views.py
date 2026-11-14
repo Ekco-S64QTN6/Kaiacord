@@ -1933,7 +1933,7 @@ class MailMenuView(StaleSafeView):
         view = MailSendView(self.ctx, self.msg, self.uid, self.uname, self.is_owner, self.sheet, recipients)
         embed = discord.Embed(
             title="📨 Prepare Dispatch",
-            description="\"Kupo! Who are we sending this to? And don't forget the delivery fee is included!\"",
+            description="\"Kupo! Who are we sending this to? The delivery is on the house, kupo!\"",
             color=0xf4a460
         )
         if recipient_scan.failures:
