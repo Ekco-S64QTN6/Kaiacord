@@ -87,7 +87,7 @@ def extract_pandoc(path: Path) -> tuple[str, dict]:
     _require("pandoc", "Install with: sudo pacman -S pandoc")
     proc = subprocess.run(
         ["pandoc", "-s", "-t", _PANDOC_MD, "--wrap=none", "--strip-comments", str(path)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=600,
     )
     if proc.returncode != 0:
         sys.exit(f"error: pandoc failed on {path.name}:\n{proc.stderr.strip()}")
@@ -126,7 +126,7 @@ def extract_pdf(path: Path) -> str:
     _require("pdftotext", "Install poppler: sudo pacman -S poppler")
     proc = subprocess.run(
         ["pdftotext", "-nopgbrk", "-q", str(path), "-"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=600,
     )
     if proc.returncode != 0 or not proc.stdout.strip():
         sys.exit(f"error: pdftotext produced no text for {path.name} "
@@ -504,25 +504,17 @@ def first_paragraph(text: str, min_len: int = 120, max_len: int = 400) -> str:
     return ""
 
 
-def yaml_escape(s: str) -> str:
-    s = s.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{s}"'
-
-
 def build_frontmatter(title, author, category, doctype, summary, keywords) -> str:
-    lines = ["---"]
-    full_title = f"{title} by {author}" if author else title
-    lines.append(f"title: {yaml_escape(full_title)}")
+    # Through the YAML writer (CLAUDE.md §10): a title, author or keyword with a
+    # colon, quote or leading symbol breaks a hand-built block, and nothing
+    # downstream notices.
+    from utils.core.frontmatter import dump_frontmatter
+    data = {"title": f"{title} by {author}" if author else title}
     if author:
-        lines.append(f"author: {yaml_escape(author)}")
-    lines.append(f"category: {yaml_escape(category)}")
-    lines.append(f"document_type: {yaml_escape(doctype)}")
-    lines.append(f"summary: {yaml_escape(summary)}" if summary else 'summary: ""')
-    lines.append("keywords:")
-    for k in keywords:
-        lines.append(f"- {k}")
-    lines.append("---")
-    return "\n".join(lines)
+        data["author"] = author
+    data.update({"category": category, "document_type": doctype,
+                 "summary": summary or "", "keywords": list(keywords)})
+    return dump_frontmatter(data).rstrip("\n")
 
 
 # Words that say nothing about what a document is about. Kept deliberately
@@ -630,6 +622,9 @@ def convert(path: Path, args) -> tuple[str, str]:
     stem = f"{title} by {author}" if (author and prefix == "Book") else title
     name = f"{prefix} - {stem}.md" if prefix else f"{stem}.md"
     name = re.sub(r'[\\/:*?"<>|]', "-", name)
+    name = " ".join(name.split())                  # no newline or run of spaces in a file name
+    if len(name) > 200:                            # a long title would not fit a file name
+        name = name[:196].rstrip() + ".md"
     return name, body
 
 

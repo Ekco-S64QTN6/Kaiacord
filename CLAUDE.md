@@ -536,7 +536,7 @@ A pasted message link into a private thread is read only for someone invited to 
 **A DM's text stays out of the diagnostic logs too.** `utils/core/private_turn.py` is a context variable set for
 the length of a DM or private-thread turn (`_run_intelligence_pipeline`); the security replay file, the
 hallucination log, the consistency watchdog's prompts and the generation-failure line write
-`private_turn.text(...)` or nothing. Memory commands (`!remember`-style phrases and profile queries), `!snapshot`
+`private_turn.text(...)` or nothing. Memory phrases ("kaia remember …", "kaia who do you know"), `!snapshot`
 and the engagement meter do nothing in a DM. A forwarded Discord message is read through its
 `message_snapshots` (`context_enricher._forwarded_text`) and, like every block of outside text, has the
 runtime's own markers neutralised before it reaches the prompt.

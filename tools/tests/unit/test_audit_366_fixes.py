@@ -385,3 +385,23 @@ def test_download_limit_counts_per_person_and_spares_the_owner(monkeypatch):
         dh._note_added("900")
     assert dh._daily_limit_reached(boss, "900") is False
     dh._added_today.clear()
+
+
+def test_ebook_frontmatter_survives_colons_and_quotes_in_every_field():
+    import yaml
+    from tools.maintenance.ebook_to_kb_md import build_frontmatter
+    block = build_frontmatter('Dune: "Part" 1', "Frank: Herbert", "Reference", "book",
+                              "a summary: with a colon", ["spice: melange", "#hash", "plain"])
+    data = yaml.safe_load(block.split("---", 2)[1])
+    assert data["keywords"] == ["spice: melange", "#hash", "plain"]
+    assert data["author"] == "Frank: Herbert"
+
+
+def test_the_ebook_converter_cannot_hang_on_a_bad_file():
+    src = (ROOT / "tools/maintenance/ebook_to_kb_md.py").read_text(encoding="utf-8")
+    assert src.count("timeout=600") == 2
+
+
+def test_the_convert_menu_takes_a_folder_name_not_a_path():
+    src = (ROOT / "scripts/kaia-tools.sh").read_text(encoding="utf-8")
+    assert '[[ "$DEST" =~ ^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$ ]]' in src
