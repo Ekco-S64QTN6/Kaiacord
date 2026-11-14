@@ -115,15 +115,15 @@ def test_a_filing_that_runs_too_long_is_ended_with_its_group_and_reaped(monkeypa
     import subprocess as sp
     from utils.core import ingress
     started = {}
-    real = asyncio.create_subprocess_exec
+    real = sp.Popen
 
-    async def fake_exec(*cmd, **kwargs):
+    def fake_popen(cmd, **kwargs):
         assert kwargs.get("start_new_session") is True          # a session of its own
-        proc = await real(sys.executable, "-c", "import time; time.sleep(60)", **kwargs)
+        proc = real([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
         started["proc"] = proc
         return proc
 
-    monkeypatch.setattr(ingress.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(ingress.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(ingress, "TIMEOUT", 0.5)
 
     async def go():
@@ -133,3 +133,29 @@ def test_a_filing_that_runs_too_long_is_ended_with_its_group_and_reaped(monkeypa
     assert started["proc"].returncode is not None               # waited for, not left running
     with pytest.raises(ProcessLookupError):
         os.killpg(started["proc"].pid, 0)                        # and nothing of its group is left
+
+
+def test_a_filing_cancelled_at_shutdown_ends_promptly(monkeypatch):
+    import os
+    import subprocess as sp
+    import time
+    from utils.core import ingress
+    started = {}
+    real = sp.Popen
+
+    def fake_popen(cmd, **kwargs):
+        proc = real([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
+        started["proc"] = proc
+        return proc
+
+    monkeypatch.setattr(ingress.subprocess, "Popen", fake_popen)
+
+    async def go():
+        asyncio.get_running_loop().create_task(ingress.run())
+        await asyncio.sleep(0.5)                                 # the child is running; the loop closes now
+    t0 = time.time()
+    asyncio.run(go())
+    assert time.time() - t0 < 20
+    assert started["proc"].returncode is not None
+    with pytest.raises(ProcessLookupError):
+        os.killpg(started["proc"].pid, 0)

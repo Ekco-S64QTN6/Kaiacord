@@ -22,9 +22,10 @@ async def run(staged: Optional[Path] = None) -> subprocess.CompletedProcess:
     """Run process_ingress over one staged file, or over everything staged.
 
     The child gets a session of its own, so a timeout or a cancelled task (the
-    bot shutting down) ends it and everything it started, and is awaited before
-    this returns: a bare `subprocess.run` in a worker thread killed only the
-    direct child and left the thread running to the end of it."""
+    bot shutting down) ends it and everything it started, and it is reaped before
+    this returns. It is a plain Popen waited on in a worker thread rather than
+    asyncio's subprocess machinery: a task cancelled while that machinery was
+    still starting the child waited on it with no bound, and never finished."""
     cmd = [sys.executable, "tools/maintenance/process_ingress.py", "--quiet"]
     if staged is not None:
         cmd += ["--file", str(staged)]
@@ -32,43 +33,54 @@ async def run(staged: Optional[Path] = None) -> subprocess.CompletedProcess:
         if staged is not None and not staged.exists():
             # The hourly pass got there first.
             return subprocess.CompletedProcess(cmd, 0, "already filed", "")
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            start_new_session=True)
-        reader = asyncio.ensure_future(proc.communicate())
+        proc = await asyncio.to_thread(
+            subprocess.Popen, cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, start_new_session=True)
+        waiting = asyncio.ensure_future(asyncio.to_thread(_communicate, proc, TIMEOUT))
         try:
-            out, err = await asyncio.wait_for(asyncio.shield(reader), timeout=TIMEOUT)
-        except BaseException as exc:                  # timeout, or cancelled at shutdown
-            await _end_group(proc)
+            out, err = await asyncio.shield(waiting)
+        except asyncio.CancelledError:
+            _end_group(proc, grace=0)                  # shutting down: no time for politeness
             try:
-                await asyncio.wait_for(reader, timeout=5)      # let the pipe reader finish
+                await asyncio.wait_for(waiting, timeout=10)
             except BaseException:
-                reader.cancel()
-            if isinstance(exc, asyncio.TimeoutError):
-                raise subprocess.TimeoutExpired(cmd, TIMEOUT) from None
+                pass
             raise
-        return subprocess.CompletedProcess(
-            cmd, proc.returncode if proc.returncode is not None else -1, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"))
+        return subprocess.CompletedProcess(cmd, proc.returncode if proc.returncode is not None else -1, out, err)
 
 
-async def _end_group(proc) -> None:
-    """Terminate the child's process group, escalate to SIGKILL, and reap it."""
+def _end_group(proc, grace: float = 10) -> None:
+    """Terminate the child's process group, escalate to SIGKILL, reap it. Blocking."""
     import os
     import signal
-    for sig, wait in ((signal.SIGTERM, 10), (signal.SIGKILL, 10)):
-        try:
-            os.killpg(proc.pid, sig)
-        except (ProcessLookupError, PermissionError):
-            break
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=wait)
-            return
-        except asyncio.TimeoutError:
-            continue
     try:
-        await asyncio.wait_for(proc.wait(), timeout=5)
-    except Exception:
+        if grace:
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=grace)
+                return
+            except subprocess.TimeoutExpired:
+                pass
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
         pass
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _communicate(proc, timeout: float):
+    """Wait for the child's output, ending its group if it runs past `timeout`."""
+    try:
+        return proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _end_group(proc)
+        try:
+            proc.communicate(timeout=10)
+        except Exception:
+            pass
+        raise
 
 
 async def file_now(staged: Path, reply) -> None:
