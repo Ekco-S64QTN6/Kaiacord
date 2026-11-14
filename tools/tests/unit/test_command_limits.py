@@ -1,4 +1,6 @@
 """Per-person limits on commands that fetch or file things."""
+import pytest
+
 
 
 def test_forum_link_and_verify_share_a_cooldown():
@@ -45,3 +47,14 @@ def test_forum_review_buttons_answer_to_the_owner_unless_opened(monkeypatch):
     assert asyncio.run(view.interaction_check(interaction)) is False and sent.await_count == 1
     monkeypatch.setattr(config, "get", lambda k, d=None: False if k == "forum.review_owner_only" else d)
     assert asyncio.run(view.interaction_check(interaction)) is True
+
+
+def test_a_bad_config_reload_leaves_the_running_config_alone(monkeypatch):
+    from utils.infrastructure.system import yaml_config
+    cfg = yaml_config.YAMLConfig.__new__(yaml_config.YAMLConfig)
+    cfg._data = {"keep": "me"}
+    monkeypatch.setattr(yaml_config, "load_hierarchical_config", lambda: {"broken": True})
+    monkeypatch.setattr(yaml_config, "validate_config", lambda d: (False, ["nope"]))
+    with pytest.raises(ValueError):
+        cfg.reload()
+    assert cfg._data == {"keep": "me"}

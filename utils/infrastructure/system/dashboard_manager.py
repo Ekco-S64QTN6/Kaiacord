@@ -519,6 +519,7 @@ class DashboardManager:
             log_critical("DISCORD_TOKEN not found!")
             sys.exit(1)
             
+        failed = False
         try:
             print("🚀 Using simple logger")
             sp = self.perform_startup_tasks()
@@ -534,6 +535,7 @@ class DashboardManager:
             # Check if it's just the expected cascade from the inner loop cancellation
             if not isinstance(e, asyncio.CancelledError):
                 print(f"\n❌ Error in simple mode: {e}")
+                failed = True
         finally:
             # ALWAYS kill orphaned Ollama runners (synchronous, no IPC needed)
             try:
@@ -547,4 +549,4 @@ class DashboardManager:
             sys.__stdout__.flush()
             
             # Direct clean force exit
-            shutdown_manager.force_exit(0)
+            shutdown_manager.force_exit(1 if failed else 0)
