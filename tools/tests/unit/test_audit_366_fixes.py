@@ -291,3 +291,12 @@ def test_a_records_start_tears_down_whatever_it_built_before_play():
     src = (ROOT / "utils/audio/records.py").read_text(encoding="utf-8")
     start = src[src.index("async def _start_records("):]
     assert start.index("deck = None\n    try:") < start.index("deck = Deck(first")
+
+
+def test_a_forum_name_that_is_a_path_is_not_made_a_directory(tmp_path):
+    import types
+    from utils.social.kaia_forum import ForumClient
+    fake = types.SimpleNamespace(USER_LOGS_DIR=tmp_path)
+    ForumClient.update_forum_user_profiles(
+        fake, [{"author": "../../x", "user_id": 1, "post_id": 9, "content": "hi"}])
+    assert list(tmp_path.iterdir()) == []
