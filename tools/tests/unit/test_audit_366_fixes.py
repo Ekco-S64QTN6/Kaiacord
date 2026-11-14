@@ -233,3 +233,11 @@ def test_consolidated_documents_are_written_atomically():
 def test_the_delete_logs_menu_takes_only_a_date():
     src = (ROOT / "scripts/kaia-tools.sh").read_text(encoding="utf-8")
     assert '[[ "$DATE" =~ ^[0-9]{8}$ ]]' in src
+
+
+def test_a_correction_with_an_apostrophe_cannot_break_the_summary():
+    import yaml
+    from tools.maintenance.transcript_names import apply_corrections
+    md = "---\ntitle: t\nsummary: 'about the sandworm group'\n---\n\nthe sandworm group speaks.\n"
+    out, _ = apply_corrections(md, {"sandworm group": "O'Brien"})
+    yaml.safe_load(out.split("---", 2)[1])        # still parses

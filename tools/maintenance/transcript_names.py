@@ -372,6 +372,10 @@ async def find_corrections(markdown: str, title: str, channel: str,
                            description: str = "") -> dict[str, str]:
     """Ask `chat` for a glossary chunk by chunk; return the pairs safe to apply.
     `description` is the video's own, the reference for how names are spelled."""
+    # The word list and the corpus's names load on first use (the nltk list, and
+    # every book, document, news and wiki file): read them in a worker thread, not
+    # on the bot's event loop and its voice thread's GIL.
+    await asyncio.to_thread(lambda: is_known_word("warm"))
     reference = "\n".join(x for x in (title, channel, description) if x)
     shown = (REFERENCE.format(reference=description[:MAX_REFERENCE_CHARS]) if description else "")
     votes: dict[str, Counter] = defaultdict(Counter)
@@ -391,7 +395,7 @@ async def find_corrections(markdown: str, title: str, channel: str,
         if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
             continue                                   # the model disagrees with itself
         glossary[heard] = ranked[0][0]
-    for heard, name in reference_corrections(markdown, description).items():
+    for heard, name in (await asyncio.to_thread(reference_corrections, markdown, description)).items():
         glossary.setdefault(heard, name)
     return glossary
 
@@ -422,7 +426,17 @@ def apply_corrections(markdown: str, glossary: dict[str, str]) -> tuple[str, dic
         fm_lines.append(line)
     body_lines = [fix(line) if _is_prose(line) else line
                   for line in body.splitlines(keepends=True)]
-    return "".join(fm_lines) + "".join(body_lines), counts
+    new_front = "".join(fm_lines)
+    if new_front != frontmatter:
+        # A corrected name can carry an apostrophe into a quoted YAML scalar (the
+        # summary), and a broken block is invisible downstream (CLAUDE.md §10):
+        # keep the original block unless the edited one still parses.
+        try:
+            import yaml
+            yaml.safe_load(new_front.split("---", 2)[1])
+        except Exception:
+            new_front = frontmatter
+    return new_front + "".join(body_lines), counts
 
 
 def describe(counts: dict[str, int], glossary: dict[str, str], limit: int = 6) -> str:
