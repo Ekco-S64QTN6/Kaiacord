@@ -80,7 +80,8 @@ def upsert(item: dict, tolerance_hz: int = 1000) -> dict:
         else:
             data["items"].append(new)
         if new["tag"] not in data["tags"]:
-            data["tags"][new["tag"]] = str(item.get("color") or DEFAULT_COLOR)
+            color = str(item.get("color") or "")
+            data["tags"][new["tag"]] = color if re.fullmatch(r"#[0-9a-fA-F]{6}", color) else DEFAULT_COLOR
         _save(data)
         return new
 

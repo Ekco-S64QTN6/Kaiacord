@@ -26,6 +26,9 @@ from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 SILENCE = b"\x00" * FRAME_BYTES
 MAX_RESTARTS = 20
 
+#: Capture deaths are forgotten after this long without another one.
+RESTART_FORGET_S = 300.0
+
 
 class StrudelAudioSource(_AudioSource):
     def __init__(self, engine: StrudelEngine, buffer_frames: int = 100):
@@ -41,6 +44,7 @@ class StrudelAudioSource(_AudioSource):
         self.frames_sent = 0
         self.underruns = 0
         self.restarts = 0
+        self._last_restart = 0.0
 
         self._proc = engine.open_capture()
         self._thread = threading.Thread(target=self._pump, daemon=True,
@@ -75,6 +79,7 @@ class StrudelAudioSource(_AudioSource):
                 if self._stop.is_set():
                     return
                 self.restarts += 1
+                self._last_restart = time.monotonic()
                 if self.restarts > MAX_RESTARTS:
                     log_warning(f"[music] capture died {self.restarts} times; giving up — the set plays silence")
                     return
@@ -91,6 +96,8 @@ class StrudelAudioSource(_AudioSource):
                     return
                 continue
 
+            if self.restarts and time.monotonic() - self._last_restart > RESTART_FORGET_S:
+                self.restarts = 0           # it has been steady since: count deaths in a window, not for life
             with self._lock:
                 self._frames.append(buf)
                 # Drop the oldest rather than grow without bound: this is a

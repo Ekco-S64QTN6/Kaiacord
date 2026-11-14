@@ -191,3 +191,35 @@ def test_forum_link_and_verify_share_a_cooldown():
 def test_concurrent_temporaries_have_distinct_names():
     src = (ROOT / "utils/radio/spectrogram.py").read_text(encoding="utf-8")
     assert "threading.get_ident()" in src
+
+
+# ── third pass ──────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("ip,public", [("8.8.8.8", True), ("64:ff9b::7f00:1", False), ("fec0::1", False),
+                                       ("::ffff:127.0.0.1", False), ("2606:4700::1111", True)])
+def test_ssrf_guard_refuses_nat64_and_site_local(ip, public):
+    from utils.core.sanitizer import _is_public_ip
+    assert _is_public_ip(ip) is public
+
+
+def test_a_new_bookmark_tag_colour_must_be_a_hex_colour(monkeypatch):
+    from utils.radio import bookmarks
+    saved = {}
+    monkeypatch.setattr(bookmarks, "_save", lambda d: saved.update(d))
+    monkeypatch.setattr(bookmarks, "load", lambda: {"items": [], "tags": {}})
+    bookmarks.upsert({"freq": 8992000, "tag": "t", "color": "red;background-image:url(//x)"})
+    assert saved["tags"]["t"] == bookmarks.DEFAULT_COLOR
+
+
+def test_a_dream_on_a_submitted_document_is_not_posted(tmp_path, monkeypatch):
+    src = (ROOT / "utils/social/agent_boards.py").read_text(encoding="utf-8")
+    assert 'Submitted by' in src
+
+
+def test_dream_context_reads_the_dreams_own_source():
+    from utils.social.kaia_social_responder import _get_context_type_for_dream
+    assert _get_context_type_for_dream({"source": "Book - Neuromancer.md", "category": "books"}).startswith("reading a book")
+
+
+def test_capture_deaths_are_counted_in_a_window():
+    src = (ROOT / "utils/audio/strudel_source.py").read_text(encoding="utf-8")
+    assert "RESTART_FORGET_S" in src

@@ -940,6 +940,18 @@ async def _watch(pin: Optional[dict] = None) -> None:
         _failed_at = time.time()
         log_warning(f"[scanner] waterfall watch failed: {type(e).__name__}: {e} — retrying in 15 minutes")
     finally:
+        # Anything that raised between the fork and the child's end (or a cancelled
+        # task) must not leave the child holding the dongle.
+        if proc is not None and proc.is_alive():
+            try:
+                stop.set()
+                proc.terminate()
+                await asyncio.to_thread(proc.join, 5)
+                if proc.is_alive():
+                    proc.kill()
+                    await asyncio.to_thread(proc.join, 2)
+            except Exception as e:
+                log_warning(f"[scanner] could not stop the watcher: {e}")
         from utils.radio import transcribe
         transcribe.release_if_idle()
         _release(stop, pin)
