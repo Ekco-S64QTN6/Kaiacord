@@ -198,11 +198,12 @@ def snapshot(session) -> dict:
     if session is None or session.source is None:
         return {"live": False, "t": time.time(), "launch": _launch}
     src = session.source
+    mood = _mood()                      # read before the mixer's lock: it may touch disk
     with src._lock:
-        return _snapshot_locked(session, src)
+        return _snapshot_locked(session, src, mood)
 
 
-def _snapshot_locked(session, src) -> dict:
+def _snapshot_locked(session, src, mood: Optional[dict] = None) -> dict:
     from utils.audio import records as R
     from utils.audio.records import ramp
     cur, inc, plan, queued, hand = src.current, src.incoming, src.plan, src._queued, src.hand
@@ -245,7 +246,7 @@ def _snapshot_locked(session, src) -> dict:
     if plan is not None and cur is not None:
         now = cur.at()
         mix = {"kind": plan.kind, "mode": plan.mode, "why": plan.why, "out_slot": out_slot, "in_slot": in_slot,
-               "fallback": plan.fallback, "check": getattr(plan, "check", ""),
+               "fallback": plan.fallback, "check": getattr(plan, "check", ""), "where": getattr(plan, "where", ""),
                "started": src.blend_started(),
                "ramp": round(ramp(plan), 3) if plan.kind == "blend" else None,
                "start": round(plan.start, 3), "drop": round(plan.drop, 3), "length": round(plan.length, 3),
@@ -255,6 +256,13 @@ def _snapshot_locked(session, src) -> dict:
     # placed behind the non-blocking audio buffer. Prefer those lifetime
     # diagnostics; retain the old renderer sample as a compatibility fallback.
     voice_src = getattr(session, "voice_source", None)
+    # The mixer renders ahead of the voice thread by the frames waiting in the
+    # buffer: `heard` is the frame being handed to Discord now, which is what
+    # the page times its meters and playheads by.
+    try:
+        buffered = int(voice_src._frames.qsize()) if voice_src is not None else 0
+    except Exception:
+        buffered = 0
     if voice_src is not None:
         late_count = int(getattr(voice_src, "late_count", 0))
         worst_late = float(getattr(voice_src, "worst_late", 0.0))
@@ -270,12 +278,13 @@ def _snapshot_locked(session, src) -> dict:
         "planning": src.planning_mode, "late": {"count": late_count, "worst_ms": round(worst_late * 1000)},
         # frames a decoder was behind and played as silence this set
         "starved": R.DECKS_STARVED - getattr(session, "starved_at_start", R.DECKS_STARVED),
-        "history": src.history[-12:], "names": session.names[-30:], "mood": _mood(),
+        "history": src.history[-12:], "names": session.names[-30:], "mood": _mood() if mood is None else mood,
         "chatter": list(getattr(session, "chatter", []))[-14:],
-        # The last half second of per-frame levels (20 ms each): the meters play
-        # them back on the page's own clock instead of jumping to one sample.
-        "meter": [list(r) for r in list(getattr(src, "meter", []))[-25:]],
-        "frame": src.frames_sent,
+        # Per-frame levels (20 ms each) from the frame being heard to the newest
+        # rendered: the meters play them back on the page's own clock instead
+        # of jumping to one sample.
+        "meter": [list(r) for r in list(getattr(src, "meter", []))[-(25 + buffered):]],
+        "frame": src.frames_sent, "heard": max(0, src.frames_sent - buffered), "buffered": buffered,
         "mix_beats": src._mix_beats, "blend_choices": list(src.BLEND_CHOICES), "controls": src.controls.state(), "paused": sorted(src.paused),
         "requests": [_name_of(session, p) for p in session.requests],
         "on_air": cur.slot if cur else None, "free": free, "loading": getattr(session, "loading", None),
@@ -397,10 +406,18 @@ class _Handler(BaseHTTPRequestHandler):
                 with _viewers_lock:
                     _viewers += 1
                 try:
+                    # Paced by a deadline, not a sleep after the work: a sleep of a
+                    # whole period on top of each snapshot ran the stream slow and uneven.
+                    due = time.monotonic()
                     while _server is not None:
-                        self.wfile.write(b"data: " + json.dumps(snapshot(_session())).encode() + b"\n\n")
+                        self.wfile.write(b"data: " + json.dumps(snapshot(_session()), separators=(",", ":")).encode() + b"\n\n")
                         self.wfile.flush()
-                        time.sleep(1.0 / STREAM_HZ)
+                        due += 1.0 / STREAM_HZ
+                        wait = due - time.monotonic()
+                        if wait > 0:
+                            time.sleep(wait)
+                        else:
+                            due = time.monotonic()
                 finally:
                     with _viewers_lock:
                         _viewers -= 1

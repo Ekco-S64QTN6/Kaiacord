@@ -978,6 +978,9 @@ that are easy to break:
   worker; discord.py reads `BufferedRecordsSource`, which only dequeues finished 20 ms frames and never
   waits, logs or touches disk. The pair graph is measured in a niced separate process
   (`tools/maintenance/records_graph.py`), never in the bot.
+- **One voice at a time, and a record is left where it changes**: the presence band changes hands with
+  the mids (`presence`), the outgoing is gone a `tail` after the swap, and an end-of-record blend goes at
+  the outro or last breakdown (`songmap`), else near the end, further back only as the last resort.
 - **Two beats play together only when `mixcheck` measures them locking**; otherwise an echo-out, never a
   bare cut. Anything that rebuilds a `Next` uses `dataclasses.replace` (its `source` decides whether a pick
   may be swapped).

@@ -135,6 +135,13 @@ CUES = (None, 0, 8, 16, 32)
 #: …and the blend shortened, halving down to this (a short blend that locks
 #: beats any transition that does not).
 SHORTEST_BEATS = 16
+#: A record is left near its end: the outgoing gone no more than this long
+#: before its music ends, wherever a blend locks there. The search used to take
+#: the first lock walking back from the end at the longest length — a 64-beat
+#: blend two minutes early over a 32-beat one on the last phrase — and records
+#: were left a minute in, mid-verse, with the next one's vocal over theirs.
+#: Further back than this is the last resort before an echo-out.
+NEAR_END_S = 75.0
 #: A record loaded at the booth or asked for comes in from its start, or a
 #: phrase in: cued 32 bars in to find a lock, Urgent came in a minute into the
 #: song (24 Oct). Kaia's own picks may still be scrubbed the whole way.
@@ -143,12 +150,14 @@ HAND_CUES = (None, 0, 8)
 
 def find_blend(now: float, out_path: str, out_ratio: float, out_grid, music_end: float, nxt, mode: str,
                mix_beats: int, lead: float = 2.0, verify_fn: Optional[Callable] = None,
-               budget_s: Optional[float] = None, lengths: Optional[list] = None):
+               budget_s: Optional[float] = None, lengths: Optional[list] = None, swaps=()):
     """The first place a blend into `nxt` locks, searched the way a DJ looks for
-    one: the planned spot first, then the incoming cued at another phrase, the
-    outgoing mixed out a phrase or more earlier (a skip: a phrase or more later),
-    then a shorter blend. (plan, verdict, shift, how) or None; `plan.start`
-    already carries the shift."""
+    one: with the bass swap where the outgoing changes (`swaps`: seconds as
+    played and what is there — its outro, its last breakdown; a real blend
+    only, never the 16-beat one), then the last phrase before its music ends,
+    then the incoming cued at another phrase, the outgoing mixed out a phrase
+    or more earlier (a skip: a phrase or more later), then a shorter blend.
+    (plan, verdict, shift, how) or None; `plan.start` already carries the shift."""
     from utils.audio import records as R
     verify_fn = verify_fn or verify
     started = time.time()
@@ -159,31 +168,83 @@ def find_blend(now: float, out_path: str, out_ratio: float, out_grid, music_end:
             b //= 2
     beat = 60.0 / (out_grid.bpm * out_ratio) if out_grid else 0.5
     seen = set()
-    for beats in lengths:
-        for step in range(BACK_PHRASES + 1 if mode == "end" else SKIP_WAITS + 1):
-            if mode == "end":
-                at, end = now, music_end - step * 32 * beat
-            else:
-                at, end = now + step * 16 * beat, music_end
-            for cue in (HAND_CUES if getattr(nxt, "source", "") in ("hand", "request") else CUES):
-                if budget_s and time.time() - started > budget_s:
-                    return None
-                plan = R.plan_transition(at, out_ratio, out_grid, end, nxt, mode, beats, lead=lead, in_bars=cue)
-                if plan.kind != "blend":
-                    if plan.fallback == "tempo":
-                        return None
-                    if cue is None and plan.fallback in ("beat", "room"):
-                        break                    # no blend fits from here: try the next place
-                    continue
-                key = (round(plan.drop, 2), round(plan.offset, 2), beats)
-                if key in seen:
-                    continue
-                seen.add(key)
-                v, shift = verify_fn(out_path, out_ratio, nxt.record.path, plan)
-                if v.locked:
-                    plan.start += shift
-                    plan.check = v.summary() + (f"; moved {shift * 1000:+.0f} ms" if shift else "")
-                    return plan, v, shift, {"beats": beats, "back": step, "cue": cue}
+    cues = HAND_CUES if getattr(nxt, "source", "") in ("hand", "request") else CUES
+
+    def locks(plan, how):
+        key = (round(plan.drop, 2), round(plan.offset, 2), how["beats"])
+        if key in seen:
+            return None
+        seen.add(key)
+        v, shift = verify_fn(out_path, out_ratio, nxt.record.path, plan)
+        if not v.locked:
+            return None
+        plan.start += shift
+        plan.check = v.summary() + (f"; moved {shift * 1000:+.0f} ms" if shift else "")
+        return plan, v, shift, how
+
+    if mode == "end":
+        for at, where in swaps:
+            for beats in (b for b in lengths if b >= R.MIN_BLEND_BEATS):
+                for cue in cues:
+                    if budget_s and time.time() - started > budget_s / 2:
+                        break
+                    plan = R.plan_transition(now, out_ratio, out_grid, music_end, nxt, mode, beats, lead=lead,
+                                             in_bars=cue, swap_at=at)
+                    if plan.kind != "blend":
+                        if plan.fallback == "tempo":
+                            return None
+                        if cue is None:
+                            break                # it does not fit there at this length
+                        continue
+                    plan.where = where
+                    found = locks(plan, {"beats": beats, "back": 0, "cue": cue, "where": where})
+                    if found:
+                        return found
+    def search(beats_list, floor_s):
+        """The old order: each length at the planned spot, then a phrase or
+        more away. `floor_s`: how long before the music ends an end-of-record
+        blend may have the outgoing gone, or None for anywhere."""
+        for beats in beats_list:
+            for step in range(BACK_PHRASES + 1 if mode == "end" else SKIP_WAITS + 1):
+                if mode == "end":
+                    at, end = now, music_end - step * 32 * beat
+                else:
+                    at, end = now + step * 16 * beat, music_end
+                floor = 0.0
+                if mode == "end" and floor_s is not None:
+                    floor = max(0.01, music_end - floor_s - beats * beat)
+                    if end - beats * beat < floor:
+                        break
+                for cue in cues:
+                    if budget_s and time.time() - started > budget_s:
+                        return "out of time"
+                    plan = R.plan_transition(at, out_ratio, out_grid, end, nxt, mode, beats, lead=lead, in_bars=cue,
+                                             not_before=floor)
+                    if plan.kind != "blend":
+                        if plan.fallback == "tempo":
+                            return "no tempo"
+                        if cue is None and plan.fallback in ("beat", "room"):
+                            break                    # no blend fits from here: try the next place
+                        continue
+                    found = locks(plan, {"beats": beats, "back": step, "cue": cue})
+                    if found:
+                        return found
+        return None
+
+    if mode != "end":
+        found = search(lengths, None)
+        return found if isinstance(found, tuple) else None
+    # The end of a record: a real blend near its end first, then the quick
+    # 16-beat one there, and only then anywhere further back — where the
+    # record is still in full song, and the next one comes in over its verse.
+    for beats_list, floor_s in (([b for b in lengths if b >= R.MIN_BLEND_BEATS], NEAR_END_S),
+                                ([b for b in lengths if b < R.MIN_BLEND_BEATS], NEAR_END_S),
+                                (lengths, None)):
+        found = search(beats_list, floor_s)
+        if isinstance(found, tuple):
+            return found
+        if found is not None:
+            return None
     return None
 
 
@@ -193,11 +254,14 @@ def verify(out_path: str, out_ratio: float, in_path: str, plan):
     what to add to `plan.start` (negative: earlier)."""
     from utils.audio import mixcheck
     args = (out_path, out_ratio, in_path, plan.ratio)
-    v = mixcheck.check(*args, plan.start, plan.offset, plan.drop, plan.length, plan.beat)
+    # Measured for as long as both are heard: to the outgoing gone, not the
+    # blend's nominal length.
+    heard = getattr(plan, "done", plan.drop + plan.length) - plan.drop
+    v = mixcheck.check(*args, plan.start, plan.offset, plan.drop, heard, plan.beat)
     if v.locked or v.correction_ms is None:
         return v, 0.0
     shift = -v.correction_ms / 1000.0
-    v2 = mixcheck.check(*args, plan.start + shift, plan.offset, plan.drop, plan.length, plan.beat)
+    v2 = mixcheck.check(*args, plan.start + shift, plan.offset, plan.drop, heard, plan.beat)
     return (v2, shift) if v2.locked else (v, 0.0)
 
 

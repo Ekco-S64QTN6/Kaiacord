@@ -181,6 +181,143 @@ def test_a_blend_swaps_the_bass_halfway_and_keeps_one_bassline():
     assert out_high[t <= plan.drop].min() == 1 and in_high[t >= plan.done].min() == pytest.approx(1)
 
 
+def test_one_voice_at_a_time_the_presence_band_changes_hands_with_the_mids():
+    """A voice is not only mids: its consonants sit above them. Brought in
+    "highs first" as one band, the new record's singer came in over the one on
+    air, and the old one's stayed up after its mids had gone."""
+    plan = plan_transition(3.0, 1.0, STEADY, 120.0, nxt(), "skip", 64, lead=2.0)
+    swap, b = plan.drop + plan.length / 2, plan.beat
+
+    def at(x):
+        t = np.array([x])
+        g = gains(plan, t)
+        return [float(v[0]) for v in g], [float(v[0]) for v in R.presence(plan, t, g)]
+    g, (out_p, in_p) = at(swap - 8 * b)                    # the ride: the new record's air is up…
+    assert g[5] == pytest.approx(1) and out_p == pytest.approx(1)
+    assert in_p == pytest.approx(R.PRESENCE_HOLD)          # …its voice is not
+    g, (out_p, in_p) = at(swap + 4 * b)                    # after the handoff
+    assert g[2] == pytest.approx(1)                        # the old record's hats still ride
+    assert out_p == pytest.approx(0) and in_p == pytest.approx(1)
+    # any other transition has no handoff: the presence is simply the highs
+    cut = plan_transition(3.0, 1.0, LOOSE, 60.0, nxt(), "skip")
+    g = gains(cut, np.array([cut.drop - 0.1]))
+    assert R.presence(cut, np.array([cut.drop - 0.1]), g) == (g[2], g[5])
+
+
+def test_the_four_bands_sum_back_to_the_frame_and_the_high_knob_turns_both_halves():
+    deck = Deck(rec("one", 120, "8A"), 1.0, 5.0, tone(1000, 5.0))
+    try:
+        rng = np.random.default_rng(1)
+        frame = (rng.standard_normal((R.FRAME_SAMPLES, 2)) * 3000).astype(np.int16).tobytes()
+        parts = deck.split(frame)
+        assert len(parts) == 4
+        x = np.frombuffer(frame, dtype=np.int16).astype(np.float32).reshape(-1, 2)
+        assert np.allclose(sum(parts), x, atol=1e-2)
+        whole = np.frombuffer(R.mix_frames(parts, None, R.SOLO), dtype=np.int16).reshape(-1, 2)
+        assert np.abs(whole - x).max() <= 1
+        # HIGH killed at the booth: presence and air both go
+        no_high = np.frombuffer(R.mix_frames(parts, None, R.SOLO, (1.0, 1.0, 0.0, 1.0)), dtype=np.int16).reshape(-1, 2)
+        assert np.abs(no_high - (parts[0] + parts[1])).max() <= 1
+        # the automix's presence gain reaches only the presence band
+        no_pres = np.frombuffer(R.mix_frames(parts, None, R.SOLO, pres=(0.0, 0.0)), dtype=np.int16).reshape(-1, 2)
+        assert np.abs(no_pres - (x - parts[2])).max() <= 1
+    finally:
+        deck.close()
+
+
+def test_after_the_swap_the_old_record_leaves_and_a_long_blend_is_a_long_ride_in():
+    """A 256-beat blend kept the old record for 128 beats after its bass and
+    its singer had gone — a record played too long. It is gone within
+    TAIL_BEATS (a quarter of a long blend), and the deck is free then."""
+    g125 = Grid(bpm=120.0, downbeat=0.0, contrast=8.0)
+    for beats, tail_beats in ((32, 16), (64, 32), (128, 32), (256, 64)):
+        plan = plan_transition(3.0, 1.0, g125, 900.0, nxt(g125, seconds=900.0), "skip", beats, lead=2.0)
+        b, swap = plan.beat, plan.drop + plan.length / 2
+        assert plan.kind == "blend" and R.tail(plan) == pytest.approx(tail_beats * b)
+        assert plan.done == pytest.approx(swap + tail_beats * b)
+        out_high = lambda x: float(gains(plan, np.array([x]))[2][0])
+        assert out_high(swap) == pytest.approx(1) and out_high(plan.done) == pytest.approx(0, abs=1e-6)
+        assert float(gains(plan, np.array([plan.done]))[5][0]) == pytest.approx(1)
+    # and it needs only that much of the outgoing: 128 beats fit in 50 s (64 s of blend)
+    fits = plan_transition(0.0, 1.0, g125, 50.0, nxt(g125, seconds=900.0), "end", 128, lead=0.5)
+    assert fits.kind == "blend" and fits.done <= 50.0
+
+
+def test_the_swap_is_put_where_it_is_asked_for_or_the_plan_says_there_is_no_room():
+    plan = plan_transition(10.0, 1.0, STEADY, 300.0, nxt(), "end", 64, lead=2.0, swap_at=201.0)
+    assert plan.kind == "blend"
+    assert plan.drop + plan.length / 2 == pytest.approx(200.0)       # the four-bar phrase nearest
+    late = plan_transition(190.0, 1.0, STEADY, 300.0, nxt(), "end", 64, lead=2.0, swap_at=201.0)
+    assert late.kind == "cut" and late.fallback == "room"            # the drop for it has passed
+    past = plan_transition(10.0, 1.0, STEADY, 300.0, nxt(), "end", 64, lead=2.0, swap_at=296.0)
+    assert past.kind == "cut" and past.fallback == "room"            # no room after it for the way out
+
+
+def test_a_record_is_left_near_its_end_before_anywhere_further_back():
+    """The search took the first lock walking back from the end at the longest
+    length: a 64-beat blend two minutes early over a 32-beat one on the last
+    phrase. Records were left mid-verse (one after 55 s) with the next one's
+    vocal over theirs."""
+    from utils.audio import mixcheck, setlist
+    tried = []
+
+    def verify(out_path, out_ratio, in_path, plan):
+        beats = round(plan.length / plan.beat)
+        tried.append((beats, round(plan.done)))
+        ok = (beats == 64 and plan.done < 150) or (beats == 32 and plan.done > 280)
+        return mixcheck.Verdict(ok, 16, 16, agree=16 if ok else 2), 0.0
+    plan, _, _, how = setlist.find_blend(60.0, "/o.mp3", 1.0, STEADY, 300.0, nxt(), "end", 64, verify_fn=verify)
+    assert how["beats"] == 32 and plan.done > 280
+    # nothing near the end at all: further back is still better than no blend
+    far = lambda o, r, i, plan: (mixcheck.Verdict(plan.done < 300.0 - setlist.NEAR_END_S, 16, 16, agree=16), 0.0)
+    plan, _, _, how = setlist.find_blend(60.0, "/o.mp3", 1.0, STEADY, 300.0, nxt(), "end", 64, verify_fn=far)
+    assert plan.done < 300.0 - setlist.NEAR_END_S
+
+
+def test_the_swap_goes_where_the_record_changes_when_a_blend_locks_there():
+    from utils.audio import mixcheck, setlist
+    yes = lambda *a: (mixcheck.Verdict(True, 16, 16, agree=16), 0.0)
+    plan, _, _, how = setlist.find_blend(60.0, "/o.mp3", 1.0, STEADY, 300.0, nxt(), "end", 64, verify_fn=yes,
+                                         swaps=[(240.0, "outro")])
+    assert plan.where == "outro" and how["where"] == "outro"
+    assert plan.drop + plan.length / 2 == pytest.approx(240.0) and plan.done == pytest.approx(256.0)
+    # it does not lock there: the end of the record, as before, and it says so
+    not_there = lambda o, r, i, p: (mixcheck.Verdict(p.where != "outro", 16, 16, agree=16), 0.0)
+    plan, _, _, how = setlist.find_blend(60.0, "/o.mp3", 1.0, STEADY, 300.0, nxt(), "end", 64, verify_fn=not_there,
+                                         swaps=[(240.0, "outro")])
+    assert plan.where == "" and "where" not in how and plan.done > 280
+
+
+def test_keys_that_fight_get_the_short_blend_first():
+    assert R.blend_lengths(64, "8A", "9A") == [64, 32, 16]
+    assert R.blend_lengths(256, "8A", "8B") == [256, 128, 64, 32, 16]
+    assert R.blend_lengths(64, "8A", "3A") == [32, 64, 16]            # far apart on the wheel
+    assert R.blend_lengths(256, "8A", "10A") == [32, 256, 128, 64, 16]
+    assert R.blend_lengths(64, "8A", None) == [64, 32, 16]            # a key not known is not a clash
+
+
+def test_she_plans_early_enough_to_leave_at_the_outro_and_tries_the_breakdown_when_eager(monkeypatch):
+    from utils.audio import songmap
+    monkeypatch.setattr(songmap, "out_points", lambda path, end, bpm, length: [("outro", 15.0), ("break", 9.0)])
+    monkeypatch.setattr(R, "_music_end", lambda deck: 19.0)
+    src, _ = _source()
+    try:
+        deck = src.current
+        assert wait_until(lambda: deck.outs is not None)
+        assert deck.out_lead == pytest.approx(10.0)                    # the earliest way out, before its music ends
+        assert src._plan_ahead(deck) == pytest.approx(16 * 0.6 + 90 + 10.0)
+        src.energy = 0.2
+        monkeypatch.setattr("zlib.crc32", lambda b: 1)
+        assert src._swaps(deck) == [(15.0, "outro")]
+        src.energy = 0.9                                               # the energy to skip the lull
+        assert src._swaps(deck) == [(9.0, "break"), (15.0, "outro")]
+        src.energy = 0.2
+        monkeypatch.setattr("zlib.crc32", lambda b: 3)                 # one record in three, whatever her mood
+        assert [w for _, w in src._swaps(deck)] == ["break", "outro"]
+    finally:
+        src.cleanup()
+
+
 def _source(first_value=1000, second_value=-1000, grid=STEADY, out_grid=STEADY, verify=None):
     first = Deck(rec("one", 120, "8A"), 1.0, 20.0, tone(first_value, 20.0))
     changed = []
@@ -504,7 +641,8 @@ def test_kaia_trades_the_hats_in_a_long_ride_and_never_kills_the_bass():
     into = at(swap - b / 2)
     assert into[0] > 0.5 and into[3] > 0                                    # no bass kill into the swap
     assert 0.7 < into[2] / R.STAGE < 1.0                                    # the old air eased back, a little
-    assert at(swap + 4 * b)[3] == pytest.approx(R.STAGE)                    # the new bassline as staged
+    assert at(swap - 8 * b)[3] == pytest.approx(R.STAGE)                    # staged for as long as both are up
+    assert at(swap + 4 * b)[3] == pytest.approx(1.0)                        # the new record whole once it has the room
 
 
 def test_alone_she_gestures_rarely_and_lets_go_over_a_bar():
@@ -1406,7 +1544,7 @@ def test_dashboard_snapshot_waits_for_a_committed_audio_frame(monkeypatch):
     snapshot_done = threading.Event()
     monkeypatch.setattr(
         dj_dashboard, "_snapshot_locked",
-        lambda _session, _source: (snapshot_read.set() or {"live": True}),
+        lambda _session, _source, _mood=None: (snapshot_read.set() or {"live": True}),
     )
     session = SimpleNamespace(source=source)
     result = []

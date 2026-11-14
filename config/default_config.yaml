@@ -779,10 +779,12 @@ music:
   # outside this repo). Empty switches records off. Example:
   #   library_catalog: "~/Music/music/dj_catalog.json"
   library_catalog: ""
-  # Beats from the incoming record's first downbeat to the outgoing record gone;
-  # the bass swaps halfway. The booth offers 32, 64 and 256 (EPIC: a minute of
-  # both records riding together). Where the beats cannot be laid over each
-  # other, the transition is an eight-bar fade instead.
+  # The longest blend she plans, in beats: the incoming record rides in over the
+  # first half, the bass swaps halfway, and the outgoing is gone within 32 beats
+  # after that (a quarter of a longer blend). The booth offers 32, 64 and 256
+  # (EPIC: a minute of both records riding together). She halves it where it
+  # does not fit or lock, and starts at 32 when the two keys fight. Where the
+  # beats lock nowhere, the transition is an echo-out on the bar instead.
   records_mix_beats: 64
   # Render ahead of Discord's voice callback to absorb brief CPU/GIL stalls.
   # Frames are 20 ms each; 15 frames buffer about 300 ms (clamped to 3–50).
