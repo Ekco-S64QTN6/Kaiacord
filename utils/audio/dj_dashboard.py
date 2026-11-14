@@ -77,23 +77,47 @@ def waveform(path: str) -> Optional[dict]:
     graph = ("[0:a]aresample=8000,pan=mono|c0=0.5*c0+0.5*c1,asplit=3[a][b][c];"
              "[a]lowpass=f=180,lowpass=f=180[l];[b]highpass=f=180,lowpass=f=2500[m];"
              "[c]highpass=f=2500[h];[l][m][h]amerge=inputs=3[out]")
+    step = WAVE_RATE // WAVE_COLS_PER_S
+    row_bytes = step * 3 * 2                      # one column: step samples of 3 bands, s16
+    # Read the decode as it comes and reduce each slice to its columns: the whole
+    # stream is ~48 KB a second, so holding it (a three-hour mix is ~520 MB) was
+    # the cost, not the average.
     try:
-        raw = subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-i", path, "-filter_complex", graph,
-                              "-map", "[out]", "-f", "s16le", "-ar", str(WAVE_RATE), "-ac", "3", "pipe:1"],
-                             capture_output=True, timeout=120).stdout
+        proc = subprocess.Popen(["ffmpeg", "-nostdin", "-loglevel", "error", "-i", path, "-filter_complex", graph,
+                                 "-map", "[out]", "-f", "s16le", "-ar", str(WAVE_RATE), "-ac", "3", "pipe:1"],
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError):
         return None
-    x = np.frombuffer(raw, dtype=np.int16)
-    step = WAVE_RATE // WAVE_COLS_PER_S
-    cols = len(x) // (3 * step)
+    parts, pending, deadline = [], b"", time.monotonic() + 120
+    try:
+        while True:
+            if time.monotonic() > deadline:
+                return None
+            data = proc.stdout.read(row_bytes * 2000)
+            if not data:
+                break
+            pending += data
+            rows = len(pending) // row_bytes
+            if rows:
+                x = np.frombuffer(pending[: rows * row_bytes], dtype=np.int16).reshape(rows, step, 3)
+                chunk = x.astype(np.float32)
+                parts.append(np.sqrt(np.mean(chunk * chunk, axis=1)))
+                pending = pending[rows * row_bytes:]
+                time.sleep(0)
+    except (OSError, ValueError):
+        return None
+    finally:
+        try:
+            proc.stdout.close()
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    out = np.concatenate(parts) if parts else np.zeros((0, 3), dtype=np.float32)
+    cols = len(out)
     if cols < 10:
         return None
-    x = x[: cols * step * 3].reshape(cols, step, 3)
-    out = np.zeros((cols, 3), dtype=np.float32)
-    for i in range(0, cols, 2000):
-        chunk = x[i:i + 2000].astype(np.float32)
-        out[i:i + 2000] = np.sqrt(np.mean(chunk * chunk, axis=1))
-        time.sleep(0)
     scale = np.percentile(out, 99.5, axis=0)
     scale[scale == 0] = 1.0
     levels = np.clip(out / scale * 255.0, 0, 255).astype(np.uint8)
