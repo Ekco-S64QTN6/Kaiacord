@@ -2518,44 +2518,45 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
 
     session = RecordsSession(vc, crate, requested_by, text_channel, alone_grace_s)
 
-    session.set_list = set_list
-    deck = Deck(first, 1.0, seconds, gain=await asyncio.to_thread(gain_db, first.path))
-    from utils.audio import beatgrid
-    await asyncio.to_thread(beatgrid.ensure_ticks, first.path, first.bpm)
-    deck.grid = await asyncio.to_thread(beatgrid.grid_for, first.path, first.bpm)
-    if set_list and first.path == set_list[0]:
+    deck = None
+    try:
+        session.set_list = set_list
+        deck = Deck(first, 1.0, seconds, gain=await asyncio.to_thread(gain_db, first.path))
+        from utils.audio import beatgrid
+        await asyncio.to_thread(beatgrid.ensure_ticks, first.path, first.bpm)
+        deck.grid = await asyncio.to_thread(beatgrid.grid_for, first.path, first.bpm)
+        if set_list and first.path == set_list[0]:
+            try:
+                from utils.audio import dj_voice
+                bpms = [r.bpm for r in crate if r.path in set_list and r.bpm]
+                session.say(dj_voice.set_started(None, len(set_list), min(bpms), max(bpms)), "set")
+            except Exception as e:
+                log_debug(f"[records] chatter: {e}")
+        session._changed(first)
+        session.source = CrossfadeSource(deck, session._choose, on_change=session._changed,
+                                         mix_beats=int(mix_beats))
+        session.source.say = session.say
+        session.source.alternatives = session._alternatives
         try:
-            from utils.audio import dj_voice
-            bpms = [r.bpm for r in crate if r.path in set_list and r.bpm]
-            session.say(dj_voice.set_started(None, len(set_list), min(bpms), max(bpms)), "set")
+            from utils.infrastructure.system.yaml_config import config
+            session.source.rides = bool(config.get("music.records_kaia_hands", True))
+            session.source.key_sync = bool(config.get("music.records_key_sync", True))
+            session.source.tempo_glide = bool(config.get("music.records_tempo_glide", True))
         except Exception as e:
-            log_debug(f"[records] chatter: {e}")
-    session._changed(first)
-    session.source = CrossfadeSource(deck, session._choose, on_change=session._changed,
-                                     mix_beats=int(mix_beats))
-    session.source.say = session.say
-    session.source.alternatives = session._alternatives
-    try:
+            log_debug(f"[records] records_kaia_hands not read: {e}")
+        # The first record's decoder has to be ahead before the voice thread
+        # starts asking: a set started while it was still spinning up (rubberband,
+        # a busy machine) opened on frames of silence.
+        await asyncio.to_thread(_wait_deck, deck, FIRST_DECK_FRAMES, 3.0)
+        settle("a records set")
         from utils.infrastructure.system.yaml_config import config
-        session.source.rides = bool(config.get("music.records_kaia_hands", True))
-        session.source.key_sync = bool(config.get("music.records_key_sync", True))
-        session.source.tempo_glide = bool(config.get("music.records_tempo_glide", True))
-    except Exception as e:
-        log_debug(f"[records] records_kaia_hands not read: {e}")
-    # The first record's decoder has to be ahead before the voice thread
-    # starts asking: a set started while it was still spinning up (rubberband,
-    # a busy machine) opened on frames of silence.
-    await asyncio.to_thread(_wait_deck, deck, FIRST_DECK_FRAMES, 3.0)
-    settle("a records set")
-    from utils.infrastructure.system.yaml_config import config
-    buffer_frames = int(config.get("music.records_audio_buffer_frames", 15))
-    session.voice_source = BufferedRecordsSource(session.source, buffer_frames=buffer_frames)
-    # Warm the renderer's first few frames before starting Discord's voice thread.
-    # This keeps first-use imports/filter setup outside the 20 ms callback.
-    primed = await asyncio.to_thread(session.voice_source.wait_ready, min(5, session.voice_source.buffer_frames), 2.0)
-    if not primed:
-        log_warning("[records] PCM buffer did not prime before playback; starting with underrun protection")
-    try:
+        buffer_frames = int(config.get("music.records_audio_buffer_frames", 15))
+        session.voice_source = BufferedRecordsSource(session.source, buffer_frames=buffer_frames)
+        # Warm the renderer's first few frames before starting Discord's voice thread.
+        # This keeps first-use imports/filter setup outside the 20 ms callback.
+        primed = await asyncio.to_thread(session.voice_source.wait_ready, min(5, session.voice_source.buffer_frames), 2.0)
+        if not primed:
+            log_warning("[records] PCM buffer did not prime before playback; starting with underrun protection")
         vc.play(session.voice_source, after=lambda e: log_error(f"[records] playback error: {e}") if e else None,
                 signal_type=OPUS_SIGNAL)
     except BaseException:

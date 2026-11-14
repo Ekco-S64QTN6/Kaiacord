@@ -10,6 +10,8 @@ Kaia only ever reports them.
 """
 from __future__ import annotations
 
+import asyncio
+
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -41,7 +43,7 @@ async def _cached(name: str, max_age_s: float, fetch, force: bool = False) -> di
     request — each !launch, each chat turn naming a launch — kept it at 429
     while a copy from the night before sat unused."""
     import time as _time
-    cache = read_cache(name)
+    cache = await asyncio.to_thread(read_cache, name)      # file reads and an fsynced write: not on the loop
     if not force and "data" in cache and not is_stale(cache, max_age_s):
         return cache
     if not force and "data" in cache and _time.time() - _failed_at.get(name, 0) < RETRY_AFTER_S:
@@ -54,8 +56,8 @@ async def _cached(name: str, max_age_s: float, fetch, force: bool = False) -> di
             return cache
         raise
     _failed_at.pop(name, None)
-    write_cache(name, {"data": data})
-    return read_cache(name)
+    await asyncio.to_thread(write_cache, name, {"data": data})
+    return await asyncio.to_thread(read_cache, name)
 
 
 async def _text(url: str) -> str:
