@@ -11,7 +11,7 @@ is a novelty, not a live feed), one request at a time, with the identifying User
 `utils/radio/fetch.py`, through `public_only_connector`. A response in an unexpected shape raises
 `FeedError` and the command says so; it must never become an empty list, which reads as "no
 traffic". EAMs and number-station groups are encrypted: nothing Kaia says may claim to decode
-one. Research: `docs/reports/investigations/2026-09-24-shortwave-feasibility.md`.
+one.
 
 An unsquelched recording that came back in pieces is one broadcast (`watch.stitch`): a KiwiSDR reconnect starts a new file, and one E11 was five posts. Squelched files stay separate, each is a transmission.
 
