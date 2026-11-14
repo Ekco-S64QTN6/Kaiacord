@@ -28,3 +28,20 @@ def test_download_limit_counts_per_person_and_spares_the_owner(monkeypatch):
         dh._note_added("900")
     assert dh._daily_limit_reached(boss, "900") is False
     dh._added_today.clear()
+
+
+def test_forum_review_buttons_answer_to_the_owner_unless_opened(monkeypatch):
+    import asyncio
+    import types
+    from unittest.mock import AsyncMock
+    from utils.infrastructure.system.yaml_config import config
+    from utils.social.kaia_forum import ForumDraftReviewView
+    view = ForumDraftReviewView.__new__(ForumDraftReviewView)
+    sent = AsyncMock()
+    who = types.SimpleNamespace(name="m", display_name="M", id=5)
+    interaction = types.SimpleNamespace(user=who, response=types.SimpleNamespace(send_message=sent))
+    monkeypatch.setattr(config, "is_owner", lambda n, d, uid: False)
+    monkeypatch.setattr(config, "get", lambda k, d=None: d)
+    assert asyncio.run(view.interaction_check(interaction)) is False and sent.await_count == 1
+    monkeypatch.setattr(config, "get", lambda k, d=None: False if k == "forum.review_owner_only" else d)
+    assert asyncio.run(view.interaction_check(interaction)) is True

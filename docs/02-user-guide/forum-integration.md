@@ -240,7 +240,7 @@ To guarantee safety and prevent automated errors, Kaia never writes directly to 
     again either. Increments the "Rejected" dashboard stat.
   - Either button changes only the status line above the embed; the draft stays readable. The
     buttons expire after 24 hours, and each draft takes one decision.
-- **Access Control**: By design, there are no per-user or administrative locks on the review buttons. Anyone with channel access to `#kaia-opolis` can review, accept, or reject Kaia's drafts.
+- **Access Control**: only an owner (`discord.owner_ids`) can press the review buttons, because a button on a message works for whoever can see it and Accept posts under her forum account. To let everyone who can see `#kaia-opolis` review drafts, set `forum.review_owner_only: false`.
 
 ---
 
