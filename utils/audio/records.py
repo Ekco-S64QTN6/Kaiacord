@@ -169,12 +169,20 @@ JITTER_S = 0.04
 #: The automix swaps the bass at LOW_TOP_HZ; the booth's EQ uses all three.
 LOW_TOP_HZ = 180
 MID_TOP_HZ = 2500
+#: The HIGH band is two for the automix: up to here is a voice's presence — its
+#: consonants, what makes a lyric a lyric — and above it is air: hats and
+#: shimmer. The presence changes hands with the mids; only the air rides early
+#: and leaves late. As one band, a record brought in "highs first" brought its
+#: singer in with them, over the singer already there. The booth's HIGH knob
+#: turns both.
+PRESENCE_TOP_HZ = 6000
 
 
 def _bands():
     from scipy.signal import butter
     return (butter(2, LOW_TOP_HZ, btype="low", fs=RATE, output="sos"),
-            butter(2, MID_TOP_HZ, btype="high", fs=RATE, output="sos"))
+            butter(2, MID_TOP_HZ, btype="high", fs=RATE, output="sos"),
+            butter(2, PRESENCE_TOP_HZ, btype="high", fs=RATE, output="sos"))
 
 
 _SOS = None
@@ -195,6 +203,12 @@ class Deck:
         self.gain = gain
         self.semitones = int(semitones)                     # key moved by key sync
         self.grid = None                                    # beatgrid.Grid of its opening, for display
+        #: Where it can be left before its end (`songmap.out_points`: own
+        #: seconds, latest first), once found, and how long before its end the
+        #: earliest of them is: the mix out of it is planned that much sooner.
+        self.outs: Optional[list] = None
+        self.out_lead = 0.0
+        self._scouting = False
         self.slot = 1                                       # which CDJ: records alternate 1, 2, 1…
         self.loaded_at = time.time()
         self.pad = max(0, int(pad))
@@ -209,7 +223,7 @@ class Deck:
         self._room = threading.Semaphore(buffer_frames)
         self._eof = False
         self._closed = False
-        self._zi = None
+        self._zi: Optional[tuple] = None
         self._pump_thread = threading.Thread(
             target=self._pump, daemon=True, name="kaia-records-deck"
         )
@@ -274,21 +288,23 @@ class Deck:
         return self.at(self.total_frames)
 
     def split(self, frame: bytes) -> tuple:
-        """(low, mid, high) of a frame as float stereo, filtered with carried
-        state so consecutive frames join without a seam. The three sum back to
-        the frame exactly."""
+        """(low, mid, presence, air) of a frame as float stereo, filtered with
+        carried state so consecutive frames join without a seam. The four sum
+        back to the frame exactly; presence and air together are the HIGH band."""
         global _SOS
         from scipy.signal import sosfilt
         if _SOS is None:
             _SOS = _bands()
-        lo_sos, hi_sos = _SOS
+        lo_sos, hi_sos, air_sos = _SOS
         x = np.frombuffer(frame, dtype=np.int16).astype(np.float32).reshape(-1, 2)
-        if self._zi is None:
-            self._zi = (np.zeros((lo_sos.shape[0], 2, 2)), np.zeros((hi_sos.shape[0], 2, 2)))
-        low, zl = sosfilt(lo_sos, x, axis=0, zi=self._zi[0])
-        high, zh = sosfilt(hi_sos, x, axis=0, zi=self._zi[1])
-        self._zi = (zl, zh)
-        return low, x - low - high, high
+        zi = self._zi
+        if zi is None:
+            zi = tuple(np.zeros((sos.shape[0], 2, 2)) for sos in _SOS)
+        low, zl = sosfilt(lo_sos, x, axis=0, zi=zi[0])
+        high, zh = sosfilt(hi_sos, x, axis=0, zi=zi[1])
+        air, za = sosfilt(air_sos, x, axis=0, zi=zi[2])
+        self._zi = (zl, zh, za)
+        return low, x - low - high, high - air, air
 
     def close(self) -> None:
         # A transition and session shutdown can both retire a deck.
@@ -379,18 +395,30 @@ class Plan:
     fallback: str = ""
     #: What `mixcheck` measured of a blend before it was allowed, for the journal.
     check: str = ""
+    #: Where in the outgoing record the bass swap was put: "outro" (as its
+    #: outro starts), "break" (as it falls into its last breakdown), or ""
+    #: (the last phrase the blend fits before its music ends).
+    where: str = ""
 
     @property
     def done(self) -> float:
-        return self.drop + (self.length if self.kind in ("blend", "fade", "out", "echo") else 0.0)
+        if self.kind == "blend":
+            return self.drop + self.length / 2 + tail(self)
+        return self.drop + (self.length if self.kind in ("fade", "out", "echo") else 0.0)
 
 
 def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt: Next,
                     mode: str = "skip", mix_beats: int = MIX_BEATS, lead: float = 0.4,
-                    allow_blend: bool = True, in_bars: Optional[int] = None) -> Plan:
+                    allow_blend: bool = True, in_bars: Optional[int] = None,
+                    swap_at: Optional[float] = None, not_before: float = 0.0) -> Plan:
     """Plan the next transition from where the outgoing record is (`now`).
     `in_bars` cues the incoming that many bars past its bar one instead of where
     its bassline and steady beat put it (the search in `transition` tries several).
+    `swap_at` (seconds of the outgoing as played) asks for the bass swap on the
+    four-bar phrase nearest it — where the record's outro or breakdown starts —
+    and the plan is a cut with fallback "room" when a blend cannot be put there.
+    `not_before` (as played) is the earliest an end-of-record blend may drop: the
+    walk back from the end to a phrase where the beat holds stops there.
 
     A blend needs both beats clear (BLEND_CONTRAST) and a common tempo within
     stretching range; otherwise it is a cut, which never overlaps two grooves."""
@@ -430,6 +458,8 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
     if ratio is not None:
         beat = 60.0 / playing_bpm
         length = mix_beats * beat
+        # How long the outgoing is in it: to the swap, and its way out after.
+        span = length / 2 + _tail(length, beat)
         # The bass swap lands where the incoming's bassline comes in: if that
         # is later than the swap's bar, the incoming starts that many bars into
         # its intro (always on a phrase), or the new low end would be a kick
@@ -460,16 +490,24 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
                 return v / out_ratio if v is not None else float("inf")
             return out_grid.next_bar(t_played, out_ratio, every)
         drop = None
-        if mode == "end":
+        if swap_at is not None:
+            # The swap on the phrase nearest the asked-for point, the drop half
+            # a blend before it; nowhere else will do.
+            d = next_bar(swap_at - length / 2 - 2 * bar, 4)
+            if d >= earliest and d + span <= out_end + 0.01 and out_ok(d):
+                drop = d
+            else:
+                drop, no_phrase = float("inf"), False
+        elif mode == "end":
             # The last phrase of eight bars (else four, else any bar) that
             # leaves room for the whole blend before the record ends.
-            latest = out_end - length - 0.5
+            latest = out_end - span - 0.5
             # Further back a phrase at a time while the beat there will not
             # hold a blend.
             for every in (8, 4, 1):
                 for back in range(1, 13):
                     d = next_bar(latest - back * every * bar, every)
-                    if d < earliest:
+                    if d < max(earliest, not_before):
                         break
                     if d <= latest + 0.01 and out_ok(d):
                         drop = d
@@ -482,7 +520,7 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
             for every in (4, 1):
                 d = next_bar(earliest, every)
                 for _ in range(8):
-                    if d + length > out_end + 0.01:
+                    if d + span > out_end + 0.01:
                         break
                     if out_ok(d):
                         drop = d
@@ -490,11 +528,11 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
                     d = next_bar(d + bar / 2, every)
                 if drop is not None:
                     break
-        if drop is None and onset_steady:
+        if drop is None and onset_steady and swap_at is None and not not_before:
             drop = next_bar(earliest)
         if drop is None:
             drop, no_phrase = float("inf"), True   # no phrase where both beats hold: not a blend
-        if not tracked:
+        if not tracked and drop != float("inf"):
             # On the outgoing's real kick: the bar counted on its tracked beats.
             counted = out_grid.counted(drop * out_ratio) / out_ratio
             if abs(counted - drop) < beat / 2 and counted >= now + lead_in:
@@ -518,7 +556,7 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
             drifts = abs(out_beat - in_beat) * mix_beats > MAX_DRIFT_S
         # Room on both sides: the outgoing before its music ends, and the
         # incoming with IN_LEFT_S still to play once it is the record on air.
-        if (not drifts and drop != float("inf") and drop + length <= out_end + 0.01
+        if (not drifts and drop != float("inf") and drop + span <= out_end + 0.01
                 and length <= (nxt.seconds - offset) / ratio - IN_LEFT_S):
             return Plan("blend", drop - lead_in, drop, length, beat, ratio, nxt, offset)
     # Not beat-matched: a clean switch, never two grooves at once. The
@@ -581,6 +619,25 @@ MID_HANDOFF_BEATS = 4.0
 #: Equal-power, not complementary amplitude: two different basslines add by
 #: power, and a linear pair dipped the low end 3 dB at its middle.
 BASS_SWAP_BEATS = 8.0
+#: After the swap the outgoing record is on its way out: gone within this many
+#: beats, or a quarter of the blend if that is longer, and never later than the
+#: blend's own second half. A long blend is a long ride *in*; the old record
+#: held for as long again after its bass and its singer had gone was a record
+#: played too long (a 256-beat blend kept it 64 s past the swap).
+TAIL_BEATS = 32.0
+#: The incoming record's presence band (`PRESENCE_TOP_HZ`) while the outgoing
+#: still has the vocals, as a share of its air: its claps and snares stay in
+#: the blend, its singer's consonants stay under the one on air.
+PRESENCE_HOLD = 0.3
+
+
+def _tail(length: float, beat: float) -> float:
+    return min(length / 2, max(TAIL_BEATS * beat, length / 4))
+
+
+def tail(plan: Plan) -> float:
+    """Seconds from a blend's bass swap to the outgoing record gone."""
+    return _tail(plan.length, plan.beat)
 
 
 def gains(plan: Plan, t: np.ndarray) -> tuple:
@@ -592,8 +649,9 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
     up and locked. From the bar halfway the basslines hand over equal-power across
     BASS_SWAP_BEATS (never none) and the mids hand over in MID_HANDOFF_BEATS around it, so
     the outgoing's vocal phrase finishes and the incoming's starts on the one;
-    two vocals never play together at full. Then the outgoing's highs go over
-    the last ramp. `ramp` is a quarter of a short blend, an eighth of a long one."""
+    two vocals never play together at full. Then the outgoing's highs go, over
+    the end of its `tail`. `ramp` is a quarter of a short blend, an eighth of a
+    long one. The highs here are the air; `presence` is the band under it."""
     if plan.kind == "cut":
         out = np.clip((plan.drop - t) / plan.length, 0.0, 1.0)
         inc = (t >= plan.drop).astype(np.float32)
@@ -630,8 +688,38 @@ def gains(plan: Plan, t: np.ndarray) -> tuple:
     handoff = _ease((t - (swap - h / 2)) / h)
     in_mid = MID_HOLD * _ease((t - d) / r) * (1 - handoff) + handoff
     out_mid = 1.0 - handoff
-    out_high = 1.0 - _ease((t - (d + L - r)) / r)
+    gone, r2 = swap + tail(plan), min(r, tail(plan) / 2)
+    out_high = 1.0 - _ease((t - (gone - r2)) / r2)
     return out_low, out_mid, out_high, in_low, in_mid, in_high
+
+
+def presence(plan: Plan, t: np.ndarray, g: tuple) -> tuple:
+    """(outgoing, incoming) gains of the presence band, given the automix
+    gains `g` at the same times. In a blend it changes hands with the mids —
+    the incoming's held under PRESENCE_HOLD of its air until the handoff, the
+    outgoing's gone after it — so one record's voice is up at a time. In every
+    other transition it is simply the high band."""
+    if plan.kind != "blend":
+        return g[2], g[5]
+    h = min(MID_HANDOFF_BEATS * plan.beat, ramp(plan))
+    handoff = _ease((t - (plan.drop + plan.length / 2 - h / 2)) / h)
+    return g[2] * (1.0 - handoff), g[5] * (PRESENCE_HOLD * (1.0 - handoff) + handoff)
+
+
+def blend_lengths(mix_beats: int, out_key: Optional[str], in_key: Optional[str]) -> list:
+    """The blend lengths to try, in order, halving from the one asked for.
+    Two records whose keys fight (more than a step apart on the wheel, as they
+    will sound) are not ridden together for a minute: the shortest real blend
+    comes first, and the long ones only if it locks nowhere."""
+    lengths, b = [], int(mix_beats)
+    while b >= 16:
+        lengths.append(b)
+        b //= 2
+    step = library.key_step(out_key, in_key)
+    if out_key and in_key and (step is None or step > 1) and MIN_BLEND_BEATS in lengths:
+        lengths.remove(MIN_BLEND_BEATS)
+        lengths.insert(0, MIN_BLEND_BEATS)
+    return lengths
 
 
 def as_echo(plan: Plan) -> Plan:
@@ -705,7 +793,7 @@ def kaia_hands(plan: Optional[Plan], t: np.ndarray, energy: float = 0.5, grid=No
         L, d, b = plan.length, plan.drop, plan.beat
         r = ramp(plan)
         swap = d + L / 2
-        lo_w, hi_w = d + 2 * r, d + L - 2 * r
+        lo_w, hi_w = d + 2 * r, swap + tail(plan) - 2 * min(r, tail(plan) / 2)
         now = float(t[-1])
         if hi_w - lo_w >= 16 * b:
             inside = _ease((t - lo_w) / b) * (1 - _ease((t - (hi_w - b)) / b))
@@ -788,22 +876,32 @@ FINISH_BARS = 8
 #: its own by this much of its tempo at a time, every GLIDE_BARS bars, starting
 #: GLIDE_AFTER_BARS after it took over.
 GLIDE_STEP = 0.005
+#: With this much energy she leaves a record at its last breakdown rather than
+#: its outro, and never more than BREAK_EARLY_S before its outro or its end.
+BREAK_ENERGY = 0.65
+BREAK_EARLY_S = 150.0
 GLIDE_BARS = 8
 GLIDE_AFTER_BARS = 16
 
 
-def mix_frames(out_parts, in_parts, g, uo=IDENTITY, ui=IDENTITY, master: float = 1.0) -> bytes:
+def mix_frames(out_parts, in_parts, g, uo=IDENTITY, ui=IDENTITY, master: float = 1.0, pres=None) -> bytes:
     """The two decks summed: each band times the automix gain (`g`: low, mid,
     high for each record, per sample or constant) times the hands on the
-    mixer (`uo`/`ui`: low, mid, high, channel gain)."""
+    mixer (`uo`/`ui`: low, mid, high, channel gain). `pres` is the automix
+    gain of each record's presence band (`presence`); without it the presence
+    follows the high gain. A deck split in three has no presence of its own."""
     gol, gom, goh, gil, gim, gih = (np.asarray(x, dtype=np.float32).reshape(-1, 1) for x in g)
+    gop, gip = ((np.asarray(x, dtype=np.float32).reshape(-1, 1) for x in pres) if pres is not None
+                else (goh, gih))
     y = np.zeros((FRAME_SAMPLES, 2), dtype=np.float32)
     if out_parts is not None:
-        lo, mi, hi = out_parts
-        y += (lo * (gol * uo[0]) + mi * (gom * uo[1]) + hi * (goh * uo[2])) * uo[3]
+        lo, mi, *hi = out_parts
+        top = hi[0] * (goh * uo[2]) if len(hi) == 1 else hi[0] * (gop * uo[2]) + hi[1] * (goh * uo[2])
+        y += (lo * (gol * uo[0]) + mi * (gom * uo[1]) + top) * uo[3]
     if in_parts is not None:
-        lo, mi, hi = in_parts
-        y += (lo * (gil * ui[0]) + mi * (gim * ui[1]) + hi * (gih * ui[2])) * ui[3]
+        lo, mi, *hi = in_parts
+        top = hi[0] * (gih * ui[2]) if len(hi) == 1 else hi[0] * (gip * ui[2]) + hi[1] * (gih * ui[2])
+        y += (lo * (gil * ui[0]) + mi * (gim * ui[1]) + top) * ui[3]
     if master != 1.0:
         y *= master
     return np.clip(np.rint(_soft_limit(y)), -32768, 32767).astype(np.int16).tobytes()
@@ -916,7 +1014,7 @@ class CrossfadeSource(_AudioSource):
         #: Every frame's levels, (frame number, slot on air, on-air dB, other dB,
         #: master dB): the booth's meters play these back frame by frame. One
         #: sample every 40 ms, polled at 20 Hz, missed most kicks.
-        self.meter: deque = deque(maxlen=64)
+        self.meter: deque = deque(maxlen=128)
         self.applied = SOLO
         #: Kaia's own hands this frame — her multipliers on (outgoing low, mid,
         #: high, incoming low, mid, high), apart from the automix — so the booth
@@ -966,7 +1064,51 @@ class CrossfadeSource(_AudioSource):
     def is_opus(self) -> bool:
         return False
 
+    def _scout(self, deck: Deck) -> None:
+        """Find where `deck` can be left before its end (off the audio
+        thread): the mix out of it is then planned early enough to be there."""
+        if getattr(deck, "outs", ()) is not None or deck._scouting:
+            return
+        deck._scouting = True
+
+        def run():
+            outs: list = []
+            lead = 0.0
+            try:
+                from utils.audio import songmap
+                end_own = _music_end(deck) * deck.ratio
+                outs = songmap.out_points(deck.record.path, end_own, deck.record.bpm, deck.end * deck.ratio)
+                if outs:
+                    lead = max(0.0, end_own - min(t for _, t in outs))
+            except Exception as e:
+                log_debug(f"[records] no way out found for {deck.record.name}: {e}")
+            deck.outs, deck.out_lead = outs, lead
+        threading.Thread(target=run, daemon=True, name="kaia-records-scout").start()
+
+    def _plan_ahead(self, cur: Deck) -> float:
+        """Seconds before the end of `cur` its way out is planned: room for the
+        blend and the search, and for leaving at its outro or last breakdown."""
+        return self._mix_beats * 0.6 + 90 + getattr(cur, "out_lead", 0.0) / cur.ratio
+
+    def _swaps(self, deck: Deck) -> list:
+        """Where the bass swap out of `deck` is tried before the end of its
+        music, in order: [(seconds as played, "outro" | "break")]. Its outro,
+        where it has one. Its last breakdown first when she has the energy to
+        skip the lull — or for one record in three, whatever her mood, so two
+        sets are not mixed at the same places."""
+        outs = dict(getattr(deck, "outs", None) or ())
+        order = ["outro"]
+        if "break" in outs:
+            import zlib
+            eager = self.energy >= BREAK_ENERGY or zlib.crc32(deck.record.path.encode("utf-8")) % 3 == 0
+            end_own = (deck.end * deck.ratio) if "outro" not in outs else outs["outro"]
+            if eager and end_own - outs["break"] <= BREAK_EARLY_S:
+                order = ["break", "outro"]
+        return [(outs[k] / deck.ratio, k) for k in order if k in outs]
+
     def _prefetch(self) -> None:
+        if self.current is not None:
+            self._scout(self.current)
         if self._picking or self._queued or self.current is None:
             return
         self._picking = True
@@ -1356,6 +1498,7 @@ class CrossfadeSource(_AudioSource):
                 # Where the outgoing's music ends: its last strong beat, a bar
                 # on, not the end of the file. A blend is fitted before it.
                 music_end = _music_end(deck)
+                incoming_key = lambda n: library.shift_key(n.record.key, self._semitones(deck, n))
                 here = (music_end - 60.0 if mode == "end" else deck.at()) * deck.ratio
                 out_grid = self._grid_at(deck.record, max(0.0, here - 8.0), 45.0)
                 if out_grid is not None:
@@ -1370,7 +1513,9 @@ class CrossfadeSource(_AudioSource):
                     # earlier (a skip: later), a shorter blend.
                     found = setlist.find_blend(deck.at(), deck.record.path, deck.ratio, out_grid,
                                                music_end, nxt, mode, self._mix_beats, lead=lead,
-                                               verify_fn=verify, budget_s=SEARCH_S.get(mode, 3.0))
+                                               verify_fn=verify, budget_s=SEARCH_S.get(mode, 3.0),
+                                               lengths=blend_lengths(self._mix_beats, deck.key, incoming_key(nxt)),
+                                               swaps=self._swaps(deck) if mode == "end" else ())
                     if found is None and attempt == 0 and nxt.source not in ("hand", "request") and self.alternatives:
                         # Her own pick does not lock anywhere: another record that does.
                         until = time.time() + ALTERNATIVE_S.get(mode, 6.0)
@@ -1380,7 +1525,9 @@ class CrossfadeSource(_AudioSource):
                                     break
                                 f = setlist.find_blend(deck.at(), deck.record.path, deck.ratio, out_grid, music_end,
                                                        alt, mode, self._mix_beats, lead=lead, verify_fn=verify,
-                                                       budget_s=max(0.5, until - time.time()))
+                                                       budget_s=max(0.5, until - time.time()),
+                                                       lengths=blend_lengths(self._mix_beats, deck.key, incoming_key(alt)),
+                                                       swaps=self._swaps(deck) if mode == "end" else ())
                                 if f is not None:
                                     swapped_from, nxt, found = nxt, alt, f
                                     break
@@ -1501,7 +1648,9 @@ class CrossfadeSource(_AudioSource):
                    "out_grid": g(out_grid), "in_grid": g(nxt.grid), "controls_flat": self.controls.flat(),
                    "bass_in": nxt.bass_in, "keys": [deck.key, nxt.record.key], "rides": self.rides,
                    "semitones": self.incoming.semitones if self.incoming else 0, "check": plan.check,
-                   "source": nxt.source}
+                   "source": nxt.source, "where": plan.where,
+                   "swap": round(plan.drop + plan.length / 2, 2) if plan.kind == "blend" else None,
+                   "gone": round(plan.done, 2)}
             self._journal_row(row)
         except Exception as e:
             log_debug(f"[records] transition not journalled: {e}")
@@ -1534,7 +1683,7 @@ class CrossfadeSource(_AudioSource):
         # Early enough to fit a blend before a long outro: the plan places
         # itself on the last phrase that leaves room, however soon it is made.
         if (plan is None and self.hand is None and not self._planning
-                and cur.remaining <= int((self._mix_beats * 0.6 + 90) * FRAMES_PER_S)):
+                and cur.remaining <= int(self._plan_ahead(cur) * FRAMES_PER_S)):
             self._begin_planning("end")
         if self.hand is not None and plan is None:
             return self._read_hand(cur, self.hand)
@@ -1552,7 +1701,7 @@ class CrossfadeSource(_AudioSource):
         elif (plan is None and self.tempo_glide and not self._gliding and not self._planning
               and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
               and cur.grid is not None and cur.grid.bar_known
-              and cur.remaining > int((self._mix_beats * 0.6 + 120) * FRAMES_PER_S)):
+              and cur.remaining > int((self._plan_ahead(cur) + 30) * FRAMES_PER_S)):
             self._begin_glide(cur)
         if out is None and incoming is None:
             # Ended with nothing planned: silence while the next is found, or stop.
@@ -1601,7 +1750,7 @@ class CrossfadeSource(_AudioSource):
             out_parts = cur.split(out) if out is not None else None
             in_parts = incoming.split(inc) if inc is not None else None
             frame = mix_frames(out_parts, in_parts, g, hands.channel(cur.slot),
-                               hands.channel(incoming.slot), hands.master)
+                               hands.channel(incoming.slot), hands.master, pres=presence(plan, times, g))
             if plan.kind == "echo":
                 self._echo_capture(plan, times, out_parts, hands.channel(cur.slot)[3] * hands.master)
             self.applied = tuple(round(float(x[-1]), 3) for x in g)
@@ -1629,7 +1778,7 @@ class CrossfadeSource(_AudioSource):
         if out_parts is not None:
             keep = (times >= plan.drop - plan.beat) & (times < plan.drop)
             if keep.any():
-                self._echo_cap.append(((out_parts[1] + out_parts[2]) * level)[keep])
+                self._echo_cap.append((sum(out_parts[1:]) * level)[keep])
         if self._echo_cap and float(times[-1]) >= plan.drop and self._echo_tail is None:
             tail = echo_tail(np.concatenate(self._echo_cap), plan.beat)
             self._echo_cap = []
@@ -1694,6 +1843,7 @@ class CrossfadeSource(_AudioSource):
                 new.close()
                 return
             new.grid, new.slot = cur.grid, cur.slot
+            new.outs, new.out_lead = getattr(cur, "outs", None), getattr(cur, "out_lead", 0.0)
             self._splice = (new, k_pre, k_cut)
 
     def _cancel_splice(self) -> None:
@@ -1912,11 +2062,13 @@ def _default_verify(out_path: str, out_ratio: float, in_path: str, plan):
 
 
 def _envelope(path: str) -> None:
-    """The record's kick envelope, computed now (it is cached) so measuring a
-    blend at plan time costs milliseconds, not a decode."""
+    """The record's kick envelope and its map of sections, computed now (they
+    are cached) so measuring a blend at plan time costs milliseconds, not a
+    decode, and where it can be left is known as soon as it is on air."""
     try:
-        from utils.audio import mixcheck
+        from utils.audio import mixcheck, songmap
         mixcheck.envelope(path)
+        songmap.get(path)
     except Exception as e:
         log_debug(f"[records] envelope not ready for {path}: {e}")
 

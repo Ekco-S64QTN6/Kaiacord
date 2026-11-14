@@ -432,7 +432,7 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
   <div id="mid">
     <div class="panel deck" data-slot="1" id="deck1"></div>
     <div class="panel mixer">
-      <div class="ptitle">MIXER · DJM <span id="mdelay" title="meter delay — match the meters to what you hear in Discord, which plays the mix a little after the mixer makes it">METERS +0 ms</span></div>
+      <div class="ptitle">MIXER · DJM <span id="mdelay" title="sync — the meters and playheads follow the frame being sent to Discord; add what Discord takes to play it, until they match what you hear">SYNC +0 ms</span></div>
       <div class="strips">
         <div class="strip" id="strip1"></div>
         <div class="mastercol"><div class="lbl">MASTER</div><div class="mvu"><canvas class="vu" id="mvuL"></canvas><canvas class="vu" id="mvuR"></canvas></div><div class="mk"><div class="knob"><canvas id="mknob" title="master volume — drag, double-click to reset"></canvas>MST</div><div class="knob"><canvas id="phknob" title="headphones (CUE) volume — this window only"></canvas>PH</div></div></div>
@@ -488,16 +488,24 @@ const waves = {};          // id -> {cps, n, data: Uint8Array} | "pending"
 const peaks = { 1: -90, 2: -90, mL: -90, mR: -90 };
 // ── the meters: every 20 ms frame's level, played back on the page's clock ──
 // The stream carries each frame's levels (frame number, slot on air, on-air,
-// other, master dB). The page maps frame numbers to its own clock by the
-// steadiest arrival seen (stream jitter only ever makes a frame late), shows
-// the frame METER_BUF behind that, plus the delay chosen to line up with what
-// Discord plays — and takes the loudest frame since the last draw, so a kick
-// between two draws is never skipped.
-const METER_BUF = 0.06, FRAME_S = 0.02, METER_DELAYS = [0, 80, 160, 240, 320, 400];
+// other, master dB) and `heard`: the frame the voice thread is handing to
+// Discord now. The mixer renders ahead of that by its buffer (300 ms), so a
+// meter timed by the newest frame moved before the sound, and the frame it
+// wanted had often not arrived yet — skipped, the bar fell and jumped. The
+// page maps `heard` to its own clock by the steadiest arrival seen (stream
+// jitter only ever makes a frame late), shows that frame less the delay
+// chosen to line up with what Discord plays — and takes the loudest frame
+// since the last draw, so a kick between two draws is never skipped.
+const FRAME_S = 0.02, METER_DELAYS = [0, 80, 160, 240, 320, 400];
 const meterRows = new Map();
 let meterOffset = null, meterOffsetAt = 0, meterShown = -1;
-let meterDelay = 0;
-try { meterDelay = +(localStorage.getItem("kaia.meterDelay") || 0); } catch (_) {}
+let meterDelay = 160;
+try { const v = localStorage.getItem("kaia.syncDelay"); if (v !== null && METER_DELAYS.includes(+v)) meterDelay = +v; } catch (_) {}
+// How far the page's playheads sit behind the mixer's newest frame: the audio
+// buffer (frames rendered and not yet sent — the fullest seen lately, since a
+// full buffer is its resting state) and the chosen delay.
+let lagFrames = 0;
+function syncLag() { return lagFrames * FRAME_S + meterDelay / 1000; }
 const vu = { 1: -90, 2: -90, m: -90 }, vuAt = { t: 0 };
 let meterLastFrame = -1;
 function meterIngest() {
@@ -510,7 +518,9 @@ function meterIngest() {
   if (!S || !S.meter) return;
   for (const r of S.meter) meterRows.set(r[0], r);
   if (S.frame != null) {
-    const est = recvAt - S.frame * FRAME_S, now = performance.now() / 1000;
+    const heard = S.heard != null ? S.heard : S.frame;
+    lagFrames = Math.max(S.buffered || 0, lagFrames - 0.05);
+    const est = recvAt - heard * FRAME_S, now = performance.now() / 1000;
     // the lowest estimate is the least delayed delivery; let it drift up slowly
     if (meterOffset === null || est < meterOffset || now - meterOffsetAt > 5) { meterOffset = meterOffset === null || est < meterOffset ? est : meterOffset + 0.004; meterOffsetAt = now; }
   }
@@ -521,7 +531,7 @@ function meterLevels() {
   const now = performance.now() / 1000;
   const peak = { 1: -90, 2: -90, m: -90 };
   if (meterOffset !== null) {
-    const target = Math.floor((now - meterOffset - METER_BUF - meterDelay / 1000) / FRAME_S);
+    const target = Math.floor((now - meterOffset - meterDelay / 1000) / FRAME_S);
     const from = meterShown < 0 || target - meterShown > 10 ? target - 1 : meterShown;
     for (let f = from + 1; f <= target; f++) {
       const r = meterRows.get(f); if (!r) continue;
@@ -569,13 +579,14 @@ const dragCue = {}, dragUntil = {};
 function dragged(slot) { return dragCue[slot] != null && performance.now() < (dragUntil[slot] || 0) ? dragCue[slot] : null; }
 function posOf(d) {
   const dc = dragged(d.slot); if (dc !== null) return dc;
-  return d.state === "playing" && !(S.paused || []).includes(d.slot) ? Math.min(d.length, d.pos + since() * d.ratio) : d.pos;
+  // as heard: the mixer is ahead of the sound by its buffer and Discord's delay
+  return d.state === "playing" && !(S.paused || []).includes(d.slot) ? Math.max(0, Math.min(d.length, d.pos + (since() - syncLag()) * d.ratio)) : d.pos;
 }
 const isFree = (slot) => !!(S && S.free === slot && S.decks && S.decks[slot]);
 const blendOn = () => !!(S && S.mix && S.mix.started);
 const canScrub = (slot) => isFree(slot) && !blendOn();
 const handDeck = () => { const d = S && S.decks && S.decks[S.free]; return d && d.hand && !S.mix && (d.state === "playing" || d.state === "cued") ? d : null; };
-function mixNow() { return S.mix ? S.mix.now + since() : 0; }
+function mixNow() { return S.mix ? S.mix.now + since() - syncLag() : 0; }
 function beatLen(d) { return d.grid ? 60 / d.grid.bpm : null; }
 function beatAt(d, pos) { const b = beatLen(d); return b ? (pos - d.grid.downbeat) / b : null; }
 const fmt = (s) => { if (!isFinite(s)) return "--:--"; s = Math.max(0, s); const m = Math.floor(s / 60); const r = Math.floor(s % 60); return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`; };
@@ -1246,7 +1257,7 @@ function updateMixer() {
     else if (mix.kind === "blend" && t < mix.done) count.textContent = `GOING OUT · ${bars(mix.done)}`;
     else count.textContent = "HANDING OVER";
     why.textContent = mix.kind === "blend"
-      ? `${mix.mode === "skip" ? "skip" : "end of record"} · ${Math.round(mix.length / mix.beat)} beats · stretch ×${mix.ratio.toFixed(4)} · ch ${mix.out_slot} → ch ${mix.in_slot}`
+      ? `${mix.mode === "skip" ? "skip" : mix.where === "outro" ? "swap at its outro" : mix.where === "break" ? "swap at its last breakdown" : "end of record"} · ${Math.round(mix.length / mix.beat)} beats · stretch ×${mix.ratio.toFixed(4)} · ch ${mix.out_slot} → ch ${mix.in_slot}`
       : mix.kind === "echo"
       ? `${mix.mode === "skip" ? "skip" : "end of record"} · echo-out on the bar · ${mix.why || "no common beat"}`
       : `${mix.mode === "skip" ? "skip" : "end of record"} · ${Math.round(mix.length / mix.beat)} beats · ${mix.why || "clean cut on the bar"}`;
@@ -1356,7 +1367,19 @@ function kaiaRelaunch(n) {
   if (kaiaLaunch === null) kaiaLaunch = n;
   else if (n !== kaiaLaunch) location.reload();
 }
-KaiaCodec.mount($("kaia-stage"), { assets: "/kaia/portraits", portrait: new URLSearchParams(location.search).get("face") || "t2", maxFps: 30 })
+// Her shaders are drawn by the GPU. A browser with no GPU acceleration draws
+// them on the CPU instead — measured at over three cores at 30 frames a second,
+// which starves every other canvas on the page — so there she moves at 6.
+function softwareGL() {
+  try {
+    const gl = document.createElement("canvas").getContext("webgl2");
+    if (!gl) return false;                       // no WebGL at all: the codec shows her still image
+    const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    return /swiftshader|llvmpipe|softpipe|software/i.test(String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)));
+  } catch (_) { return false; }
+}
+const KAIA_FPS = softwareGL() ? 6 : 30;
+KaiaCodec.mount($("kaia-stage"), { assets: "/kaia/portraits", portrait: new URLSearchParams(location.search).get("face") || "t2", maxFps: KAIA_FPS })
   .then((c) => { kaiaBooth.codec = c; }).catch((e) => console.error("[booth] Kaia:", e));
 window.KaiaBooth = { react: (kind) => kaiaBooth.codec && kaiaBooth.codec.react(kind) };
 $("kaialog").onclick = () => { const on = !$("kaiadetail").classList.contains("on"); $("kaiadetail").classList.toggle("on", on); $("kaialog").classList.toggle("on", on); };
@@ -1635,22 +1658,25 @@ function updateHeader() {
 
 // 30 frames a second: the mixer's state arrives at 20, and every frame
 // redraws some thirty canvases — at 60 the compositor alone took a core.
+// What moves across the screen is drawn at the display's rate instead: the
+// meters and the two scrolling lanes (one canvas, ~1 ms). At 30 the lanes
+// stepped two pixels at a time and the whole booth read as slow.
 const FRAME_MS = 1000 / 30;
 let lastFrame = 0;
-function showDelay() { $("mdelay").textContent = `METERS +${meterDelay} ms`; }
+function showDelay() { $("mdelay").textContent = `SYNC +${meterDelay} ms`; }
 $("mdelay").addEventListener("click", () => {
   meterDelay = METER_DELAYS[(METER_DELAYS.indexOf(meterDelay) + 1) % METER_DELAYS.length];
-  try { localStorage.setItem("kaia.meterDelay", String(meterDelay)); } catch (_) {}
-  showDelay(); toast(`meters ${meterDelay} ms behind the mixer — to match what you hear in Discord`);
+  try { localStorage.setItem("kaia.syncDelay", String(meterDelay)); } catch (_) {}
+  showDelay(); toast(`meters and playheads ${meterDelay} ms behind the frame sent — to match what you hear in Discord`);
 });
 showDelay();
 function frame(ts) {
-  try { meterTick(); } catch (e) { console.error(e); }
+  try { meterTick(); if (S && S.live) drawLanes(); } catch (e) { console.error(e); }
   if (ts - lastFrame < FRAME_MS - 2) { requestAnimationFrame(frame); return; }
   lastFrame = ts;
   try {
     updateHeader();
-    if (S && S.live) { drawLanes(); updateDeck(1); updateDeck(2); updateMixer(); updateBottom(); renderCrate(); loadNews(); phonesTick(1); phonesTick(2); }
+    if (S && S.live) { updateDeck(1); updateDeck(2); updateMixer(); updateBottom(); renderCrate(); loadNews(); phonesTick(1); phonesTick(2); }
     else { phonesTick(1); phonesTick(2); }
   } catch (e) { console.error(e); }
   requestAnimationFrame(frame);

@@ -42,7 +42,16 @@ a mix that sounded wrong:
   centred on it, so the
   outgoing's vocal phrase finishes and the incoming's starts on the one; then the outgoing's highs go.
   Until 24 Oct both records' mids sat at 55% through the middle: two vocals stacked, and the outgoing's
-  was cut mid-phrase at the swap. A ramp is a quarter of a
+  was cut mid-phrase at the swap. **One voice at a time:** a voice is not only mids, so the automix
+  splits HIGH in two at `PRESENCE_TOP_HZ` (6 kHz). The presence under it (consonants, what makes a lyric
+  a lyric) changes hands with the mids (`presence`: the incoming's at `PRESENCE_HOLD` of its air until
+  the handoff, the outgoing's gone after it); only the air above rides early and leaves late. As one band,
+  "highs first" brought the new singer in over the old one, and the old one's stayed up after the swap
+  (You're So High into For Me (VIP), 13 Nov). The booth's HIGH knob turns both halves.
+  **After the swap the outgoing leaves** (`tail`): gone within `TAIL_BEATS` (32) or a quarter of the
+  blend, never later than its second half, and `Plan.done` is then — the deck is free and the room
+  checks need only that much of the outgoing. A 256-beat blend used to keep it 64 s past the swap.
+  A ramp is a quarter of a
   short blend and an eighth of a long one, so EPIC (256) rides for a minute; the ride is the point of
   a long blend, not the bridge to the next record. A blend must leave the incoming `IN_LEFT_S` to play
   alone, and a cue set at the booth is honoured whoever lined the record up. It starts on an 8-bar phrase at the end of a record (4
@@ -72,6 +81,23 @@ a mix that sounded wrong:
   Check a judge change on click tracks *and* on real pairs in the band you did not measure: a lock is
   only as good as what plays in the bars the judge left out. It cannot always tell a kick from a heavy
   rolling bassline on the beat; that needs ears.
+- **She leaves a record where it changes, and near its end** (`songmap`, `setlist.find_blend`,
+  `CrossfadeSource._swaps`). `songmap` holds three curves per record against its own usual level —
+  everything, the low end, and what is up front in the mids (centre of the stereo picture, 300-3400 Hz,
+  drum hits taken out; not a vocal detector) — cached in `memory/records/maps/`, a second or two of
+  NumPy per record, no model. From them: where its **outro** starts (the last stretch to the end of
+  its music with the lead gone; 157 of 347 records have one, median 31 s) and where its **last
+  breakdown** starts (low end gone for 8 bars or more, past 60% of the record). An end-of-record blend
+  is tried with the bass swap on the phrase nearest the outro's start first (`plan_transition(swap_at=)`),
+  so the outro is not played out; with the energy for it (`BREAK_ENERGY`), and for one record in three
+  whatever her mood, the breakdown comes first. The record on air is scouted when it takes over
+  (`_scout`, its own thread) and planned that much earlier (`_plan_ahead`). Then the old search, in a
+  new order: a real blend (32 beats or more) with the outgoing gone no more than `NEAR_END_S` (75 s)
+  before its music ends, then the 16-beat one there, and only then anywhere further back. The old order
+  took the first lock walking back from the end at the longest length: a 64-beat blend two minutes early
+  beat a 32-beat one on the last phrase, and records were left mid-verse (Running Up That Hill after
+  55 s, 13 Nov) with the next one's vocal over theirs. Keys more than a step apart get the 32-beat
+  blend first (`blend_lengths`). The journal's `where`, `swap` and `gone` say what was chosen.
 - **Nothing locks: an echo-out, never a bare cut** (`as_echo`, `echo_tail`). Her own pick that locks
   nowhere is swapped for one that does (`RecordsSession._alternatives`: its measured partners, then
   records in stretch of the tempo, those with partners of their own first, `ALTERNATIVE_S`); a record
@@ -188,8 +214,14 @@ each knob Kaia's hand is on with sparks the way she turns it, an aura and combo 
 (LOCKED on a measured blend, BASS SWAP, PERFECT BLEND when one finishes), ECHO OUT in purple on an echo-out (it
 neither adds to the combo nor breaks it), and red — vignette, glitch, shake, combo broken — on a late voice frame.
 The floor is one of five scenes (mountains, pyramids, city, ocean, tunnel) travelling toward the horizon at the
-beat, picked at load and crossfaded to another on each new record. The mixer's meters are drawn every animation
-frame from per-frame levels streamed with the frame counter, mapped to the page's clock (METERS +N ms trims it).
+beat, picked at load and crossfaded to another on each new record. The mixer's meters and the two scrolling lanes are drawn every animation
+frame. Meters and playheads are timed by `heard`, the frame the voice thread is handing to Discord
+(`frames_sent` less what waits in the audio buffer), mapped to the page's clock; SYNC +N ms (160 by
+default) adds what Discord takes to play it. Timed by the newest rendered frame they ran 250 ms ahead
+of the sound, and 4-5% of the frames a meter wanted had not arrived yet and were skipped (the bar fell
+and jumped). The stream is paced by a deadline, and the snapshot reads her mood before taking the
+mixer's lock. Her avatar is WebGL: where the browser has no GPU acceleration (`softwareGL`) it runs at
+6 fps, since drawn on the CPU at 30 it took over three cores from every other canvas.
 `!music records` and `!music booth` use a booth window already open (`dj_dashboard.viewers`), and the window
 stays on its idle screen after `!music stop`.
 Nothing in it is decorative state of its own: if the mix did not do it, the screen does not show it. It builds over a set: a heat that eases toward 1 − e^(−combo/5) — the combo being the set's own trailing

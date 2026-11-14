@@ -71,6 +71,32 @@ def test_the_snapshot_is_the_mixers_state(session):
     json.dumps(snap)
 
 
+def test_the_stream_says_which_frame_is_being_heard(session):
+    """The mixer renders ahead of the voice thread by its buffer. The meters
+    were timed by the newest frame: 300 ms before the sound, and often a frame
+    the page had not been sent yet, which it skipped."""
+    src = session.source
+    session.voice_source = types.SimpleNamespace(_frames=types.SimpleNamespace(qsize=lambda: 15),
+                                                 late_count=0, worst_late=0.0)
+    for _ in range(60):
+        src.read()
+    snap = D.snapshot(session)
+    assert snap["frame"] == 60 and snap["buffered"] == 15 and snap["heard"] == 45
+    rows = [r[0] for r in snap["meter"]]
+    assert rows[-1] == 59 and rows[0] <= snap["heard"] - 20      # the frame being heard, and the half second before it
+    session.voice_source = None
+    snap = D.snapshot(session)
+    assert snap["heard"] == snap["frame"] and snap["buffered"] == 0
+
+
+def test_a_blend_says_where_in_the_outgoing_record_the_swap_was_put(session):
+    session.source.skip()
+    assert _wait(lambda: session.source.plan is not None)
+    assert D.snapshot(session)["mix"]["where"] == ""
+    session.source.plan.where = "outro"
+    assert D.snapshot(session)["mix"]["where"] == "outro"
+
+
 def test_a_planned_blend_shows_on_both_decks_and_the_mixer(session):
     session.source.skip()
     deadline = time.time() + 5
@@ -166,8 +192,9 @@ def test_the_blend_length_is_chosen_at_the_booth_and_shortened_when_there_is_no_
     src = session.source
     assert src.set_mix_beats(256) and src._mix_beats == 256
     assert not src.set_mix_beats(48)                         # only the booth's three lengths
-    # 50 s of record has no room for 256 beats (128 s) or 128: the planner halves it rather than cutting.
-    src.current.total_frames = 50 * R.FRAMES_PER_S
+    # 40 s of record has no room for 256 beats or 128 (the outgoing is in a 128-beat
+    # blend for 48 s: to the swap, and its tail): the planner halves it rather than cutting.
+    src.current.total_frames = 40 * R.FRAMES_PER_S
     src.skip()
     deadline = time.time() + 5
     while src.plan is None and time.time() < deadline:

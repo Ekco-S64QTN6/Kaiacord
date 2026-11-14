@@ -73,6 +73,15 @@ def planned(plan, nxt_title: str) -> str:
         s = _pick([f"blending into {nxt_title} over {bars} bars. highs first, bass swap halfway.",
                    f"{bars} bars to bring {nxt_title} in — i'll ride both up in the middle.",
                    f"planned: {bars}-bar blend into {nxt_title}, bass hands over on the halfway bar."])
+        where = getattr(plan, "where", "")
+        if where == "outro":
+            s += " " + _pick(["the swap lands where this one's outro starts — no need to play the outro out.",
+                              "taking the low end over as this one drops into its outro.",
+                              "this one thins out there; that's the bar the new bass comes in on."])
+        elif where == "break":
+            s += " " + _pick(["the swap lands where this one falls into its last breakdown — the new groove instead of the lull.",
+                              "leaving this one at its last breakdown; the new bassline picks the floor up there.",
+                              "no waiting through the breakdown: the new one takes the low end as this one lets go of it."])
         if "moved" in (plan.check or ""):
             raw = plan.check.rsplit("moved", 1)[-1].strip().split(" ")[0]
             try:
