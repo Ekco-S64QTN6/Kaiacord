@@ -222,6 +222,32 @@ async def generate_metadata(session: aiohttp.ClientSession, category: str, body:
         log_warning(f"Ollama call failed: {e}")
         return {}
 
+ALLOWED_MODEL_KEYS = {"summary", "keywords", "document_type"}
+_DOCUMENT_TYPES = {"article", "transcript", "research", "guide", "discussion", "reference"}
+
+
+def clean_model_metadata(data) -> dict:
+    """The model's reply cut down to the three fields it was asked for, each of
+    the right type. It reads the document itself (user-submitted ones included),
+    so a key it was not asked for, `category` for one, is never written."""
+    if not isinstance(data, dict):
+        return {}
+    out: dict = {}
+    summary = data.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        out["summary"] = " ".join(summary.split())[:600]
+    keywords = data.get("keywords")
+    if isinstance(keywords, list):
+        kws = [" ".join(str(k).split())[:60] for k in keywords if isinstance(k, (str, int)) and str(k).strip()]
+        if kws:
+            out["keywords"] = kws[:12]
+    doc_type = data.get("document_type")
+    if isinstance(doc_type, str) and doc_type.strip().lower() in _DOCUMENT_TYPES:
+        out["document_type"] = doc_type.strip().lower()
+    return out
+
+
+
 async def process_file(filepath: Path, category: str, session: aiohttp.ClientSession, dry_run: bool) -> str:
     """Process a single file, returning its status.
     Returns: 'skipped', 'enriched', 'changed' (the file moved on while the model ran), or 'failed'
@@ -254,7 +280,7 @@ async def process_file(filepath: Path, category: str, session: aiohttp.ClientSes
         
     # Merge carefully - don't overwrite existing non-empty values
     merged = frontmatter.copy()
-    for key, value in new_metadata.items():
+    for key, value in clean_model_metadata(new_metadata).items():
         if key not in merged or not merged[key]:
             merged[key] = value
             

@@ -300,3 +300,29 @@ def test_a_forum_name_that_is_a_path_is_not_made_a_directory(tmp_path):
     ForumClient.update_forum_user_profiles(
         fake, [{"author": "../../x", "user_id": 1, "post_id": 9, "content": "hi"}])
     assert list(tmp_path.iterdir()) == []
+
+
+# ── profiles and rollups ────────────────────────────────────────────────────
+def test_a_refusal_does_not_replace_a_profile():
+    from tools.maintenance.generate_user_profiles import unusable_profile
+    assert unusable_profile("I'm sorry, I can't help with that.")
+    good = "\n".join(f"## Section {i}\n" + "they talk about boats and ale. " * 8 for i in range(5))
+    assert unusable_profile(good) == ""
+
+
+def test_a_day_already_in_the_archive_is_not_merged_twice(tmp_path):
+    from tools.maintenance.rollup_user_logs import build_archive
+    day = tmp_path / "interactions_20260101.md"
+    day.write_text("---\ntitle: x\n---\n\n[2026-01-01 10:00:00] A: hello\n", encoding="utf-8")
+    first, _ = build_archive("A_1", "202601", [day])
+    second, turns = build_archive("A_1", "202601", [day], existing=first)
+    assert second.count("hello") == 1 and turns == 1
+
+
+def test_model_metadata_is_cut_to_the_asked_for_fields():
+    from tools.maintenance.enrich_metadata import clean_model_metadata
+    got = clean_model_metadata({"summary": " a  b ", "keywords": "oops", "category": "Books",
+                                "document_type": "Guide", "title": "x"})
+    assert got == {"summary": "a b", "document_type": "guide"}
+    assert clean_model_metadata({"keywords": ["a", "", 3, None]}) == {"keywords": ["a", "3"]}
+    assert clean_model_metadata("nope") == {}
