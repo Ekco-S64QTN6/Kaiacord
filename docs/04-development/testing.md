@@ -125,6 +125,16 @@ async def test_my_new_feature():
   a `sys.addaudithook` that records writes, renames and removes under `memory/`, `knowledge_base/`
   and `logs/`, attributed per test — anything without `.test` in its path is a leak. That is how
   the live world state was found carrying a test's `atk_mod: -5`.
+- **Every command answers.** `test_every_command_answers.py` types every `!` command and alias
+  through the real registry, dispatcher and handlers, as an ordinary member and as the owner, with
+  no argument, a wrong one, a path with a mass mention, and a full-length message; the copy under
+  `ttrpg/` does the same for every `!rpg` subcommand, with and without a character. Each must reply,
+  must not raise into the dispatcher's "failed. check the logs", must refuse a member what is
+  owner-only, and must send nothing Discord would reject for length. There is no voice channel, no
+  network and no model in it, so it is also the check of what each command says when those are
+  missing. A new command is covered on the day it is added to the registry. What it cannot show
+  needs a live server: the voice gateway, a button pressed after its message has aged, and Discord's
+  three-second acknowledgement.
 - **A test that runs a tool is a tool run.** Import a script's module under any name but
   `__main__` rather than invoking it; several tools have no argument parsing and rewrite the corpus
   whatever they are passed.

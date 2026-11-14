@@ -306,3 +306,10 @@ def test_bot_state_changes_select_channel_memory_lifecycle_regressions():
         for path in selector["select_tests"](["utils/infrastructure/system/bot_state.py"])
     }
     assert "tools/tests/unit/test_channel_memory_lifecycle.py" in selected
+
+
+def test_any_command_handler_change_selects_the_acceptance_matrix():
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    for changed in ("utils/commands/sky_handler.py", "utils/commands/registry.py", "utils/commands/nightshift.py"):
+        selected = {path.relative_to(ROOT).as_posix() for path in selector["select_tests"]([changed])}
+        assert "tools/tests/unit/test_every_command_answers.py" in selected, changed
