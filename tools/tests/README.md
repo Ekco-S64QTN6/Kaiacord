@@ -4,6 +4,7 @@
 tools/tests/
 ├── unit/              # Component tests, mostly isolated; some carry slow/ollama markers
 ├── integration/       # More than one subsystem together, and anything that needs a live service
+├── fixtures/          # Recorded data a test reads (not tests): the stance harness's real replies
 ├── live_write_guard.py # Audit hook: fails the run on any write under memory/, knowledge_base/ or logs/ outside a .test path
 └── conftest.py        # Repo root on sys.path, installs the guard, and refuses live model teardown
 ```
@@ -89,6 +90,11 @@ The checks:
 | `test_memory_layer_regressions.py` | Observation digest, belief and relationship eviction |
 | `test_response_filters.py` | Post-generation filter behaviour |
 | `test_phase69_filter_regressions.py` | Specific over-stripping incidents |
+| `test_rpg_hardening.py` | Record ids, purchase limits, character names, the caravan's stock |
+| `test_untrusted_outside_text.py` | Text from users, feeds, scraped pages and models cannot break what it is put into |
+| `test_dm_privacy_and_identity.py` | A private turn stays out of the diagnostic logs; no role or `@everyone` pings |
+| `test_maintenance_tool_writes.py` | Tools that rewrite corpus files: append lock, atomic documents, repeatable rollups |
+| `test_source_guards.py` | Guards checkable only by reading the code (text pins; the file says which fix each protects) |
 
 ## CI coverage
 
