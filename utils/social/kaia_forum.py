@@ -1661,19 +1661,20 @@ class ForumClient:
 
         now = datetime.now()
 
+        from utils.core.frontmatter import dump_frontmatter
         lines = [
-            "---",
-            f'username: "{username}"',
-            f'user_id: {user_id}',
-            f'total_posts: {profile.get("total_posts", "?")}',
-            f'join_date: "{profile.get("join_date", "?")}"',
-            f'rank: "{profile.get("rank", "?")}"',
-            f'scraped_at: "{now.isoformat()}"',
-            f'posts_scraped: {len(posts)}',
-            'source: "Project 1999"',
-            'document_type: "Forum User History"',
-            'platform: vbulletin',
-            "---",
+            dump_frontmatter({
+                "username": username,
+                "user_id": user_id,
+                "total_posts": profile.get("total_posts", "?"),
+                "join_date": profile.get("join_date", "?"),
+                "rank": profile.get("rank", "?"),
+                "scraped_at": now.isoformat(),
+                "posts_scraped": len(posts),
+                "source": "Project 1999",
+                "document_type": "Forum User History",
+                "platform": "vbulletin",
+            }).rstrip("\n"),
             "",
             f"# Post History: {username}",
             "",

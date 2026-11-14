@@ -518,8 +518,29 @@ async def _handle_user(ctx, msg, user_id: int):
         await msg.channel.send(embed=notice(f"user scrape failed: {e}", error=True))
 
 
+_LINK_COOLDOWN_S = 30
+_link_last: dict[int, float] = {}
+
+
+def _link_cooling(user_id: int) -> bool:
+    """Whether this person asked for a forum fetch a moment ago. Link and verify
+    each scrape the forum, and both are open to everyone."""
+    import time
+    now = time.time()
+    if now - _link_last.get(user_id, 0.0) < _LINK_COOLDOWN_S:
+        return True
+    _link_last[user_id] = now
+    if len(_link_last) > 500:
+        for k in [k for k, t in _link_last.items() if now - t > 3600]:
+            _link_last.pop(k, None)
+    return False
+
+
 async def _handle_link(ctx, msg, forum_id: int):
     """Start a short-lived proof-of-control challenge; do not activate a link yet."""
+    if _link_cooling(msg.author.id):
+        await msg.channel.send(embed=notice("one forum check at a time. try again in a moment.", error=True))
+        return
     import secrets
     import time
 
@@ -580,6 +601,9 @@ async def _handle_link(ctx, msg, forum_id: int):
 
 async def _handle_verify_link(ctx, msg, forum_id: int):
     """Activate a forum mapping only after checking an authored public post."""
+    if _link_cooling(msg.author.id):
+        await msg.channel.send(embed=notice("one forum check at a time. try again in a moment.", error=True))
+        return
     from utils.social.kaia_identities import registry
     from utils.social.kaia_forum import get_forum_client
 

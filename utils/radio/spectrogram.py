@@ -8,6 +8,10 @@ next to the clip (`<clip>.png`), and removed with it.
 """
 from __future__ import annotations
 
+import threading
+
+import os
+
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -94,7 +98,7 @@ def render(clip: Path, title: str = "", max_hz: float = 8000.0) -> Optional[Path
     d.text((LEFT, 8), title[:120], fill=cyan, font=font)
     # Written beside its destination and moved into place, so an interrupted
     # render never leaves a half picture that reads as done.
-    tmp = out.with_name(f".{out.name}.tmp")
+    tmp = out.with_name(f".{out.name}.{os.getpid()}.{threading.get_ident()}.tmp")   # per caller: two renders of one clip run at once
     try:
         canvas.save(tmp, format="PNG", optimize=True)
         tmp.replace(out)

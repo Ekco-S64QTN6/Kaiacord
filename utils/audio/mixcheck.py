@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import threading
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -154,7 +155,7 @@ def envelope(path: str, band: str = "kick") -> Optional[np.ndarray]:
         c = _cache_path(path, b)
         try:
             c.parent.mkdir(parents=True, exist_ok=True)
-            tmp = c.with_name(f".{c.name}.{os.getpid()}.tmp.npy")
+            tmp = c.with_name(f".{c.name}.{os.getpid()}.{threading.get_ident()}.tmp.npy")
             np.save(tmp, env.astype(np.float16))
             os.replace(tmp, c)
             c.with_suffix(".sig").write_text(sig)

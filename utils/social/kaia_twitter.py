@@ -161,6 +161,10 @@ async def get_x_client(force_new: bool = False):
                     _cookies_path.parent.mkdir(exist_ok=True)
                     # Offload the cookie saving as well
                     await asyncio.to_thread(_client.save_cookies, _cookies_path)
+                    try:
+                        os.chmod(_cookies_path, 0o600)       # a session token: the owner only
+                    except OSError:
+                        pass
                     log_success(f"X client logged in as @{username}")
                     return _client
                 except Exception as login_err:
