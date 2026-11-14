@@ -158,3 +158,36 @@ def test_unprompted_records_before_cross_posting():
     src = (ROOT / "utils/core/unprompted.py").read_text(encoding="utf-8")
     speak = src[src.index("async def speak("):]
     assert speak.index("record(bot_state, source=source)") < speak.index("post_to_bluesky")
+
+
+# ── second pass: the lows ───────────────────────────────────────────────────
+def test_a_display_name_is_not_a_folder_name(tmp_path):
+    from utils.core.curiosity_scanner import _find_user_log_dir
+    (tmp_path / "user_logs" / "Tenno_Henka_111").mkdir(parents=True)
+    assert _find_user_log_dir("222", "Tenno", str(tmp_path)) is None
+    assert _find_user_log_dir("222", "Tenno_Henka", str(tmp_path)).endswith("Tenno_Henka_111")
+    assert _find_user_log_dir("111", "Tenno", str(tmp_path)).endswith("Tenno_Henka_111")
+
+
+def test_forum_history_frontmatter_survives_a_quote_in_the_name(tmp_path):
+    import types
+    import yaml
+    from utils.social.kaia_forum import ForumClient
+    fake = types.SimpleNamespace(USER_LOGS_DIR=tmp_path)
+    path = ForumClient.save_user_post_history(
+        fake, 'Bob "the" Builder', 7, {"rank": "Elder: 1"}, [])
+    head = Path(path).read_text(encoding="utf-8").split("---")[1]
+    assert yaml.safe_load(head)["username"] == 'Bob "the" Builder'
+
+
+def test_forum_link_and_verify_share_a_cooldown():
+    from utils.commands import forum_handler as fh
+    fh._link_last.clear()
+    assert fh._link_cooling(5) is False
+    assert fh._link_cooling(5) is True
+    assert fh._link_cooling(6) is False
+
+
+def test_concurrent_temporaries_have_distinct_names():
+    src = (ROOT / "utils/radio/spectrogram.py").read_text(encoding="utf-8")
+    assert "threading.get_ident()" in src

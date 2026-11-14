@@ -120,10 +120,13 @@ def _find_user_log_dir(user_id: str, user_name: str, knowledge_base_dir: str) ->
     for folder in folders:
         if folder.endswith(f"_{uid}"):
             return os.path.join(user_logs_root, folder)
+    # The whole name, not its first word: `Tenno_Henka_<id>` is not "Tenno"'s, and
+    # a prefix match put one person's plan in front of another.
     if user_name:
-        prefix = f"{user_name.lower()}_"
+        want = user_name.lower()
         for folder in folders:
-            if folder.lower().startswith(prefix):
+            stem = re.sub(r"_\d+$", "", folder)
+            if stem.lower() == want:
                 return os.path.join(user_logs_root, folder)
     return None
 

@@ -206,6 +206,12 @@ def test_failed_private_delivery_discards_pending_forum_challenge(monkeypatch, r
     assert channel.send.await_count == 1
 
 
+@pytest.fixture(autouse=True)
+def _no_link_cooldown():
+    import utils.commands.forum_handler as handler
+    handler._link_last.clear()
+
+
 def test_verify_handler_activates_only_after_forum_client_confirms_authored_post(monkeypatch, registry):
     import utils.commands.forum_handler as handler
     from utils.social import kaia_forum, kaia_identities
@@ -233,6 +239,7 @@ def test_verify_handler_activates_only_after_forum_client_confirms_authored_post
     assert registry.get_discord_id(FORUM_ID) is None
 
     fake_client.verify_user_public_post.return_value = True
+    handler._link_last.clear()          # a second try after the cooldown
     asyncio.run(handler._handle_verify_link(SimpleNamespace(), msg, FORUM_ID))
     assert registry.get_discord_id(FORUM_ID) == DISCORD_ID
     assert registry.get_forum_ids(DISCORD_ID) == [FORUM_ID]
@@ -296,6 +303,7 @@ def test_verified_link_updates_registry_only_after_forum_post_recheck(monkeypatc
     assert registry.get_discord_id(FORUM_ID) is None
 
     fake_client.verify_user_public_post.return_value = True
+    handler._link_last.clear()          # a second try after the cooldown
     asyncio.run(handler._handle_verify_link(SimpleNamespace(), msg, FORUM_ID))
     assert registry.get_discord_id(FORUM_ID) == DISCORD_ID
     assert registry.get_forum_ids(DISCORD_ID) == [FORUM_ID]
