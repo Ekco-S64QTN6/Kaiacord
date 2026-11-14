@@ -114,7 +114,6 @@ nobody is talking to her.
 
 | Script | What it does |
 |:--|:--|
-| `game_audit.py` | Simulates hunts per class and reports win rate, deaths and rewards. |
 | `progression_sim.py` | Plays characters from level 1 to 15 through the real combat engine, loot tables and prices; days per level, deaths, retreats and gil by source. Run before and after a balance change. |
 
 ## tests/
