@@ -84,7 +84,7 @@ Setup: `tools/maintenance/fetch_art_flock.py --build-flam3 --count 300 --gate`.
 Opens the Aethelgard TTRPG interface — a full persistent RPG with turn-based combat, 10 advanced classes, a 77-floor mega-dungeon, housing, farming, pets, alchemy, and a 248-species fishing minigame. Python handles all game math; Kaia narrates outcomes.
 
 Key subcommands:
-- `!rpg new <Name> <Race> <Class>` — Create a character (Warrior/Ranger/Mage/Rogue/Cleric)
+- `!rpg new <Name> <Race> <Class>` — Create a character (Warrior/Ranger/Mage/Rogue/Cleric). The name is one word, 2-24 letters or digits (an apostrophe or hyphen is fine).
 - `!rpg sheet` — View character sheet
 - `!rpg lore` — The Lore Codex: pages of history found in rare events and on rare creatures (`!rpg lore <n>` reads one)
 - `!rpg hunt` — Hunt for monsters in current region
@@ -120,7 +120,7 @@ Fetches news by category from auto-generated daily briefs. Requires `GEMINI_API_
   plays that frequency live from a public KiwiSDR receiver. `!radio e11` tunes to E11 if it's on
   the air now, or tells you when it is next. `!radio off` to stop; she leaves after an hour or
   when the channel empties.
-- `!radio listen [minutes]` — run an HFGCS watch now (she also does this four times a day).
+- `!radio listen [minutes]` — run an HFGCS watch now (she also does this four times a day). One at a time: a second request while one is running is turned away.
 - `!tacamo` — whether an E-6B Mercury (the TACAMO planes that relay EAMs to submarines) or an
   E-4B Nightwatch is broadcasting on ADS-B, via adsb.lol. They often fly with it off, so "none"
   means none visible; Kaia remembers when she last saw one.
@@ -215,7 +215,7 @@ Where the last response's retrieved context came from, in an embed: each source 
 
 ### 🏟️ Forum (`!forum`)
 Manages VBulletin 3.x integration and Discord ↔ Forum identity linking.
-- `!forum link <forum_uid>` — **User command**. Links your Discord account to your Forum UID.
+- `!forum link <forum_uid>` — **User command**. Links your Discord account to your Forum UID. `link` and `verify` each fetch from the forum, so they are limited to one per person every 30 seconds.
 - `!forum scrape [forum=ID limit=N full=true]` — **Admin**. Manually scrape configured subforums.
 - `!forum status` — Connectivity status and rate limits.
 - `!forum stats` — Scraper totals (threads, posts, users).
@@ -301,7 +301,7 @@ Manages Kaia's persistent memory systems.
 - `!enrich` — Run metadata enrichment on knowledge base (`--category [all|knowledge|logs]`, `--limit N`, `--dry-run`).
 
 ### 📋 Conversation Snapshot (`!snapshot`)
-Distills recent channel conversation into a structured Markdown RAG node in `knowledge_base/runtime/snapshots/` tagged with participants, date, channel, and topic summary.
+Distills recent channel conversation into a structured Markdown RAG node in `knowledge_base/runtime/snapshots/` tagged with participants, date, channel, and topic summary. Public channels only: it refuses a DM or an invitation-only thread, whose text must not be filed where retrieval serves it to everyone.
 
 ### ⚖️ Stance harness (`!stance`)
 Runs six pressure scenarios through her real pipeline, nothing saved: each asks something
