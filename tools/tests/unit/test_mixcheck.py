@@ -88,6 +88,55 @@ def test_verify_moves_a_blend_by_the_measured_amount(monkeypatch):
     assert v.locked and shift == pytest.approx(-0.054, abs=0.002)
 
 
+def _plan(off_s):
+    from types import SimpleNamespace
+    return SimpleNamespace(ratio=1.0, start=16 * BEAT + off_s - 0.5, offset=0.0, drop=16 * BEAT,
+                           length=32 * BEAT, beat=BEAT)
+
+
+def test_a_far_move_every_bar_agrees_on_is_still_made(monkeypatch):
+    from utils.audio import setlist
+    inc = clicks(BPM, 120, offset=0.5)
+    monkeypatch.setattr(M, "envelope", lambda p: OUT if p == "out" else inc)
+    off = 0.2 * BEAT                                   # past FAR_MOVE, inside the edge
+    assert M.FAR_MOVE <= 0.2 < M.EDGE * M.REACH
+    v, shift = setlist.verify("out", 1.0, "in", _plan(off))
+    assert v.locked and shift == pytest.approx(-off, abs=0.002)
+    assert v.kick_bars == v.kick_agree == 8
+
+
+def test_a_lag_at_the_edge_of_the_search_moves_nothing(monkeypatch):
+    """The search reaches a quarter beat; a lag found there may be the near
+    side of a larger one, so the blend is refused where it stands."""
+    from utils.audio import setlist
+    inc = clicks(BPM, 120, offset=0.5)
+    monkeypatch.setattr(M, "envelope", lambda p: OUT if p == "out" else inc)
+    v, shift = setlist.verify("out", 1.0, "in", _plan(0.24 * BEAT))
+    assert not v.locked and shift == 0.0 and "edge" in v.why
+
+
+@pytest.mark.parametrize("ms, bars, agree, moves", [
+    (-100, 16, 11, False),        # far, on eleven bars of sixteen
+    (-100, 16, 13, True),         # far, on most of them
+    (-122, 16, 16, False),        # at the edge of the search, whatever agrees
+    (100, 1, 1, False),           # far, on the one bar both kick in
+    (100, 3, 3, False),           # far, every shared kick agrees but there are three
+    (40, 1, 1, True),             # near: the tracker's own error, corrected as before
+    (40, 16, 10, True),
+])
+def test_how_far_a_blend_may_be_moved_depends_on_the_bars_behind_it(ms, bars, agree, moves):
+    v = M.Verdict(False, 16, bars, correction_ms=ms, kick_bars=bars, kick_agree=agree)
+    assert (M.move_refused(v, 0.5) == "") == moves
+
+
+def test_a_verdict_counts_the_bars_both_records_kick_in():
+    inc = clicks(BPM, 120, offset=0.5)
+    lags = M.bar_lags(OUT, 1.0, inc, 1.0, 16 * BEAT + 0.054 - 0.5, 0.0, 16 * BEAT, 32 * BEAT, BEAT)
+    both = [True, True, False, True, True, True, True, False]
+    v = M.judge(lags, both)
+    assert (v.kick_bars, v.kick_agree) == (6, 6) and (v.bars, v.agree) == (8, 8)
+
+
 def test_sets_follow_only_measured_locks():
     from utils.audio import library, setlist
     recs = {f"/m/{c}.mp3": library.Record(path=f"/m/{c}.mp3", artist="", title=c, bpm=125, key="8A", genre="House")

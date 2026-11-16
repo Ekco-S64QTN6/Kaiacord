@@ -52,6 +52,23 @@ AGREE_S = 0.010
 NO_KICK = 0.4
 
 
+#: How far either way a bar's alignment is searched, in beats. An off-beat
+#: bassline half a beat away rises in the same band as the kick, and must never
+#: be the alignment chosen.
+REACH = 0.25
+#: A blend whose bars agree on one lag is moved by it. A move this large (in
+#: beats) is a different blend from the one planned, so it is made only on
+#: strong evidence: FAR_AGREE of the bars where both records have a kick, and at
+#: least FAR_BARS of them. One shared kick, or eleven bars of sixteen, can agree
+#: on a far lag that is another hit of the groove, and the blend then flams.
+FAR_MOVE = 0.18
+FAR_AGREE = 0.8
+FAR_BARS = 4
+#: A lag at the edge of the search is not a measurement: the best alignment may
+#: lie beyond it. Past this share of REACH no move is made.
+EDGE = 0.9
+
+
 #: Bars with no shared kick may have claps and hats a little apart in at most
 #: this share of the bars where both have them (and none when fewer than five).
 HITS_CLASH = 0.2
@@ -215,6 +232,8 @@ class Verdict:
     why: str = ""
     correction_ms: float | None = None        # the lag the bars agree on, when they do
     agree: int = 0                            # bars agreeing on it
+    kick_bars: int = 0                        # bars where both records have a kick
+    kick_agree: int = 0                       # of those, the bars agreeing on the lag
 
     def summary(self) -> str:
         return (f"{'locked' if self.locked else 'NOT locked'}: {self.agree}/{self.bars} bars agree "
@@ -230,9 +249,7 @@ def bar_lags(out_env: np.ndarray, out_ratio: float, in_env: np.ndarray, in_ratio
     bar = 4 * beat
     n = max(1, int(round(length / bar)))
     step = 1.0 / ENV_RATE
-    # A quarter beat either way: an off-beat bassline half a beat away rises in
-    # the same band as the kick, and must never be the alignment chosen.
-    reach = int(beat / 4 * ENV_RATE)
+    reach = int(beat * REACH * ENV_RATE)
     smear = np.hanning(5)
     # Both envelopes sampled once over the whole overlap; each bar's window
     # (half a beat either side of the bar) is a slice of it.
@@ -311,13 +328,31 @@ def judge(lags: list, both: Optional[list] = None) -> Verdict:
     locked = abs(centre) <= LOCK_S * 1000 and worst <= 2 * LOCK_S * 1000
     v = Verdict(locked, n, len(vals), [round(float(x), 1) for x in ms], worst, centre, walk)
     v.correction_ms = centre
-    v.agree = len(inl)
+    v.agree = v.kick_agree = len(inl)
+    v.kick_bars = n
     if total > n:                                 # bars with one kick or none: clear, counted as agreeing
         v.bars, v.agree = total, len(inl) + (total - n)
         v.why = (v.why + "; " if v.why else "") + f"{total - n} of {total} bars have one kick or none"
     if not locked:
         v.why = f"every bar agrees the incoming is {centre:+.0f} ms off"
     return v
+
+
+def move_refused(v: Verdict, beat: float) -> str:
+    """Why a blend may not be moved by the lag its bars agree on, or "" when it
+    may. A small move corrects the beat tracker; a far one needs most of the
+    shared kicks behind it, and one at the edge of the search is not made."""
+    if v.correction_ms is None or beat <= 0:
+        return ""
+    moved = abs(v.correction_ms) / 1000.0 / beat
+    if moved >= EDGE * REACH:
+        return f"its beats are {v.correction_ms:+.0f} ms off, at the edge of what can be measured"
+    if moved < FAR_MOVE:
+        return ""
+    if v.kick_agree < FAR_BARS or v.kick_agree < FAR_AGREE * v.kick_bars:
+        return (f"its beats are {v.correction_ms:+.0f} ms off, and only {v.kick_agree} of "
+                f"{v.kick_bars} bars with both kicks agree on that")
+    return ""
 
 
 def check(out_path: str, out_ratio: float, in_path: str, in_ratio: float, in_start: float,
