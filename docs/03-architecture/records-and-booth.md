@@ -73,8 +73,16 @@ a mix that sounded wrong:
     judge "measured" lags there out to the ±125 ms edge of its search and refused every pair. But a bar
     with no shared kick still has **claps and hats** (2–5 kHz, `hits_envelope`), and those clashed in 38
     of 58 such bars on real locks: where no kick holds them, the hits must agree (`HITS_CLASH`).
-  - **A short overlap must agree in more of its bars** (`needed`: all of 4, 6 of 8). A blend is searched
+  - **A short overlap must agree in more of its bars** (`needed`: all of 4, 5 or 6; 6 of 7 or 8). A blend is searched
     for in dozens of places, and a random lag lands inside `AGREE_S` about one time in twelve.
+  - **A far move needs most of the shared kicks behind it** (`mixcheck.move_refused`). A blend moved
+    0.18 beat or more (`FAR_MOVE`) is made only when 0.8 of the bars where both records have a kick agree
+    on the lag and at least four do; a lag within a tenth of the search's quarter-beat reach (`EDGE`) moves
+    nothing, because the best alignment may lie beyond it. Smaller moves correct the tracker as before. In
+    402 journalled blends, 13 sat at the edge and 14 were moved far on one shared kick or on eleven bars of
+    sixteen (the one heard as rough). On 30 far-moved pairs of the library 21 still lock, 17 of them
+    somewhere else; 10 of 10 near-moved pairs are unchanged. The search goes on to its other places when
+    a move is refused.
   - **Search before giving up** (`setlist.find_blend`): the planned spot, the incoming cued at another
     phrase (bar 0/8/16/32), the outgoing mixed out up to five 8-bar phrases earlier (a skip: up to three
     4-bar phrases later), then 32 and 16 beats. The planner gives it `SEARCH_S`.

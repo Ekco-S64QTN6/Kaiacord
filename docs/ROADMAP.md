@@ -20,7 +20,7 @@ pull requests.
 
 | Item | What | Call |
 |:--|:--|:--|
-| **Lock check passes far-moved blends** | A blend at 11/16 bars that had to move −122 ms sounded rough; 16% of locked blends move ≥ 0.18 beat. Tighten the acceptance on how far a blend was moved, not only how many bars agree. | Watch, then tighten |
+| **Far-moved blends want ears** | A blend moved 0.18 beat or more now needs 0.8 of the shared-kick bars (and four) behind it, and one at the edge of the search is refused. The thresholds come from one blend heard as rough and the journal's numbers: a few far moves that still pass want listening to. The pair graph is measured again (`METHOD` 5) the next time a set starts. | Watch |
 | **One voice at a time** | The vocals change hands at the swap in the mids and the presence band (to 6 kHz); only the air above rides early. The outgoing's whole vocal still plays over the incoming's held-down one during the ride, and where a record's voice is cannot be measured without stems. | Watch |
 | **Mix-out points need ears** | She leaves a record at its outro or last breakdown where a blend locks there, found from loudness curves. The curves find sections, not taste: a few blends at each kind of point want listening to. | Watch |
 | **Tempo glide audible** | A record stretched 5–6% glides back 0.5% every 8 bars, each a resplice; it can be heard. `music.records_tempo_glide` turns it off. | Owner's call |

@@ -35,7 +35,7 @@ VERSION = 2
 #: How pairs are measured. A graph measured by an earlier method is measured
 #: again whole: the judge has only ever become stricter, so an old edge is not
 #: evidence.
-METHOD = 4
+METHOD = 5
 # Playlist taste changes rebuild paths, not the expensive measured audio graph.
 SET_METHOD = 2
 MAX_SETS = 16
@@ -250,8 +250,10 @@ def find_blend(now: float, out_path: str, out_ratio: float, out_grid, music_end:
 
 def verify(out_path: str, out_ratio: float, in_path: str, plan):
     """(verdict, shift seconds): `plan` measured; where every bar agrees the
-    incoming is off by one amount, measured again shifted by it. The shift is
-    what to add to `plan.start` (negative: earlier)."""
+    incoming is off by one amount, measured again shifted by it — unless the
+    move is far on thin evidence or at the edge of the search
+    (`mixcheck.move_refused`). The shift is what to add to `plan.start`
+    (negative: earlier)."""
     from utils.audio import mixcheck
     args = (out_path, out_ratio, in_path, plan.ratio)
     # Measured for as long as both are heard: to the outgoing gone, not the
@@ -259,6 +261,10 @@ def verify(out_path: str, out_ratio: float, in_path: str, plan):
     heard = getattr(plan, "done", plan.drop + plan.length) - plan.drop
     v = mixcheck.check(*args, plan.start, plan.offset, plan.drop, heard, plan.beat)
     if v.locked or v.correction_ms is None:
+        return v, 0.0
+    refused = mixcheck.move_refused(v, plan.beat)
+    if refused:
+        v.why = refused
         return v, 0.0
     shift = -v.correction_ms / 1000.0
     v2 = mixcheck.check(*args, plan.start + shift, plan.offset, plan.drop, heard, plan.beat)
