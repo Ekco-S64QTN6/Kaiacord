@@ -137,6 +137,13 @@ def test_a_verdict_counts_the_bars_both_records_kick_in():
     assert (v.kick_bars, v.kick_agree) == (6, 6) and (v.bars, v.agree) == (8, 8)
 
 
+def test_five_bars_that_all_agree_lock():
+    inc = clicks(BPM, 120, offset=0.5)
+    lags = M.bar_lags(OUT, 1.0, inc, 1.0, 16 * BEAT - 0.5, 0.0, 16 * BEAT, 32 * BEAT, BEAT)
+    v = M.judge(lags, [True, True, False, True, True, True, False, False])
+    assert v.locked and (v.kick_bars, v.kick_agree) == (5, 5)
+
+
 def test_sets_follow_only_measured_locks():
     from utils.audio import library, setlist
     recs = {f"/m/{c}.mp3": library.Record(path=f"/m/{c}.mp3", artist="", title=c, bpm=125, key="8A", genre="House")
@@ -197,6 +204,8 @@ def test_a_short_overlap_must_agree_in_more_of_its_bars():
     """Searched in many places, a short overlap agrees by chance: four bars
     must all agree, eight need six."""
     assert M.needed(4) == 4 and M.needed(8) == 6 and M.needed(16) == 10
+    assert all(M.needed(n) <= n for n in range(1, 65))        # five bars that can clash can lock
+    assert [M.needed(n) for n in (5, 6, 7)] == [5, 6, 6]
     three_of_four = [(0, 0.0), (1, 0.001), (2, -0.001), (3, 0.08)]
     assert not M.judge(three_of_four).locked
     assert M.judge([(k, 0.001 * (k % 2)) for k in range(4)]).locked

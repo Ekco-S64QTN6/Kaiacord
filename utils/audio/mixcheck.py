@@ -78,9 +78,10 @@ def needed(n: int) -> int:
     """Bars that must agree out of `n` that can clash. A blend is searched for
     in many places, and on a short overlap noise agrees by chance (a random lag
     falls inside AGREE_S about one time in twelve): four bars must all agree,
-    eight need six, longer overlaps AGREE of them."""
+    eight need six (so five and six must all agree, seven needs six), longer
+    overlaps AGREE of them. Never more than there are."""
     import math
-    return n if n <= 4 else max(6, math.ceil(AGREE * n)) if n <= 8 else math.ceil(AGREE * n)
+    return n if n <= 4 else min(n, max(6, math.ceil(AGREE * n))) if n <= 8 else math.ceil(AGREE * n)
 
 
 #: The second band listened to: claps, snares and hats (2–5 kHz). Where no

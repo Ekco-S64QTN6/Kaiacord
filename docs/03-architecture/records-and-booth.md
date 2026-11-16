@@ -73,7 +73,7 @@ a mix that sounded wrong:
     judge "measured" lags there out to the ±125 ms edge of its search and refused every pair. But a bar
     with no shared kick still has **claps and hats** (2–5 kHz, `hits_envelope`), and those clashed in 38
     of 58 such bars on real locks: where no kick holds them, the hits must agree (`HITS_CLASH`).
-  - **A short overlap must agree in more of its bars** (`needed`: all of 4, 6 of 8). A blend is searched
+  - **A short overlap must agree in more of its bars** (`needed`: all of 4, 5 or 6; 6 of 7 or 8). A blend is searched
     for in dozens of places, and a random lag lands inside `AGREE_S` about one time in twelve.
   - **A far move needs most of the shared kicks behind it** (`mixcheck.move_refused`). A blend moved
     0.18 beat or more (`FAR_MOVE`) is made only when 0.8 of the bars where both records have a kick agree
