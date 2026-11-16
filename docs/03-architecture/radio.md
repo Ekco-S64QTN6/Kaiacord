@@ -202,8 +202,9 @@ mute, and is not judged.
   key-up to audio, where the scan's `Squelch` holds `OPEN_S` back to keep beacons out of a sweep (613 ms).
 - **Habitual data is noted, not held** (`ledger.habitual`, `Watcher._habit_holds`): a channel heard 30+ times in a
   week, never with a voice, brief — 39 of them cost ~28% of the night in holds. Its bursts are ledgered as `seen`
-  (no audio; hits and hours still count; never a "catch"); one longer than its usual longest, and every tenth, is
-  held. Never a configured channel or a priority bookmark. A rejected peak's skirts are the same signal: skip
+  (no audio; hits and hours still count; never a "catch"); one longer than its usual longest, and every fortieth
+  (`SAMPLE_EVERY`), is held. Every tenth cost 40 channels about 3,000 s a night in the week to 16 Nov, and in 30
+  days 15,121 holds on them carried no transcript. Never a configured channel or a priority bookmark. A rejected peak's skirts are the same signal: skip
   them, or each burst is held 7.5 kHz off.
 - **A hold records the rest of its slice** (`_sides`, two at a time): the dongle sees 1.92 MHz while it waits for a
   reply. With the confirm read (`_visit`: a hot bin is re-read at once, not a pass later) and habits, two simulated

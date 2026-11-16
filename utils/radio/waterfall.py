@@ -506,9 +506,12 @@ PRIORITY_GATE_DB = GATE_DB - 4
 #: Habitual data channels (scanner.habits: dozens of catches, never a voice,
 #: always brief) are noted as a Sighting rather than held. A sighting after
 #: SKIP_GAP_S of nothing is a new burst; a burst seen for longer than its
-#: channel's longest usual burst is held, as is every SAMPLE_EVERY-th burst.
+#: channel's longest usual burst is held, as is every SAMPLE_EVERY-th burst —
+#: often enough to notice a channel that has started to say something (a dozen
+#: looks a week on a busy one), seldom enough that the samples do not cost the
+#: night: nothing was ever heard in them.
 SKIP_GAP_S = 8.0
-SAMPLE_EVERY = 10
+SAMPLE_EVERY = 40
 #: While a hold sits on one channel, the dongle still sees its whole slice:
 #: up to SIDE_MAX other channels keying up in it are recorded alongside, each
 #: started once it stands over the gate on SIDE_PERSIST consecutive reads, and

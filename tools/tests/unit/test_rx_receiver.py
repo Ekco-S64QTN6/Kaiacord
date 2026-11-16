@@ -159,10 +159,11 @@ def test_a_habitual_channel_is_seen_not_held_unless_it_runs_long(monkeypatch):
     assert held and all(c.started >= 230 for c in held)     # only the burst that ran long
 
 
-def test_every_tenth_burst_of_a_habit_is_held_as_a_sample():
+def test_a_habit_is_sampled_now_and_then_and_only_then():
     wt = w.Watcher(lambda c: None, habits={463_512_500: 6.0})
-    held = [wt._habit_holds(463_512_500, 20.0, 100.0 + 60 * k) for k in range(20)]
-    assert [k + 1 for k, h in enumerate(held) if h] == [10, 20]
+    held = [wt._habit_holds(463_512_500, 20.0, 100.0 + 60 * k) for k in range(2 * w.SAMPLE_EVERY)]
+    assert [k + 1 for k, h in enumerate(held) if h] == [w.SAMPLE_EVERY, 2 * w.SAMPLE_EVERY]
+    assert 20 <= w.SAMPLE_EVERY <= 60          # a look every few dozen bursts: not every tenth, not never
 
 
 def test_what_else_keys_up_in_the_held_slice_is_recorded_too(monkeypatch):
