@@ -886,6 +886,7 @@ async def _watch(pin: Optional[dict] = None) -> None:
             proc.start()
             _control, _proc = control, proc
             push_marks()
+            _send({"op": "voices", "voices": await asyncio.to_thread(ledger.voice_channels)})
             consumer = threading.Thread(target=_consume, name="scanner-classify", daemon=True)
             forwarder = threading.Thread(target=_forward, name="scanner-audio", daemon=True)
             scoper = threading.Thread(target=_scope, name="scanner-scope", daemon=True)
@@ -920,6 +921,7 @@ async def _watch(pin: Optional[dict] = None) -> None:
                     learned = await asyncio.to_thread(habits)
                     _habits_cache.update(t=time.time(), v=learned)
                     _send({"op": "habits", "habits": learned})
+                    _send({"op": "voices", "voices": await asyncio.to_thread(ledger.voice_channels)})
                 await asyncio.sleep(0.25)
             await asyncio.to_thread(proc.join, 5)
             if proc.exitcode not in (0, None) and time.time() - started < 30:

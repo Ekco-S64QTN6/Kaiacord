@@ -724,6 +724,9 @@ class Watcher:
         self._exit_unpinned = False
         self.dongle = None
         self.habits: dict[int, float] = {int(f): float(s) for f, s in (habits or {}).items()}
+        # Channels people talk on (ledger.voice_channels): a wandering carrier's
+        # lockout does not cover them, only the carrier's own channel does.
+        self.voices: list[int] = []
         self._bursts: dict[int, list] = {}        # habitual channel -> [first seen, last seen, bursts so far]
         self.priority: list[int] = []
         self.ignore: list[int] = []
@@ -756,6 +759,8 @@ class Watcher:
                     setter(self.gain_db)
             elif op == "habits":
                 self.habits = {int(f): float(s) for f, s in (c.get("habits") or {}).items()}
+            elif op == "voices":
+                self.voices = [int(f) for f in c.get("voices") or []]
             elif op == "marks":
                 self.priority = [int(f) for f in c.get("priority") or []]
                 self.ignore = [int(f) for f in c.get("ignore") or []]
@@ -825,12 +830,27 @@ class Watcher:
             freq = int(round(_bin_freqs(center)[best] / 2500) * 2500)
             if any(abs(f - freq) <= COOLDOWN_SPAN_HZ for f in passed):
                 continue
-            if any(abs(f - freq) <= self.reach.get(f, COOLDOWN_SPAN_HZ) and now < until
-                   for f, until in self.cooldown.items()) or not self._habit_holds(freq, float(over[best]), now):
+            if self._locked_out(freq, now) or not self._habit_holds(freq, float(over[best]), now):
                 passed.append(freq)
                 continue
             return freq, float(over[best])
         return None
+
+    def _locked_out(self, freq: int, now: float) -> bool:
+        """Whether `freq` is inside a cooldown still running. A constant
+        carrier's cooldown reaches DRIFT_SPAN_HZ either side for the steps it
+        wanders to — but a channel people talk on is taken only by a carrier
+        on that channel itself."""
+        talk = any(abs(v - freq) <= COOLDOWN_SPAN_HZ / 2 for v in self.voices)
+        for f, until in self.cooldown.items():
+            if now >= until:
+                continue
+            reach = self.reach.get(f, COOLDOWN_SPAN_HZ)
+            if talk:
+                reach = min(reach, COOLDOWN_SPAN_HZ)
+            if abs(f - freq) <= reach:
+                return True
+        return False
 
     def _habit_holds(self, freq: int, level: float, now: float) -> bool:
         """Whether a key-up on `freq` is held. A habitual data channel's
@@ -1032,7 +1052,7 @@ class Watcher:
             f = int(round(freqs[b] / 2500) * 2500)
             if abs(f - main) <= SIDE_GUARD_HZ or any(abs(f - x["freq"]) <= SIDE_GUARD_HZ for x in sides):
                 continue
-            if any(abs(c - f) <= self.reach.get(c, COOLDOWN_SPAN_HZ) and now < u for c, u in self.cooldown.items()):
+            if self._locked_out(f, now):
                 continue
             if any(abs(h - f) <= COOLDOWN_SPAN_HZ for h in self.habits):
                 continue

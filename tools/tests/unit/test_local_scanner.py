@@ -356,7 +356,7 @@ class _SimDongle:
         return x
 
 
-def _simulate(monkeypatch, txs, seconds, snr_db=20, noise_step=None, sink=None):
+def _simulate(monkeypatch, txs, seconds, snr_db=20, noise_step=None, sink=None, voices=()):
     import threading
     import utils.radio.dongle as dongle
     from utils.radio import waterfall as w
@@ -366,6 +366,7 @@ def _simulate(monkeypatch, txs, seconds, snr_db=20, noise_step=None, sink=None):
     monkeypatch.setattr(dongle, "Dongle", lambda **k: d)
     caught = []
     watcher = w.Watcher(caught.append, stop=d.stop, sink=sink, hops=w.hop_plan([c["freq_hz"] for c in scanner.seed_channels()]))
+    watcher.voices = list(voices)
     watcher.run()
     import time as _t
     _t.sleep(0.2)                                   # the catch worker drains
@@ -532,6 +533,39 @@ def test_a_drifting_constant_carrier_costs_one_minute_not_one_per_step(monkeypat
     _, caught = _simulate(monkeypatch, [(147_300_000, 20, 75), (147_330_000, 100, 75)], 180)
     near = [c for c in caught if abs(c.freq_hz - 147_315_000) <= 40_000]
     assert len(near) == 1 and near[0].seconds >= 59
+
+
+# A carrier that runs its minute at 147.300, then someone talking 45 kHz up.
+_CARRIER_THEN_TALK = [(147_300_000, 20, 75), (147_345_000, 110, 12, "voice")]
+
+
+def test_a_constant_carriers_lockout_reaches_a_channel_nobody_is_known_to_talk_on(monkeypatch):
+    _, caught = _simulate(monkeypatch, _CARRIER_THEN_TALK, 150)
+    assert not [c for c in caught if abs(c.freq_hz - 147_345_000) < 5000]
+
+
+def test_a_constant_carriers_lockout_does_not_take_a_channel_people_talk_on(monkeypatch):
+    _, caught = _simulate(monkeypatch, _CARRIER_THEN_TALK, 150, voices=[147_345_000])
+    assert [c for c in caught if abs(c.freq_hz - 147_345_000) < 5000]
+    assert len([c for c in caught if abs(c.freq_hz - 147_300_000) < 5000]) == 1      # the carrier: its one minute
+
+
+def test_a_constant_carrier_on_a_talk_channel_is_still_left_alone(monkeypatch):
+    from utils.radio import waterfall as w
+    _, caught = _simulate(monkeypatch, [(146_860_000, 20, 110)], 140, voices=[146_860_000])
+    mine = [c for c in caught if abs(c.freq_hz - 146_860_000) < 5000]
+    assert len(mine) == 1 and w.MAX_HOLD_S - 1 <= mine[0].seconds < w.MAX_HOLD_S + 2
+
+
+def test_the_ledger_knows_which_channels_people_talk_on(tmp_ledger):
+    now = 1_800_000_000.0                         # a fixed moment: nothing here depends on today
+    for i in range(3):
+        ledger.record(462_151_000 + i * 400, "voice", 6.0, 3000, 0.3, when=now - 3600 * i)      # one channel, filed a little apart
+    ledger.record(463_225_000, "voice", 6.0, 3000, 0.3, when=now - 60)                        # once is not a habit
+    for i in range(5):
+        ledger.record(464_800_000, "carrier", 6.0, 3000, 0.3, when=now - i)
+    ledger.record(155_000_000, "voice", 6.0, 3000, 0.3, when=now - 40 * 86400)                # long ago
+    assert ledger.voice_channels(now) == [462_150_000]
 
 
 def test_a_conversation_that_keeps_the_repeater_keyed_is_not_locked_out(monkeypatch):

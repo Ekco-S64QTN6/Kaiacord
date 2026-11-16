@@ -284,6 +284,24 @@ def habitual(now: Optional[float] = None) -> dict:
     return out
 
 
+#: A channel carries voice once it has had this many voice catches in VOICE_DAYS.
+VOICE_MIN_CATCHES = 3
+VOICE_DAYS = 30.0
+
+
+def voice_channels(now: Optional[float] = None) -> list:
+    """Frequencies (Hz, one per 12.5 kHz channel) people have been heard talking
+    on lately. A wandering carrier's lockout reaches far either side of it
+    (waterfall.DRIFT_SPAN_HZ); it must not take one of these with it."""
+    since = (now or time.time()) - VOICE_DAYS * 86400
+    counts: dict = {}
+    with _lock, _db() as con:
+        for (f,) in con.execute("SELECT freq_hz FROM events WHERE ts >= ? AND kind = 'voice'", (since,)):
+            k = int(round(f / 12_500) * 12_500)
+            counts[k] = counts.get(k, 0) + 1
+    return sorted(f for f, n in counts.items() if n >= VOICE_MIN_CATCHES)
+
+
 def period_of(ts: list, tol_s: float = 2.6, pmin: float = 15.0, pmax: float = 900.0,
               kmax: int = 12) -> tuple:
     """(period in seconds, confidence 0..1) of a channel that keys up on a

@@ -47,7 +47,6 @@ pull requests.
 | **A message posted back as her reply** | A user's whole message returned verbatim, three times in October and none since. If it recurs, reject a reply that is mostly the user's message. |
 | **Anchors that only accumulate** | The old, often-recalled tier is never evicted while a new anchor exists, so it grows; an anchor about something she read tends to last only until the next dream. Count week-old anchors over the next nights. |
 | **A file that never indexes** | One permanently failing file would make every refresh report failure and the sweep run every 5 minutes instead of hourly. Not seen; quarantine or skip permanent failures if it shows up. |
-| **Scanner carrier lockout** | After a full-minute non-speech hold the scanner ignores ±75 kHz, doubling up to 4 h. With several constant carriers, about 1 MHz can be out of view for hours. |
 | **RPG lock-table retention** | `session_manager._action_locks`, `session_manager._chan_locks` and `character_manager._user_locks` keep one lock per ID ever seen. Owner-only `!sysmon` reports their sizes, peaks and contention; collect deployed measurements before designing eviction that cannot replace a held lock or one with waiters. |
 
 ## Declined, with the reason

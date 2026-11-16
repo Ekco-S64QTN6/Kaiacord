@@ -123,7 +123,11 @@ ranks one that has worked before 6 dB up. A squelched recording with no openings
 mute, and is not judged.
 - **A constant carrier is locked out, and the lockout grows.** A full-minute hold that is not speech
   locks ±75 kHz (drifting carriers wandered 55–130 kHz and cost a minute a step) for 30 minutes,
-  doubling on each return to 4 h. That reach is a trade-off: roadmap R5d.
+  doubling on each return to 4 h. The reach is measured, not guessed: over 30 nights (763 full-minute holds)
+  half of the returns were 45 kHz or more from the earlier hold, and the reach hid an estimated 3.7 voice
+  catches of 2,012. Those were on two channels people talk on, so **a channel with voice catches lately
+  (`ledger.voice_channels`: three in 30 days) is taken only by a carrier on that channel itself**
+  (`Watcher._locked_out`); the scanner sends the list to the watcher with the habits.
 - **A wedged read ends the watcher, never the handle.** `rtlsdr_read_sync` cannot be cancelled. If a
   `Stream` reader does not stop within 10 s, `close()` returns False, the dongle is marked so
   `Dongle.close` makes no further C call on it, and the watcher raises `StreamCloseTimeout` and
