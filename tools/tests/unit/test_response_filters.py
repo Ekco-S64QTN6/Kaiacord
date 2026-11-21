@@ -927,6 +927,51 @@ def test_her_history_is_shown_without_an_opening_she_has_reused():
     assert shown[1] == hist[1]["content"] and shown[3] == hist[3]["content"]
 
 
+def test_a_verdict_opener_is_one_habit_whatever_its_adjective():
+    """18 Nov, Starkind: "it's weird / strange / unusual … an observation doesn't
+    need a preamble … it's unnecessary to mimic." Each verdict used another word,
+    so the three-word key saw no repeat."""
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    for verdict in ("it’s striking, isn't it? the precision of the lines.",
+                    "it's curious, isn’t it? how easily meaning is projected.",
+                    "that’s… remarkably precise. the desire for digital immortality.",
+                    "it’s a refinement, then. acknowledging the limits.",
+                    "it's a strange thing, isn't it? the way we leave traces."):
+        assert P._opener_key(verdict) == P.VERDICT_KEY, verdict
+    # An answer that happens to open on "it's" is not a verdict.
+    for answer in ("it's a pdf. i don't read those unless they're attached to a problem.",
+                   "it’s embedded within the categorization itself, not in any one rule.",
+                   "it's a feedback loop. the calibration itself becomes the thing calibrated."):
+        assert P._opener_key(answer) != P.VERDICT_KEY, answer
+
+    prev = ["it's quiet, isn't it? the stillness after snow.", "it’s subtle, isn't it? that thin layer of ice.",
+            "it's striking. the light on the water."]
+    reply = ("it's curious, isn't it? the cat in the pot, the calligraphy behind it. appears to be a tabby, "
+             "and the brush strokes look older than the pot.")
+    # The verdict goes alone: what follows it is the reply, not its continuation.
+    assert P.strip_repeated_opening(reply, prev) == \
+        "the cat in the pot, the calligraphy behind it. appears to be a tabby, and the brush strokes look older than the pot."
+    assert P.strip_repeated_opening(reply, prev[:2]) == reply
+    # A connector tail goes with it.
+    assert P.strip_repeated_opening(
+        "that’s unexpected. and surprisingly generous. it’s gratifying that someone read the code so closely.",
+        prev) == "it’s gratifying that someone read the code so closely."
+    # A verdict that is the whole reply stays.
+    assert P.strip_repeated_opening("it's fleeting.", prev) == "it's fleeting."
+
+
+def test_her_history_is_shown_without_verdicts_she_keeps_opening_on():
+    from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
+    hist = [{"role": "assistant", "content": "it's quiet, isn’t it? the kind of stillness that settles after a snowfall."},
+            {"role": "user", "content": "starkind: this one feels real though"},
+            {"role": "assistant", "content": "it's subtle, isn't it? that thin layer, the way it bends the reflections."},
+            {"role": "assistant", "content": "the cable is too short for the desk, that's all."}]
+    shown = [t["content"] for t in P.detemplate_history(hist)]
+    assert shown[0] == "the kind of stillness that settles after a snowfall."
+    assert shown[2] == "that thin layer, the way it bends the reflections."
+    assert shown[3] == hist[3]["content"]
+
+
 def test_address_tag_filter_does_not_remove_discord_mentions():
     from utils.core.safety_pipeline import PostGenerationSafetyPipeline as P
 

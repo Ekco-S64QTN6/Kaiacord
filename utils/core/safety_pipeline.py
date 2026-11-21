@@ -1399,12 +1399,53 @@ class PostGenerationSafetyPipeline:
     #: the opening: keyed with it, unrelated sentences shared a key.
     _LEAD_NAME = re.compile(r"^\s*(?:[^\s,.!?]+\s+){0,2}[^\s,.!?]+,\s*(?=\S)")
 
+    #: The verdict that heads a reply before it says anything: "it's striking,
+    #: isn't it?", "it's curious, isn't it?", "that's… remarkably precise.", "it's
+    #: a strange thing, isn't it?". Each uses another adjective, so the
+    #: three-word key never matched; from 6% of her replies opening on "it's" in
+    #: early September it reached 36% on 16–20 Nov, and Starkind named it (18 Nov):
+    #: "it's weird / strange / unusual … an observation doesn't need a preamble …
+    #: it's unnecessary to mimic." They share one key, VERDICT_KEY. Vocabulary,
+    #: not shape: "it's a pdf." and "it's embedded within the categorization
+    #: itself." answer the question and are not verdicts.
+    VERDICT_KEY = "<verdict>"
+    _VERDICT_ADJ = frozenset((
+        "striking", "curious", "strange", "funny", "interesting", "compelling", "fascinating", "intriguing",
+        "peculiar", "odd", "weird", "unusual", "unique", "nice", "unsettling", "unexpected", "evocative",
+        "remarkable", "telling", "apt", "nuanced", "messy", "grounding", "elegant", "beautiful", "lovely",
+        "pleasant", "sobering", "chilling", "haunting", "understandable", "logical", "profound", "powerful",
+        "illuminating", "revealing", "disturbing", "provocative", "concise", "accurate", "insightful",
+        "clever", "sharp", "significant", "poignant", "subtle", "quiet", "stark", "fitting", "crucial",
+        "astute", "precise", "valid", "useful", "refreshing", "thoughtful", "familiar", "predictable"))
+    _VERDICT = re.compile(
+        r"^(?:it|that)'s\s+(?:(?:a|an)\s+)?"
+        r"(?:(?:remarkably|particularly|surprisingly|genuinely|quite|rather|very|almost|oddly|strangely|"
+        r"deeply|incredibly|undeniably|certainly|truly|so)\s+){0,2}"
+        r"(?P<head>[a-z\-]+)(?:\s+(?:thing|one|sight|view|scene|process|question|idea|distinction|"
+        r"observation|point|feeling|image))?"
+        r"(?P<tag>,\s*(?:isn't it|then|certainly|undeniably|indeed|really|perhaps|though))?\s*[.!?]+$")
+
+    #: Her stock tags mark a verdict whatever its noun: "it's a refinement,
+    #: then.", "it's a pattern, undeniably.", "it's a projection, isn't it?".
+    _VERDICT_TAG = re.compile(r"isn't it|then|certainly|undeniably|indeed")
+
+    @classmethod
+    def _is_verdict(cls, sentence: str) -> bool:
+        s = sentence.lower().replace("’", "'").replace("…", " ").replace("...", " ")
+        m = cls._VERDICT.match(" ".join(s.split()))
+        return bool(m) and (m.group("head") in cls._VERDICT_ADJ
+                            or cls._VERDICT_TAG.search(m.group("tag") or "") is not None)
+
     @classmethod
     def _opener_key(cls, text: str):
         sents = cls._full_sentences(cls.strip_address_tag(text or ""))
         if not sents or re.match(r"^\s*[\(\[\*_>`#\-]", sents[0]):
             return None
+        # Before the name comes off too: "it's striking, isn't it?" opens like
+        # "tenno henka, …" to the name pattern.
         first = cls._LEAD_NAME.sub("", sents[0], count=1)
+        if cls._is_verdict(sents[0]) or cls._is_verdict(first):
+            return cls.VERDICT_KEY
         words = cls._WORD.findall(first.lower().replace("’", "'"))
         return " ".join(words[:cls.OPENER_WORDS]) if len(words) >= cls.OPENER_MIN_WORDS else None
 
@@ -1429,14 +1470,19 @@ class PostGenerationSafetyPipeline:
     @classmethod
     def _without_first_sentence(cls, text: str):
         """`text` without its opening sentence and up to two sentences that only
-        continue it, or None when under 40 characters would remain."""
+        continue it, or None when under 40 characters would remain. A verdict
+        ("it's striking, isn't it?") is complete on its own: what follows it is
+        the reply, and only a tail opening on a connector ("and surprisingly
+        generous.") goes with it."""
         t = (text or "").strip()
         sents = cls._full_sentences(t)
         if len(sents) < 2 or not t.startswith(sents[0]):
             return None
         rest = t[len(sents[0]):].lstrip()
+        verdict = cls._opener_key(t) == cls.VERDICT_KEY
         for nxt in sents[1:3]:
-            if not cls._continues(nxt) or not rest.startswith(nxt):
+            goes = cls._hanging(nxt) if verdict else cls._continues(nxt)
+            if not goes or not rest.startswith(nxt):
                 break
             rest = rest[len(nxt):].lstrip()
         if len(rest) < 40:
