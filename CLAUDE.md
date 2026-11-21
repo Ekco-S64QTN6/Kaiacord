@@ -477,7 +477,9 @@ two"; a question, a shared link or picture, and anything that offers room (a req
 against the live model with real retrieval, 24 asides went from a median of 52 words to 16 with her
 voice intact. The same note on short questions was tried and dropped: 3 of 12 replies came back
 capitalised or in assistant phrasing, and scene questions went flat. Do not add length advice to another injection; the hour's note is
-tone only. A new cue that should offer room goes in `_INVITATION`, checked against her logs first. Ekco reversed his 12 Nov removal on 13 Nov: replies had become long again (a forwarded post she could not read drew 448 words), and "a line or two" on passing remarks had worked before.
+tone only. The conversational-fatigue note ("your responses should be getting shorter" from
+a session's fifteenth message) was removed on Ekco's word, 21 Nov: it was on 41 of 85 replies on 18 Nov, the day
+Starkind said she seemed off. A new cue that should offer room goes in `_INVITATION`, checked against her logs first. Ekco reversed his 12 Nov removal on 13 Nov: replies had become long again (a forwarded post she could not read drew 448 words), and "a line or two" on passing remarks had worked before.
 
 **What she can't see or can't place, she is told beside the message** (`utils/core/grounding_notes.py`). Asked
 about a picture that never reached her, she described a sunset three times in three; asked who said an invented line,
