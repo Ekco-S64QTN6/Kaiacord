@@ -1844,7 +1844,8 @@ class MessageProcessor:
                 _given += "\n" + str(messages[-1].get("content", "")).replace(_own, " ", 1)
                 _ground = grounding_notes.notes_for(
                     _own, has_picture=bool(messages[-1].get("images")),
-                    tried_pictures=bool(attachments_to_process), given=_given)
+                    tried_pictures=bool(attachments_to_process), given=_given,
+                    history=messages[:-1])
                 if _ground:
                     messages[-1]["content"] += f"\n\n{_ground}"
                     log_info(f"[grounding_notes] {_ground[:60]}…")

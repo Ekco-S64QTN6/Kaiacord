@@ -40,9 +40,21 @@ def _flat(text: str) -> str:
     return " ".join((text or "").lower().replace("’", "'").replace("‘", "'").split())
 
 
-def picture_note(own_words: str, has_picture: bool) -> str:
+#: User turns back that a picture shared earlier is still what "the picture"
+#: means. Starkind asked for "anything unrelated to the picture" two minutes
+#: after sending one, and the note had her answer "i don't see a photo".
+RECENT_PICTURE_TURNS = 6
+
+
+def shared_recently(history: list) -> bool:
+    """A picture is among the last RECENT_PICTURE_TURNS user turns of `history`."""
+    users = [m for m in (history or []) if isinstance(m, dict) and m.get("role") == "user"]
+    return any("[shared image]" in str(m.get("content", "")) for m in users[-RECENT_PICTURE_TURNS:])
+
+
+def picture_note(own_words: str, has_picture: bool, shown_earlier: bool = False) -> str:
     """The note for a picture spoken of when none reached her, or ""."""
-    if has_picture or "http" in (own_words or "") or not _PICTURE.search(own_words or ""):
+    if has_picture or shown_earlier or "http" in (own_words or "") or not _PICTURE.search(own_words or ""):
         return ""
     return PICTURE_NOTE
 
@@ -57,13 +69,14 @@ def quote_note(own_words: str, given: str) -> str:
     return QUOTE_NOTE
 
 
-def notes_for(own_words: str, *, has_picture: bool, tried_pictures: bool, given: str) -> str:
+def notes_for(own_words: str, *, has_picture: bool, tried_pictures: bool, given: str,
+              history: list = None) -> str:
     """Every note this turn needs, joined, or "".
 
     `tried_pictures`: the pipeline found a picture to load; whether it loaded is
-    then the vision path's own note to give.
+    then the vision path's own note to give. `history`: the turns before this one.
     """
     notes = [quote_note(own_words, given)]
     if not tried_pictures:
-        notes.append(picture_note(own_words, has_picture))
+        notes.append(picture_note(own_words, has_picture, shared_recently(history)))
     return "\n".join(n for n in notes if n)

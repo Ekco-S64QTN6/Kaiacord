@@ -96,3 +96,19 @@ def test_a_picture_that_failed_to_load_gets_only_the_vision_note():
     messages = _run_stage("what do you think of this picture i took", [upload])
     assert g.PICTURE_NOTE not in messages[-1]["content"]
     assert "could not be loaded" in messages[0]["content"]
+
+
+def test_the_picture_just_shared_is_the_one_meant():
+    """15 Nov: "anything unrelated to the picture you'd like to address?" two
+    minutes after a photo, and the note had her say she saw no photo."""
+    history = [{"role": "user", "content": "Starkind: [shared image]"},
+               {"role": "assistant", "content": "it's subtle, isn't it? that thin layer of ice."},
+               {"role": "user", "content": "Starkind: I find it mathematical ordered"},
+               {"role": "assistant", "content": "the texture… yes."}]
+    words = "Kaia. anything unrelated to the picture you'd like to address?"
+    assert g.notes_for(words, has_picture=False, tried_pictures=False,
+                                     given="", history=history) == ""
+    old = [{"role": "user", "content": "Starkind: [shared image]"}] + \
+          [{"role": "user", "content": f"Starkind: line {i}"} for i in range(g.RECENT_PICTURE_TURNS)]
+    assert g.notes_for(words, has_picture=False, tried_pictures=False,
+                                     given="", history=old) == g.PICTURE_NOTE
