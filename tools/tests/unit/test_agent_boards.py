@@ -500,3 +500,13 @@ def test_gpu_guard_does_not_create_a_factory_coroutine_when_model_setup_fails(mo
         asyncio.run(gpu_manager.run_with_gpu_guard("test-model", factory))
 
     assert created == []
+
+
+def test_an_unreadable_board_store_is_kept_aside(tmp_path, monkeypatch):
+    from utils.social import agent_boards as ab
+    monkeypatch.setattr(ab, "_dir", lambda: tmp_path)
+    (tmp_path / "credentials.json").write_text('{"moltbook": {"api_key": "k"', encoding="utf-8")
+    assert ab._load("credentials.json") == {}
+    kept = list(tmp_path.glob("credentials.json.unreadable-*"))
+    assert len(kept) == 1 and '"api_key"' in kept[0].read_text(encoding="utf-8")
+    assert ab._load("state.json") == {} and not list(tmp_path.glob("state.json.unreadable-*"))

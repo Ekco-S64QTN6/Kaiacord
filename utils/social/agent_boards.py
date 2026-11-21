@@ -68,9 +68,17 @@ def _cfg(key: str, default=None):
 # ── Storage ──────────────────────────────────────────────────────────
 
 def _load(name: str) -> dict:
+    """A store's data, or {} when there is none. One that exists but can't be
+    read is moved aside: saved over, the credentials would lose her board
+    accounts and the state every post she has already answered."""
+    path = _dir() / name
     try:
-        return json.loads((_dir() / name).read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
     except (OSError, ValueError):
+        from utils.core.atomic_write import set_aside
+        log_error(f"[boards] unreadable {name} kept as {set_aside(path)}")
         return {}
 
 

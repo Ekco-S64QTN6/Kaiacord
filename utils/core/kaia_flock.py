@@ -41,9 +41,17 @@ _lock = threading.Lock()
 
 
 def _read(path: Path, default):
+    """The file's data, or `default` when there is none. A file that exists but
+    can't be read is moved aside first: the next write would replace every vote
+    and every sheep's lineage with what one caller had."""
     try:
         return json.loads(path.read_text())
+    except FileNotFoundError:
+        return default
     except (OSError, ValueError):
+        from utils.core.atomic_write import set_aside
+        from utils.infrastructure.logging.kaia_logger import log_error
+        log_error(f"[flock] unreadable {path.name} kept as {set_aside(path)}")
         return default
 
 
