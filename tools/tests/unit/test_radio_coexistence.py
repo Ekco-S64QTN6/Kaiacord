@@ -1,5 +1,6 @@
 """The radio features share one voice connection, one speech model and one
 dongle. Each hands over cleanly instead of colliding."""
+import pytest
 import asyncio
 import threading
 import time
@@ -87,3 +88,34 @@ def test_a_short_clip_is_not_called_zero_minutes():
     from utils.commands.radio_handler import duration
     assert duration(12.6) == "13 seconds" and duration(60) == "1 minute"
     assert duration(90) == "1m 30s" and duration(420) == "7 minutes"
+
+
+def _swallowing_child(reset):
+    import time
+    from utils.radio import waterfall
+    if reset:
+        waterfall.child_signals()
+    time.sleep(30)
+
+
+@pytest.mark.parametrize("reset, ends", [(False, False), (True, True)])
+def test_a_forked_watcher_ends_on_sigterm_whatever_handler_the_bot_installed(reset, ends):
+    """The bot's SIGTERM handler only sets a flag. Forked, the watcher kept it and
+    shrugged off terminate(), so shutdown waited for a SIGKILL (15 Nov, twice) and
+    the die-with-parent signal could not end an orphan."""
+    import multiprocessing as mp
+    import signal
+    old = signal.signal(signal.SIGTERM, lambda *a: None)        # what shutdown_fixed installs, in effect
+    try:
+        proc = mp.get_context("fork").Process(target=_swallowing_child, args=(reset,), daemon=True)
+        proc.start()
+        import time
+        time.sleep(0.3)
+        proc.terminate()
+        proc.join(2)
+        assert (not proc.is_alive()) is ends
+    finally:
+        if proc.is_alive():
+            proc.kill()
+            proc.join(2)
+        signal.signal(signal.SIGTERM, old)

@@ -1269,6 +1269,17 @@ class Watcher:
 # queues; commands (a tune, back to scan, gain, habits, marks) come in on
 # `control`.
 
+def child_signals() -> None:
+    """A forked child keeps its parent's Python signal handlers. The bot's SIGTERM
+    handler only sets a flag, so in the child it swallowed both `terminate()` and
+    the die-with-parent signal: shutdown waited out the join for a SIGKILL, and
+    an orphaned watcher would have kept the dongle. SIGTERM ends the child;
+    SIGINT (Ctrl-C reaches the whole process group) is the parent's to act on."""
+    import signal
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
 def child_main(pin: Optional[dict], gain_db: float, ppm: int, stop, catches, audio, passes, hops=None,
                spectra=None, exempt=None, squelch=None, control=None, habits=None, lockouts=None) -> None:
     import os
@@ -1276,6 +1287,7 @@ def child_main(pin: Optional[dict], gain_db: float, ppm: int, stop, catches, aud
     # daemon children: an orphaned watcher kept the dongle, and the next boot's
     # watch failed "busy or could not be opened" every fifteen minutes.
     parent = os.getppid()
+    child_signals()
     from utils.radio.kiwi import _die_with_parent
     _die_with_parent()
     if os.getppid() != parent:           # the parent went before the signal was armed

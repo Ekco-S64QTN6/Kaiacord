@@ -366,6 +366,10 @@ def _worker_init() -> None:
     """A measuring worker dies with the process that started it."""
     import ctypes
     import signal
+    # A forked worker keeps its parent's Python handlers; one that only sets a
+    # flag would swallow both pool.terminate() and the die-with-parent signal.
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
         ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)    # PR_SET_PDEATHSIG
     except Exception:

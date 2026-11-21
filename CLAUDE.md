@@ -1059,7 +1059,7 @@ KAIA//RX or the avatar engine.** The rules that are easy to break:
   deployment facts in config, never in code or tracked docs.
 - Whisper `large-v3` on CPU in int8, English, `transcribe_speech` passes only. Smaller models, raw audio
   and the VAD filter all hallucinated on HF/FM audio; don't switch without re-running the comparison.
-- **The scanner's watcher runs in a forked child** (fds 1/2 on /dev/null, `PR_SET_PDEATHSIG`), drives
+- **The scanner's watcher runs in a forked child** (fds 1/2 on /dev/null, default SIGTERM restored before `PR_SET_PDEATHSIG`: the bot's inherited handler swallowed both), drives
   librtlsdr through ctypes, and holds the one dongle. A wedged read ends the watcher, never the handle.
 - Test scanner coverage with the simulated dongle (`test_local_scanner.py`), and look at a KAIA//RX
   change with `tools/maintenance/rx_preview.py`, not the bot.
