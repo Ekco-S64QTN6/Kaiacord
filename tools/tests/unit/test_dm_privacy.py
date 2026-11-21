@@ -18,12 +18,63 @@ def test_a_dm_goes_to_its_own_log(tmp_path, monkeypatch):
     assert "knowledge_base" not in str(p)
 
 
-def test_the_pipeline_routes_dms_away_from_the_shared_log():
+def _log_turn(is_dm, monkeypatch, reply="understood."):
+    """Run the real background step for one turn; return (shared log calls, dm log calls)."""
+    import asyncio
+    from utils.core.message_context import MessageContext
     from utils.core.message_processor import MessageProcessor
-    src = inspect.getsource(MessageProcessor._background_logging_and_memory)
-    dm = src.index('getattr(ctx, "is_dm", False)')
-    shared = src.index("self.rag.log_user_interaction_async(")
-    assert dm < shared and "elif not _is_style_drifted" in src
+    from utils.infrastructure.system.yaml_config import config
+
+    shared, private = [], []
+
+    class Rag:
+        async def log_user_interaction_async(self, *a):
+            shared.append(a)
+
+    class State:
+        relationships, pending_afterthoughts = {}, []
+        def channel_memory_snapshot(self, cid): return []
+        def append_channel_turns(self, *a, **k): pass
+        def update_relationship(self, *a, **k): pass
+        def save(self): pass
+
+    class Learner:
+        async def learn_from_interaction(self, *a): pass
+
+    monkeypatch.setattr(dm_log, "record", lambda *a: private.append(a))
+    # The public turn also moves her mood, needs and relationships; none of it is
+    # this test's business, and all of it is live state under memory/.
+    from utils.core import kaia_mood, kaia_desires, relationship_manager, conversation_beliefs
+    monkeypatch.setattr(kaia_mood.emotional_arc, "update", lambda *a, **k: None)
+    monkeypatch.setattr(kaia_desires.desire_engine, "observe_exchange", lambda *a, **k: None)
+    monkeypatch.setattr(relationship_manager, "detect_event_type", lambda *a, **k: None)
+    monkeypatch.setattr(conversation_beliefs, "note_argument", lambda *a, **k: None)
+    monkeypatch.setattr(MessageProcessor, "__module__", MessageProcessor.__module__)
+    p = MessageProcessor.__new__(MessageProcessor)
+    p.config, p.rag, p.bot_state, p.personalization_engine = config, Rag(), State(), Learner()
+    p.stats_tracker = SimpleNamespace(record_response_time=lambda t: None)
+    p._bg_semaphore = asyncio.Semaphore(1)
+    author = SimpleNamespace(id=1, name="Starkind", display_name="Starkind")
+    msg = SimpleNamespace(author=author, attachments=[], embeds=[], stickers=[], content="this is between us",
+                          channel=SimpleNamespace(id=7), guild=None if is_dm else object(), platform="discord")
+    ctx = MessageContext(message=msg, sanitized_content=msg.content, is_social=True, is_mention=True,
+                         is_dm=is_dm, start_time=0.0)
+    ctx.response_text = reply
+    asyncio.run(p._background_logging_and_memory(ctx))
+    return shared, private
+
+
+def test_the_pipeline_routes_dms_away_from_the_shared_log(monkeypatch):
+    shared, private = _log_turn(True, monkeypatch)
+    assert private and not shared
+    shared, private = _log_turn(False, monkeypatch)
+    assert shared and not private
+
+
+def test_a_reply_full_of_ellipses_is_still_logged(monkeypatch):
+    """The user's own message went unlogged with a reply the style check disliked."""
+    shared, _ = _log_turn(False, monkeypatch, reply="well… it's… complicated… isn't it… yes… — — — — —")
+    assert shared and shared[0][2] == "this is between us"
 
 
 def test_a_dm_never_becomes_one_of_her_notes():

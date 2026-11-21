@@ -32,6 +32,7 @@ class MessageContext:
     #: The persona exactly as loaded: what the prompt opens with and the warm-up caches.
     persona_text: str = ""
     prompt_messages: List[Dict[str, str]] = field(default_factory=list)
+    is_grounded: bool = False      # the reply was drafted from reference documents
     grounded_sources: List[str] = field(default_factory=list)   # reference files behind the reply   # exactly what Ollama was sent
     user_traits: Dict[str, Any] = field(default_factory=dict)
     classification_task: Optional[Any] = None

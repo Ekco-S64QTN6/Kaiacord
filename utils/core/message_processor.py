@@ -1992,7 +1992,12 @@ class MessageProcessor:
         _channel_refs = []
         try:
             _hashtag_refs = re.findall(r'#([a-zA-Z0-9_-]+)', ctx.own_words.lower())
-            _named_refs = re.findall(r'\b(kaia-opolis|general|aethelgard|announcements|lobby|off-topic)\b', ctx.own_words.lower())
+            # A bare name is a word first: "a story set in the Aethelgard universe",
+            # "in general". Only "<name> chat|channel" or "channel <name>" names one.
+            _named_refs = [a or b for a, b in re.findall(
+                r'\b(kaia-opolis|general|aethelgard|announcements|lobby|off-topic)\s+(?:chat|channel)\b'
+                r'|\bchannel\s+(kaia-opolis|general|aethelgard|announcements|lobby|off-topic)\b',
+                ctx.own_words.lower())]
             _channel_refs = list(dict.fromkeys(_hashtag_refs + _named_refs))
             if _channel_refs:
                 # Check for channel-sourced markers in node metadata/content.
@@ -2386,6 +2391,9 @@ class MessageProcessor:
         is_grounded = has_rag_knowledge or bool(
             ctx.intent and getattr(ctx.intent, 'suggested_strategy', None) in ["SUMMARIZATION", "PRECISE_RECALL", "DIAGNOSTIC_DEEP_DIVE"]
         )
+        # The desire engine reads it after the reply: a grounded exchange feeds
+        # her intellectual need. Only a local here, it never reached it.
+        ctx.is_grounded = is_grounded
         base_temp = self.config.generation_rag_temperature if is_grounded else self.config.generation_base_temperature
         # Arousal nudges conversation, never grounded work (flagged).
         if not is_grounded and self.config.get('features.mood_shapes_generation', False) is True:
@@ -2827,31 +2835,17 @@ class MessageProcessor:
                 _persisted_user_turn = persisted_turn(ctx.sanitized_content, ctx.message)
                 user_msg_with_author = f"{ctx.author_name}: {_persisted_user_turn}"
                 
-                # --- STYLE DRIFT GUARD (Feedback Loop Prevention) ---
-                # Count ellipsis-fragmented phrases AND excessive em dashes.
-                # If excessive, skip BOTH channel_memory AND RAG disk log to break the loop.
-                _lower_resp = bot_response.lower()
-                _ellipsis_frags = len(re.findall(r"\w+[\u2026\.]{2,}", _lower_resp))
-                _em_dash_count = bot_response.count('\u2014')
-                _is_style_drifted = _ellipsis_frags >= 4 or _em_dash_count >= 5
-
-                if _is_style_drifted:
-                    _drift_details = []
-                    if _ellipsis_frags >= 4:
-                        _drift_details.append(f"{_ellipsis_frags} ellipsis fragments")
-                    if _em_dash_count >= 5:
-                        _drift_details.append(f"{_em_dash_count} em dashes")
-                    log_warning(f"Style-drift detected ({', '.join(_drift_details)}). "
-                                f"Skipping channel_memory AND RAG log to break feedback loop.")
-                else:
-                    # A DM's turns are marked private so nothing that reads
-                    # across channels (the monologue) carries them into public.
-                    _mark = {"private": True} if getattr(ctx, "is_dm", False) else {}
-                    self.bot_state.append_channel_turns(ctx.channel_id, [
-                        {"role": "user", "content": user_msg_with_author, "timestamp": time.time(), **_mark},
-                        {"role": "assistant", "content": bot_response, "timestamp": time.time(), **_mark},
-                    ], maxlen=self.config.max_memory_messages)
-                # ----------------------------------------------------
+                # Kept always. A "style drift" check here withheld a reply with
+                # four ellipses or five dashes from channel memory and the user
+                # log, and the user's own message with it; its pattern could not
+                # see a lone "…", and the collapsers before it leave fewer anyway.
+                # A DM's turns are marked private so nothing that reads across
+                # channels (the monologue) carries them into public.
+                _mark = {"private": True} if getattr(ctx, "is_dm", False) else {}
+                self.bot_state.append_channel_turns(ctx.channel_id, [
+                    {"role": "user", "content": user_msg_with_author, "timestamp": time.time(), **_mark},
+                    {"role": "assistant", "content": bot_response, "timestamp": time.time(), **_mark},
+                ], maxlen=self.config.max_memory_messages)
                 
                 if not is_private_dm:
                     await self.personalization_engine.learn_from_interaction(ctx.author_id, ctx.sanitized_content, bot_response)
@@ -2862,8 +2856,7 @@ class MessageProcessor:
                     from utils.core import dm_log
                     await asyncio.to_thread(dm_log.record, ctx.author_id, ctx.author_name,
                                             _persisted_user_turn, bot_response)
-                # Log for RAG — SKIP if style-drifted to prevent poisoning disk logs
-                elif not _is_style_drifted:
+                else:
                     # The enricher's blocks belong in the prompt, not the
                     # transcript: logged verbatim they read as things the user
                     # typed, and the log feeds both RAG and the fine-tune corpus.
