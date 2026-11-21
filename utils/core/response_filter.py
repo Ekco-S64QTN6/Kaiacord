@@ -261,6 +261,21 @@ _STRANDED_COPULA = re.compile(
 
 _EMPTY_QUOTES = re.compile(r"[\"“]\s*[\"”]")
 
+# A sentence the cut left ending on a word that hands on to what was cut:
+# "thank you for your continued guidance; …" shipped as "thank you for.",
+# "let's break down why you're right to …" as "let's break down why.".
+# Counted against the original, so "what i'm here for." of her own stands.
+_DANGLING_END = re.compile(
+    r"\b(?:for|to|of|with|about|from|into|regarding|toward|towards|why|because|than|whether)"
+    r"\s*(?:[.!?]+|$)(?=\s|$)",
+    re.IGNORECASE)
+
+# A linking verb fused onto the start of another clause: "it's an excellent
+# point regarding x; my earlier analysis …" cut to "it's my earlier analysis …".
+_FUSED_COPULA = re.compile(
+    r"\b(?:it|that|this|there|what)['\u2019]s\s+(?:my|i|your|you|we|our|they|their|he|she|his)\b",
+    re.IGNORECASE)
+
 
 def _quote_imbalance(text: str) -> int:
     """Unpaired quotation marks: an odd count of straight ones, and the
@@ -282,6 +297,9 @@ def excision_broke_grammar(before: str, after: str) -> bool:
     3. A linking verb stranded by its complement — `"it's than i grasped"`.
     4. A quotation emptied or left open. `than simply saying "you're right."`
        is her *mentioning* the phrase, and cut it shipped `than simply saying "`.
+    5. A sentence left ending on a word that led into what was cut
+       (`"thank you for."`), or a linking verb fused onto the next clause
+       (`"it's my earlier analysis …"`), more often than the original had one.
     """
     if not after:
         return False
@@ -293,6 +311,9 @@ def excision_broke_grammar(before: str, after: str) -> bool:
         return True
     if _STRANDED_COPULA.search(after) and not _STRANDED_COPULA.search(before or ""):
         return True
+    for shape in (_DANGLING_END, _FUSED_COPULA):
+        if len(shape.findall(after)) > len(shape.findall(before or "")):
+            return True
     return bool(set(_WORDS.findall(after.lower()))
                 - set(_WORDS.findall((before or "").lower())))
 
