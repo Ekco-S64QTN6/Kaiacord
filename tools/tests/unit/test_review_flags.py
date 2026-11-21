@@ -69,3 +69,11 @@ def test_a_flag_is_posted_to_kaia_opolis(store, monkeypatch):
     embed = channel.send.call_args.kwargs["embed"]
     assert "logging this incident" in embed.description
     assert any("outer lobotomy" in f.value for f in embed.fields)
+
+
+def test_one_torn_line_does_not_lift_the_daily_cap(store):
+    for i in range(rf.MAX_POSTS_PER_DAY):
+        _record(f"point {i}. i'm flagging that for review.", now=1_792_000_000.0 + i)
+    with open(store, "a", encoding="utf-8") as f:
+        f.write('{"id": "torn", "date": \n')          # a write cut short
+    assert _record("one more. i'm flagging that for review.", now=1_792_000_100.0)["post"] is False

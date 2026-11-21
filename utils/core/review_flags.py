@@ -56,11 +56,22 @@ def find_claim(reply: str) -> Optional[str]:
 
 
 def _rows() -> list:
+    """Every readable flag. A torn or hand-edited line is skipped, not the file:
+    answering [] for one bad line reset the day's count and lifted the post cap."""
+    rows = []
     try:
         with open(FLAGS, encoding="utf-8") as f:
-            return [json.loads(line) for line in f if line.strip()]
-    except (OSError, ValueError):
+            for line in f:
+                if line.strip():
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(row, dict):
+                        rows.append(row)
+    except OSError:
         return []
+    return rows
 
 
 def record(reply: str, *, author: str, author_id, own_words: str, channel_name: str,
