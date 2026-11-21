@@ -228,7 +228,7 @@ def _seed(platform: str, key: str, turns: list[dict]) -> None:
         cid = conversation_channel_id(f"agents:{platform}", key)
         rows = [{"role": t["role"], "content": t["content"], "timestamp": time.time(),
                  "external": platform} for t in turns[-HISTORY_TURNS:] if t.get("content")]
-        voice = her_voice(bot_state.channel_memory)
+        voice = her_voice(bot_state.all_channel_memory_snapshot())
         if voice:
             rows = [voice] + rows
         bot_state.replace_channel_memory(cid, rows, maxlen=max(len(rows), int(config.max_memory_messages)))

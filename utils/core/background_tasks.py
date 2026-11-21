@@ -861,7 +861,7 @@ class CoreTaskManager:
                         return False
 
                 thought = await self.monologue.generate_thought(
-                    channel_memory=self.ctx.bot_state.channel_memory,
+                    channel_memory=self.ctx.bot_state.all_channel_memory_snapshot(),
                     bot_state=self.ctx.bot_state,
                     ollama_client=self.ctx.ollama_client,
                     chat_model=config.chat_model,

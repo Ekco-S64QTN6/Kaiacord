@@ -776,7 +776,7 @@ class ProactiveEngine:
 
             # Collect substantive user messages across all channels
             substantive_msgs = []
-            for ch_id, mem in bot_state.channel_memory.items():
+            for ch_id, mem in bot_state.all_channel_memory_snapshot().items():
                 for msg in mem:
                     if msg.get('role') != 'user':
                         continue
@@ -1292,7 +1292,7 @@ class ProactiveEngine:
         if bot_state and trigger.channel_id:
             channel_mem = bot_state.channel_memory.get(trigger.channel_id)
             if channel_mem:
-                for msg in reversed(channel_mem):
+                for msg in reversed(list(channel_mem)):
                     if msg.get('role') == 'user':
                         content = msg.get('content', '')
                         if ':' in content:

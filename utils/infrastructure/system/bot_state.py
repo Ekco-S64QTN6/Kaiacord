@@ -219,6 +219,17 @@ class BotState:
         with self._lock:
             return list(self.channel_memory.get(channel_id, ()) or ())
 
+    def all_channel_memory_snapshot(self) -> dict:
+        """Every channel's turns, copied under the lock. Worker threads append to
+        the live deques, so walking them unlocked can raise mid-iteration."""
+        with self._lock:
+            return {cid: list(turns) for cid, turns in self.channel_memory.items()}
+
+    def drop_channel_memory(self, channel_id: int) -> None:
+        with self._lock:
+            self.channel_memory.pop(channel_id, None)
+            self.channel_memory_activity.pop(channel_id, None)
+
     def append_channel_turn(self, channel_id: int, turn: dict, *, maxlen=None) -> bool:
         if channel_id is None or not isinstance(turn, dict): return False
         now = time.time()

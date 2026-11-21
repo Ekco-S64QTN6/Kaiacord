@@ -2141,8 +2141,8 @@ class ForumDraftReviewView(discord.ui.View):
                 from utils.infrastructure.system.bot_state import bot_state
                 from utils.infrastructure.system.external_mention import (
                     conversation_channel_id)
-                bot_state.channel_memory.pop(
-                    conversation_channel_id("vbulletin", self.thread_id), None)
+                bot_state.drop_channel_memory(
+                    conversation_channel_id("vbulletin", self.thread_id))
             except Exception as ce:
                 log_debug(f"Forum: could not clear seeded history for "
                           f"thread {self.thread_id}: {ce}")
