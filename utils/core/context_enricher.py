@@ -27,6 +27,22 @@ MAX_PDF_PARSE_QUEUE_WAIT_SECONDS = 1
 _PDF_PARSE_SEMAPHORE = threading.BoundedSemaphore(MAX_CONCURRENT_PDF_PARSERS)
 # Each per-enricher cache has a hard entry cap; expired entries are pruned first.
 CACHE_MAX_ENTRIES = 256
+# A page that answered 200 with nothing but a notice that it needs a browser:
+# Google's share links give "If you're having trouble accessing Google Search,
+# please click here", and she wrote a reply about what such a page "categorises".
+# Treated as a page that would not load, so she is told she has not read it.
+# A real page that mentions these words runs longer than SHELL_PAGE_CHARS.
+SHELL_PAGE_CHARS = 600
+_SHELL_PAGE = re.compile(
+    r"having trouble accessing google|enable javascript|javascript is (?:disabled|required|not enabled)"
+    r"|checking (?:if the site connection is secure|your browser)|verify (?:you are|you're) (?:a )?human"
+    r"|are you a robot|unusual traffic from your|access denied|please turn javascript on",
+    re.IGNORECASE)
+
+
+def _is_shell_page(text: str) -> bool:
+    """True when a fetched page is only a browser-required or bot-check notice."""
+    return len(text) < SHELL_PAGE_CHARS and bool(_SHELL_PAGE.search(text))
 # A quoted or linked message's embeds are kept up to this many characters:
 # a !help page is a few thousand, and the quote is context, not the subject.
 QUOTED_EMBED_CHARS = 4000
@@ -824,8 +840,11 @@ class ContextEnricher:
                         return text
                         
                     parsed_text = await asyncio.to_thread(parse_html, html)
-                    
+
                     if not parsed_text:
+                        return ""
+                    if _is_shell_page(parsed_text):
+                        log_debug(f"URL {url} returned only a browser-check page")
                         return ""
                         
                     # 4. Truncate to save VRAM tokens

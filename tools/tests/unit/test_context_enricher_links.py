@@ -623,3 +623,52 @@ def test_context_cache_store_enforces_hard_cap_by_evicting_oldest_entries():
     }
     assert all(base_time <= timestamp < base_time + enricher._cache_ttl
                for timestamp, _value in cache.values())
+
+
+def _serve_and_scrape(body: str):
+    from aiohttp import web
+    import aiohttp
+
+    async def run():
+        app = web.Application()
+        app.router.add_get("/", lambda r: web.Response(text=body, content_type="text/html"))
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            with patch.object(ce, "is_safe_url", return_value=True), \
+                 patch.object(ce, "public_only_connector", return_value=aiohttp.TCPConnector()):
+                return await ContextEnricher(MagicMock())._scrape_single_url(f"http://127.0.0.1:{port}/")
+        finally:
+            await runner.cleanup()
+
+    return asyncio.run(run())
+
+
+# What share.google/aimode/... returned on 14 Nov, whole.
+GOOGLE_SHELL = ("<html><body><h1>Google Search</h1><p>If you're having trouble accessing Google "
+                "Search, please <a href='#'>click here</a>, or send <a href='#'>feedback</a>.</p>"
+                "</body></html>")
+
+
+def test_a_page_that_only_says_it_needs_a_browser_is_not_read():
+    """She was handed the notice above as the page and answered about what
+    it "categorises"; the 'could not be scraped' note is what she needed."""
+    assert _serve_and_scrape(GOOGLE_SHELL) == ""
+
+
+def test_a_real_page_that_mentions_javascript_is_still_read():
+    body = ("<html><body><p>" + "How to enable JavaScript in an old browser, step by step. " * 20
+            + "</p></body></html>")
+    assert _serve_and_scrape(body).startswith("Source:")
+
+
+def test_a_shell_page_becomes_the_could_not_load_note():
+    enricher = ContextEnricher(MagicMock())
+    enricher._scrape_single_url = AsyncMock(return_value="")
+    msg = MagicMock()
+    msg.content = "at a basic level the arithmetic: https://share.google/aimode/SiwggFIwvCjtbnH7g"
+    out = asyncio.run(enricher.resolve_external_urls(msg))
+    assert "could not be scraped" in out and "share.google" in out
