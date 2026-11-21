@@ -99,20 +99,19 @@ def test_she_picks_a_genre_from_mood_and_hour():
 
 
 @pytest.mark.parametrize("genre", sorted(GENRES))
-@pytest.mark.parametrize("req", ["darker", "brighter", "faster", "drop", "build", "calmer",
-                                 "harder", "more bass", "no drums"])
-def test_every_request_edits_every_genre_cleanly(genre, req):
-    p = _full(genre)
-    if req in ("build", "harder", "more bass"):
-        for n in list(p.lanes)[: len(p.lanes) // 2]:
-            p.lanes[n].live = False
-    before = p.code()
-    r = dj.apply_request(req, p, GENRES[genre]["cpm"], random.Random(0))
-    assert r.understood
-    after = p.code()
-    if r.changed:
-        assert after != before
-    assert after.count("(") == after.count(")")
+def test_every_request_edits_every_genre_cleanly(genre):
+    for req in ("darker", "brighter", "faster", "drop", "build", "calmer", "harder", "more bass", "no drums"):
+        p = _full(genre)
+        if req in ("build", "harder", "more bass"):
+            for n in list(p.lanes)[: len(p.lanes) // 2]:
+                p.lanes[n].live = False
+        before = p.code()
+        r = dj.apply_request(req, p, GENRES[genre]["cpm"], random.Random(0))
+        assert r.understood, req
+        after = p.code()
+        if r.changed:
+            assert after != before, req
+        assert after.count("(") == after.count(")"), req
 
 
 def test_tempo_requests_stay_within_a_fifth_of_the_genre():

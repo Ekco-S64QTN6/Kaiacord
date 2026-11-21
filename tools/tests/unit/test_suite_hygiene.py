@@ -46,75 +46,59 @@ def _test_functions(tree):
             yield node
 
 
-@pytest.mark.parametrize(
-    "path", list(_collected_test_files()), ids=lambda p: p.name
-)
-def test_every_test_file_asserts_something(path):
+def _asserts_something(path):
     """A test that asserts nothing passes whatever the code does."""
-    if path.name in ASSERTLESS_ALLOWLIST:
-        pytest.skip("allowlisted")
     tree, source = _parse(path)
-
-    has_assert = any(isinstance(n, ast.Assert) for n in ast.walk(tree))
     # pytest.raises / pytest.warns / unittest assertX are assertions too.
-    has_raises = "pytest.raises" in source or "pytest.warns" in source
-    has_unittest = ".assert" in source
-
-    assert has_assert or has_raises or has_unittest, (
-        f"{path.name} defines tests but never asserts anything. It will pass "
-        "regardless of what the code under test does."
-    )
+    return (any(isinstance(n, ast.Assert) for n in ast.walk(tree))
+            or "pytest.raises" in source or "pytest.warns" in source or ".assert" in source)
 
 
-@pytest.mark.parametrize(
-    "path", list(_collected_test_files()), ids=lambda p: p.name
-)
-def test_no_hardcoded_absolute_paths(path):
+def _real_home(path):
     """Nine files hardcoded a real home directory, so the suite ran on exactly
-    one machine.
-
-    Generic placeholders like /home/user/... inside synthetic fixture data are
-    fine — they are never opened, they stand in for a path shape.
-    """
-    if path.name == pathlib.Path(__file__).name:
-        return  # this file names the offending pattern in its own message
+    one machine. Placeholders like /home/user/... in fixture data are never
+    opened and are fine."""
     source = io.open(path, encoding="utf-8").read()
-    real_homes = [
-        seg for seg in re.findall(r"/home/([A-Za-z0-9._-]+)", source)
-        if seg not in {"user", "username", "youruser", "USER"}
-    ]
-    assert not real_homes, (
-        f"{path.name} hardcodes /home/{real_homes[0]}/... Use tmp_path, or "
-        "resolve paths relative to __file__."
-    )
+    homes = [seg for seg in re.findall(r"/home/([A-Za-z0-9._-]+)", source)
+             if seg not in {"user", "username", "youruser", "USER"}]
+    return homes[0] if homes else None
 
 
-@pytest.mark.parametrize(
-    "path", list(_collected_test_files()), ids=lambda p: p.name
-)
-def test_no_module_level_execution(path):
-    """A bare call at module scope runs during *collection*.
+# Calls that are conventional at import time; what matters is work that *runs*.
+_IMPORT_TIME_CALLS = {"append", "insert", "load_dotenv", "skip", "register", "basicConfig", "seed",
+                      "addinivalue_line", "print", "filterwarnings", "setLevel", "getLogger"}
 
-    `test_vram.py` did `asyncio.run(main())` this way, which unloaded and
-    reloaded gemma3:12b — evicting the production model from VRAM — every time
-    anyone ran the suite.
-    """
+
+def _module_level_call(path):
+    """A bare call at module scope runs during *collection*: `test_vram.py` did
+    `asyncio.run(main())` this way and evicted the production model from VRAM
+    every time anyone ran the suite."""
     tree, _ = _parse(path)
     for node in tree.body:
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
             func = node.value.func
             name = getattr(func, "id", None) or getattr(func, "attr", None)
-            # sys.path manipulation, env loading and module-level skips are
-            # conventional at import time; what matters is work that *runs*.
-            if name in {"append", "insert", "load_dotenv", "skip", "register",
-                        "basicConfig", "seed", "addinivalue_line", "print",
-                        "filterwarnings", "setLevel", "getLogger"}:
-                continue
-            pytest.fail(
-                f"{path.name} calls {name}() at module scope; it will run "
-                "during pytest collection. Guard it with "
-                'if __name__ == "__main__":'
-            )
+            if name not in _IMPORT_TIME_CALLS:
+                return name
+    return None
+
+
+def test_every_test_file_asserts_something():
+    bad = [p.name for p in _collected_test_files()
+           if p.name not in ASSERTLESS_ALLOWLIST and not _asserts_something(p)]
+    assert not bad, f"these define tests but never assert anything: {bad}"
+
+
+def test_no_hardcoded_absolute_paths():
+    me = pathlib.Path(__file__).name     # this file names the pattern it looks for
+    bad = [f"{p.name} (/home/{h})" for p in _collected_test_files()
+           if p.name != me and (h := _real_home(p))]
+    assert not bad, f"use tmp_path or paths relative to __file__: {bad}"
+
+
+def test_no_module_level_execution():
+    bad = [f"{p.name}: {n}()" for p in _collected_test_files() if (n := _module_level_call(p))]
+    assert not bad, f'guard these with if __name__ == "__main__": {bad}'
 
 
 # Files that read (never write) production memory/ paths. Reading live state

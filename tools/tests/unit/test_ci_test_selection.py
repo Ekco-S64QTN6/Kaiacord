@@ -32,23 +32,6 @@ def test_related_tests_has_no_duplicate_literal_module_keys():
     assert duplicates == []
 
 
-def test_behavior_mappings_keep_every_context_enricher_and_sanitizer_suite():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    related = selector["RELATED_TESTS"]
-
-    assert set(related["utils/core/context_enricher.py"]) == {
-        "tools/tests/unit/test_context_enricher_files.py",
-        "tools/tests/unit/test_context_enricher_links.py",
-        "tools/tests/unit/test_enrich_process_lifecycle.py",
-    }
-    assert set(related["utils/core/sanitizer.py"]) == {
-        "tools/tests/unit/test_context_enricher_files.py",
-        "tools/tests/unit/test_sanitize_cap.py",
-        "tools/tests/unit/test_channel_memory_scaffolding.py",
-        "tools/tests/unit/test_reactions_and_logging.py",
-    }
-
-
 def test_changed_ci_selector_itself_selects_its_regression_test():
     selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
     selected = {
@@ -56,17 +39,6 @@ def test_changed_ci_selector_itself_selects_its_regression_test():
         for path in selector["select_tests"]([".github/scripts/run_ci_tests.py"])
     }
     assert "tools/tests/unit/test_ci_test_selection.py" in selected
-
-
-
-def test_art_intent_changes_select_the_art_intent_regression_suite():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/core/kaia_art_intent.py"])
-    }
-    assert "tools/tests/unit/test_art_intent.py" in selected
-
 
 
 def test_every_behavior_mapping_targets_an_existing_test_file():
@@ -80,78 +52,6 @@ def test_every_behavior_mapping_targets_an_existing_test_file():
     assert missing == []
 
 
-def test_message_processor_changes_select_vision_fetch_security_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/core/message_processor.py"])
-    }
-    assert "tools/tests/unit/test_vision_fetch_security.py" in selected
-
-
-
-def test_rpg_lock_registry_changes_select_metrics_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    related_sources = (
-        "utils/infrastructure/monitoring/async_lock_metrics.py",
-        "utils/ttrpg/session_manager.py",
-        "utils/ttrpg/character_manager.py",
-        "utils/commands/sysmon_handler.py",
-    )
-    for source in related_sources:
-        selected = {
-            path.relative_to(ROOT).as_posix()
-            for path in selector["select_tests"]([source])
-        }
-        assert "tools/tests/unit/test_async_lock_metrics.py" in selected
-
-
-
-def test_bot_state_changes_select_snapshot_and_persistence_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/infrastructure/system/bot_state.py"])
-    }
-    assert "tools/tests/unit/test_bot_state_save.py" in selected
-
-
-
-def test_background_task_changes_select_subprocess_lifecycle_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/core/background_tasks.py"])
-    }
-    assert "tools/tests/unit/test_background_task_processes.py" in selected
-
-
-
-def test_sysmon_changes_select_utility_process_reaping_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/infrastructure/system/kaia_sysmon.py"])
-    }
-    assert "tools/tests/unit/test_sysmon_subprocess_lifecycle.py" in selected
-
-
-
-def test_rpg_world_event_reader_changes_select_async_io_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    related_sources = (
-        "utils/ttrpg/rpg_social_handler.py",
-        "utils/ttrpg/broadcast.py",
-        "utils/core/background_tasks.py",
-    )
-    for source in related_sources:
-        selected = {
-            path.relative_to(ROOT).as_posix()
-            for path in selector["select_tests"]([source])
-        }
-        assert "tools/tests/unit/ttrpg/test_world_event_async_io.py" in selected
-
-
 def test_a_module_change_selects_tests_that_import_it_under_any_name():
     """kaia_rag_query's behaviour-named tests were never selected, and three of
     them failed on main unnoticed."""
@@ -161,155 +61,18 @@ def test_a_module_change_selects_tests_that_import_it_under_any_name():
         assert any(s.endswith("tools/tests/unit/" + name) for s in selected), name
 
 
-
-def test_shutdown_module_selects_bot_state_writer_lifecycle_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/infrastructure/system/shutdown_fixed.py"])
-    }
-    assert "tools/tests/unit/test_bot_state_save.py" in selected
-
-
-
-def test_strudel_engine_changes_select_http_server_lifecycle_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/strudel_engine.py"])
-    }
-    assert "tools/tests/unit/test_strudel_engine_environment.py" in selected
-
-
-
-def test_strudel_engine_changes_select_shared_monitor_lifecycle_tests():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/strudel_engine.py"])
-    }
-    assert "tools/tests/unit/test_strudel_session_lifecycle.py" in selected
-
-
-def test_strudel_session_changes_select_monitor_lifecycle_tests():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/strudel_session.py"])
-    }
-    assert "tools/tests/unit/test_strudel_session_lifecycle.py" in selected
-
-
-
-def test_records_changes_select_booth_load_ordering_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/records.py"])
-    }
-    assert "tools/tests/unit/test_records.py" in selected
-
-
-
-def test_records_changes_select_deferred_planner_race_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/records.py"])
-    }
-    assert "tools/tests/unit/test_records.py" in selected
-
-
-
-def test_download_handler_changes_select_staging_filename_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/commands/download_handler.py"])
-    }
-    assert "tools/tests/unit/test_download_sidecar.py" in selected
-
-
-
-def test_strudel_session_changes_select_offload_lifecycle_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/strudel_session.py"])
-    }
-    assert "tools/tests/unit/test_strudel_session_lifecycle.py" in selected
-
-
-
-def test_process_ingress_changes_select_interprocess_serialization_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["tools/maintenance/process_ingress.py"])
-    }
-    assert "tools/tests/unit/test_ingress_now.py" in selected
-
-
-
-def test_rag_retriever_changes_select_fast_vector_concurrency_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/core/kaia_rag_retriever.py"])
-    }
-    assert "tools/tests/unit/test_fast_vector_query.py" in selected
-
-
-def test_setlist_changes_select_progressive_widening_regression():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/setlist.py"])
-    }
-    assert "tools/tests/unit/test_setlist.py" in selected
-
-
-def test_library_changes_select_record_and_set_style_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/library.py"])
-    }
-    assert "tools/tests/unit/test_records.py" in selected
-    assert "tools/tests/unit/test_setlist.py" in selected
-
-
-def test_setlist_changes_select_set_and_blend_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/setlist.py"])
-    }
-    assert "tools/tests/unit/test_setlist.py" in selected
-    assert "tools/tests/unit/test_mixcheck.py" in selected
-
-
-def test_records_changes_select_full_records_and_lifecycle_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/audio/records.py"])
-    }
-    assert "tools/tests/unit/test_records.py" in selected
-    assert "tools/tests/unit/test_records_startup_cleanup.py" in selected
-
-
-def test_bot_state_changes_select_channel_memory_lifecycle_regressions():
-    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    selected = {
-        path.relative_to(ROOT).as_posix()
-        for path in selector["select_tests"](["utils/infrastructure/system/bot_state.py"])
-    }
-    assert "tools/tests/unit/test_channel_memory_lifecycle.py" in selected
-
-
 def test_any_command_handler_change_selects_the_acceptance_matrix():
     selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
     for changed in ("utils/commands/sky_handler.py", "utils/commands/registry.py", "utils/commands/nightshift.py"):
         selected = {path.relative_to(ROOT).as_posix() for path in selector["select_tests"]([changed])}
         assert "tools/tests/unit/test_every_command_answers.py" in selected, changed
+
+
+def test_every_related_mapping_is_selected():
+    """A change to each module in RELATED_TESTS selects every test listed for it."""
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    missed = []
+    for module, tests in selector["RELATED_TESTS"].items():
+        selected = {p.relative_to(ROOT).as_posix() for p in selector["select_tests"]([module])}
+        missed += [f"{module} -> {t}" for t in tests if t not in selected]
+    assert not missed, missed

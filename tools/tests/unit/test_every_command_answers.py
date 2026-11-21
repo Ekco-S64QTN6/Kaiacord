@@ -157,23 +157,35 @@ def offline(tmp_path, monkeypatch):
     return tmp_path
 
 
-@pytest.mark.parametrize("word", INVOCATIONS)
-@pytest.mark.parametrize("label,tail", ARGUMENTS, ids=[a[0] for a in ARGUMENTS])
-@pytest.mark.parametrize("owner", [False, True], ids=["member", "owner"])
-def test_command_answers(offline, word, label, tail, owner):
+def _faults(word, tail, owner):
+    """What is wrong with how `!word` answers `tail`, as a list (empty when nothing)."""
     cmd = registry.LOOKUP[f"!{word}"]
+    who = "the owner" if owner else "a member"
     handled, out = _run(f"!{word}{tail}", owner)
-    assert handled is True
-    assert out, f"!{word}{tail} said nothing to {'the owner' if owner else 'a member'}"
+    if handled is not True:
+        return [f"!{word}{tail} was not handled for {who}"]
+    if not out:
+        return [f"!{word}{tail} said nothing to {who}"]
     said = " ".join(_texts(out))
-    assert "failed. check the logs" not in said.lower(), f"!{word}{tail} raised into the dispatcher"
-    assert not _limits(out), _limits(out)
-    if cmd.owner_only and not owner:
-        assert "restricted" in said.lower(), f"!{word} did not refuse a member: {said[:200]}"
+    faults = []
+    if "failed. check the logs" in said.lower():
+        faults.append(f"!{word}{tail} raised into the dispatcher for {who}")
+    faults += [f"!{word}{tail}: {x}" for x in _limits(out)]
+    if cmd.owner_only and not owner and "restricted" not in said.lower():
+        faults.append(f"!{word} did not refuse a member: {said[:200]}")
     # Only message content can ping: a mention inside an embed notifies nobody.
     content = " ".join([x for a, k in out for x in a if isinstance(x, str)]
                        + [k["content"] for a, k in out if isinstance(k.get("content"), str)])
-    assert "@everyone" not in content, f"!{word} repeated a mass mention"
+    if "@everyone" in content:
+        faults.append(f"!{word}{tail} repeated a mass mention")
+    return faults
+
+
+@pytest.mark.parametrize("word", INVOCATIONS)
+def test_command_answers(offline, word):
+    """Every invocation, with every kind of argument, for a member and the owner."""
+    faults = [f for _label, tail in ARGUMENTS for owner in (False, True) for f in _faults(word, tail, owner)]
+    assert not faults, "\n".join(faults)
 
 
 def test_a_near_miss_is_not_a_command(offline):
