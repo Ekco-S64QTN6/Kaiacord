@@ -12,7 +12,7 @@ discord.py[voice]==2.7.1
 # code 4017 and can never join a voice channel. discord.py 2.6.4 has no DAVE
 # support at all, so voice fails with five retries and "Not connected to
 # voice" no matter what the bot does. The [voice] extra pulls both in.
-PyNaCl>=1.6.2
+PyNaCl>=1.5.0
 davey>=0.1.6
 # The !music engine drives Strudel in a local Chromium. Install the browser
 # once with: python -m playwright install chromium
