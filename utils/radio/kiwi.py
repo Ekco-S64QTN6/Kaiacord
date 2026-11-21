@@ -436,7 +436,14 @@ async def _record_in(receiver, khz, mode, seconds, out_dir: Path, run_dir: Path,
                                                 stdout=asyncio.subprocess.DEVNULL,
                                                 stderr=asyncio.subprocess.PIPE,
                                                 preexec_fn=_die_with_parent)
-    refused, last = await _watch_stderr(proc, seconds + 20)
+    try:
+        refused, last = await _watch_stderr(proc, seconds + 20)
+    except BaseException:
+        # Cancelled mid-recording: the recorder still holds a slot on someone
+        # else's receiver (a squelched one has no time limit), and record()
+        # is about to remove the folder it writes to.
+        await _stop(proc)
+        raise
     quit_early = proc.returncode is not None
     await _stop(proc)
     written = sorted(run_dir.glob("*.wav"))
@@ -527,6 +534,9 @@ async def smeter(receiver: Receiver, khz: float, mode: str, seconds: float) -> l
     except asyncio.TimeoutError:
         await _stop(proc)
         out = b""
+    except BaseException:
+        await _stop(proc)
+        raise
     readings = []
     for line in out.decode("utf-8", "replace").splitlines():
         m = re.match(r"(\d{2}-\w{3}-\d{4} \d{2}:\d{2}:\d{2}) UTC RSSI:\s*(-?\d+(?:\.\d+)?)", line.strip())

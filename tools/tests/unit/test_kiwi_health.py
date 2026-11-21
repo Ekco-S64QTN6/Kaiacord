@@ -83,3 +83,36 @@ def test_record_raises_and_benches_on_digital_silence(store, tmp_path, monkeypat
 def test_silent_pcm():
     assert kiwi.silent_pcm(np.zeros(1000, np.int16).tobytes())
     assert not kiwi.silent_pcm(np.full(1000, 300, np.int16).tobytes())
+
+
+def test_a_cancelled_recording_stops_its_recorder(tmp_path, monkeypatch):
+    """The recorder holds a slot on someone else's receiver; cancelled mid-way,
+    it was left running while its folder was removed under it."""
+    import asyncio
+    from utils.radio import kiwi as kw
+    stopped = []
+    proc = type("P", (), {"returncode": None, "pid": 1})()
+
+    async def spawn(*a, **k):
+        return proc
+
+    async def hang(p, deadline):
+        await asyncio.sleep(60)
+
+    async def stop(p, grace=8.0):
+        stopped.append(p)
+
+    monkeypatch.setattr(kw.asyncio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(kw, "_watch_stderr", hang)
+    monkeypatch.setattr(kw, "_stop", stop)
+    r = kw.Receiver("kiwi.example.org", 8073, "x", "y", 0.0, 0.0, 0, 4, 20, 0, 30000, connect_host="93.184.216.34")
+
+    async def run():
+        t = asyncio.create_task(kw._record_in(r, 4625, "usb", 60, tmp_path, tmp_path, "uvb76", -100))
+        await asyncio.sleep(0.05)
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            return True
+    assert asyncio.run(run()) and stopped == [proc]
