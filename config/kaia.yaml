@@ -185,7 +185,7 @@ bluesky:
   # What she posts there is chosen under unprompted.bluesky above.
 
   # Reply to mentions from strangers. Separate from broadcasting her own posts.
-  reply_to_mentions: true
+  reply_to_mentions: false
 
 # ============================================================================
 # X (Twitter)
