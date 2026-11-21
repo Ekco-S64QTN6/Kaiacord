@@ -21,6 +21,16 @@ def test_punctuation_does_not_hide_a_match(store):
     assert [a["theme"] for a in hits] == ["loneliness_and_validation"]
 
 
+def test_an_anchor_tied_to_someone_else_is_not_recalled(store):
+    """Recalled in someone else's conversation, a person's anchor is gossip."""
+    ma.save_anchor("519557167779676160", "loneliness_and_validation",
+                   "craving validation, and the loneliness of being unseen.", weight=0.9, user_name="Starkind")
+    words = "is validation just a cure for loneliness?"
+    assert ma.find_matching_anchors(words, user_id="177011971818782721") == []
+    assert [a["theme"] for a in ma.find_matching_anchors(words, user_id="519557167779676160")] == \
+        ["loneliness_and_validation"]
+
+
 def test_one_shared_word_is_not_a_match(store):
     ma.save_anchor(None, "intellectual humility", "I don't know everything.", weight=0.9)
     assert ma.find_matching_anchors("Tattoos don't get u into heaven?") == []

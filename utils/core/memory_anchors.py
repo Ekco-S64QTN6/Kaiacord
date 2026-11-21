@@ -273,6 +273,10 @@ def find_matching_anchors(
                 named = _named(anchor.get('anchor_text', ''))
                 if named and named[0] != str(user_id):
                     continue
+            # Nor is one tied to someone else: "you remember Starkind talking
+            # about…" belongs in a conversation with Starkind.
+            elif user_id is not None and str(anchor.get('user_id')) != str(user_id):
+                continue
 
             # Share of the anchor's words the message touches
             score = len(overlap) / max(len(anchor_keywords), 1)
