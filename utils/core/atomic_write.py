@@ -80,7 +80,6 @@ def write_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
     return dest
 
 
-@contextlib.contextmanager
 def set_aside(path: PathLike) -> Path | None:
     """Move a file that exists but cannot be read out of the way, so the save
     about to happen starts fresh without destroying it. A loader that answers
@@ -96,6 +95,7 @@ def set_aside(path: PathLike) -> Path | None:
     return kept
 
 
+@contextlib.contextmanager
 def append_lock(path: PathLike):
     """Hold the sidecar lock that serialises appends to `path`.
 

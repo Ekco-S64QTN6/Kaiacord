@@ -229,3 +229,15 @@ def test_atomic_write_syncs_each_parent_when_creating_nested_directories(tmp_pat
 
     assert target.read_text(encoding="utf-8") == "durable"
     assert synced == [tmp_path, tmp_path / "first", tmp_path / "first" / "second"]
+
+
+def test_set_aside_moves_the_file_and_append_lock_is_a_context_manager(tmp_path):
+    from pathlib import Path
+    from utils.core import atomic_write
+    store = tmp_path / "store.json"
+    store.write_text("{broken", encoding="utf-8")
+    kept = atomic_write.set_aside(store)
+    assert isinstance(kept, Path) and kept.read_text(encoding="utf-8") == "{broken" and not store.exists()
+    assert atomic_write.set_aside(store) is None
+    with atomic_write.append_lock(store) as dest:
+        assert dest == store

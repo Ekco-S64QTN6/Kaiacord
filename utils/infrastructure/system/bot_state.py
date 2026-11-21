@@ -76,6 +76,9 @@ class BotState:
         # coherence: rolling average RAG retrieval confidence (updated per retrieval)
         # dream_freshness: how recently the dream cycle ran successfully (decays over time)
         self.kaia_engagement: float = 0.5
+        # When engagement last decayed. Saved with it: lost on a restart, the
+        # first update decayed the whole idle span a second time.
+        self._engagement_decayed_at: float = 0.0
         self.kaia_coherence: float = 0.85
         self.kaia_dream_freshness: float = 1.0
 
@@ -132,6 +135,7 @@ class BotState:
                         self.recent_ingestions = state.get('recent_ingestions', [])
                         self.last_dream_date = state.get('last_dream_date', "")
                         self.kaia_engagement = float(state.get('kaia_engagement', 0.5))
+                        self._engagement_decayed_at = float(state.get('engagement_decayed_at', 0.0) or 0.0)
                         self.last_interaction_time = float(
                             state.get('last_interaction_time', self.last_interaction_time))
                         self.kaia_coherence = float(state.get('kaia_coherence', 0.85))
@@ -368,6 +372,7 @@ class BotState:
                             'recent_ingestions': copy.deepcopy(self.recent_ingestions),
                             'last_dream_date': self.last_dream_date,
                             'kaia_engagement': self.kaia_engagement,
+                            'engagement_decayed_at': self._engagement_decayed_at,
                             'last_interaction_time': self.last_interaction_time,
                             'kaia_coherence': self.kaia_coherence,
                             'kaia_dream_freshness': self.kaia_dream_freshness,
@@ -493,7 +498,7 @@ class BotState:
         # from the interaction alone applied the same idle span repeatedly.
         if self.last_interaction_time:
             now = time.time()
-            since = max(self.last_interaction_time, getattr(self, '_engagement_decayed_at', 0.0))
+            since = max(self.last_interaction_time, self._engagement_decayed_at)
             hours_idle = (now - since) / 3600.0
             if hours_idle > 0.5:  # Only decay if idle > 30 min
                 import math

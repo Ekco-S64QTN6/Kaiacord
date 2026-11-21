@@ -106,3 +106,21 @@ def test_an_unreadable_bot_state_is_kept_for_repair(tmp_path):
     s.load()
     kept = list(tmp_path.glob("bot_state.test.json.unreadable-*"))
     assert len(kept) == 1 and "3140" in kept[0].read_text(encoding="utf-8") and not f.exists()
+
+
+def test_engagement_decay_does_not_repeat_across_a_restart(tmp_path):
+    import json, time
+    from utils.infrastructure.system.bot_state import BotState
+    path = tmp_path / "bot_state.json"
+    a = BotState(state_file=str(path))
+    a.last_interaction_time = time.time() - 30 * 3600
+    a.kaia_engagement = 0.8
+    a.update_kaia_state()
+    decayed = a.kaia_engagement
+    a.save(); a.close()
+    assert json.loads(path.read_text())["engagement_decayed_at"] > 0
+    b = BotState(state_file=str(path))
+    b.load()
+    b.update_kaia_state()
+    assert abs(b.kaia_engagement - decayed) < 1e-6
+    b.close()
