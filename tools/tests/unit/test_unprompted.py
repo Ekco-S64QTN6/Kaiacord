@@ -32,6 +32,12 @@ def _state(**kw):
     s = types.SimpleNamespace(unprompted_date="", unprompted_count=0, unprompted_sources={},
                               unprompted_last_sent=0.0, channel_memory={})
     s.save = lambda: None
+
+    def append_channel_turns(channel_id, turns, maxlen=None):
+        from collections import deque
+        s.channel_memory.setdefault(channel_id, deque(maxlen=maxlen)).extend(turns)
+        return True
+    s.append_channel_turns = append_channel_turns
     s.__dict__.update(kw)
     return s
 

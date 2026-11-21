@@ -563,15 +563,14 @@ async def speak(ctx, channel, source: str, text: str = "", *,
     # turns gets copied into later replies as a way of talking.
     if source != "overnight":
         try:
-            memory = bot_state.channel_memory
-            if channel.id not in memory:
-                from collections import deque
-                from utils.infrastructure.system.yaml_config import config
-                memory[channel.id] = deque(maxlen=config.max_memory_messages)
             # `unprompted`: it answered nobody, so a reply to it is addressed
-            # to her, not to whoever spoke before it.
-            memory[channel.id].append({"role": "assistant", "content": body,
-                                       "timestamp": time.time(), "unprompted": True})
+            # to her, not to whoever spoke before it. Through the state's own
+            # path: it holds the lock the snapshot writer reads under, and
+            # stamps the channel's activity.
+            from utils.infrastructure.system.yaml_config import config
+            bot_state.append_channel_turns(channel.id, [
+                {"role": "assistant", "content": body, "timestamp": time.time(), "unprompted": True}],
+                maxlen=config.max_memory_messages)
         except Exception as e:
             log_debug(f"[unprompted] channel memory not updated: {e}")
 
