@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 from utils.infrastructure.system.yaml_config import config
 from utils.core.sanitizer import is_safe_url, public_only_connector, read_capped
+from utils.core.private_turn import text as _pt   # a DM's links stay out of the log
 
 # A page is read at most this far before parsing; the prompt keeps far less
 # (url_max_content_length). Without a cap a linked multi-gigabyte file served
@@ -573,7 +574,7 @@ class ContextEnricher:
             if isinstance(res, str) and res:
                 resolved_texts.append(res)
             elif isinstance(res, Exception):
-                log_debug(f"Link resolution failed: {res}")
+                log_debug(f"Link resolution failed: {_pt(res)}")
                 
         return "\n\n".join(resolved_texts)
 
@@ -708,9 +709,9 @@ class ContextEnricher:
             else:
                 failed_urls.append(url)
                 if isinstance(res, Exception):
-                    log_debug(f"URL scraping failed for {url}: {res}")
+                    log_debug(f"URL scraping failed for {_pt(url)}: {_pt(res)}")
                 else:
-                    log_debug(f"URL scraping returned empty/invalid content for {url}")
+                    log_debug(f"URL scraping returned empty/invalid content for {_pt(url)}")
                 
         context_parts = []
         if resolved_texts:
@@ -734,14 +735,14 @@ class ContextEnricher:
         # 1. SSRF Guard Check
         # getaddrinfo blocks; keep it off the event loop.
         if not await asyncio.to_thread(is_safe_url, url):
-            log_debug(f"URL {url} blocked by SSRF safety guard (private/loopback/metadata IP)")
+            log_debug(f"URL {_pt(url)} blocked by SSRF safety guard (private/loopback/metadata IP)")
             return ""
 
         # 2. Check Cache
         if url in self._url_cache:
             timestamp, cached_text = self._url_cache[url]
             if now - timestamp < self._cache_ttl:
-                log_debug(f"URL Cache Hit: {url}")
+                log_debug(f"URL Cache Hit: {_pt(url)}")
                 return cached_text
                 
         # 2. Fetch using aiohttp with strict timeout
@@ -767,12 +768,12 @@ class ContextEnricher:
                         redirect_target = urljoin(current_url, redirect_target)
                         if not await asyncio.to_thread(is_safe_url, redirect_target):
                             resp.close()
-                            log_debug(f"URL {redirect_target} blocked by SSRF redirect safety guard")
+                            log_debug(f"URL {_pt(redirect_target)} blocked by SSRF redirect safety guard")
                             return ""
                         current_url = redirect_target
                         resp.close()
                         if redirect_count == max_redirects:
-                            log_debug(f"URL {url} exceeded max redirect depth")
+                            log_debug(f"URL {_pt(url)} exceeded max redirect depth")
                             return ""
                         continue
                     else:
@@ -781,7 +782,7 @@ class ContextEnricher:
                 
                 async with response:
                     if response.status != 200:
-                        log_debug(f"URL {url} returned status {response.status}")
+                        log_debug(f"URL {_pt(url)} returned status {response.status}")
                         return ""
                         
                     content_type = response.headers.get('Content-Type', '').lower()
@@ -795,15 +796,15 @@ class ContextEnricher:
                         # if they were complete PDFs.
                         raw_pdf = await read_capped(response, MAX_PAGE_BYTES + 1)
                         if len(raw_pdf) > MAX_PAGE_BYTES:
-                            log_warning(f"URL PDF {url} exceeded the {MAX_PAGE_BYTES}-byte input limit")
+                            log_warning(f"URL PDF {_pt(url)} exceeded the {MAX_PAGE_BYTES}-byte input limit")
                             return ""
                         try:
                             parsed_text = await asyncio.to_thread(_extract_pdf_text, raw_pdf)
                         except Exception as e:
-                            log_debug(f"URL PDF extraction failed {url}: {type(e).__name__}: {e}")
+                            log_debug(f"URL PDF extraction failed {_pt(url)}: {type(e).__name__}: {e}")
                             return ""
                         if not parsed_text:
-                            log_debug(f"URL PDF {url} had no extractable text (encrypted, malformed, or image-only)")
+                            log_debug(f"URL PDF {_pt(url)} had no extractable text (encrypted, malformed, or image-only)")
                             return ""
                         max_len = config.url_max_content_length
                         if len(parsed_text) > max_len:
@@ -813,7 +814,7 @@ class ContextEnricher:
                         return final_result
 
                     if 'text/html' not in content_type and 'text/plain' not in content_type:
-                        log_debug(f"URL {url} skipped due to content type: {content_type}")
+                        log_debug(f"URL {_pt(url)} skipped due to content type: {content_type}")
                         return ""
 
                     raw = await read_capped(response, MAX_PAGE_BYTES)
@@ -844,7 +845,7 @@ class ContextEnricher:
                     if not parsed_text:
                         return ""
                     if _is_shell_page(parsed_text):
-                        log_debug(f"URL {url} returned only a browser-check page")
+                        log_debug(f"URL {_pt(url)} returned only a browser-check page")
                         return ""
                         
                     # 4. Truncate to save VRAM tokens
@@ -859,8 +860,8 @@ class ContextEnricher:
 
                     
         except asyncio.TimeoutError:
-            log_warning(f"URL fetch timed out: {url}")
+            log_warning(f"URL fetch timed out: {_pt(url)}")
         except Exception as e:
-            log_debug(f"URL fetch error {url}: {e}")
+            log_debug(f"URL fetch error {_pt(url)}: {e}")
             
         return ""

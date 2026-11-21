@@ -510,6 +510,11 @@ class MessageProcessor:
         # shared logs, and out of everything else a DM is kept out of.
         if not is_social and _in_private_thread(msg):
             is_dm = True
+        # From here the loggers know whether this turn is private: the link
+        # enricher runs before the intelligence pipeline sets it again.
+        # Set for every message, so a private turn can't carry into the next.
+        from utils.core import private_turn as _pt_flag
+        _pt_flag.enter(is_dm)
 
         # 5. Rate Limiting & Shutdown Guard
         if not self.rate_limiter.is_allowed(msg.author.id):
