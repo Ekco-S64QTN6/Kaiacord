@@ -64,26 +64,8 @@ def test_the_notes_carry_no_example_reply_and_no_dash():
         assert "e.g." not in note and "like:" not in note
 
 
-def test_the_note_sits_beside_the_message_not_in_the_system_prompt():
-    from unittest.mock import MagicMock
-    from utils.core.message_context import MessageContext
-    from utils.core.message_processor import MessageProcessor
-    from utils.infrastructure.system.yaml_config import config
-
-    def turn(text):
-        author = MagicMock()
-        author.display_name = author.name = "Ekco"
-        author.id = 1
-        msg = MagicMock()
-        msg.platform, msg.author, msg.content = "discord", author, text
-        msg.attachments, msg.embeds, msg.stickers = [], [], []
-        msg.channel.id = 1
-        ctx = MessageContext(message=msg, sanitized_content=text, is_social=False, is_mention=True,
-                             is_dm=False, start_time=0.0)
-        p = MessageProcessor.__new__(MessageProcessor)
-        p.config = config
-        return p._construct_messages(ctx, {"persona": "P", "rag": "", "history": []})
-
+def test_the_note_sits_beside_the_message_not_in_the_system_prompt(build_messages):
+    turn = build_messages
     messages = turn("thanks")
     assert "a line or two" in messages[-1]["content"]
     assert "a line or two" not in messages[0]["content"]

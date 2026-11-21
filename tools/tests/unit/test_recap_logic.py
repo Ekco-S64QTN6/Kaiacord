@@ -150,27 +150,11 @@ def test_setup_retrieval_tasks_recap_routing(mock_load_persona, mock_create_task
     assert any("RECAP query — routing to search_recent_events (hours=5)" in s for s in log_calls)
 
 
-def test_a_channel_name_used_as_a_word_is_not_a_channel_question():
+def test_a_channel_name_used_as_a_word_is_not_a_channel_question(build_messages):
     """"tell me a story set in the Aethelgard universe" was given the CHANNEL
     GROUNDING hard rule (no records from those channels)."""
-    from unittest.mock import MagicMock
-    from utils.core.message_context import MessageContext
-    from utils.core.message_processor import MessageProcessor
-    from utils.infrastructure.system.yaml_config import config
-
     def system_prompt(text):
-        author = MagicMock()
-        author.display_name = author.name = "Starkind"
-        author.id = 1
-        msg = MagicMock()
-        msg.platform, msg.author, msg.content = "discord", author, text
-        msg.attachments, msg.embeds, msg.stickers = [], [], []
-        msg.channel.id = 1
-        ctx = MessageContext(message=msg, sanitized_content=text, is_social=False, is_mention=True,
-                             is_dm=False, start_time=0.0)
-        p = MessageProcessor.__new__(MessageProcessor)
-        p.config = config
-        return p._construct_messages(ctx, {"persona": "P", "rag": "", "history": []})[0]["content"]
+        return build_messages(text, author="Starkind")[0]["content"]
 
     for words in ("Kaia can you tell me a story set in the Aethelgard universe",
                   "in general, how are you", "General Sir Rob Magowan named them"):

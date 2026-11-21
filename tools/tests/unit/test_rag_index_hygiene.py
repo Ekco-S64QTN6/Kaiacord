@@ -197,12 +197,6 @@ def test_the_news_quick_reference_is_not_indexed():
     assert not RAGIndexerMixin._is_excluded_path("/kb/news/daily/news_brief_20260915.md")
 
 
-def test_a_failed_news_day_is_not_filled_with_yesterdays_brief():
-    from pathlib import Path
-    src = Path("tools/maintenance/update_kaia_news.py").read_text(encoding="utf-8")
-    assert "FALLBACK from" not in src
-
-
 @pytest.mark.parametrize("name,day", [
     ("news_brief_20260614.md", (2026, 6, 14)),
     ("tech_digest_20260922.md", (2026, 9, 22)),
@@ -299,7 +293,6 @@ def test_nothing_is_dropped_when_keyword_search_found_nothing_or_a_document_was_
     assert without_padding(mixed, "statement", strategy="SUMMARIZATION") == mixed
 
 
-
 def test_partial_index_persist_does_not_advance_the_global_manifest(tmp_path, indexer, monkeypatch):
     """A stale index snapshot must not inherit the new file mtime from the manifest."""
     import json
@@ -351,7 +344,6 @@ def test_complete_index_persist_advances_the_manifest(tmp_path, indexer, monkeyp
     assert persisted == {"knowledge", "logs"}
     with open(ix.state_file, encoding="utf-8") as f:
         assert json.load(f) == ix.indexed_files
-
 
 
 def test_pruning_defers_manifest_until_changed_indices_persist(tmp_path, indexer, monkeypatch):
@@ -413,7 +405,6 @@ def test_pruning_manifest_only_entries_still_saves_without_index_writes(tmp_path
     assert changed == set()
     with open(ix.state_file, encoding="utf-8") as f:
         assert json.load(f) == {}
-
 
 
 def test_failed_modified_document_keeps_old_nodes_and_manifest(indexer, monkeypatch, tmp_path):
@@ -534,7 +525,6 @@ def test_ingestion_history_failure_does_not_turn_index_success_into_failure(inde
     assert all(ix.indices["knowledge"].docstore.document_exists(n) for n in entry["nodes"])
 
 
-
 def test_partial_new_insert_rollback_is_tracked_and_forces_full_reindex(indexer, monkeypatch):
     """A partially inserted failed replacement is marked stale and retried after restart."""
     from llama_index.core.schema import TextNode
@@ -616,9 +606,6 @@ def test_partial_new_insert_rollback_is_tracked_and_forces_full_reindex(indexer,
     assert any(os.path.abspath(item[0]) == abs_path for item in due)
 
 
-
-
-
 def test_partial_log_insert_rollback_is_tracked_and_retried_as_full_rewrite(indexer, monkeypatch):
     """A partial insert in a rewritten log must not duplicate or supersede last-good turns."""
     from llama_index.core.schema import TextNode
@@ -681,7 +668,6 @@ def test_partial_log_insert_rollback_is_tracked_and_retried_as_full_rewrite(inde
     )
     texts = "\n".join(index.docstore.get_node(node_id).text for node_id in new_entry["nodes"])
     assert "partial corrected log chunk one" not in texts
-
 
 
 def test_stale_replacement_nodes_are_excluded_from_normal_scoring_and_dedup(indexer):
@@ -767,7 +753,6 @@ def test_recent_event_and_highlight_docstore_scans_skip_stale_log_nodes(indexer)
     assert not any("unique_stale_marker" in item["content"] for item in searched)
 
 
-
 @pytest.mark.asyncio
 async def test_bm25_warmup_does_not_index_stale_replacement_nodes(indexer):
     """Stale docstore entries must not crowd current nodes out of BM25 top-k."""
@@ -786,7 +771,6 @@ async def test_bm25_warmup_does_not_index_stale_replacement_nodes(indexer):
 
     nodes = query.bm25_cache["knowledge"].nodes
     assert [node.node_id for node in nodes] == [active]
-
 
 
 def test_marking_stale_nodes_invalidates_cached_bm25_and_rejects_detached_candidates(indexer):

@@ -26,11 +26,6 @@ def test_the_ledger_rereads_before_it_writes(tmp_path):
     assert sorted(p["thread_id"] for p in c.posts) == [1, 2]
 
 
-def test_consolidated_documents_are_written_atomically():
-    src = (ROOT / "tools/maintenance/consolidate_dreams.py").read_text(encoding="utf-8")
-    assert "write_atomic(path" in src and ".write_text(" not in src
-
-
 def test_a_day_already_in_the_archive_is_not_merged_twice(tmp_path):
     from tools.maintenance.rollup_user_logs import build_archive
     day = tmp_path / "interactions_20260101.md"

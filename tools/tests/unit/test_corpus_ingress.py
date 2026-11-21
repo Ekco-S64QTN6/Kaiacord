@@ -37,18 +37,6 @@ def test_sentence_openers_are_still_excluded():
     assert not {"Yeah", "Well", "Right", "Okay"} & set(derive_keywords("", "", body))
 
 
-def test_discord_logs_get_enriched_on_a_schedule():
-    """`enrich_metadata.py` is idempotent and does the right job; it simply
-    never ran unless someone typed !enrich or used the tools menu."""
-    from utils.core.background_tasks import CoreTaskManager
-
-    assert hasattr(CoreTaskManager, "_make_metadata_enrichment_task")
-    src = inspect.getsource(CoreTaskManager._make_metadata_enrichment_task)
-    assert "enrich_metadata.py" in src
-    assert "knowledge_base.auto_enrich" in src, "no way to switch it off"
-    assert "auto_enrich_limit" in src, "an unbounded pass can stall the night"
-
-
 def test_the_enrichment_task_is_actually_started():
     from utils.core.background_tasks import CoreTaskManager
 

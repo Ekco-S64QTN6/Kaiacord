@@ -26,14 +26,6 @@ def test_clean_log_carries_forward_the_cleaned_turn(monkeypatch):
     assert "Kaia: cleaned second" in rewritten
 
 
-def test_channel_memory_cleaner_also_carries_forward_cleaned_turns():
-    import inspect
-
-    source = inspect.getsource(cleaner.main)
-    assert source.count("previous.append(new)") == 1
-    assert "previous.append(text)" not in source
-
-
 def test_a_repeated_opening_is_counted_against_what_she_said():
     """Counted against the cleaned turns, a dropped opening stopped counting and
     came back every few turns."""

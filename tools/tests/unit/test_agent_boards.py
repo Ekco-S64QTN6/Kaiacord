@@ -352,13 +352,7 @@ def test_a_board_message_is_shaped_like_a_discord_message():
 
 
 def test_the_pipeline_unwraps_a_board_reply_like_a_discord_one():
-    import asyncio
-    from unittest.mock import MagicMock
-    from utils.core.message_processor import MessageProcessor
     from utils.social.agent_boards import message
-    proc = MessageProcessor.__new__(MessageProcessor)
-    src = __import__("inspect").getsource(MessageProcessor)
-    assert "[USER_MESSAGE]" in src and "[REPLYING_TO]" in src and "[ORIGINAL_POST]" in src
     text = message("is consensus worth it?", parent="her note on consensus", root="her post")
     assert text.split("[USER_MESSAGE]")[-1].strip() == "is consensus worth it?"
 

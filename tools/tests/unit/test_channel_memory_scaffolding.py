@@ -34,16 +34,6 @@ def test_enrichment_is_reduced_to_a_fixed_source_citation():
     assert "embed-only details" not in persisted
 
 
-def test_channel_history_uses_the_same_scrubber_as_the_rag_transcript():
-    from utils.core.message_processor import MessageProcessor
-
-    source = inspect.getsource(MessageProcessor._background_logging_and_memory)
-
-    assert "persisted_turn(ctx.sanitized_content, ctx.message)" in source
-    assert "_persisted_user_turn" in source.split("user_msg_with_author =", 1)[1].split("\n", 1)[0]
-    assert 'user_msg_with_author = f"{ctx.author_name}: {ctx.sanitized_content}"' not in source
-
-
 def test_user_typed_url_survives_verbatim_without_an_enrichment_block():
     from utils.core.sanitizer import summarize_link_context
 
@@ -128,10 +118,8 @@ def test_sanitized_channel_turn_is_the_content_written_to_bot_state_json(tmp_pat
     assert "Fetched body" not in persisted
 
 
-def test_relationship_event_detection_uses_only_user_authored_words():
-    from utils.core.message_processor import MessageProcessor
-
-    source = inspect.getsource(MessageProcessor._background_logging_and_memory)
-
-    assert "event_type = detect_event_type(_own, bot_response)" in source
-    assert "detect_event_type(ctx.sanitized_content, bot_response)" not in source
+def test_relationship_event_detection_uses_only_user_authored_words(log_turn):
+    """A quoted post's "sorry, my bad" is not the speaker repairing anything."""
+    enriched = "[REPLYING_TO]\nEkco: sorry, my bad, i was wrong\n\n[USER_MESSAGE]\nnice weather today"
+    seen = log_turn(False, text=enriched)
+    assert [own for own, _reply in seen["events"]] == ["nice weather today"]

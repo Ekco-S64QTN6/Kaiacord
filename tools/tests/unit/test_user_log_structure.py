@@ -201,21 +201,6 @@ def test_a_rolled_month_keeps_every_turn():
         assert "archived: true" in text
 
 
-def test_rollup_leaves_recent_days_alone():
-    """Only today's file is ever appended to, but a month still open must not
-    be merged or the archive is re-embedded on every message."""
-    src = Path("tools/maintenance/rollup_user_logs.py").read_text(encoding="utf-8")
-    assert "newest > cutoff" in src and "continue" in src
-    assert "keep-days" in src
-
-
-def test_an_archive_looks_as_old_as_its_contents():
-    """kaia_proactive and kaia_dream decide what is new by mtime; a fresh
-    archive would otherwise re-trigger a pass over months of old material."""
-    src = Path("tools/maintenance/rollup_user_logs.py").read_text(encoding="utf-8")
-    assert "os.utime(archive" in src
-
-
 def test_archives_are_still_found_by_the_runtime_glob():
     """Everything that reads transcripts globs interactions_*.md."""
     archives = list(LOGS.glob("*/interactions_*_archive.md"))

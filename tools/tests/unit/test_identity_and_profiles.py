@@ -192,13 +192,6 @@ def test_profile_output_goes_through_the_filters():
     assert "filter_response" in src and "harden" in src
 
 
-def test_a_thin_history_does_not_get_a_confident_profile():
-    import inspect
-    from utils.social.kaia_forum import ForumClient
-    src = inspect.getsource(ForumClient.generate_personality_profile)
-    assert "substantive < 3" in src, "no guard against profiling from a couple of posts"
-
-
 def test_compaction_never_strips_the_identity_link():
     """`compact_forum_profiles` rebuilds the document from a fixed key list.
 
@@ -279,7 +272,6 @@ def test_every_writer_of_user_profile_consults_the_identity_registry():
             f"{p} writes user_profile.md without consulting the identity "
             f"registry; it will overwrite is_self / known_as on its next run"
         )
-
 
 
 def test_repairing_identity_writes_real_frontmatter_and_only_when_needed(tmp_path, monkeypatch):

@@ -25,12 +25,13 @@ def test_no_prompt_rule_hard_codes_a_member_as_not_the_speaker():
     assert rules, "no ADDRESSEE rule found in message_processor.py"
 
 
-def test_the_reply_context_does_not_tell_her_to_use_the_name():
+def test_the_reply_context_does_not_tell_her_to_use_the_name(build_messages):
     """"Address <author> by name" contradicted the persona's no-name-opener
     rule; she satisfied it by opening on the name or repeating it through the
     reply (ten times in six turns to one person)."""
-    src = (ROOT / "utils/core/message_processor.py").read_text(encoding="utf-8")
-    assert "by name" not in src.split("[REPLYING_TO_CONTEXT]", 1)[1].split("context_reminder = (", 2)[1][:600]
+    turn = build_messages("what do you make of this", author="Starkind",
+                          parent_context="Ekco: the harbour froze in 1709")[-1]["content"]
+    assert "[REPLYING_TO_CONTEXT]" in turn and "by name" not in turn
 
 
 def test_no_prompt_line_tells_her_to_use_the_speakers_name():

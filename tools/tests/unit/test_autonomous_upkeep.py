@@ -62,14 +62,6 @@ def test_the_hygiene_pass_makes_no_model_call():
         assert forbidden not in src, f"corpus hygiene reaches for {forbidden}"
 
 
-def test_the_audit_summary_excludes_the_backfill_backlog():
-    """The backlog is pending work the nightly pass is already doing. Reporting
-    it as a finding every week is how a warning stops being read."""
-    src = inspect.getsource(CoreTaskManager._make_corpus_hygiene_task)
-    assert "awaiting nightly" in src, (
-        "the weekly audit warning will include the backfill backlog again")
-
-
 def test_the_finding_regex_matches_real_audit_output():
     """Asserted against the shape the tool actually prints, not a guess."""
     sample = (

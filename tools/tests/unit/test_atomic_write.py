@@ -53,14 +53,19 @@ def test_a_failed_write_leaves_no_temporary_behind(tmp_path):
     assert [f.name for f in tmp_path.iterdir()] == ["x.md"]
 
 
-def test_the_temporary_lives_beside_its_destination(tmp_path):
+def test_the_temporary_lives_beside_its_destination(tmp_path, monkeypatch):
     """`os.replace` is only atomic within a filesystem, so the temporary cannot
     go to /tmp."""
-    import inspect
-
-    src = inspect.getsource(write_atomic)
-    assert "dest.with_name" in src, "the temporary is not beside its destination"
-    assert "os.replace" in src
+    import os
+    from utils.core import atomic_write as aw
+    moves = []
+    real = os.replace
+    monkeypatch.setattr(aw.os, "replace", lambda src, dst: (moves.append((src, dst)), real(src, dst))[1])
+    dest = tmp_path / "corpus" / "page.md"
+    dest.parent.mkdir()
+    write_atomic(dest, "hello")
+    assert dest.read_text() == "hello"
+    assert moves and all(os.path.dirname(os.fspath(src)) == os.fspath(dest.parent) for src, _ in moves)
 
 
 def test_append_preserves_what_was_there(tmp_path):

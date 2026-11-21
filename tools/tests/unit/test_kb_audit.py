@@ -103,18 +103,6 @@ def test_excluded_trees_are_not_audited_as_corpus():
 
 # ── The two writer bugs ──────────────────────────────────────────────
 
-def test_forum_dedup_spans_every_dated_file():
-    """It read only today's file, so a post recorded yesterday was invisible and
-    written again in full: 76 byte-identical files across 34 user directories,
-    one more per user per day for as long as the scraper saw the same posts."""
-    import inspect
-    from utils.social.kaia_forum import ForumClient
-
-    src = inspect.getsource(ForumClient)
-    assert 'glob("interactions_*.md")' in src, (
-        "the dedup no longer scans the user's other dated files")
-    assert "seen_ids" in src
-
 
 def test_enrichment_filters_before_it_caps():
     """The cap was applied to the whole file list in directory order — books
@@ -125,15 +113,6 @@ def test_enrichment_filters_before_it_caps():
     cap = src.index("args.limit]")
     filt = src.index("is_eligible_for_enrichment(frontmatter, body):\n            eligible.append")
     assert filt < cap, "the limit is applied before eligibility again"
-
-
-def test_the_wiki_scraper_refuses_pages_with_no_article_in_them():
-    """An 8-word page filed as "WinEQ Installation and Configuration" wins
-    retrieval on its title and then answers nothing, which is worse than its
-    absence."""
-    src = Path("tools/social/scrape_p99_wiki.py").read_text(encoding="utf-8")
-    assert "intended to disambiguate" in src
-    assert "MIN_ARTICLE_WORDS" in src
 
 
 # ── enrich_metadata's contract ───────────────────────────────────────

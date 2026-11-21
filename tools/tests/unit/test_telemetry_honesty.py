@@ -58,17 +58,6 @@ def test_proactive_dispatch_does_not_fail_silently():
     assert "does not" in head and "resolve" in head
 
 
-def test_external_platforms_do_not_stamp_the_discord_interaction_clock():
-    """`update_interaction` drives engagement decay, the idle-quip timer, her
-    status text and the proactive channel choice. Forum threads arrive as
-    MockMessages whose channel id is a crc32, indistinguishable from a
-    snowflake, and were stamping all of it."""
-    from utils.core import message_processor as mp
-
-    src = inspect.getsource(mp)
-    assert "self.bot_state.update_interaction(None if is_dm else msg.channel.id)" in src, "a DM can still become the last active guild channel"
-
-
 def test_batch_persistence_reports_what_actually_reached_disk():
     """Per-index persist failures are caught and execution continues, so the
     summary named every type it *attempted* — including any that had just

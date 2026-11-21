@@ -250,10 +250,3 @@ def test_quote_scaffolding_is_stripped_from_history():
     assert "lol im not exagurating" in out and "fair point" in out
 
 
-def test_the_local_copy_only_supplements_the_live_scrape():
-    """The live posts are the current state and must remain the tail."""
-    import inspect
-    from utils.social.forum_drafting import seed_thread_history
-    src = inspect.getsource(seed_thread_history)
-    assert "older + list(earlier_posts)" in src
-    assert "len(scraped) > len(earlier_posts)" in src

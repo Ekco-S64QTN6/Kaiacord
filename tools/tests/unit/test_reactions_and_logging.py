@@ -277,11 +277,8 @@ def test_a_captionless_image_trims_the_history():
     assert "attachments" in window, "trim must be conditioned on an attachment"
 
 
-def test_the_addressee_anchor_is_still_present():
-    """The trim supplements the anchor; it does not replace it."""
-    from pathlib import Path
-    src = Path("utils/core/message_processor.py").read_text(encoding="utf-8")
-    assert "You are speaking exclusively to {ctx.author_name}" in src
+def test_the_addressee_anchor_is_still_present(build_messages):
+    assert "You are speaking exclusively to Cecily" in build_messages("hi there", author="Cecily")[-1]["content"]
 
 
 # ── Emoji register ───────────────────────────────────────────────────────────

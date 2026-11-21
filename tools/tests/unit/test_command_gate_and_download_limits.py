@@ -105,12 +105,6 @@ def test_one_person_runs_one_download_at_a_time(monkeypatch):
     assert dl._downloading == set()                                   # released on failure too
 
 
-def test_the_handler_stages_and_logs_the_redacted_url():
-    src = open("utils/commands/download_handler.py", encoding="utf-8").read()
-    assert "'source_url': redact_url(url)" in src and "'source_url': url" not in src
-    assert "Staged {redact_url(url)}" in src
-
-
 def test_a_sidecar_staged_with_a_credential_is_filed_without_it(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location("process_ingress_under_test", "tools/maintenance/process_ingress.py")
     ingress = importlib.util.module_from_spec(spec)

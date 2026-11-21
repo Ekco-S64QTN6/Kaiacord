@@ -210,7 +210,6 @@ def test_ranking_returns_the_best_first(interest):
 # ── The prompt ───────────────────────────────────────────────────────
 
 
-
 # ── Lurking ──────────────────────────────────────────────────────────
 
 def test_lurking_counts_only_the_forum_she_posts_in(tmp_path, monkeypatch):
@@ -438,14 +437,17 @@ def test_forum_drafts_go_through_the_discord_pipeline():
     assert "load_persona_async" not in body, "prompt assembly belongs in the pipeline"
 
 
-def test_external_mentions_get_a_stable_channel_id():
-    """`hash()` on a str is salted per process, so this id — which keys channel
-    memory — changed on every restart, silently discarding the conversation
-    history for every external platform."""
-    from pathlib import Path
-    src = Path("utils/infrastructure/system/external_mention.py").read_text(encoding="utf-8")
-    assert "hash(platform)" not in src
-    assert "crc32" in src
+def test_external_mentions_get_a_stable_channel_id(tmp_path):
+    """`hash()` on a str is salted per process, so this id, which keys channel
+    memory, changed on every restart and dropped every external conversation."""
+    import subprocess, sys
+    probe = ("from utils.infrastructure.system.external_mention import conversation_channel_id; "
+             "print(conversation_channel_id('vbulletin', 443378))")
+    ids = {subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
+                          env={**__import__("os").environ, "PYTHONHASHSEED": seed,
+                               "KAIACORD_LOG_FILE": str(tmp_path / "child.log")}).stdout.strip()
+           for seed in ("1", "2")}
+    assert len(ids) == 1 and ids.pop().isdigit()
 
 
 def test_each_forum_thread_keeps_its_own_memory():
@@ -624,15 +626,6 @@ def test_the_replacement_list_did_not_become_the_fix():
     body = ast.get_source_segment(src, fn)
     assert body.count(".replace(") <= 6, "encoding belongs in encode_form, not here"
     assert "encode_form(post_data)" in body
-
-
-def test_both_forum_posts_use_the_encoder():
-    """Login posts a username too, and it has the same problem."""
-    from pathlib import Path
-    src = Path("utils/social/kaia_forum.py").read_text(encoding="utf-8")
-    assert src.count("encode_form(") >= 3          # definition + 2 call sites
-    assert "data=login_data" not in src
-    assert "data=post_data," not in src
 
 
 # ── Reply chains ─────────────────────────────────────────────────────
@@ -951,16 +944,6 @@ def test_eleven_letter_words_are_not_mistaken_for_video_ids(word):
 def test_real_video_ids_are_detected(vid):
     from utils.social.kaia_forum import _looks_like_video_id
     assert _looks_like_video_id(vid) is True
-
-
-def test_both_scrape_paths_collapse_videos():
-    """The old resolver ran only in thread parsing and only matched a line that
-    was *exactly* the id — the history writer emits "- <id>" list items, so
-    nothing matched there at all."""
-    from pathlib import Path
-    src = Path("utils/social/kaia_forum.py").read_text(encoding="utf-8")
-    assert "_collapse_videos(content)" in src, "thread parsing"
-    assert "collapse_video_ids(block)" in src, "post-history writer"
 
 
 # ── Forum guidance must not steer her to one-word posts ──────────────

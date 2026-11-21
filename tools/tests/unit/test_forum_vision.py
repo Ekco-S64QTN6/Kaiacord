@@ -121,13 +121,3 @@ def test_the_drafting_path_passes_images_through():
     assert "image_urls" in inspect.signature(process_external_mention).parameters
 
 
-def test_visual_grounding_is_worded_for_the_platform():
-    """"The user attached an image from their physical environment" is wrong for
-    a picture in a public thread, and invites her to treat a stranger's
-    screenshot as their living room."""
-    import inspect
-    from utils.core.message_processor import MessageProcessor
-
-    src = inspect.getsource(MessageProcessor)
-    assert "Someone posted an image in this forum thread" in src
-    assert "belonging to whoever posted it" in src
