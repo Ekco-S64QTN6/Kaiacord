@@ -100,3 +100,27 @@ def test_no_raw_ollama_request_builds_its_runner_options_by_hand():
                 bad.append(where)
     assert not bad, f"use chat_options(...) for: {bad}"
 
+
+
+def _embed_calls():
+    for root in SCANNED:
+        for path in (ROOT / root).rglob("*.py"):
+            rel = str(path.relative_to(ROOT))
+            if rel.startswith("tools/tests/") or "/llama.cpp/" in rel:
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                kw = {k.arg for k in node.keywords if k.arg}
+                if name == "OllamaEmbedding" or (name == "embed" and "model" in kw):
+                    yield f"{rel}:{node.lineno}", kw
+
+
+def test_every_embedding_call_sets_keep_alive():
+    """The embedder too: llama_index's OllamaEmbedding sends keep_alive "5m" unless
+    told otherwise, and the embedder unloaded after every quiet spell."""
+    calls = list(_embed_calls())
+    assert calls, "the scan found no embedding call: it would pass vacuously"
+    missing = [where for where, kw in calls if "keep_alive" not in kw]
+    assert not missing, f"no keep_alive (unloads after 5 min): {missing}"

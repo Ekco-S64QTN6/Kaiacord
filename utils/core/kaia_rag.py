@@ -82,7 +82,12 @@ class KaiaRAG(RAGIndexerMixin, RAGPersistenceMixin, RAGQueryMixin):
                 "num_thread": 8 if _embed_on_gpu else 4,
                 "num_ctx": config.embedding_context_tokens
             },
-            client_kwargs={"timeout": config.embedding_request_seconds}
+            client_kwargs={"timeout": config.embedding_request_seconds},
+            # Loaded for good, like the chat model. llama_index's default is
+            # "5m": the embedder unloaded after each quiet spell and the next
+            # reply's retrieval paid the reload (24 loads on 21 Nov). On the
+            # CPU it holds about half a gigabyte of RAM and no VRAM.
+            keep_alive=-1,
         )
         
         # Set global settings
