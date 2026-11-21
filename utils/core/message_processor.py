@@ -1060,30 +1060,10 @@ class MessageProcessor:
         except Exception:
             pass
 
-        # 8f. Conversational Fatigue — responses get shorter after long exchanges
-        try:
-            # This conversation only: back to the last 45-minute gap. Channel
-            # memory holds up to 70 messages across days, so counting all of it
-            # told her she had "been talking for a while" on a fresh start.
-            _session_msgs, _later = [], time.time()
-            for m in reversed(list(self.bot_state.channel_memory.get(ctx.channel_id, []))):
-                _ts = m.get('timestamp') or _later
-                if _later - _ts > 2700:
-                    break
-                _session_msgs.append(m)
-                _later = _ts
-            _exchange_count = sum(1 for m in _session_msgs if m.get('role') == 'user')
-            if _exchange_count >= 20:
-                ctx.system_prompt = ctx.system_prompt + (
-                    "\n\n[you've been talking for a while. your responses should be getting shorter "
-                    "and more direct. it's okay to give brief answers.]"
-                )
-            elif _exchange_count >= 15:
-                ctx.system_prompt = ctx.system_prompt + (
-                    "\n\n[this has been a longer conversation. slightly shorter responses feel natural right now.]"
-                )
-        except Exception:
-            pass
+        # 8f. No note on how long the conversation has run. "your responses
+        # should be getting shorter" from the fifteenth message was on 41 of 85
+        # replies on 18 Nov, the day Starkind said she seemed off; length is
+        # read from the turn alone (utils/core/turn_shape.py).
 
         # 8f0. A real reading about her, only at an extreme (behind
         # features.real_telemetry).

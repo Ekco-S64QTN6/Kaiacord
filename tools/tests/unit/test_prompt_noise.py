@@ -41,14 +41,16 @@ def test_one_long_entry_is_cut_back_to_a_sentence_start():
     assert recent_entries("", 800) == ""
 
 
-def test_the_hour_no_longer_gives_length_advice():
+def test_no_injection_gives_length_advice():
     """Length has one owner (turn_shape). The hour said "willing to go longer" at
-    night and "shorter responses" in the morning, whatever was said to her."""
-    src = PROC.read_text(encoding="utf-8")
-    block = src[src.index("# 8d. The hour colours her tone"):src.index("# 8f. Conversational Fatigue")]
-    for phrase in ("shorter responses", "go longer", "balanced responses", "match their brevity",
-                   "fuller responses"):
-        assert phrase not in block
+    night, and a fatigue note said "your responses should be getting shorter" from
+    the fifteenth message of a session (41 of 85 replies on 18 Nov)."""
+    import inspect
+    from utils.core.message_processor import MessageProcessor
+    src = inspect.getsource(MessageProcessor._retrieve_and_generate)
+    for phrase in ("shorter responses", "responses should be getting shorter", "brief answers",
+                   "go longer", "balanced responses", "match their brevity", "fuller responses"):
+        assert phrase not in src, phrase
 
 
 def test_a_recently_read_file_is_mentioned_only_when_the_turn_touches_it():
