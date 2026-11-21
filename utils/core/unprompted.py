@@ -471,6 +471,11 @@ async def _drain() -> None:
         _serving_now.add(head["source"])
         try:
             await speak(head["ctx"], head["channel"], head["source"], **head["kwargs"])
+        except Exception as e:
+            # One post that cannot be sent must not end the drainer: raised out
+            # of here, every post behind it waited for a new one to restart it.
+            from utils.infrastructure.logging.kaia_logger import log_warning
+            log_warning(f"[unprompted] queued {head['source']} post not sent: {type(e).__name__}: {e}")
         finally:
             _serving_now.discard(head["source"])
 

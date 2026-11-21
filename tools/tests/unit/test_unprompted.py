@@ -437,3 +437,25 @@ def test_failed_discord_send_does_not_commit_the_send_guard(monkeypatch, cfg):
 
     assert attempts
     assert committed == []
+
+
+def test_a_queued_post_that_fails_to_send_does_not_strand_the_rest(monkeypatch, cfg):
+    """speak() raising inside the drainer ended it, and every post behind the
+    failed one waited for something new to be queued."""
+    up._queue.clear()
+    up._serving_now.clear()
+    monkeypatch.setattr(up, "shared_wait", lambda _state, _now=None: 0.0)
+    sent = []
+
+    async def fake_speak(_ctx, _channel, source, **_kw):
+        if source == "monologue":
+            raise RuntimeError("50013 Missing Permissions")
+        sent.append(source)
+
+    monkeypatch.setattr(up, "speak", fake_speak)
+    ctx = types.SimpleNamespace(bot_state=_state())
+    for source in ("monologue", "proactive"):
+        up._queue.append({"source": source, "ctx": ctx, "channel": _Channel(), "kwargs": {},
+                          "queued_at": time.time()})
+    asyncio.run(up._drain())
+    assert sent == ["proactive"] and not up._queue
