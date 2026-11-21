@@ -126,9 +126,13 @@ def test_history_offers_recorded_catches_to_play(monkeypatch, tmp_path):
         played = AsyncMock()
         monkeypatch.setattr("utils.radio.live.play_clip", played)
         member = NS(voice=NS(channel=NS(name="General")), display_name="Ekco")
-        inter = NS(user=member, response=NS(defer=AsyncMock(), send_message=AsyncMock()),
+        inter = NS(user=member, guild=NS(id=1), response=NS(defer=AsyncMock(), send_message=AsyncMock()),
                    followup=NS(send=AsyncMock()))
         await view.play.callback(inter)
+        # A live set on the connection: refused, not cut off under its session.
+        monkeypatch.setattr("utils.audio.strudel_session.get_session", lambda gid: object())
+        await view.play.callback(inter)
+        assert "music" in inter.response.send_message.await_args.args[0]
         return played
     played = asyncio.run(go())
     assert played.await_count == 1

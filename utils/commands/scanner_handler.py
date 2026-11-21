@@ -128,6 +128,11 @@ class HistoryView(discord.ui.View):
             return await interaction.response.send_message("Pick a recording first.", ephemeral=True)
         if not getattr(member, "voice", None) or not member.voice.channel:
             return await interaction.response.send_message("Join a voice channel first.", ephemeral=True)
+        # As Listen does: stopping the connection's audio would leave the set's
+        # session and browser running with nothing coming out.
+        from utils.audio.strudel_session import get_session as music_session
+        if music_session(getattr(interaction.guild, "id", None)):
+            return await interaction.response.send_message("The music's playing — `!music off` first.", ephemeral=True)
         await interaction.response.defer()
         label = f"{c['freq_hz'] / MHZ:.4f} MHz {c['kind']}"
         try:

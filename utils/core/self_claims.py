@@ -63,11 +63,17 @@ def her_turns(days: int, now: Optional[datetime] = None, limit: int = 80) -> Lis
 
 
 def load() -> List[dict]:
+    """Her claims, or [] when there are none. A file that exists but can't be
+    read is moved aside: the night would reseed and save over every claim."""
     try:
         with open(STORE, encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, list) else []
+    except FileNotFoundError:
+        return []
     except (OSError, ValueError):
+        from utils.core.atomic_write import set_aside
+        log_warning(f"Unreadable self-model claims kept as {set_aside(STORE)}")
         return []
 
 
