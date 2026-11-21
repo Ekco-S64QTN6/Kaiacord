@@ -547,8 +547,9 @@ class YAMLConfig:
         """Check if a user is an owner/admin.
 
         Matches on the numeric Discord user id (authoritative) or the account
-        username, with trailing-period normalization for Discord username
-        compatibility (e.g., 'ekco.' matches 'ekco').
+        username, exactly. Usernames are unique, but "ekco" and "ekco." are two
+        different accounts: matching with the trailing period stripped let
+        whichever of them is not the owner in.
 
         `display_name` is deliberately NOT part of the decision. A server
         nickname is chosen by the member, is not unique, and can be changed at
@@ -559,11 +560,9 @@ class YAMLConfig:
         parameter is kept because fourteen call sites pass it positionally,
         and is used only to log the mismatch.
         """
-        owner_list = self.owner_ids
-        # Normalize: strip trailing periods (Discord adds them to some usernames)
-        normalized_owners = {o.rstrip('.') for o in owner_list}
+        normalized_owners = set(self.owner_ids)
 
-        checks = [str(author_name or '').lower().rstrip('.')]
+        checks = [str(author_name or '').lower()]
         if user_id:
             checks.append(str(user_id).lower())
 
@@ -573,7 +572,7 @@ class YAMLConfig:
         # Not an owner. If the nickname alone would have matched, that is
         # either a name collision or an impersonation attempt — surface it.
         if display_name:
-            nickname = str(display_name).lower().rstrip('.')
+            nickname = str(display_name).lower()
             if nickname in normalized_owners:
                 try:
                     from utils.infrastructure.logging.kaia_logger import log_warning

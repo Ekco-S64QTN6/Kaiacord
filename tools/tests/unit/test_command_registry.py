@@ -111,7 +111,8 @@ def test_owner_only_flag_matches_the_handler_gate(cmd):
     # a member sets their nickname to the owner's name: this once granted the admin commands
     ("mallory", "Ekco", "999999999999999999", False),
     ("mallory", "mallory", "999999999999999999", False),
-    ("ekco.", None, "1", True),                                     # Discord appends a period to some legacy names
+    # "ekco." is another account than "ekco": the owner is matched by id or exact username
+    ("ekco.", None, "1", False),
 ])
 def test_who_is_the_owner(name, display, uid, owner):
     assert config.is_owner(name, display, uid) is owner
