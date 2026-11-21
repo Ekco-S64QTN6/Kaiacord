@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from utils.infrastructure.logging.kaia_logger import log_debug
 from utils.radio.fetch import FeedError, get_json, is_stale, read_cache, write_cache
 
 AU_KM = 149_597_870.7
@@ -201,7 +202,13 @@ async def space_weather() -> dict:
         flares = await get_json("https://services.swpc.noaa.gov/json/goes/primary/xray-flares-latest.json")
         _need(isinstance(kp, list) and kp, "NOAA SWPC Kp")
         latest_kp = kp[-1] if isinstance(kp[-1], dict) else dict(zip(kp[0], kp[-1]))
-        solar = await _text("https://www.hamqsl.com/solarxml.php")
+        # Solar flux and band conditions come from a ham site and are optional
+        # everywhere they are shown: its outage must not take NOAA's Kp with it.
+        try:
+            solar = await _text("https://www.hamqsl.com/solarxml.php")
+        except FeedError as e:
+            log_debug(f"[sky] solar conditions unavailable: {e}")
+            solar = ""
         def tag(t):
             m = re.search(rf"<{t}>\s*([^<]*)", solar)
             return m.group(1).strip() if m else ""

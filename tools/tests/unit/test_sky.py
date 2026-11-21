@@ -129,3 +129,15 @@ def test_sky_without_a_location_says_how_to_set_one():
         m = _msg("!sky")
         asyncio.run(sh.handle_sky_command(None, m))
     assert "sky.location" in m.channel.send.await_args.kwargs["embed"].description
+
+
+def test_space_weather_keeps_noaas_kp_when_the_solar_site_is_down():
+    """Solar flux and band conditions come from a ham site; its outage took Kp with it."""
+    async def noaa(url, *a, **k):
+        if "k-index" in url:
+            return [{"time_tag": "2026-11-21T03:00:00", "Kp": 2.33}]
+        return []
+    with patch.object(feeds, "get_json", AsyncMock(side_effect=noaa)), \
+         patch.object(feeds, "_text", AsyncMock(side_effect=FeedError("hamqsl answered HTTP 503"))):
+        w = asyncio.run(feeds.space_weather())
+    assert w["kp"] == 2.33 and w["solar_flux"] == "" and w["bands"] == {}
