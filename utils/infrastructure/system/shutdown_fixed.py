@@ -19,6 +19,9 @@ import warnings
 from typing import Optional, Any
 from utils.infrastructure.logging.kaia_logger import log_info, log_success, log_error, log_warning
 
+#: How long shutdown waits for the RAG index save (see the step that uses it).
+RAG_SAVE_TIMEOUT_S = 25.0
+
 # Suppress harmless multiprocessing semaphore cleanup warnings at shutdown.
 # LlamaIndex's tokenizer subprocesses create POSIX semaphores that outlive the
 # resource_tracker, producing ~16 "leaked semaphore" warnings on every exit.
@@ -282,7 +285,10 @@ class CleanShutdown:
                 try:
                     saved = await asyncio.wait_for(
                         asyncio.to_thread(lambda: self.rag.persist(shutdown=True)),
-                        timeout=15.0
+                        # Saving the logs index (~80 MB) takes 7-22 s; at 15 s,
+                        # 19 of 31 shutdown saves (13-21 Nov) were cut short.
+                        # Within BOT_SHUTDOWN_DEADLINE_S with the steps around it.
+                        timeout=RAG_SAVE_TIMEOUT_S
                     )
                     if saved is None:
                         log_info("  ✅ RAG indices already on disk (nothing changed since the last save)")
@@ -291,7 +297,8 @@ class CleanShutdown:
                     else:
                         log_warning("  ⚠️ RAG indices NOT fully saved (see the error above)")
                 except asyncio.TimeoutError:
-                    log_warning("  ⚠️ RAG persistence taking too long, continuing...")
+                    log_warning(f"  ⚠️ RAG save did not finish in {RAG_SAVE_TIMEOUT_S:.0f}s; the files on disk are "
+                                "the last complete save, and the next boot re-indexes what changed since")
             except Exception as e:
                 log_error(f"  ❌ Error persisting RAG: {e}")
 
