@@ -26,6 +26,18 @@ if live_write_guard:
 
 import pytest
 
+
+def pytest_sessionstart(session):
+    """Start every run with empty test journals. `telemetry_path` sends a test's
+    appends to `memory/<name>.test.jsonl`, and nothing cleared them: the records
+    journal had reached 4,603 rows (2.1 MB) of earlier runs, which a test reading
+    it back would see. Only the `.test.jsonl` redirect targets are touched."""
+    memory = Path(project_root) / "memory"
+    if memory.is_dir():
+        for journal in memory.rglob("*.test.jsonl"):
+            journal.unlink(missing_ok=True)
+
+
 #: Shutdown steps that act on the live machine: the model in VRAM and this
 #: host's Ollama runners. A test reaching one is recorded like a live write.
 _LIVE_TEARDOWN = (
