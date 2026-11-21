@@ -236,6 +236,10 @@ def convert_staged_file(path: Path, dry_run: bool) -> tuple:
     # Capacities.pdf".
     stem = safe_display_stem(" ".join(path.stem.split()))
     md_path = path.with_name(stem + ".md")
+    n = 2
+    while md_path.exists():         # a staged .md of the same name is another document
+        md_path = path.with_name(f"{stem} ({n}).md")
+        n += 1
     if dry_run:
         return True, f"would convert -> {md_path.name} ({len(raw.split())} words)"
 
