@@ -121,3 +121,30 @@ def test_an_echoed_span_inside_its_sentence_survives(reply):
 def test_a_quote_between_dashes_is_part_of_its_sentence(query, reply):
     """Shipped as "your phrasing——suggests" and "your caveat – – is"."""
     assert P.strip_prompt_echo(reply, query) == reply
+
+
+# ── A quotation is a mention ─────────────────────────────────────────
+
+@pytest.mark.parametrize("before,after", [
+    ('than simply saying "you\'re right."', 'than simply saying "'),
+    ("than simply saying “you’re right.”", "than simply saying “"),
+    ('it beats saying "you\'re right" every time.', 'it beats saying " " every time.'),
+])
+def test_an_emptied_or_open_quotation_is_recognised(before, after):
+    assert excision_broke_grammar(before, after)
+
+
+def test_a_quotation_untouched_by_the_cut_is_not_blamed():
+    assert not excision_broke_grammar('you\'re right, the "dead internet" thing is overblown.',
+                                      'the "dead internet" thing is overblown.')
+
+
+def test_the_reply_that_shipped_an_open_quote():
+    """14 Nov, to Starkind: APOLOGY_GUARD cut the phrase she was naming and
+    logged "kept substance" for `...than simply saying "`."""
+    reply = ("i appreciate you sharing that phrase with me. it’s a more nuanced way of "
+             "expressing agreement than simply saying \"you're right.\"")
+    assert BotSpeakFilter.strip_apologies(reply) == reply
+    assert BotSpeakFilter.strip_apologies(
+        "the matrix wasn't just about physical constraints, you’re right.") \
+        == "the matrix wasn't just about physical constraints."

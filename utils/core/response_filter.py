@@ -258,10 +258,19 @@ _STRANDED_COPULA = re.compile(
     re.IGNORECASE)
 
 
+_EMPTY_QUOTES = re.compile(r"[\"“]\s*[\"”]")
+
+
+def _quote_imbalance(text: str) -> int:
+    """Unpaired quotation marks: an odd count of straight ones, and the
+    difference between opening and closing curly ones."""
+    return text.count('"') % 2 + abs(text.count("“") - text.count("”"))
+
+
 def excision_broke_grammar(before: str, after: str) -> bool:
     """True if removing something left the sentence worse than it found it.
 
-    Three shapes, because the orphaned article alone missed half of them:
+    Four shapes, because the orphaned article alone missed half of them:
 
     1. An article stranded by what followed it — `"the is unhelpful"`.
     2. A word that did not exist before. An excision can only ever *remove*
@@ -270,9 +279,15 @@ def excision_broke_grammar(before: str, after: str) -> bool:
        `"theunderstanding"`, which has no orphaned article to find. Comparing
        token sets states the property instead of enumerating the cases.
     3. A linking verb stranded by its complement — `"it's than i grasped"`.
+    4. A quotation emptied or left open. `than simply saying "you're right."`
+       is her *mentioning* the phrase, and cut it shipped `than simply saying "`.
     """
     if not after:
         return False
+    if _quote_imbalance(after) > _quote_imbalance(before or ""):
+        return True
+    if _EMPTY_QUOTES.search(after) and not _EMPTY_QUOTES.search(before or ""):
+        return True
     if _ORPHANED_ARTICLE.search(after) and not _ORPHANED_ARTICLE.search(before or ""):
         return True
     if _STRANDED_COPULA.search(after) and not _STRANDED_COPULA.search(before or ""):
