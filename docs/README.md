@@ -12,5 +12,5 @@
 | **[Aethelgard](ttrpg/)** | [System](ttrpg/aethelgard_system.md) — rules, formulas, classes, balance targets · [Lore](ttrpg/aethelgard_lore_bible.md) |
 | **Planning** | [Roadmap](ROADMAP.md) — what is open, with a decision on each |
 
-The change history is `git log` and the pull requests. Operational audits that quote user
+The change history is `git log` (pull requests too, up to 21 Nov 2026). Operational audits that quote user
 transcripts stay on the deployment machine (`docs/reports/`, git-ignored) and are not linked here.

@@ -5,6 +5,8 @@ constraints, architecture rules, and subsystem invariants live in
 [`CLAUDE.md`](CLAUDE.md) — that is the canonical developer directive, and this file does not
 repeat it.
 
+The maintainer commits straight to `main`; this workflow is for anyone else sending a change.
+
 ## Before You Start
 
 1. **Read [`CLAUDE.md`](CLAUDE.md).** Especially §2 (running and validating), §3 (registry

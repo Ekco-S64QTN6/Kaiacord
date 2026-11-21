@@ -141,7 +141,7 @@ async def test_my_new_feature():
 
 ## Pre-Flight Health Check
 
-Before submitting a pull request or starting the bot for the first time, run the health check. It
+Before pushing a change or starting the bot for the first time, run the health check. It
 checks that it is running in the project venv with the required packages (including `davey`), the
 Discord token, Ollama and the models, the GPU as `nvidia-smi` reports it, the knowledge base and
 the directories it writes to.
@@ -187,5 +187,5 @@ For changes under `utils/ttrpg/`, the general selector also adds the full RPG te
 so RPG code changes should receive both workflows. Non-TTRPG changes do not automatically
 trigger the RPG-specific workflow. Review the `Focused test files:` list printed by
 `run_ci_tests.py`: a green workflow is meaningful only when its test selection covers the
-changed behavior. Check conclusions against the exact PR head SHA; after merging, verify the
-applicable `main` push workflows separately.
+changed behavior. Changes are pushed straight to `main`; read the run for the pushed SHA, and
+fix forward with another commit if it fails.

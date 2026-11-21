@@ -4,7 +4,7 @@ What CI checks besides the tests, what each check blocks, and the baseline it st
 (measured 12 November 2026 on `main`). The rollout is gradual on purpose: each gate blocks only
 what is already clean, so turning it on changed no existing code beyond one pre-initialised local.
 
-| Check | Workflow | Tool (pinned) | Scope | Blocks a merge |
+| Check | Workflow | Tool (pinned) | Scope | Fails the run |
 |:--|:--|:--|:--|:--|
 | Lint | `quality.yml` | ruff 0.17.4 | whole repository, error rules only | yes |
 | Type ratchet | `quality.yml` | mypy 2.4.1 | changed `utils/*.py` files, against their base | yes |

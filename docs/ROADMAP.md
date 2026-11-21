@@ -3,8 +3,7 @@
 What is open, and the call on each. Updated 10 November 2026.
 
 Each item carries a decision: **Yes** (to build), **Watch** (measure before building), **Owner's
-call**, or **No** (researched and declined, with the reason). Closed work is in `git log` and the
-pull requests.
+call**, or **No** (researched and declined, with the reason). Closed work is in `git log`.
 
 ## To build
 
