@@ -89,7 +89,7 @@ The checks:
 | `test_reactions_and_logging.py` | Emoji selection and log payload compaction |
 | `test_memory_layer_regressions.py` | Observation digest, belief and relationship eviction |
 | `test_response_filters.py` | Post-generation filter behaviour |
-| `test_phase69_filter_regressions.py` | Specific over-stripping incidents |
+| `test_filter_overstripping.py` | Over-stripping incidents |
 | `test_rpg_hardening.py` | Record ids, purchase limits, character names, the caravan's stock |
 | `test_untrusted_outside_text.py` | Text from users, feeds, scraped pages and models cannot break what it is put into |
 | `test_dm_privacy_and_identity.py` | A private turn stays out of the diagnostic logs; no role or `@everyone` pings |

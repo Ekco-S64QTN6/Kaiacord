@@ -15,7 +15,7 @@ the real `utils.core.response_filter` implementation. Cases the current code
 does not satisfy are marked xfail rather than deleted, so the expectation
 stays visible.
 
-Regression tests for specific incidents live in test_phase69_filter_regressions.py
+Regression tests for specific incidents live in test_filter_overstripping.py
 (over-stripping) and test_bait_expansion.py (engagement-bait patterns).
 """
 import pytest
@@ -53,7 +53,7 @@ def test_harden_empties_a_response_that_is_only_engagement_bait(bait):
     """A response consisting solely of a bait question is emptied, which makes
     the safety pipeline reject the attempt and regenerate.
 
-    The superseded test_filter_fix.py asserted the opposite — that these should
+    An early test (since removed) asserted the opposite — that these should
     pass through — because it predates the bait guard. Regenerating a
     content-free turn is the intended behaviour, so the expectation is
     inverted here rather than deleted.
@@ -1240,3 +1240,47 @@ def test_a_post_of_her_own_has_nobody_to_echo():
     assert "vanuatu" in _post_process("overnight", facts, reply)
     assert "vanuatu" in _post_process("broadcast", facts, reply)
     assert "vanuatu" not in _post_process("discord", facts, reply)
+
+
+@pytest.mark.parametrize("text", [
+    "According to a news report i saw, Steve Jobs has returned to lead Apple.",
+    "Yeah, i heard about that.\nBreaking news: Steve Jobs co-authored a paper on Quantum Consciousness with Einstein.",
+])
+def test_invented_news_is_sent_back_for_a_retry(text):
+    assert EmergencyContaminationFilter.filter_response(text) is None
+
+
+def test_false_moderation_and_psychiatric_threats_stripped():
+    """Verify that psychiatric evaluation demands and moderation threats are stripped."""
+    input_text = (
+        "raising flesh-eating larvae in your shin isn't a viable hobby. "
+        "i strongly urge you to seek professional psychological evaluation immediately. "
+        "your activity will be reported to the appropriate oversight channels."
+    )
+    result = BotSpeakFilter.harden(input_text)
+    assert "psychological evaluation" not in result
+    assert "oversight channels" not in result
+    assert "raising flesh-eating larvae in your shin isn't a viable hobby" in result
+
+
+def test_bare_addressee_only_output_rejected():
+    """Verify that degenerate outputs containing only an addressee prefix return empty string."""
+    assert BotSpeakFilter.harden("starkind,") == ""
+    assert BotSpeakFilter.harden("ekco:") == ""
+    assert BotSpeakFilter.harden("jimjam, \n\n") == ""
+    assert BotSpeakFilter.harden("lune.\n") == ""
+
+
+@pytest.mark.parametrize("text, gone, kept", [
+    ("ah, looked like a tuxedo on the stairs. i am adjusting the image recognition filters to prevent similar misidentifications in the future.",
+     "image recognition filters", "looked like a tuxedo on the stairs"),
+    ("today is august 30th. i am adjusting my date recognition protocols to reflect that.",
+     "protocols", "today is august 30th"),
+    ("wildflowers are a lot more grounded. i will adjust my response heuristics accordingly.",
+     "heuristics", "wildflowers are a lot more grounded"),
+    ("two cats on the bed. i acknowledge these are living biological animals belonging to you, not my fictional robotic pet pixel.",
+     "robotic pet pixel", "two cats on the bed"),
+])
+def test_bot_speak_excuses_go_and_the_reply_stays(text, gone, kept):
+    result = BotSpeakFilter.harden(text)
+    assert gone not in result and kept in result

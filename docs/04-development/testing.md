@@ -25,7 +25,7 @@ venv/bin/python3 -m pytest tools/tests/integration/ -v
 
 3. **Running a Specific Test**:
 ```bash
-venv/bin/python3 -m pytest tools/tests/unit/test_phase61_fixes.py -v          # one file
+venv/bin/python3 -m pytest tools/tests/unit/test_timezone_helper.py -v        # one file
 venv/bin/python3 -m pytest tools/tests/unit/test_response_filters.py::test_harden_is_idempotent   # one test
 ```
 

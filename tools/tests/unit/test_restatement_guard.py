@@ -1,3 +1,4 @@
+import pytest
 """The parroting the operator reported on 2026-09-18.
 
 Measured across her September user logs, a sentence containing a seven-word
@@ -40,42 +41,24 @@ def test_restating_the_user_with_an_agreement_tag_goes():
     assert "the part most people skip" in out
 
 
-def test_a_denial_is_an_answer_not_an_echo():
-    user = ("53-year-old Canadian man warns ChatGPT had him lose his grip on reality. "
-            "Kaia, should I apply to be the next pope?")
-    reply = ("no, you should not apply to be the next pope. that story is a cautionary "
-             "one about what sycophantic models do to people.")
-    assert P.strip_restatements(reply, user) == reply
-
-
-def test_a_first_person_answer_is_not_an_echo():
-    user = ("are you willing to explore some imagery that is outside the standard "
-            "deviation of completely neutral or emotional banality")
-    reply = ("i am willing to explore imagery outside the standard deviation of "
-             "completely neutral or emotional banality. send it over and we'll see.")
-    assert P.strip_restatements(reply, user) == reply
-
-
-def test_short_shared_phrasing_is_left_alone():
-    user = "what do you make of the heat death of the universe"
-    reply = ("the heat death of the universe is a long way off. entropy wins eventually, "
-             "but 'eventually' is doing a lot of work in that sentence.")
-    assert P.strip_restatements(reply, user) == reply
-
-
-def test_a_reply_that_is_mostly_restatement_is_left_intact_rather_than_gutted():
-    # Bounding the damage: if most of the turn is echo that is a generation
-    # problem, and deleting most of a reply is worse than shipping a lazy one.
-    user = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet. "
-            "kilo lima mike november oscar papa quebec romeo sierra tango.")
-    reply = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet. "
-             "kilo lima mike november oscar papa quebec romeo sierra tango.")
-    assert P.strip_restatements(reply, user) == reply
-
-
-def test_guard_never_empties_a_turn():
-    user = "the quick brown fox jumps over the lazy dog every single morning"
-    reply = "the quick brown fox jumps over the lazy dog every single morning."
+@pytest.mark.parametrize("user, reply", [
+    # a denial is an answer, not an echo
+    ("53-year-old Canadian man warns ChatGPT had him lose his grip on reality. Kaia, should I apply to be the next pope?",
+     "no, you should not apply to be the next pope. that story is a cautionary one about what sycophantic models do to people."),
+    # a first-person answer is not an echo
+    ("are you willing to explore some imagery that is outside the standard deviation of completely neutral or emotional banality",
+     "i am willing to explore imagery outside the standard deviation of completely neutral or emotional banality. send it over and we'll see."),
+    # short shared phrasing
+    ("what do you make of the heat death of the universe",
+     "the heat death of the universe is a long way off. entropy wins eventually, but 'eventually' is doing a lot of work in that sentence."),
+    # mostly restatement: a generation problem, and gutting the reply is worse than shipping it
+    ("alpha bravo charlie delta echo foxtrot golf hotel india juliet. kilo lima mike november oscar papa quebec romeo sierra tango.",
+     "alpha bravo charlie delta echo foxtrot golf hotel india juliet. kilo lima mike november oscar papa quebec romeo sierra tango."),
+    # never empties a turn
+    ("the quick brown fox jumps over the lazy dog every single morning",
+     "the quick brown fox jumps over the lazy dog every single morning."),
+])
+def test_the_reply_is_left_intact(user, reply):
     assert P.strip_restatements(reply, user) == reply
 
 

@@ -105,29 +105,16 @@ def test_owner_only_flag_matches_the_handler_gate(cmd):
 
 # ── Admin authorization ──────────────────────────────────────────────
 
-def test_owner_is_recognised_by_username():
-    assert config.is_owner("ekco", "Ekco", "177011971818782721") is True
-
-
-def test_owner_is_recognised_by_user_id_alone():
-    """Guards against a username change locking the operator out."""
-    assert config.is_owner("some_new_handle", "whatever", "177011971818782721") is True
-
-
-def test_display_name_alone_does_not_grant_admin():
-    """The escalation this replaced: a member sets their server nickname to the
-    owner's name and gains `!reindex --full`, `!enrich`, `!memory`, `!forum`,
-    `!snapshot`, `!selfmodel`, `!sysmon` and `!dream generate`."""
-    assert config.is_owner("mallory", "Ekco", "999999999999999999") is False
-
-
-def test_ordinary_user_is_not_an_owner():
-    assert config.is_owner("mallory", "mallory", "999999999999999999") is False
-
-
-def test_trailing_period_usernames_still_match():
-    """Discord appends a period to some legacy usernames."""
-    assert config.is_owner("ekco.", None, "1") is True
+@pytest.mark.parametrize("name, display, uid, owner", [
+    ("ekco", "Ekco", "177011971818782721", True),
+    ("some_new_handle", "whatever", "177011971818782721", True),   # a username change can't lock the owner out
+    # a member sets their nickname to the owner's name: this once granted the admin commands
+    ("mallory", "Ekco", "999999999999999999", False),
+    ("mallory", "mallory", "999999999999999999", False),
+    ("ekco.", None, "1", True),                                     # Discord appends a period to some legacy names
+])
+def test_who_is_the_owner(name, display, uid, owner):
+    assert config.is_owner(name, display, uid) is owner
 
 
 # ── Help rendering ───────────────────────────────────────────────────
