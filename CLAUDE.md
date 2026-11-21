@@ -609,7 +609,8 @@ do so" changed nothing (0.70 both). Guards stay the last resort for what samplin
 **A prompt's example is the output.** Every proactive opener opened on its hint's "Example tone" word for word ("randomly
 remembered that conversation…", "been sitting with this thought…"), and all 14 digests in a log opened "I noticed they were",
 the prompt's own example. The examples are gone, and a post that opens like two of her last five is drafted once more
-(`repeats_opening`: the monologue, the digest). Five of eight impressions read "<name> is a whirlwind", written minutes apart
+(`repeats_opening`: the monologue, the digest, the quip and, since 21 Nov, the proactive opener, where "it's funny" opened 26 of
+her last 50 posts in #kaia-opolis). Five of eight impressions read "<name> is a whirlwind", written minutes apart
 with no sight of each other: `relationship_impressions.stock_image` redrafts one that calls someone what another is already
 called.
 

@@ -1426,55 +1426,77 @@ class ProactiveEngine:
                     keep_alive=-1,
                 )
 
-            response = await gpu_memory_manager.run_with_gpu_guard(
-                model_name=chat_model,
-                priority=GPUTaskPriority.CHAT,
-                coro=asyncio.wait_for(_run_proactive(), timeout=45.0),
-                task_id=f"proactive_{uuid.uuid4().hex[:8]}",
-            )
-
-            raw = response["message"]["content"].strip()
-
-            # Basic cleanup
-            raw = raw.strip('"\'')
-            if raw.startswith("Kaia:") or raw.startswith("kaia:"):
-                raw = raw[5:].strip()
-
-            # Full post-generation safety pipeline
-            # 1. Contamination filter (hallucination/fabrication guard)
-            try:
-                from utils.core.response_filter import (
-                    BotSpeakFilter, EmergencyContaminationFilter,
+            async def _draft():
+                response = await gpu_memory_manager.run_with_gpu_guard(
+                    model_name=chat_model,
+                    priority=GPUTaskPriority.CHAT,
+                    coro=asyncio.wait_for(_run_proactive(), timeout=45.0),
+                    task_id=f"proactive_{uuid.uuid4().hex[:8]}",
                 )
-                filtered = EmergencyContaminationFilter.filter_response(raw)
-                if filtered is None:
-                    log_warning(
-                        "Proactive opener failed contamination filter. "
-                        "Discarding."
+
+                raw = response["message"]["content"].strip()
+
+                # Basic cleanup
+                raw = raw.strip('"\'')
+                if raw.startswith("Kaia:") or raw.startswith("kaia:"):
+                    raw = raw[5:].strip()
+
+                # Full post-generation safety pipeline
+                # 1. Contamination filter (hallucination/fabrication guard)
+                try:
+                    from utils.core.response_filter import (
+                        BotSpeakFilter, EmergencyContaminationFilter,
                     )
+                    filtered = EmergencyContaminationFilter.filter_response(raw)
+                    if filtered is None:
+                        log_warning(
+                            "Proactive opener failed contamination filter. "
+                            "Discarding."
+                        )
+                        return None
+                    raw = filtered
+                except Exception:
+                    pass
+
+                # 2. BotSpeak hardening (persona consistency)
+                try:
+                    from utils.core.response_filter import BotSpeakFilter
+                    raw = BotSpeakFilter.harden(raw)
+                except Exception:
+                    pass
+
+                # 3. Style collapsers (ellipsis/em-dash drift)
+                try:
+                    from utils.core.safety_pipeline import (
+                        PostGenerationSafetyPipeline,
+                    )
+                    raw = PostGenerationSafetyPipeline.apply_style_collapsers(raw)
+                except Exception:
+                    pass
+
+                if trigger.trigger_type == "absence":
+                    raw = addressed_to(raw, trigger.target_user)
+                return raw
+
+            # An opening the channel has already seen twice in her last five
+            # posts is drafted once more, as the quip is: "it's funny, i was
+            # just thinking about..." opened 20 of 40 openers (13-21 Nov), and
+            # Starkind answered "it's not funny. it's repetitive."
+            from utils.social.social_response_generator import repeats_opening
+            recent = [e.get("summary", "") for e in self._load_diversity_log()
+                      if e.get("channel_id") == trigger.channel_id][-5:]
+            raw = ""
+            for attempt in (1, 2):
+                raw = await _draft()
+                if not raw:
                     return None
-                raw = filtered
-            except Exception:
-                pass
-
-            # 2. BotSpeak hardening (persona consistency)
-            try:
-                from utils.core.response_filter import BotSpeakFilter
-                raw = BotSpeakFilter.harden(raw)
-            except Exception:
-                pass
-
-            # 3. Style collapsers (ellipsis/em-dash drift)
-            try:
-                from utils.core.safety_pipeline import (
-                    PostGenerationSafetyPipeline,
-                )
-                raw = PostGenerationSafetyPipeline.apply_style_collapsers(raw)
-            except Exception:
-                pass
-
-            if trigger.trigger_type == "absence":
-                raw = addressed_to(raw, trigger.target_user)
+                worn = repeats_opening(raw, recent)
+                if not worn:
+                    break
+                if attempt == 2:
+                    log_info(f"Proactive opener skipped: the retry still {worn}.")
+                    return None
+                log_info(f"Proactive opener {worn}; drafting it again.")
 
             if raw and len(raw) > 10:
                 log_info(
