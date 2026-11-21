@@ -351,7 +351,9 @@ class BotState:
                 if self._writer_closing or self._writer_closed:
                     return
                 # Copying live maps/deques must remain on the caller thread and
-                # under the state lock. Serializing the detached snapshot is safe
+                # under the state lock. Each top-level container is first copied
+                # in one C-level step (dict(), list()), which another thread
+                # cannot interleave with; the deep copy then walks that copy. Serializing the detached snapshot is safe
                 # on the single writer thread and avoids JSON work on Discord's loop.
                 for attempt in range(20):
                     try:
@@ -369,33 +371,33 @@ class BotState:
                             'last_manual_quip_time': self.last_manual_quip_time,
                             'last_quip_time': self.last_quip_time,
                             'quip_history': list(self.quip_history),
-                            'recent_ingestions': copy.deepcopy(self.recent_ingestions),
+                            'recent_ingestions': copy.deepcopy(list(self.recent_ingestions)),
                             'last_dream_date': self.last_dream_date,
                             'kaia_engagement': self.kaia_engagement,
-                            'engagement_decayed_at': self._engagement_decayed_at,
+                            'engagement_decayed_at': getattr(self, '_engagement_decayed_at', 0.0),
                             'last_interaction_time': self.last_interaction_time,
                             'kaia_coherence': self.kaia_coherence,
                             'kaia_dream_freshness': self.kaia_dream_freshness,
-                            'curiosity_last_sent': copy.deepcopy(self.curiosity_last_sent),
+                            'curiosity_last_sent': copy.deepcopy(dict(self.curiosity_last_sent)),
                             'last_evening_reflection': self.last_evening_reflection,
                             'last_dawn_date': self.last_dawn_date,
-                            'forum_reply_times': copy.deepcopy(self.forum_reply_times),
-                            'relationships': copy.deepcopy(self.relationships),
-                            'pending_afterthoughts': copy.deepcopy(self.pending_afterthoughts),
+                            'forum_reply_times': copy.deepcopy(dict(self.forum_reply_times)),
+                            'relationships': copy.deepcopy(dict(self.relationships)),
+                            'pending_afterthoughts': copy.deepcopy(list(self.pending_afterthoughts)),
                             'channel_last_activity': {
-                                str(k): v for k, v in self.channel_last_activity.items()
+                                str(k): v for k, v in list(self.channel_last_activity.items())
                             },
                             'unprompted_last_sent': self.unprompted_last_sent,
                             'unprompted_count': self.unprompted_count,
                             'unprompted_date': self.unprompted_date,
                             'unprompted_sources': copy.deepcopy({
-                                k: dict(v) for k, v in self.unprompted_sources.items()
+                                k: dict(v) for k, v in list(self.unprompted_sources.items())
                             }),
                             # boot_complete is TRANSIENT - do not save to disk.
                             'channel_memory': copy.deepcopy({
-                                str(k): list(v) for k, v in self.channel_memory.items()
+                                str(k): list(v) for k, v in list(self.channel_memory.items())
                             }),
-                            'channel_memory_activity': {str(k): v for k, v in self.channel_memory_activity.items()},
+                            'channel_memory_activity': {str(k): v for k, v in list(self.channel_memory_activity.items())},
                             'saved_at': time.time(),
                         }
                         break
@@ -498,7 +500,7 @@ class BotState:
         # from the interaction alone applied the same idle span repeatedly.
         if self.last_interaction_time:
             now = time.time()
-            since = max(self.last_interaction_time, self._engagement_decayed_at)
+            since = max(self.last_interaction_time, getattr(self, '_engagement_decayed_at', 0.0))
             hours_idle = (now - since) / 3600.0
             if hours_idle > 0.5:  # Only decay if idle > 30 min
                 import math

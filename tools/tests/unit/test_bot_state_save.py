@@ -89,9 +89,10 @@ def test_save_deep_copies_nested_state_and_retries_runtime_race(tmp_path, monkey
 
     path = tmp_path / "bot_state_nested.json"
     state = BotState(state_file=str(path))
-    state.relationships = FlakyDeepcopyDict({
-        "user-1": {"topic_counts": {"radio": 3}, "interaction_count": 7}
-    })
+    # A person's record changing mid-copy: the top-level map is copied in one
+    # step, so the race that is left is one level down.
+    state.relationships = {"user-1": FlakyDeepcopyDict(
+        {"topic_counts": {"radio": 3}, "interaction_count": 7})}
     try:
         state.save()
     finally:
@@ -99,7 +100,7 @@ def test_save_deep_copies_nested_state_and_retries_runtime_race(tmp_path, monkey
 
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["relationships"]["user-1"]["topic_counts"] == {"radio": 3}
-    assert state.relationships.calls >= 2
+    assert state.relationships["user-1"].calls >= 2
     assert not warnings, warnings
 
 

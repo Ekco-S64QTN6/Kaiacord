@@ -103,8 +103,11 @@ def _run(content, owner):
     async def persona():
         return "persona"
 
+    # !art renders a real piece on the CPU: 15 s here, past 30 on a CI runner.
+    limit = 90 if content.split()[0] == "!art" else 30
+
     async def go():
-        return await asyncio.wait_for(registry.dispatch_command(_context(owner), msg, persona, respond), 30)
+        return await asyncio.wait_for(registry.dispatch_command(_context(owner), msg, persona, respond), limit)
     handled = asyncio.run(go())
     return handled, out
 
