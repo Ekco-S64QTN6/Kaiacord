@@ -42,7 +42,7 @@ async def test_bounded_shutdown_component_returns_at_deadline_and_keeps_task_tra
 
 
 @pytest.mark.asyncio
-async def test_a_stuck_voice_stop_does_not_cost_the_index_save_or_the_model_unload(monkeypatch):
+async def test_a_stuck_voice_stop_does_not_cost_the_index_save_or_the_model_unload(monkeypatch, tmp_path):
     from utils.audio import strudel_session
     from utils.infrastructure.monitoring import async_task_registry
     from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
@@ -92,6 +92,13 @@ async def test_a_stuck_voice_stop_does_not_cost_the_index_save_or_the_model_unlo
     monkeypatch.setattr(rag_executor, "shutdown_rag_executor", lambda: teardown.append("executor"))
     monkeypatch.setattr(clear_gpu_memory, "force_clear_gpu", lambda: teardown.append("gpu"))
     monkeypatch.setattr(clear_gpu_memory, "kill_orphaned_runners", lambda **_kw: teardown.append("runners"))
+
+    # Shutdown saves and closes the process's BotState. Left the global one, it
+    # closed the singleton every later test in this process writes channel
+    # memory to, at a moment set by the writer thread, not by test order.
+    from utils.infrastructure.system import bot_state as bot_state_module
+    monkeypatch.setattr(bot_state_module, "bot_state",
+                        bot_state_module.BotState(state_file=str(tmp_path / "bot_state.json")))
 
     rag = FakeRag()
     shutdown = shutdown_fixed.CleanShutdown()
