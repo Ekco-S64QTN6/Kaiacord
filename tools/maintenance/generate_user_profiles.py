@@ -164,11 +164,19 @@ async def generate_profile(user_dir: Path, dry_run: bool = False) -> bool:
         options = chat_options(temperature=0.3, num_predict=800)
 
         client = _ollama.AsyncClient()
-        response = await client.chat(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            options=options,
-            keep_alive=-1,
+        # Through the guard like every other call to the model: the bot runs this
+        # from the dream, and outside it a chat turn and a profile ran at once.
+        from utils.infrastructure.gpu.gpu_manager import gpu_memory_manager, GPUTaskPriority
+        response = await gpu_memory_manager.run_with_gpu_guard(
+            model_name=MODEL,
+            coro=lambda: client.chat(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                options=options,
+                keep_alive=-1,
+            ),
+            task_id=f"profile_{user_dir.name[:24]}",
+            priority=GPUTaskPriority.BACKGROUND,
         )
         profile_text = response["message"]["content"].strip()
 
