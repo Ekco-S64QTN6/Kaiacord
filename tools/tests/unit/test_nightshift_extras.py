@@ -173,3 +173,12 @@ def test_the_uvb76_sample_takes_its_clip_from_a_receiver_that_sends_sound(tmp_pa
     meta = json.loads(out.read_text())
     assert meta["receiver"] == "muurame" and meta["clip_receiver"] == "plonsk"
     assert meta["buzz"]["state"] == "buzz"
+
+
+def test_a_number_written_without_its_trailing_zeros_is_not_invented():
+    """Kp "2.0" written as "kp 2", "460.5750 MHz" as "460.575": the same numbers."""
+    from utils.radio import overnight
+    facts = ["the planetary K index is 2.0 (quiet), solar flux 148",
+             "the busiest channel was 460.5750 MHz"]
+    assert overnight.invented_numbers("kp 2 all night, and 460.575 kept busy", facts) == set()
+    assert overnight.invented_numbers("kp 3 by morning", facts) == {"3"}
