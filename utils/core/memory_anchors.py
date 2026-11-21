@@ -51,16 +51,22 @@ _STOP_WORDS = frozenset({
 })
 
 
-def _load_anchors() -> List[Dict]:
-    """Load anchors from disk. Returns empty list on failure."""
+def _load_anchors(strict: bool = False) -> List[Dict]:
+    """Load anchors from disk; [] when there are none. A writer (`strict`) that
+    finds the file unreadable sets it aside before starting fresh: saving one
+    anchor on top of that [] replaced the other ninety-nine."""
     try:
         if os.path.exists(ANCHORS_PATH) and os.path.getsize(ANCHORS_PATH) > 0:
             with open(ANCHORS_PATH, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                if isinstance(data, list):
-                    return data
+            if isinstance(data, list):
+                return data
+            raise ValueError(f"expected a list, found {type(data).__name__}")
     except Exception as e:
         log_warning(f"Failed to load anchors: {e}")
+        if strict:
+            from utils.core.atomic_write import set_aside
+            log_warning(f"Unreadable anchors kept as {set_aside(ANCHORS_PATH)}")
     return []
 
 
@@ -155,7 +161,7 @@ def save_anchor(
     anchor_text = anchor_text.strip()[:200]
 
     with _lock:
-        anchors = _load_anchors()
+        anchors = _load_anchors(strict=True)
 
         # Deduplicate: if an anchor with the same theme+user exists, update it
         for existing in anchors:
@@ -250,7 +256,7 @@ def find_matching_anchors(
         return []
 
     with _lock:
-        anchors = _load_anchors()
+        anchors = _load_anchors(strict=True)       # this path saves access counts
         if not anchors:
             return []
         anchors = _apply_decay(anchors)

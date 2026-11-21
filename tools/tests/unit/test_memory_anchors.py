@@ -213,3 +213,12 @@ def test_an_anchor_merged_into_its_theme_says_so(tmp_path, monkeypatch):
     _full_store_of_recalled_anchors(ma, tmp_path, monkeypatch)
     assert ma.save_anchor(None, "old 3", "said differently now", weight=0.7) == "updated"
     assert ma.save_anchor(None, "", "nothing") is None
+
+
+def test_an_unreadable_store_is_kept_aside_not_overwritten(store):
+    """Saving on top of the [] an unreadable file loads as replaced every anchor."""
+    store.write_text("[{\"theme\": \"half-written", encoding="utf-8")
+    assert ma.save_anchor(None, "trust", "some trust is earned slowly.") == "formed"
+    kept = list(store.parent.glob("anchors.json.unreadable-*"))
+    assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == "[{\"theme\": \"half-written"
+    assert [a["theme"] for a in json.loads(store.read_text(encoding="utf-8"))] == ["trust"]

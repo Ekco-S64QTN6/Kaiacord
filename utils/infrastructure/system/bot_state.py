@@ -17,7 +17,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Deque, Dict, Optional
 from collections import deque
-from utils.infrastructure.logging.kaia_logger import log_info, log_warning
+from utils.infrastructure.logging.kaia_logger import log_error, log_info, log_warning
 from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 
 
@@ -188,6 +188,14 @@ class BotState:
 
         except Exception as e:
             log_warning(f"Failed to load bot state: {e}\n{traceback.format_exc()}")
+            # The first save would put this boot's empty state over her channel
+            # memory and every relationship. Keep the file that would not load.
+            try:
+                if os.path.exists(self.state_file) and os.path.getsize(self.state_file) > 0:
+                    from utils.core.atomic_write import set_aside
+                    log_error(f"bot state could not be read; the file is kept as {set_aside(self.state_file)} for repair")
+            except OSError as keep_err:
+                log_error(f"bot state could not be read, nor set aside: {keep_err}")
 
 
     # ── Channel-scoped conversation lifecycle ────────────────────────────────

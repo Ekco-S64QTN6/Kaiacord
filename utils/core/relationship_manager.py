@@ -106,8 +106,10 @@ def named_user(text: str) -> Optional[tuple[str, str]]:
     return next(iter(found.items())) if len(found) == 1 else None
 
 
-def load_events(user_id: str) -> List[RelationshipEvent]:
-    """Load all relationship events for a user."""
+def load_events(user_id: str, strict: bool = False) -> List[RelationshipEvent]:
+    """Load all relationship events for a user. A writer (`strict`) that finds
+    the file unreadable sets it aside before starting fresh: appending to that
+    [] and saving replaced up to a hundred events with one."""
     path = _user_file(user_id)
     if not os.path.exists(path):
         return []
@@ -118,6 +120,9 @@ def load_events(user_id: str) -> List[RelationshipEvent]:
         return [RelationshipEvent(**{k: v for k, v in e.items() if k in known}) for e in raw]
     except Exception as e:
         log_warning(f"Failed to load relationship events for {user_id}: {e}")
+        if strict:
+            from utils.core.atomic_write import set_aside
+            log_error(f"Unreadable relationship events kept as {set_aside(path)}")
         return []
 
 
@@ -133,7 +138,7 @@ def save_event(user_id: str, event: RelationshipEvent):
 
 
 def _save_event_locked(user_id: str, event: RelationshipEvent):
-    events = load_events(user_id)
+    events = load_events(user_id, strict=True)
     if event.event_type == "repair" and event.topics:
         # She conceded: the open disagreement on that ground is settled.
         for e in events:

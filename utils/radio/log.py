@@ -32,24 +32,34 @@ def clips_dir() -> Path:
     return p
 
 
-def entries() -> list[dict]:
+def entries(strict: bool = False) -> list[dict]:
+    """The log, newest first; [] when there is none. A writer (`strict`) that
+    finds it unreadable sets it aside first: adding one recording to that []
+    replaced the log and orphaned every clip it named."""
     try:
         data = json.loads(log_path().read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
+        if isinstance(data, list):
+            return data
+        raise ValueError(f"expected a list, found {type(data).__name__}")
+    except FileNotFoundError:
+        return []
     except (OSError, ValueError):
+        if strict:
+            from utils.core.atomic_write import set_aside
+            set_aside(log_path())
         return []
 
 
 def add(entry: dict) -> None:
     with _lock:
-        items = [entry] + [e for e in entries() if e.get("id") != entry.get("id")]
+        items = [entry] + [e for e in entries(strict=True) if e.get("id") != entry.get("id")]
         write_atomic(log_path(), json.dumps(items[:MAX_ENTRIES], indent=1))
     prune_clips()
 
 
 def update(entry_id: str, **fields) -> Optional[dict]:
     with _lock:
-        items = entries()
+        items = entries(strict=True)
         for e in items:
             if e.get("id") == entry_id:
                 e.update(fields)

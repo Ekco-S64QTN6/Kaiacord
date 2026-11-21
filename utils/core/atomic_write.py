@@ -81,6 +81,21 @@ def write_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
 
 
 @contextlib.contextmanager
+def set_aside(path: PathLike) -> Path | None:
+    """Move a file that exists but cannot be read out of the way, so the save
+    about to happen starts fresh without destroying it. A loader that answers
+    [] for an unreadable file, followed by a save of that [] plus one item,
+    replaced a whole store. Returns where the file went, or None."""
+    path = Path(path)
+    if not path.exists():
+        return None
+    import time
+    kept = path.with_name(f"{path.name}.unreadable-{int(time.time())}")
+    os.replace(path, kept)
+    fsync_directory(path.parent)
+    return kept
+
+
 def append_lock(path: PathLike):
     """Hold the sidecar lock that serialises appends to `path`.
 

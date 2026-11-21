@@ -83,3 +83,26 @@ def test_the_prune_tool_keeps_repairs_and_skips_impressions():
     assert mod.keep({"event_type": "repair", "summary": "no, that's not right, it was 1999"})
     assert mod.keep({"event_type": "repair", "summary": "erm i meant obrigado"})
     assert not mod.keep({"event_type": "repair", "summary": "actually that's fine"})
+
+
+def test_an_unreadable_events_file_is_kept_aside(tmp_path, monkeypatch):
+    """Appending to the [] an unreadable file loads as replaced every event with one."""
+    from utils.core import relationship_manager as rm
+    path = tmp_path / "42.json"
+    path.write_text('[{"timestamp": 1, "event_type": "pos', encoding="utf-8")
+    monkeypatch.setattr(rm, "_user_file", lambda uid: str(path))
+    rm.save_event("42", rm.RelationshipEvent(timestamp=2.0, event_type="positive", summary="hi",
+                                              emotional_weight=0.6))
+    kept = list(tmp_path.glob("42.json.unreadable-*"))
+    assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == '[{"timestamp": 1, "event_type": "pos'
+    assert [e.summary for e in rm.load_events("42")] == ["hi"]
+
+
+def test_an_unreadable_bot_state_is_kept_for_repair(tmp_path):
+    from utils.infrastructure.system.bot_state import BotState
+    f = tmp_path / "bot_state.test.json"
+    f.write_text('{"relationships": {"519557167779676160": {"interaction_count": 3140', encoding="utf-8")
+    s = BotState(state_file=str(f))
+    s.load()
+    kept = list(tmp_path.glob("bot_state.test.json.unreadable-*"))
+    assert len(kept) == 1 and "3140" in kept[0].read_text(encoding="utf-8") and not f.exists()
