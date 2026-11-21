@@ -373,3 +373,13 @@ def test_the_cap_keeps_reviewed_windows_first(builder, tmp_path, monkeypatch):
     reviews = [{"key": q.review_key(t), "decision": "keep", "at": 0} for t in dropped[:3]]
     kept = set(_targets(_cap_build(builder, tmp_path, monkeypatch, reviews)[0]))
     assert set(dropped[:3]) <= kept
+
+
+def test_a_picture_named_before_it_arrives_is_unseen_context():
+    """14 Nov: "Kaia. I found a pleasant image" came a message before the picture,
+    and "it's nice. the light is good." was kept as a target."""
+    from finetune import kaia_quality as q
+    words = "Kaia. I found a pleasant image"
+    assert q.needs_unseen_context(words, words, "it's nice. the light is good.")
+    plain = "i painted the fence today"
+    assert not q.needs_unseen_context(plain, plain, "what colour?")

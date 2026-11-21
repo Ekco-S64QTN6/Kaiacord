@@ -252,7 +252,12 @@ _DESCRIBES_A_PICTURE = re.compile(
 _POINTS_AT_A_PICTURE = re.compile(
     r"\b(this|these|those) (fish|cats?|birds?|bugs?|insects?|plants?|pics?|pictures?|images?|photos?|"
     r"drawings?|paintings?|screenshots?)\b|\bin (this|the) (cage|pic|picture|photo|image|shot)\b|"
-    r"\bwhat (is|are) (this|these)\b|\bhighlighted\b|\blook at (this|these|that)\b", re.I)
+    r"\bwhat (is|are) (this|these)\b|\bhighlighted\b|\blook at (this|these|that)\b"
+    # "Kaia. I found a pleasant image" came a message before the picture, and
+    # her "it's nice. the light is good." was kept as a target: a picture named
+    # any way at all is context the log does not hold.
+    r"|\b(?:a|an|my|our|your|the|one|another|new)\s+(?:\w+\s+)?(?:image|picture|photo|pic|screenshot|selfie)s?\b",
+    re.I)
 
 
 def needs_unseen_context(raw_user: str, typed: str, target: str) -> bool:
