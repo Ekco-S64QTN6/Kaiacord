@@ -119,3 +119,19 @@ def test_server_wide_private_monologue_does_not_enter_direct_reply_prompts():
     )
 
 
+
+
+def test_a_guard_does_not_quote_a_dm_reply_into_the_log(monkeypatch):
+    from utils.core import private_turn
+    from utils.core import response_filter as rf
+    lines = []
+    monkeypatch.setattr(rf, "log_warning", lines.append)
+    token = private_turn.enter(True)
+    try:
+        rf.BotSpeakFilter.strip_apologies("you're right, the divorce papers came through on tuesday.")
+    finally:
+        private_turn.leave(token)
+    assert lines and all("divorce" not in l and private_turn.WITHHELD in l for l in lines)
+    lines.clear()
+    rf.BotSpeakFilter.strip_apologies("you're right, the cron job was the culprit.")
+    assert lines and "cron job" in lines[0]

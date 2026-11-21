@@ -74,6 +74,7 @@ from utils.infrastructure.system.messaging import send_kaia_response
 from utils.core.sanitizer import (
     sanitize_prompt, pointed_at, is_safe_url, public_only_connector, read_capped,
 )
+from utils.core.private_turn import text as _private_text   # a DM's reply stays out of the log
 
 # Constants
 
@@ -2416,7 +2417,7 @@ class MessageProcessor:
                 content = response['message']['content']
 
                 # TEMPORARY DEBUG: Log raw response to diagnose gemma3 empty responses
-                log_debug(f"[GEMMA3_DEBUG] Raw response length={len(content)}, first100={repr(content[:100])}, done_reason={response.get('done_reason', 'unknown')}")
+                log_debug(f"[GEMMA3_DEBUG] Raw response length={len(content)}, first100={repr(_private_text(content[:100]))}, done_reason={response.get('done_reason', 'unknown')}")
                 log_debug(f"[TOKEN_DEBUG] prompt_eval_count={response.get('prompt_eval_count', 'n/a')} eval_count={response.get('eval_count', 'n/a')} num_ctx={self.config.max_context_tokens} prompt_s={(response.get('prompt_eval_duration') or 0) / 1e9:.1f}")
                 try:
                     from utils.core import prompt_prefix

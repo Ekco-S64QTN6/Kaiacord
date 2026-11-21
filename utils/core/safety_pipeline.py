@@ -22,6 +22,7 @@ from utils.core.response_filter import (EmergencyContaminationFilter, BotSpeakFi
                                         excision_broke_grammar)
 
 from utils.core import private_turn
+from utils.core.private_turn import text as _pt   # DM text stays out of the log
 
 _dogtag_replay_lock = threading.Lock()
 
@@ -233,7 +234,7 @@ class PostGenerationSafetyPipeline:
                           "leaving it rather than leaving a hole.")
                 return m.group(0)
 
-            log_warning(f"[PROMPT_ECHO_GUARD] Dropped echoed span: '{span[:60]}...'")
+            log_warning(f"[PROMPT_ECHO_GUARD] Dropped echoed span: '{_pt(span[:60])}...'")
             return ''
 
         cleaned = cls.QUOTED_SPAN.sub(_repl, content)
@@ -613,7 +614,7 @@ class PostGenerationSafetyPipeline:
             return text
         for n in sorted(doomed):
             log_warning(f"[RESTATEMENT_GUARD] Dropped sentence restating the user: "
-                        f"'{sentences[n][:70]}'")
+                        f"'{_pt(sentences[n][:70])}'")
         return rebuilt
 
     @classmethod
@@ -719,7 +720,7 @@ class PostGenerationSafetyPipeline:
         survivors = sentences[drop_upto:]
         while survivors and cls._is_dependent_fragment(survivors[0]):
             log_warning(f"[ECHO_GUARD] Also dropped the fragment it supported: "
-                        f"'{survivors[0][:60]}'")
+                        f"'{_pt(survivors[0][:60])}'")
             survivors = survivors[1:]
 
         rest = " ".join(survivors).strip()
@@ -728,7 +729,7 @@ class PostGenerationSafetyPipeline:
             return text          # nothing of substance would be left
 
         echoed = " ".join(sentences[:drop_upto])
-        log_warning(f"[ECHO_GUARD] Dropped opening restating the user: {echoed[:70]!r}")
+        log_warning(f"[ECHO_GUARD] Dropped opening restating the user: {_pt(echoed[:70])!r}")
         return remainder
 
     @staticmethod
@@ -763,7 +764,7 @@ class PostGenerationSafetyPipeline:
         rest = cut[: len(cut) - len(last)].rstrip()
         if len(rest) < 40:
             return text
-        log_warning(f"[CLOSER_GUARD] Dropped a closing line repeating her recent ones: {last[:60]!r}")
+        log_warning(f"[CLOSER_GUARD] Dropped a closing line repeating her recent ones: {_pt(last[:60])!r}")
         return rest
 
     # ── Her own templates ────────────────────────────────────────────
@@ -930,7 +931,7 @@ class PostGenerationSafetyPipeline:
         if len(out) < 20:
             return text
         dropped = [ln.strip() for ln in lines if cls._STATUS_LINE.match(ln)]
-        log_warning(f"[TEMPLATE_GUARD] Dropped {len(dropped)} status line(s): {dropped[0][:60]!r}")
+        log_warning(f"[TEMPLATE_GUARD] Dropped {len(dropped)} status line(s): {_pt(dropped[0][:60])!r}")
         return out
 
     @classmethod
@@ -1332,7 +1333,7 @@ class PostGenerationSafetyPipeline:
         rest, cut = cls._without_openers(text)
         if not cut or len(rest) < 40:
             return text
-        log_warning(f"[TEMPLATE_GUARD] Dropped a grading opener: {' '.join(cut)[:70]!r}")
+        log_warning(f"[TEMPLATE_GUARD] Dropped a grading opener: {_pt(' '.join(cut)[:70])!r}")
         return rest
 
     @classmethod
@@ -1374,7 +1375,7 @@ class PostGenerationSafetyPipeline:
         out = re.sub(r"(\n\s*\n){2,}", "\n\n", "".join(out_paras)).strip()
         if len(out) < 40:
             return text
-        log_warning(f"[TEMPLATE_GUARD] Dropped {len(dropped)} line(s) she keeps repeating: {dropped[0][:70]!r}")
+        log_warning(f"[TEMPLATE_GUARD] Dropped {len(dropped)} line(s) she keeps repeating: {_pt(dropped[0][:70])!r}")
         return out
 
     #: An opening she keeps reusing is keyed on the first OPENER_WORDS words of a
@@ -1504,7 +1505,7 @@ class PostGenerationSafetyPipeline:
         if rest is None:
             return text
         log_warning(f"[TEMPLATE_GUARD] Dropped an opening she keeps reusing ({key!r}, "
-                    f"{n} of her last {window}): {text.strip()[:70]!r}")
+                    f"{n} of her last {window}): {_pt(text.strip()[:70])!r}")
         return rest
 
     @classmethod

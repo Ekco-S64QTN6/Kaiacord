@@ -1,6 +1,7 @@
 import re
 from typing import List, Optional
 from utils.infrastructure.logging.kaia_logger import log_warning
+from utils.core.private_turn import text as _pt   # DM text stays out of the log
 
 
 class EmergencyContaminationFilter:
@@ -913,7 +914,7 @@ class BotSpeakFilter:
                     out.pop()
                 elif j + 1 < n and text[j + 1] == ' ':
                     j += 1
-                log_warning(f"[STAGE_DIRECTION_GUARD] Removed: ({inner[:60]})")
+                log_warning(f"[STAGE_DIRECTION_GUARD] Removed: ({_pt(inner[:60])})")
             else:
                 out.append(span)              # kept whole, brackets included
             i = j + 1
@@ -929,7 +930,7 @@ class BotSpeakFilter:
         def _one(match):
             content = match.group(1).strip()
             if cls.is_stage_direction(content):
-                log_warning(f"[STAGE_DIRECTION_GUARD] Removed: *{content[:60]}*")
+                log_warning(f"[STAGE_DIRECTION_GUARD] Removed: *{_pt(content[:60])}*")
                 return ' '
             return f" {content} "                 # emphasis: markers off
 
@@ -1318,7 +1319,7 @@ class BotSpeakFilter:
             survivor = cls._excise_clause(unit, pattern) if mode == "clause" else None
             if survivor is None:
                 dropped += 1
-                log_warning(f"[{tag}] Dropped offense-only sentence: '{unit[:80]}'")
+                log_warning(f"[{tag}] Dropped offense-only sentence: '{_pt(unit[:80])}'")
                 continue
             if survivor != unit:
                 # The §5 rule, applied where four of the five documented
@@ -1328,11 +1329,11 @@ class BotSpeakFilter:
                 # freely. Shipping the offence beats shipping a hole.
                 if excision_broke_grammar(unit, survivor):
                     log_warning(f"[{tag}] Excision broke the sentence; keeping "
-                                f"the original: '{unit[:60]}'")
+                                f"the original: '{_pt(unit[:60])}'")
                     kept.append(unit)
                     continue
                 trimmed += 1
-                log_warning(f"[{tag}] Trimmed offending clause, kept substance: '{unit[:60]}' -> '{survivor[:60]}'")
+                log_warning(f"[{tag}] Trimmed offending clause, kept substance: '{_pt(unit[:60])}' -> '{_pt(survivor[:60])}'")
             kept.append(survivor)
 
         if not dropped and not trimmed:
