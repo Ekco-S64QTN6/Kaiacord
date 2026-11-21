@@ -498,12 +498,14 @@ class CoreTaskManager:
                             except Exception:
                                 pass
                             
-                            if raw:
-                                from utils.core import unprompted
-                                from utils.infrastructure.system.messaging import send_kaia_response
-                                for message in unprompted.compose(unprompted.pick_label("afterthought"), raw):
-                                    await send_kaia_response(channel, message)
-                            
+                            if not raw:
+                                log_debug(f"Afterthought for {to_execute['user_name']} came back empty; nothing sent")
+                                return
+                            from utils.core import unprompted
+                            from utils.infrastructure.system.messaging import send_kaia_response
+                            for message in unprompted.compose(unprompted.pick_label("afterthought"), raw):
+                                await send_kaia_response(channel, message)
+
                             # Append to channel memory
                             try:
                                 self.ctx.bot_state.append_channel_turn(channel.id, {
