@@ -1853,7 +1853,7 @@ it here.
 | Radio, scanner, KAIA//RX | `docs/03-architecture/radio.md` — **read before touching `utils/radio/`** |
 | Corpus layout | `knowledge_base/README.md` — **read before adding a folder** ([§10](#10-knowledge-base)) |
 | Shell tooling | `scripts/README.md` — what `kaia-tools.sh` exposes |
-| Contributing | `CONTRIBUTING.md` — for outside contributors (the maintainer pushes to `main`) |
+| Contributing | `CONTRIBUTING.md` — PR and issue workflow for outside contributors |
 
 > `docs/reports/` is **git-ignored** — it contains transcript excerpts and runtime telemetry. It
 > exists in a working checkout but not on GitHub, so do not link it from tracked documentation.
