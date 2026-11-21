@@ -193,9 +193,14 @@ async def apply_overworld_combat_update(
 
     session = await load_session(channel_id)
     if not session:
-        raise RuntimeError(
-            f"Cannot recover overworld update: session {channel_id} is missing."
-        )
+        # No session file at all (an unreadable one raises in load_session).
+        # The encounter this would patch is gone, so there is nothing left to
+        # apply; raising kept the entry pending and refused that player every
+        # hunt, attack and flee from then on.
+        from utils.infrastructure.logging.kaia_logger import log_warning
+        log_warning(f"[rpg] pending outcome {outcome_id}: session {channel_id} is gone; "
+                    "nothing left to update")
+        return
 
     monsters = session.setdefault("monsters", [])
     if remove_monster:
@@ -243,9 +248,12 @@ async def apply_overworld_combat_update(
                 replaced = True
                 break
         if not replaced:
-            raise RuntimeError(
-                f"Cannot recover overworld round: monster {monster_id} is missing."
-            )
+            # The monster is no longer in the fight: the round's damage has
+            # nothing to land on. The character side was saved with the journal.
+            from utils.infrastructure.logging.kaia_logger import log_warning
+            log_warning(f"[rpg] pending round {outcome_id}: monster {monster_id} is gone; "
+                        "nothing left to update")
+            return
 
     log_entry = outcome.get("combat_log_entry")
     if isinstance(log_entry, dict):

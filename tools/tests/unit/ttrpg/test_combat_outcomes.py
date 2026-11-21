@@ -673,3 +673,36 @@ def test_overworld_outcome_recovery_clears_blockade_with_monster(monkeypatch, tm
     assert asyncio.run(combat_handler._recover_pending_combat_outcomes("42", sheet)) == 1
     assert [m["id"] for m in persisted_session["monsters"]] == ["other-player"]
     assert world_state.load_world_state()["blockade_active"] is False
+
+
+@pytest.mark.parametrize("session_state", ["monster gone", "session gone"])
+def test_a_pending_round_whose_encounter_is_gone_clears_instead_of_blocking(monkeypatch, session_state):
+    """It raised on every recovery, and recovery runs before every hunt, attack
+    and flee: the player could never fight again (roadmap T7)."""
+    from utils.ttrpg import rpg_combat_handler as combat_handler, session_manager
+
+    outcome_id = "overworld-round:42:123:wolf-1:round-gone"
+    sheet = {"user_id": "42", "pending_combat_outcomes": {outcome_id: {
+        "outcome_id": outcome_id, "kind": "overworld_round", "channel_id": "123",
+        "owner_id": "42", "monster_id": "wolf-1",
+        "monster_after": {"id": "wolf-1", "aggro_uid": "42", "hp": {"current": 5, "max": 30}},
+    }}}
+    session = {"channel_id": "123", "monsters": [{"id": "other", "aggro_uid": "99"}]}
+    writes = []
+
+    async def load_session(_cid):
+        return None if session_state == "session gone" else deepcopy(session)
+
+    async def save_session(snapshot):
+        writes.append(snapshot)
+
+    async def save_sheet(snapshot):
+        pass
+
+    monkeypatch.setattr(session_manager, "load_session", load_session)
+    monkeypatch.setattr(session_manager, "save_session", save_session)
+    monkeypatch.setattr(combat_handler, "save", save_sheet)
+    assert asyncio.run(combat_handler._recover_pending_combat_outcomes("42", sheet)) == 1
+    assert "pending_combat_outcomes" not in sheet
+    assert outcome_id in sheet["completed_combat_outcomes"]
+    assert writes == []                     # nothing was written over anyone's session
