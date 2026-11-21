@@ -503,8 +503,12 @@ class CoreTaskManager:
                                 return
                             from utils.core import unprompted
                             from utils.infrastructure.system.messaging import send_kaia_response
+                            delivered = False
                             for message in unprompted.compose(unprompted.pick_label("afterthought"), raw):
-                                await send_kaia_response(channel, message)
+                                delivered = await send_kaia_response(channel, message) or delivered
+                            if not delivered:
+                                log_warning(f"Afterthought for {to_execute['user_name']} was not delivered")
+                                return
 
                             # Append to channel memory
                             try:

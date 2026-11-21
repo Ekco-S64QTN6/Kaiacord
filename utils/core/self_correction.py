@@ -210,8 +210,12 @@ async def check(ctx, now: Optional[float] = None) -> int:
                     continue
                 from utils.core import unprompted
                 from utils.infrastructure.system.messaging import send_kaia_response
+                delivered = False
                 for message in unprompted.compose(unprompted.pick_label("correction"), text):
-                    await send_kaia_response(channel, message)
+                    delivered = await send_kaia_response(channel, message) or delivered
+                if not delivered:
+                    log_warning("Self-correction not posted: Discord refused the message.")
+                    continue
                 log_info(f"[SELF_CORRECTION] posted: {text[:160]}")
             except Exception as e:
                 log_warning(f"Self-correction not posted: {type(e).__name__}: {e}")

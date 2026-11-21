@@ -43,3 +43,20 @@ def test_split_text_into_safe_chunks_super_long_unbroken_line():
     assert len(token_chunks) == 3
     for chunk in token_chunks:
         assert len(chunk) <= 1000
+
+
+def test_a_refused_send_reports_nothing_delivered():
+    import asyncio
+    from utils.infrastructure.system.messaging import send_kaia_response
+
+    class Refusing:
+        async def send(self, *_a, **_k):
+            raise RuntimeError("50013 Missing Permissions")
+
+    class Taking:
+        def __init__(self): self.sent = []
+        async def send(self, text, **_k): self.sent.append(text)
+
+    assert asyncio.run(send_kaia_response(Refusing(), "hello")) is False
+    ok = Taking()
+    assert asyncio.run(send_kaia_response(ok, "hello")) is True and ok.sent == ["hello"]

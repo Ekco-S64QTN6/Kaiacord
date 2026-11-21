@@ -84,11 +84,15 @@ def _close_split_fences(chunks: List[str]) -> List[str]:
     return out
 
 
-async def send_kaia_response(channel, text, use_code_block=False):
-    """Helper to split long messages and optionally wrap them in Kaia's style"""
+async def send_kaia_response(channel, text, use_code_block=False) -> bool:
+    """Split a long message and send it, optionally in Kaia's code-block style.
+
+    True when at least one part reached Discord. A failed send is logged and
+    not raised, so a caller that records what she said checks this first:
+    otherwise a refused message went into her history as said."""
     if not text or not str(text).strip():
         log_warning("send_kaia_response called with empty text. Skipping.")
-        return
+        return False
         
     text_clean = str(text).strip()
     
@@ -100,7 +104,8 @@ async def send_kaia_response(channel, text, use_code_block=False):
     # Room for closing and reopening a code fence at a split.
     chunks = _close_split_fences(_split_text_into_safe_chunks(text_clean, limit - 24))
     if not chunks:
-        return
+        return False
+    sent = 0
 
     for n, chunk in enumerate(chunks):
         if not chunk:
@@ -115,8 +120,10 @@ async def send_kaia_response(channel, text, use_code_block=False):
                 await channel.send(payload)
             else:
                 await channel.send(chunk[:1990])
+            sent += 1
         except Exception as e:
             log_error(f"Failed to send Discord message payload (len={len(chunk)}): {e}")
+    return sent > 0
 
 # ─────────────────────────────────────────────
 # MOCKING INFRASTRUCTURE

@@ -2714,8 +2714,13 @@ class MessageProcessor:
 
         # 2. SEND RESPONSE. The note line goes out with the reply and is not
         # part of ctx.response_text, which is what gets logged and shown back.
-        await self._send_response(channel=ctx.message.channel,
-                                  text=ctx.response_text + (f"\n{_note_line}" if _note_line else ""))
+        _delivered = await self._send_response(channel=ctx.message.channel,
+                                               text=ctx.response_text + (f"\n{_note_line}" if _note_line else ""))
+        if _delivered is False:
+            # Nothing reached the channel: she did not say it, so it is not
+            # flagged, logged or put in her history as said.
+            log_warning(f"Reply to {ctx.author_name} was not delivered; not recorded")
+            return
 
         # A reply saying she is flagging something for review flags it: a row in
         # memory/review_flags.jsonl and a post in #kaia-opolis. Discord only, and
@@ -3104,7 +3109,7 @@ class MessageProcessor:
                 if first_line and not any(c.isspace() for c in first_line) and len(first_line) < 20:
                     clean_text = '\n'.join(clean_text.split('\n')[1:]).strip()
         
-        await send_kaia_response(channel, clean_text)
+        return await send_kaia_response(channel, clean_text)
 
     # gemma3's vision encoder operates at 896x896. Sending anything larger costs transfer
     # bandwidth and CPU decode time without giving the model more to see.
