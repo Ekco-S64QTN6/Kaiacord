@@ -484,9 +484,13 @@ about a picture that never reached her, she described a sunset three times in th
 she named Charles Simic, Heraclitus and a Snow Crash character. The CORE RULES block forbade both, and without that
 block she also claimed to run on Claude and Gemini, so it stays; but a rule at the end of an eleven-thousand-token
 system prompt is not what she reads. The note goes on the user message when no picture loaded for the turn (a failed
-load keeps the vision note, Q40) or when a quoted line she is asked to attribute is in nothing she was given. Replayed
+load keeps the vision note, Q40; a picture among the last six user turns is the one meant, so no note) or when a
+quoted line she is asked to attribute is in nothing she was given. Replayed
 (`tools/maintenance/replay_turns.py --probes`, three seeds): 0/3 to 3/3 on both, Gibson and Shakespeare still named.
 A note that only said "never guess a name" made her forget Hamlet; keep the escape for lines everyone knows.
+A link that answers with only a browser check (a `share.google` link: "If you're having trouble accessing Google
+Search…") counts as a page that would not load (`context_enricher._is_shell_page`); handed the notice as the page,
+she described what it "categorises" (14 Nov).
 
 **A clipped follow-up is tied to the question it follows** (`utils/core/followup_note.py`). Cecily asked what was
 distinctive about someone's way of talking, then said "do me next", and she analysed herself (12 Nov). Replayed, the
@@ -668,8 +672,10 @@ Rules that follow:
 
 - Any guard that excises inside a sentence must call
   `response_filter.excision_broke_grammar(before, after)` and keep the original when it returns
-  True. Shipping the offence beats shipping a sentence with a hole in it. It checks two shapes:
-  an article stranded by what followed it, and a token in the output that was not in the input —
+  True. Shipping the offence beats shipping a sentence with a hole in it. It checks an article
+  stranded by what followed it, a linking verb stranded by its complement, a quotation emptied or
+  left open (`than simply saying "you're right."` shipped as `than simply saying "`: quoted, the
+  phrase is mentioned, not said), and a token in the output that was not in the input —
   an excision can only remove tokens, so a new one means the cut fused its neighbours
   (`the core directive: understanding` → `theunderstanding`, which has no stranded article in it).
 - **A leak pattern must match the diagnostic form, not the English.** `DIRECTIVE_LEAK_PATTERNS`
@@ -727,8 +733,11 @@ and a bracketed stage direction is hers. The same note copied out of the prompt,
 starkind)", headed every reply by 16 Oct, and reworded ("(solely addressing starkind)") 61 replies on 3–4 Nov;
 `strip_address_tag` takes it out of what she sends and what she is shown. An opening she reuses is keyed on its
 first three words (`_opener_key`): "it's funny how …" opened 27 of 33 replies to Starkind on 8 Nov, each copied from
-the last. Her shown turns lose it at two uses in the window, what she sends at three of her last six
-(`strip_repeated_opening`), with any sentence that only continued it, and never when what remains could not stand. Her paragraphs fragmented too — 2.3 a reply of ~32 words in early September, 5.4 of ~19 by mid-October —
+the last. A verdict ("it's striking, isn't it?", "that's… remarkably precise.", "it's a refinement, then.") is one
+key whatever its adjective (`VERDICT_KEY`, by vocabulary: "it's a pdf." answers): replies opening on "it's" went from
+6% in early September to 36% on 16–20 Nov, and Starkind called the preamble repetitive (18 Nov). Her shown turns lose
+an opening at two uses in the window, what she sends at three of her last six (`strip_repeated_opening`), with any
+sentence that only continued it (after a verdict, only an "and …" tail), and never when what remains could not stand. Her paragraphs fragmented too — 2.3 a reply of ~32 words in early September, 5.4 of ~19 by mid-October —
 and `reflow_paragraphs` joins short prose paragraphs back together. From 16 Oct the cadence came back as
 litanies — "a pattern identified. a tendency observed. a habit acknowledged." — in 38% of replies (none before
 October); `collapse_litany` keeps the first two of a run of three or more "a …" fragments made of her stock
