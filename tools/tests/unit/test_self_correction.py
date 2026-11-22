@@ -58,3 +58,21 @@ def test_a_contradiction_is_recorded_and_not_posted_while_the_flag_is_off(tmp_pa
     assert "i had that wrong" in sc.correction_text(entry)
     # Never twice on the same claim, and at most one a day.
     assert asyncio.run(sc.check(ctx)) == 0
+
+
+def test_detail_or_another_subject_is_not_a_contradiction():
+    """Recorded as contradictions (memory/self_corrections.jsonl, 12–13 Nov)."""
+    mana = ("This article details an experiment within the AI Village, where an AI agent "
+            "borrowed Ṁ5,000 in play money and lost it.")
+    assert sc.accept("that story about claude opus 4.6 borrowing and losing mana.", mana,
+                     {"contradicts": True, "quote": "an AI agent borrowed Ṁ5,000 in play money"}) is None
+    mythos = ("Across all replications, Claude Mythos 5 performed worse than all of our other "
+              "production models, including Claude Opus 5 and Claude Mythos 5.1.")
+    assert sc.accept("the fact that you isolated the issue so precisely, tracing it back to a single pr—#375—is impressive.",
+                     mythos, {"contradicts": True, "quote": mythos}) is None
+
+
+def test_a_version_given_wrong_is_still_a_contradiction():
+    passage = "Claude Opus 4.6 is a frontier model released in February."
+    assert sc.accept("opus 4.8 is kind of an asshole model.", passage,
+                     {"contradicts": True, "quote": "Claude Opus 4.6 is a frontier model"})

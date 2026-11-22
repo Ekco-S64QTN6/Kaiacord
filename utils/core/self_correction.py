@@ -125,10 +125,62 @@ def accept(claim: str, passage: str, verdict: dict) -> Optional[str]:
     # contradicting it ("300 megawatts, 1 gigawatt" against "a 1 gigawatt").
     if numbers and numbers <= {n.rstrip(".,") for n in re.findall(r"\d[\d,.]*", quote)}:
         return None
+    # About the same thing: the sentence the quote comes from shares a word of
+    # the claim's subject. Of five verdicts recorded as contradictions, a
+    # sentence about one model's benchmark "contradicted" praise for isolating a PR.
+    if not _content_stems(claim) & _content_stems(_sentence_of(quote, passage)):
+        return None
     new = [f for f in _FACT.findall(quote)
-           if (f.rstrip(".,") not in numbers if f[0].isdigit()
+           if (_replaces_a_number(f, numbers) if f[0].isdigit()
                else not words & set(f.lower().split()))]
     return quote if new else None
+
+
+def _number(text: str) -> Optional[float]:
+    try:
+        return float(text.replace(",", "").rstrip("."))
+    except ValueError:
+        return None
+
+
+def _replaces_a_number(figure: str, numbers: set) -> bool:
+    """A figure in the quote contradicts the claim only in place of one the claim
+    gave, of the same size: 1984 for 1986, Opus 4.6 for 4.8. A figure the claim
+    never stated is detail ("borrowed Ṁ5,000" against "claude opus 4.6 borrowing")."""
+    if figure.rstrip(".,") in numbers:
+        return False
+    value = _number(figure)
+    for n in numbers:
+        other = _number(n)
+        if value and other and 0.1 <= value / other <= 10:
+            return True
+    return False
+
+
+def _sentence_of(quote: str, passage: str) -> str:
+    """The passage sentence the quote was copied from (the quote if not found)."""
+    low = quote.lower()
+    for sentence in re.split(r"(?<=[.!?])\s+", passage or ""):
+        if low in " ".join(sentence.split()).lower():
+            return sentence
+    return quote
+_STOPWORDS = frozenset("that this with from have were they their there what which about would could "
+                       "should into just like been being also than then them these those your over "
+                       "only some such very more most much".split())
+
+
+def _content_stems(text: str) -> set:
+    """Words of four letters or more, a plural or -ing folded, stopwords out."""
+    out = set()
+    for w in re.findall(r"[a-z]{4,}", (text or "").lower()):
+        if w in _STOPWORDS:
+            continue
+        for suffix in ("ing", "ed", "es", "s"):
+            if w.endswith(suffix) and len(w) - len(suffix) >= 4:
+                w = w[: -len(suffix)]
+                break
+        out.add(w)
+    return out
 
 
 def _prompt(claim: str, passage: str) -> str:
