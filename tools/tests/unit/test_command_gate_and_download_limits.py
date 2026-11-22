@@ -134,3 +134,23 @@ def test_a_staged_document_never_exists_without_its_sidecar(handler):
     writes = [line.strip() for line in src.splitlines() if "write_atomic" in line and "import" not in line]
     assert len(writes) == 2 and ".meta.json" in writes[0] and ".meta.json" not in writes[1]
     assert all(w.startswith("await asyncio.to_thread(write_atomic") for w in writes)
+
+
+@pytest.mark.parametrize("url", ["https://www.youtube.com/watch?v=oE0QUK5w5Ls", "https://youtu.be/oE0QUK5w5Ls"])
+def test_a_youtube_video_is_pointed_at_youtube_not_staged(monkeypatch, url):
+    """Staged by !download it was the player page's 20 words, which filing refused."""
+    fetched = []
+
+    async def convert(*a):
+        fetched.append(a)
+
+    msg = _run_download(monkeypatch, url, convert)
+    asyncio.run(dl.handle_download_command(None, msg, None))
+    assert fetched == []
+    assert "!youtube" in msg.channel.send.call_args.kwargs["embed"].description
+
+
+def test_a_page_too_short_to_file_is_refused_before_it_is_staged():
+    with pytest.raises(dl.DownloadError, match="under 50 words"):
+        dl._require_text(" ".join(["word"] * 20))
+    dl._require_text(" ".join(["word"] * 50))

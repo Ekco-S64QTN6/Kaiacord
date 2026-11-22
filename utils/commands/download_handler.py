@@ -27,6 +27,8 @@ SUPPORTED_TYPES = {
 #: Fetches in flight. A download is up to 10 MiB fetched and converted, open to
 #: everyone, so one person runs one at a time and the bot a few.
 MAX_CONCURRENT_DOWNLOADS = 2
+#: Words a page needs to be worth staging; the same floor process_ingress files at.
+MIN_WORDS = 50
 _downloading: set = set()
 
 #: Documents each person has added today (by Discord id). A filed document is
@@ -106,6 +108,16 @@ async def handle_download_command(ctx, msg, send_kaia_response):
         await msg.channel.send(embed=notice("couldn't parse that url.", error=True))
         return
 
+    # A video page is a player and a title: staged, it was 20 words that
+    # filing then refused. Its transcript is what !youtube fetches.
+    try:
+        from tools.maintenance.youtube_to_kb_md import extract_video_id
+        extract_video_id(url)
+        await msg.channel.send(embed=notice("that's a youtube video. `!youtube <url>` fetches its transcript."))
+        return
+    except Exception:
+        pass
+
     who = str(msg.author.id)
     if _daily_limit_reached(msg, who):
         await msg.channel.send(embed=notice("that's your limit of documents for today. try again tomorrow.", error=True))
@@ -151,6 +163,16 @@ async def handle_download_command(ctx, msg, send_kaia_response):
 class DownloadError(Exception):
     """Custom error for download failures with user-friendly messages."""
     pass
+
+
+def _require_text(markdown_body: str) -> None:
+    """Refuse a page with less text than filing accepts (process_ingress: 50
+    words after cleaning). Fifty characters let a 20-word page through, to be
+    staged, announced and then refused, with a footer promising a retry that
+    could never succeed."""
+    if not markdown_body or len(markdown_body.split()) < MIN_WORDS:
+        raise DownloadError("couldn't extract meaningful text from that URL "
+                            f"(under {MIN_WORDS} words: a login wall, a script-only page, or a media player).")
 
 
 async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
@@ -237,8 +259,7 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     else:
         raise DownloadError(f"unhandled type: {file_type}")
     
-    if not markdown_body or len(markdown_body.strip()) < 50:
-        raise DownloadError("couldn't extract meaningful text from that URL.")
+    _require_text(markdown_body)
 
     markdown_body = _clean_markdown(markdown_body)
 
