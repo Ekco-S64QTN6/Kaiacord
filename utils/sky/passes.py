@@ -73,10 +73,17 @@ class Pass:
 
 
 def _passes(elements: dict, here: Observer, days: float) -> list[Pass]:
-    from skyfield.api import EarthSatellite, wgs84
     load = _loader()
-    ts = load.timescale()
     eph = load("de421.bsp")
+    try:
+        return _passes_with(load, eph, elements, here, days)
+    finally:
+        eph.close()             # the kernel holds the .bsp open: one handle per call otherwise
+
+
+def _passes_with(load, eph, elements: dict, here: Observer, days: float) -> list[Pass]:
+    from skyfield.api import EarthSatellite, wgs84
+    ts = load.timescale()
     sat = EarthSatellite.from_omm(ts, elements)
     place = wgs84.latlon(here.lat, here.lon)
     t0 = ts.now()
@@ -126,11 +133,18 @@ SHOWERS = [  # name, peak (month, day), active window (days either side), ZHR
 
 
 def _tonight(here: Observer) -> dict:
+    load = _loader()
+    eph = load("de421.bsp")
+    try:
+        return _tonight_with(load, eph, here)
+    finally:
+        eph.close()
+
+
+def _tonight_with(load, eph, here: Observer) -> dict:
     from skyfield import almanac
     from skyfield.api import wgs84
-    load = _loader()
     ts = load.timescale()
-    eph = load("de421.bsp")
     place = wgs84.latlon(here.lat, here.lon)
     now = ts.now()
     earth = eph["earth"] + place
