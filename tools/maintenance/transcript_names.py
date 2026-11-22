@@ -253,8 +253,19 @@ def valid_pair(heard: str, correct: str, excerpt: str, reference: str = "") -> b
     if len(correct_words) > len(heard_words) and all(w in correct_words for w in heard_words):
         return False                                  # "rosenberg" -> "Rosenberg Research" adds words
     hl, cl = re.sub(r"[^a-z]", "", heard.lower()), re.sub(r"[^a-z]", "", correct.lower())
-    if len(hl) - len(cl) >= 4 and (hl.startswith(cl) or hl.endswith(cl)):
-        return False                                  # "grokipedia" -> "Grok" cuts a word short
+    cut = len(hl) - len(cl)
+    if cut >= 3 and (hl.startswith(cl) or hl.endswith(cl)):
+        extra = hl[len(cl):] if hl.startswith(cl) else hl[:cut]
+        stutter = cut < 4 and (cl.endswith(extra) or cl.startswith(extra))
+        if not stutter:
+            return False                              # "grokipedia" -> "Grok", "juanito" -> "Juan" cut a word short
+    if len(heard_words) > len(correct_words):
+        for rest in (heard_words[:-1], heard_words[1:]):
+            joined = "".join(re.sub(r"[^a-z]", "", w) for w in rest)
+            if joined in (cl, cl + "s") or joined + "s" == cl:
+                return False                          # "ufo fast" -> "UFOs", "chat gpt app" -> "ChatGPT" drop a word
+    if hl != cl and sorted(hl) == sorted(cl) and not all(is_known_word(w) for w in correct_words):
+        return False                                  # "glm 53 flash" -> "GML-53 Flash": captions do not transpose letters
     if all(is_known_word(w) for w in heard_words):
         return False                                  # "richard nixon", "south africa": already a name
     if attested(correct, reference):

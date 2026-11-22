@@ -232,3 +232,27 @@ def test_youtube_command_stages_the_corrected_transcript(monkeypatch, tmp_path):
     meta = json.loads(next(tmp_path.glob("*.meta.json")).read_text())
     assert meta["name_corrections"] == {"oracus": "Arrakis"}
     assert any("oracus → Arrakis" in (s or "") for s in sent)
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("heard, correct", [
+    # Accepted into Ekco's transcripts before (memory/transcript_name_corrections.jsonl):
+    ("ufo fast", "UFOs"),                    # a word gone
+    ("gamescom stuff", "Gamescom"),
+    ("chat gpt app", "ChatGPT"),
+    ("juanito", "Juan"),                     # cut three letters short
+    ("glm 53 flash", "GML-53 Flash"),        # letters transposed into a non-word
+])
+def test_a_correction_that_loses_or_scrambles_what_was_said_is_refused(heard, correct):
+    from tools.maintenance.transcript_names import valid_pair
+    excerpt = f"so the {heard} thing came up again"
+    assert not valid_pair(heard, correct, excerpt)
+    assert not valid_pair(heard, correct, excerpt, reference=f"with {correct}")
+
+
+def test_a_transposition_into_a_real_word_is_still_fixed(monkeypatch):
+    from tools.maintenance import transcript_names as tn
+    monkeypatch.setattr(tn, "_ENGLISH", {"neat", "thursday"})
+    assert tn.valid_pair("thrusday", "Thursday", "see you on thrusday then")
