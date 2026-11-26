@@ -1419,6 +1419,94 @@ class CrossfadeSource(_AudioSource):
             self._begin_planning(replan)
         return True
 
+    def jump_to_cue(self, slot: int, position: float) -> bool:
+        """Jump a deck to a saved source-time cue without disturbing the voice clock.
+
+        The replacement decoder is opened and warmed on the booth request thread.
+        The swap itself is committed under the renderer lock at a 20 ms frame
+        boundary; the retired decoder is closed after releasing that lock.
+        A cue cannot take ownership away from an active transition.
+        """
+        if isinstance(slot, bool) or slot not in (1, 2):
+            return False
+        try:
+            target = float(position)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not math.isfinite(target) or target < 0:
+            return False
+
+        with self._lock:
+            if self.blend_started():
+                return False
+            replan = self.plan.mode if self.plan is not None else self.planning_mode
+            if self.plan is not None:
+                self._call_off_plan()
+            self._gen += 1
+            generation = self._gen
+
+            deck = (self.current if self.current is not None and self.current.slot == slot
+                    else self.hand if self.hand is not None and self.hand.slot == slot else None)
+            if deck is None:
+                # A record loaded on the free deck has no decoder to seek yet;
+                # remember the exact source position for its next PLAY.
+                queued = self._queued if self.free_slot() == slot else None
+                if queued is None:
+                    return False
+                self.cue = min(target, max(0.0, queued.seconds - 0.04))
+                self.by_hand = True
+                self.skill_scheduler.clear_active()
+                self.gesture = ""
+                return True
+
+            seconds = max(deck.end * deck.ratio, target + 0.04)
+            target = min(target, max(0.0, seconds - 0.04))
+            record, ratio, gain, semitones = deck.record, deck.ratio, deck.gain, deck.semitones
+            old_deck = deck
+            if self._splice is not None:
+                self._cancel_splice()
+            self.skill_scheduler.clear_active()
+            self.gesture = ""
+
+        preview = None
+        try:
+            preview = Deck(record, ratio, seconds, self._factory, gain=gain,
+                           offset=target, semitones=semitones)
+            if not _wait_deck(preview, 5, 1.0):
+                preview.close()
+                return False
+        except Exception as exc:
+            if preview is not None:
+                preview.close()
+            log_warning(f"[records] hot cue decoder could not start: {exc}")
+            return False
+
+        with self._lock:
+            active = (self.current is old_deck if old_deck is self.current
+                      else self.hand is old_deck)
+            stale = (generation != self._gen or not active or self.blend_started()
+                     or self._splice is not None)
+            if not stale:
+                preview.grid = old_deck.grid
+                preview.slot = old_deck.slot
+                preview.outs = old_deck.outs
+                preview.out_lead = old_deck.out_lead
+                preview._scouting = False
+                if old_deck is self.current:
+                    self.current = preview
+                else:
+                    self.hand = preview
+                    self.cue = target
+        if stale:
+            preview.close()
+            return False
+
+        old_deck.close()
+        if replan:
+            self._begin_planning(replan)
+        log_info(f"[records] deck {slot} jumped to hot cue at {target:.3f}s")
+        return True
+
     def _cued(self, nxt: Next) -> Next:
         """`nxt` as it comes in from the cue point: bar one at the cue. A cue
         set at the booth is kept whoever lined the record up."""
