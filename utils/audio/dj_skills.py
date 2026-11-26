@@ -55,6 +55,9 @@ class SkillAction:
     reason: str
     mode: str = "envelope"
     cycle_s: float = 0.0
+    phrase_start: Optional[float] = None
+    phrase_end: Optional[float] = None
+    phrase_bars: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -267,6 +270,16 @@ def _validate_action(action: SkillAction) -> None:
             or not action.start <= action.attack_end <= action.end
             or not action.attack_end <= action.release_start <= action.end):
         raise ValueError(f"invalid action timing in {action.skill_id}")
+    phrase_fields = (action.phrase_start, action.phrase_end, action.phrase_bars)
+    if any(value is not None for value in phrase_fields):
+        if any(value is None for value in phrase_fields):
+            raise ValueError("phrase metadata must be complete")
+        assert action.phrase_start is not None and action.phrase_end is not None
+        assert action.phrase_bars is not None
+        if (not math.isfinite(action.phrase_start) or not math.isfinite(action.phrase_end)
+                or action.phrase_end <= action.phrase_start or action.phrase_bars != 4
+                or "solo" not in spec.contexts):
+            raise ValueError("invalid counted phrase metadata")
     if action.lane == "none":
         if action.target != 1.0:
             raise ValueError("no-op skills must have a neutral target")
@@ -317,12 +330,28 @@ class SkillScheduler:
     @staticmethod
     def _action(skill_id: str, lane: str, start: float, attack_end: float,
                 release_start: float, end: float, target: float, reason: str,
-                mode: str = "envelope", cycle_s: float = 0.0) -> SkillAction:
-        action = SkillAction(skill_id, lane, float(start), float(attack_end),
-                             float(release_start), float(end), float(target),
-                             reason, mode, float(cycle_s))
+                mode: str = "envelope", cycle_s: float = 0.0,
+                phrase_start: Optional[float] = None,
+                phrase_end: Optional[float] = None,
+                phrase_bars: Optional[int] = None) -> SkillAction:
+        action = SkillAction(
+            skill_id, lane, float(start), float(attack_end), float(release_start),
+            float(end), float(target), reason, mode, float(cycle_s),
+            None if phrase_start is None else float(phrase_start),
+            None if phrase_end is None else float(phrase_end),
+            None if phrase_bars is None else int(phrase_bars),
+        )
         _validate_action(action)
         return action
+
+    @staticmethod
+    def _phrase_action(skill_id: str, lane: str, start: float, attack_end: float,
+                       release_start: float, end: float, target: float, reason: str,
+                       phrase) -> SkillAction:
+        return SkillScheduler._action(
+            skill_id, lane, start, attack_end, release_start, end, target, reason,
+            phrase_start=phrase.start, phrase_end=phrase.end, phrase_bars=phrase.bars,
+        )
 
     def set_solo_profile(self, profile, fingerprint: int) -> None:
         """Compile at most 64 phrase actions from a worker-built profile."""
