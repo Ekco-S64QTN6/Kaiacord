@@ -352,21 +352,30 @@ def pending(g: dict, crate: list) -> dict:
 
 
 _W_LIVE: dict = {}
+_W_IDENTITIES: dict[str, str] = {}
 _W_SIDES: dict = {}
 
 
 def _side(path: str) -> Optional[_Side]:
-    """A worker's _Side for `path`, read once."""
-    if path not in _W_SIDES:
+    """A worker's analysis for this exact audio payload, read once."""
+    identity = _W_IDENTITIES.get(path)
+    if not identity:
+        return None
+    key = (path, identity)
+    if key not in _W_SIDES:
         try:
-            _W_SIDES[path] = _Side(_W_LIVE[path])
+            side = _Side(_W_LIVE[path])
+            from utils.audio import library
+            if library.audio_signature(path) != identity:
+                side = None
+            _W_SIDES[key] = side
         except Exception as e:
             log_debug(f"[sets] {path} not readable: {e}")
-            _W_SIDES[path] = None
+            _W_SIDES[key] = None
         if len(_W_SIDES) > 400:
             _W_SIDES.pop(next(iter(_W_SIDES)))
-    s = _W_SIDES[path]
-    return s if s is not None and s.ok else None
+    side = _W_SIDES[key]
+    return side if side is not None and side.ok else None
 
 
 def _worker_init() -> None:
@@ -455,8 +464,9 @@ def build(crate: list, budget_s: Optional[float] = None,
                 rows.append((a_path, cands))
         measured = locked = 0
         jobs = max(1, min(jobs, len(rows)))
-        global _W_LIVE
+        global _W_LIVE, _W_IDENTITIES
         _W_LIVE = live
+        _W_IDENTITIES = {p: g["records"][p]["sig"] for p in valid}
         if jobs > 1:
             import multiprocessing
             pool = multiprocessing.get_context("fork").Pool(jobs, initializer=_worker_init)
