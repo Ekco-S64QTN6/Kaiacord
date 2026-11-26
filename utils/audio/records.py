@@ -2493,9 +2493,7 @@ class RecordsSession:
         return self._by_path[first].name, False
 
     def _partner(self, deck: Deck) -> Optional[Next]:
-        """The next record from the measured graph (`setlist`): the next one in
-        the set being played if it is a measured lock from this one, else the
-        partner that sits best in key and has the most partners of its own."""
+        """Pick a measured partner, optionally steering it with one listener intent."""
         from utils.audio import beatgrid, setlist
         try:
             nbrs = setlist.partners(self.graph, deck.record.path)
@@ -2507,20 +2505,53 @@ class RecordsSession:
                    and not any(library.same_song(self._by_path[p], h) for h in heard)]
         if not options:
             return None
-        if self.set_list and deck.record.path in self.set_list:
-            i = self.set_list.index(deck.record.path)
-            ahead = [p for p in self.set_list[i + 1:] if p not in played]
-            if ahead and ahead[0] in options:
-                options = [ahead[0]]
-        else:
-            self.set_list = next((s for s in self.graph.get("sets", []) if deck.record.path in s), self.set_list)
+
+        if self.set_list and deck.record.path not in self.set_list:
+            self.set_list = next(
+                (s for s in self.graph.get("sets", []) if deck.record.path in s), None
+            )
         onward = lambda p: len([x for x in setlist.partners(self.graph, p) if x not in played])
         start_record = self._by_path.get(self.set_list[0]) if self.set_list else deck.record
         start_family = setlist.family(start_record or deck.record)
-        options.sort(key=lambda p: setlist.transition_rank(
+        ranked = sorted(options, key=lambda p: setlist.transition_rank(
             deck.record, self._by_path[p], nbrs.get(p),
             history=heard, start_family=start_family, onward=onward(p), rng=self._rng,
         ))
+
+        intent = self._current_listener_intent()
+        intent_scores: dict[str, tuple[float, str]] = {}
+        if intent is not None:
+            # Profile at most a bounded frontier; the profile cache is populated
+            # by the graph builder where possible. Any cache miss stays on this
+            # picker worker, never the 20 ms audio renderer.
+            for path in ranked[:self.INTENT_PROFILE_TRIES]:
+                scored = self._listener_candidate_score(
+                    deck, self._by_path[path], nbrs.get(path), intent
+                )
+                if scored is not None:
+                    intent_scores[path] = scored
+
+        if intent_scores:
+            position = {path: i for i, path in enumerate(ranked)}
+            options = sorted(
+                ranked,
+                key=lambda path: (
+                    0 if path in intent_scores else 1,
+                    -intent_scores[path][0] if path in intent_scores else 0.0,
+                    position[path],
+                ),
+            )
+        else:
+            # Without usable profile evidence keep following the precomputed
+            # set path exactly as before.
+            if self.set_list and deck.record.path in self.set_list:
+                i = self.set_list.index(deck.record.path)
+                ahead = [p for p in self.set_list[i + 1:] if p not in played]
+                if ahead and ahead[0] in ranked:
+                    options = [ahead[0]] + [p for p in ranked if p != ahead[0]]
+            else:
+                options = ranked
+
         for path in options[:4]:
             rec = self._by_path[path]
             seconds = probe_seconds(rec.path)
@@ -2535,9 +2566,17 @@ class RecordsSession:
                                              bool(self.set_list and path in self.set_list)), "pick")
             except Exception as e:
                 log_debug(f"[records] chatter: {e}")
-            return Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
-                        beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm),
-                        source="set" if self.set_list and path in self.set_list else "partner")
+            nxt = Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
+                       beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm),
+                       source="set" if self.set_list and path in self.set_list else "partner")
+            if path in intent_scores and intent is not None:
+                nxt.listener_intent_id = intent.request_id
+                nxt.listener_intent_score, nxt.listener_intent_reason = intent_scores[path]
+                if self.set_list and path not in self.set_list:
+                    self.set_list = next(
+                        (s for s in self.graph.get("sets", []) if path in s), None
+                    )
+            return nxt
         return None
 
     #: Records measured against the one on air when the graph has nothing for
@@ -2547,10 +2586,7 @@ class RecordsSession:
     SEARCH_BUDGET_S = 40.0
 
     def _candidates(self, deck: Deck, exclude: Optional[library.Record] = None) -> list:
-        """Records that could follow `deck`, best first: its measured partners,
-        then anything within stretch of the tempo playing, by key and genre —
-        each not played (nor another file of a song played), and those with
-        measured partners of their own ahead of those without."""
+        """Candidates for a fresh measured pick, with bounded intent preference."""
         from utils.audio import beatgrid, setlist
         played = set(self.played)
         heard = [self._by_path[p] for p in played if p in self._by_path] + [deck.record]
@@ -2571,19 +2607,45 @@ class RecordsSession:
         rest = [r for r in self.crate if fresh(r) and r not in first and library.tempo_ratio(playing, r.bpm)
                 and beatgrid.ticks_for(r.path) is not None]
         rest.sort(key=lambda r: (onward(r) == 0, -library.score(deck.record, r), self._rng.random()))
-        return first + rest
+        ranked = first + rest
+
+        intent = self._current_listener_intent()
+        if intent is None:
+            return ranked
+        scored: dict[str, tuple[float, str]] = {}
+        for rec in ranked[:self.INTENT_PROFILE_TRIES]:
+            value = self._listener_candidate_score(
+                deck, rec, nbrs.get(rec.path), intent
+            )
+            if value is not None:
+                scored[rec.path] = value
+        if not scored:
+            return ranked
+        position = {rec.path: i for i, rec in enumerate(ranked)}
+        return sorted(
+            ranked,
+            key=lambda rec: (
+                0 if rec.path in scored else 1,
+                -scored[rec.path][0] if rec.path in scored else 0.0,
+                position[rec.path],
+            ),
+        )
 
     def _alternatives(self, deck: Deck, rejected: Next):
-        """Readied records to try when `rejected` will not lock with `deck`."""
-        nbrs = None
+        """Readied records to try when her pick will not lock with the outgoing."""
+        from utils.audio import setlist
+        intent = self._current_listener_intent()
+        nbrs = setlist.partners(self.graph, deck.record.path)
         for rec in self._candidates(deck, exclude=rejected.record)[:self.SEARCH_TRIES]:
             nxt = self._prepare(rec)
             if nxt is None:
                 continue
-            if nbrs is None:
-                from utils.audio import setlist
-                nbrs = setlist.partners(self.graph, deck.record.path)
             nxt.source = "partner" if rec.path in nbrs else "search"
+            if intent is not None:
+                scored = self._listener_candidate_score(deck, rec, nbrs.get(rec.path), intent)
+                if scored is not None:
+                    nxt.listener_intent_id = intent.request_id
+                    nxt.listener_intent_score, nxt.listener_intent_reason = scored
             yield nxt
 
     def _measured_pick(self, deck: Deck) -> Optional[Next]:
