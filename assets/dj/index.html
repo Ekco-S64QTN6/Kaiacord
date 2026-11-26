@@ -1349,7 +1349,17 @@ function updateBottom() {
   $("say").textContent = mix ? (mix.kind === "blend" ? `bringing ${S.decks[mix.in_slot] ? (S.decks[mix.in_slot].title || "the next one") : "the next one"} in on the bar, bass swap halfway.` : mix.kind === "fade" ? `fading the next one in over ${Math.round(mix.length / mix.beat / 4)} bars — ${mix.why || "the beats won't lock"}.` : mix.kind === "echo" ? `echoing this one out on the bar, the next one in under the repeats — ${mix.why || "the beats won't lock"}.` : `switching to the next one on the bar, no overlap — ${mix.why || "the beats won't lock"}.`)
     : last ? `last move: ${last.kind} into ${last.to}${last.why ? " (" + last.why + ")" : ""}.` : `opened the set for ${S.by || "the room"}.`;
   const skill = S.skills && S.skills.active;
-  const skillLabel = skill && skill.label ? `${skill.name}: ${skill.label}` : S.gesture;
+  const parameterText = skill && skill.parameters
+    ? Object.entries(skill.parameters).map(([key, value]) =>
+        `${key}=${typeof value === "number" ? value.toFixed(2) : String(value)}`).join(", ")
+    : "";
+  const phraseText = skill && skill.phrase
+    ? `${String(skill.phrase.kind || "phrase").replaceAll("_", " ")}${skill.phrase.bars ? ` · ${skill.phrase.bars}-bar` : ""}${Number.isFinite(skill.phrase.start) && Number.isFinite(skill.phrase.end) ? ` · ${skill.phrase.start.toFixed(1)}–${skill.phrase.end.toFixed(1)}s ${skill.phrase.timebase || ""}` : ""}`
+    : "";
+  const skillDetails = [parameterText, phraseText].filter(Boolean).join(" · ");
+  const skillLabel = skill && skill.label
+    ? `${skill.name}: ${skill.label}${skillDetails ? " · " + skillDetails : ""}`
+    : S.gesture;
   if (skillLabel) $("say").textContent = skillLabel + (mix ? " · " + $("say").textContent : "");
   $("earlist").textContent = (S.listeners || []).length ? "in the room: " + S.listeners.join(", ") : "nobody in the room";
   renderFeed();
