@@ -87,7 +87,7 @@ def main() -> int:
     g = setlist.load()
     if args.sets_only:
         live = {r.path: r for r in crate if r.bpm}
-        profiles = setlist.build_profiles(live)
+        profiles = setlist.build_profiles(live, g)
         g["sets"] = setlist.make_sets(g, live, profiles=profiles)
         if args.apply:
             setlist.save(g)
