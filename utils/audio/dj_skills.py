@@ -254,7 +254,11 @@ def _validate_action(action: SkillAction) -> None:
     spec = SKILL_CATALOG.get(action.skill_id)
     if spec is None:
         raise ValueError(f"unknown DJ skill: {action.skill_id}")
-    if action.lane not in spec.owns:
+    lane_is_owned = action.lane in spec.owns or (
+        action.lane == "upper_pair"
+        and {"out.high", "in.high"}.issubset(set(spec.owns))
+    )
+    if not lane_is_owned:
         raise ValueError(f"{action.skill_id} does not own {action.lane}")
     values = (action.start, action.attack_end, action.release_start, action.end, action.target)
     if not all(math.isfinite(v) for v in values):
