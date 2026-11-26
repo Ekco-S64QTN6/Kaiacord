@@ -465,3 +465,33 @@ def test_booth_asset_displays_skill_name_and_explanation():
     assert "S.skills && S.skills.active" in page
     assert "skill.name" in page
     assert "skill.label" in page
+
+
+def test_track_change_clears_previous_phrase_actions_before_new_profile_finishes(session):
+    import zlib
+
+    src = session.source
+    phrase = types.SimpleNamespace(
+        start=0.0, end=8.0, aligned=True, bars=4,
+        section="drop_candidate", section_strength=0.9,
+    )
+    profile = types.SimpleNamespace(
+        duration=300.0, aligned=True, phrases=(phrase,),
+    )
+    src.skill_scheduler.set_solo_profile(profile, fingerprint=123)
+    assert src.skill_scheduler.snapshot()["profile_loaded"] is True
+    assert src.skill_scheduler.snapshot()["solo_actions"] == 2
+
+    next_record = rec("next")
+    src.current.record = next_record
+    session._changed(next_record)
+
+    state = src.skill_scheduler.snapshot()
+    assert state["profile_loaded"] is False
+    assert state["solo_actions"] == 0
+    assert src.skill_scheduler.solo_fingerprint == (
+        zlib.crc32(next_record.path.encode("utf-8")) & 0xFFFFFFFF
+    )
+    # The new profile request is queued, but the outgoing record's timeline is
+    # already gone before the worker can read or compile the incoming record.
+    assert session._skill_profile_queue.qsize() == 1
