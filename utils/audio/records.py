@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import math
 import queue
 import random
 import re
@@ -943,14 +944,20 @@ def _soft_limit(y: np.ndarray) -> np.ndarray:
 
 
 class Controls:
-    """The mixer as someone at the booth has set it, on top of the automix:
-    per channel TRIM (dB), HI / MID / LOW (0 kills, 1 is flat, up to 1.5),
-    the channel fader (0–1); the crossfader (None until touched, then 0 = all
-    channel 1, 1 = all channel 2, both full in the middle); MASTER (0–1.5).
-    Kaia's automix still runs underneath: the two multiply."""
+    """The mixer state under the automix.
+
+    Channel 1/2 can be assigned to crossfader A, B or THRU. The default
+    standard curve preserves the legacy overlap law; constant-power and cut
+    are selectable. Configuration changes ramp over eight rendered frames.
+    Direct crossfader movement remains immediate so the hand follows the
+    fader rather than fighting a second automation lag.
+    """
 
     LIMITS = {"trim": (-12.0, 12.0), "high": (0.0, 1.5), "mid": (0.0, 1.5), "low": (0.0, 1.5),
               "fader": (0.0, 1.0)}
+    XFADER_CURVES = frozenset({"standard", "constant_power", "cut"})
+    XFADER_ASSIGNMENTS = frozenset({"A", "B", "THRU"})
+    XFADER_RAMP_FRAMES = 8
 
     def __init__(self):
         self.reset()
@@ -958,22 +965,110 @@ class Controls:
     def reset(self) -> None:
         self.channels = {1: self._flat(), 2: self._flat()}
         self.xfader: Optional[float] = None
+        self.xfader_curve = "standard"
+        self.xfader_assignments = {1: "A", 2: "B"}
+        self._xfader_gains = {1: 1.0, 2: 1.0}
+        self._xfader_ramp: Optional[tuple[dict[int, float], dict[int, float], int]] = None
         self.master = 1.0
 
     @staticmethod
     def _flat() -> dict:
         return {"trim": 0.0, "high": 1.0, "mid": 1.0, "low": 1.0, "fader": 1.0}
 
-    def set(self, slot: Optional[int], name: str, value: float) -> bool:
+    @staticmethod
+    def _number(value: float | str | None) -> Optional[float]:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    def _xfader_target(self, slot: int) -> float:
+        if self.xfader is None:
+            return 1.0
+        assignment = self.xfader_assignments.get(slot, "THRU")
+        if assignment == "THRU":
+            return 1.0
+        x = self.xfader
+        if self.xfader_curve == "standard":
+            # Preserve the existing booth law exactly: both decks are full
+            # around the centre and each attenuates linearly over its outer half.
+            return min(1.0, 2.0 * (1.0 - x)) if assignment == "A" else min(1.0, 2.0 * x)
+        if self.xfader_curve == "constant_power":
+            return math.cos(x * math.pi / 2.0) if assignment == "A" else math.sin(x * math.pi / 2.0)
+        # A cut curve hands the signal from A to B at the midpoint. At exactly
+        # 0.5 the B side owns the signal, so there is no ambiguous double-on frame.
+        return (1.0 if x < 0.5 else 0.0) if assignment == "A" else (0.0 if x < 0.5 else 1.0)
+
+    def _start_xfader_config_ramp(self) -> None:
+        start = dict(self._xfader_gains)
+        target = {slot: self._xfader_target(slot) for slot in (1, 2)}
+        if all(math.isclose(start[slot], target[slot], abs_tol=1e-9) for slot in (1, 2)):
+            self._xfader_gains = target
+            self._xfader_ramp = None
+            return
+        self._xfader_ramp = (start, target, 0)
+
+    def advance_frame(self) -> None:
+        """Advance configuration crossfades once per committed 20 ms PCM frame."""
+        if self._xfader_ramp is None:
+            return
+        start, target, frame = self._xfader_ramp
+        frame += 1
+        phase = min(1.0, frame / self.XFADER_RAMP_FRAMES)
+        weight = 0.5 - 0.5 * math.cos(math.pi * phase)
+        self._xfader_gains = {
+            slot: start[slot] + (target[slot] - start[slot]) * weight
+            for slot in (1, 2)
+        }
+        if frame >= self.XFADER_RAMP_FRAMES:
+            self._xfader_gains = target
+            self._xfader_ramp = None
+        else:
+            self._xfader_ramp = (start, target, frame)
+
+    def set(self, slot: Optional[int], name: str, value: float | str | None) -> bool:
         if name == "xfader":
-            self.xfader = None if value is None else min(1.0, max(0.0, float(value)))
+            if value is None:
+                self.xfader = None
+            else:
+                number = self._number(value)
+                if number is None:
+                    return False
+                self.xfader = min(1.0, max(0.0, number))
+            # The fader is a direct performance control; follow the hand now.
+            self._xfader_ramp = None
+            self._xfader_gains = {deck: self._xfader_target(deck) for deck in (1, 2)}
+            return True
+        if name == "xfader_curve":
+            curve = value.lower() if isinstance(value, str) else ""
+            if curve not in self.XFADER_CURVES:
+                return False
+            if curve != self.xfader_curve:
+                self.xfader_curve = curve
+                self._start_xfader_config_ramp()
+            return True
+        if name == "xfader_assignment":
+            assignment = value.upper() if isinstance(value, str) else ""
+            if slot not in self.channels or assignment not in self.XFADER_ASSIGNMENTS:
+                return False
+            if assignment != self.xfader_assignments[slot]:
+                self.xfader_assignments[slot] = assignment
+                self._start_xfader_config_ramp()
             return True
         if name == "master":
-            self.master = min(1.5, max(0.0, float(value)))
+            number = self._number(value)
+            if number is None:
+                return False
+            self.master = min(1.5, max(0.0, number))
             return True
         if slot in self.channels and name in self.LIMITS:
+            number = self._number(value)
+            if number is None:
+                return False
             lo, hi = self.LIMITS[name]
-            self.channels[slot][name] = min(hi, max(lo, float(value)))
+            self.channels[slot][name] = min(hi, max(lo, number))
             return True
         return False
 
@@ -982,7 +1077,7 @@ class Controls:
         c = self.channels.get(slot) or self._flat()
         gain = c["fader"] * 10 ** (c["trim"] / 20)
         if self.xfader is not None:
-            gain *= min(1.0, 2 * (1 - self.xfader)) if slot == 1 else min(1.0, 2 * self.xfader)
+            gain *= self._xfader_gains.get(slot, 1.0)
         return (c["low"], c["mid"], c["high"], gain)
 
     def flat(self) -> bool:
@@ -990,8 +1085,13 @@ class Controls:
                 and all(c == self._flat() for c in self.channels.values()))
 
     def state(self) -> dict:
-        return {"channels": {str(k): dict(v) for k, v in self.channels.items()},
-                "xfader": self.xfader, "master": self.master}
+        return {
+            "channels": {str(k): dict(v) for k, v in self.channels.items()},
+            "xfader": self.xfader,
+            "xfader_curve": self.xfader_curve,
+            "xfader_assignments": {str(k): v for k, v in self.xfader_assignments.items()},
+            "master": self.master,
+        }
 
 
 class CrossfadeSource(_AudioSource):
@@ -1483,7 +1583,8 @@ class CrossfadeSource(_AudioSource):
                 4.0 * current.grid.beat / max(0.01, current.ratio)
                 if current is not None and current.grid is not None else 2.0
             )
-            self.skill_scheduler.manual_override(slot, name, at, bar_s, float(value))
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                self.skill_scheduler.manual_override(slot, name, at, bar_s, float(value))
             return True
 
     @staticmethod
@@ -1719,6 +1820,7 @@ class CrossfadeSource(_AudioSource):
         cur = self.current
         if cur is None:
             return b""
+        self.controls.advance_frame()
         plan = self.plan
         # One consistent view per frame: a skip, a load or a cue from the
         # booth calls a plan off from another thread, and a frame that read
