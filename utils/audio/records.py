@@ -2140,6 +2140,7 @@ class RecordsSession:
         self._listener_intent = None
         self._listener_intent_sequence = 0
         self._listener_pick_generation = 0
+        self._listener_pick_active_generation: Optional[int] = None
         self._listener_intent_min_pick_generation = 1
         self._listener_profile_lock = threading.Lock()
         self._listener_profile_cache: dict[str, object] = {}
@@ -2247,8 +2248,9 @@ class RecordsSession:
             # A pick already in progress is not retroactively changed. Skip its
             # generation, including the tiny window after _picking is set but
             # before the worker enters _choose().
+            defer_current_pick = picking and self._listener_pick_active_generation is None
             self._listener_intent_min_pick_generation = (
-                self._listener_pick_generation + (2 if picking else 1)
+                self._listener_pick_generation + (2 if defer_current_pick else 1)
             )
         reply = (
             f"Got it — I'll favour {intent.label} in the next records choice, "
@@ -2272,10 +2274,17 @@ class RecordsSession:
                 return None
             return intent
 
-    def _listener_pick_started(self) -> None:
-        """Advance the worker-owned selection generation before ranking candidates."""
+    def _listener_pick_started(self) -> int:
+        """Mark which worker generation is currently choosing an autonomous pick."""
         with self._listener_intent_lock:
             self._listener_pick_generation += 1
+            self._listener_pick_active_generation = self._listener_pick_generation
+            return self._listener_pick_generation
+
+    def _listener_pick_finished(self, generation: int) -> None:
+        with self._listener_intent_lock:
+            if self._listener_pick_active_generation == generation:
+                self._listener_pick_active_generation = None
 
     def _listener_profile(self, record: library.Record):
         """Read/build a phrase profile on the picker worker, never the audio callback."""
@@ -2418,7 +2427,13 @@ class RecordsSession:
         threading.Thread(target=run, daemon=True, name="kaia-records-load").start()
 
     def _choose(self, deck: Deck) -> Optional[Next]:
-        self._listener_pick_started()
+        generation = self._listener_pick_started()
+        try:
+            return self._choose_impl(deck)
+        finally:
+            self._listener_pick_finished(generation)
+
+    def _choose_impl(self, deck: Deck) -> Optional[Next]:
         from utils.audio import beatgrid
         _envelope(deck.record.path)                    # the record on air, measured against at plan time
         while self.requests:
