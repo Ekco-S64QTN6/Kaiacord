@@ -187,5 +187,16 @@ For changes under `utils/ttrpg/`, the general selector also adds the full RPG te
 so RPG code changes should receive both workflows. Non-TTRPG changes do not automatically
 trigger the RPG-specific workflow. Review the `Focused test files:` list printed by
 `run_ci_tests.py`: a green workflow is meaningful only when its test selection covers the
-changed behavior. Changes are pushed straight to `main`; read the run for the pushed SHA, and
-fix forward with another commit if it fails.
+changed behavior.
+
+The selector caps import-derived discovery at 40 test files to avoid turning a change to a
+ubiquitous module into a near-full-suite run. That cap must never silently mean zero coverage:
+the independent `test_ci_test_selection.py` audit scans every tracked production Python module,
+finds modules whose unit/integration importer count exceeds the cap, and requires both an explicit
+`RELATED_TESTS` mapping and an independent `REQUIRED_RELATED_TESTS` entry. The existing mapping
+tests then verify that the named files exist and are actually selected.
+
+The default repository workflow is a direct push to `main`. When the owner explicitly requests
+PRs, verify all required workflows against the exact PR head SHA and merge only after they pass.
+A new commit creates a new head and therefore requires fresh checks; do not rely on results from an
+older SHA.
