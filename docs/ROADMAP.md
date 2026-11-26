@@ -83,10 +83,10 @@ source clock and selected PFL twin together, and ramps back to unity over eight 
 whole-gesture cap includes movement through the neutral centre; both the engine and browser release
 paths enforce it. If a browser reload loses the pointer state, a platter tap acknowledges the
 engine's completed release latch without requiring a global mixer reset. The browser acceptance
-tests exercise both the real platter nudge and this recovery path. This is a manual phase/pitch nudge, not a
-the persistent pitch fader described above or an autonomous pitch-ride skill. Remaining #403
-work includes additional performance effects with independent bounds and recovery paths, wider
-control-interaction coverage and local audio/device audition.
+tests exercise both the real platter nudge and this recovery path. This is a manual phase/pitch nudge, distinct from the persistent pitch fader described above
+and not an autonomous pitch-ride skill. Remaining #403 work includes additional performance
+effects with independent bounds and recovery paths, wider control-interaction coverage and local
+audio/device audition.
 
 **#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
 uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove
