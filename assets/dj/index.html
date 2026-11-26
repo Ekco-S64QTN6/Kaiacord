@@ -959,8 +959,9 @@ function updateDeck(slot) {
   q(slot, '[data-f="bpm"]').textContent = d && d.tempo ? d.tempo.toFixed(1) : "--.-";
   const p = d ? d.pitch : 0;
   q(slot, '[data-f="pitch"]').innerHTML = `${p >= 0 ? "+" : "−"}${Math.abs(p).toFixed(2)}<small>%</small>`;
-  q(slot, '[data-f="el"]').textContent = d ? fmt(pos / ratio) : "--:--";
-  const rem = d ? (d.length - pos) / (ratio * (d.bend && d.bend.rate ? d.bend.rate : 1)) : NaN;
+  const effectiveRate = ratio * (d && d.bend && d.bend.rate ? d.bend.rate : 1);
+  q(slot, '[data-f="el"]').textContent = d ? fmt(pos / effectiveRate) : "--:--";
+  const rem = d ? (d.length - pos) / effectiveRate : NaN;
   q(slot, '[data-f="rem"]').textContent = d ? "−" + fmt(rem) : "--:--";
   q(slot, '[data-r="remain"]').classList.toggle("warn", !!(d && d.state === "playing" && rem < 30));
   const bt = d ? beatAt(d, pos) : null;
