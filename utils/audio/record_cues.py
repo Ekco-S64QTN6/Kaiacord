@@ -114,6 +114,7 @@ def load(record) -> dict:
         _CACHE[key] = (after, bank)
         return {"memory": bank["memory"], "hot": list(bank["hot"])}
 
+
 def _mutate(record, mutation) -> bool:
     key = record_key(record)
     if key is None:
