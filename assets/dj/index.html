@@ -1490,13 +1490,15 @@ function updateMixer() {
   }
   // While idle these are the operator's next-throw settings, not renderer
   // state; do not overwrite them with the processor's neutral reset values.
+  const echoFeedback = $("echoFeedback"), echoWet = $("echoWet");
   if (echo.enabled || echo.tail) {
     syncChoice("echoBeats", String(echo.beats || 1));
-    const echoFeedback = $("echoFeedback"), echoWet = $("echoWet");
     if (echoFeedback && document.activeElement !== echoFeedback) echoFeedback.value = String(echo.feedback ?? 0.35);
     if (echoWet && document.activeElement !== echoWet) echoWet.value = String(echo.wet ?? 0.30);
   }
   if (echoBeats) echoBeats.disabled = !!(echo.enabled || echo.tail);
+  if (echoFeedback) echoFeedback.disabled = !!echo.tail;
+  if (echoWet) echoWet.disabled = !!echo.tail;
   const echoStatus = $("echoStatus");
   if (echoStatus) echoStatus.textContent = echo.enabled
     ? `${echo.bpm || "—"} BPM · ${echo.delay_s || 0}s · MASTER`
