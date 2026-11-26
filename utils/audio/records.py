@@ -2512,7 +2512,7 @@ class RecordsSession:
 
     def _partner(self, deck: Deck) -> Optional[Next]:
         """Pick a measured partner, optionally steering it with one listener intent."""
-        from utils.audio import beatgrid, setlist
+        from utils.audio import beatgrid, records_intent, setlist
         try:
             nbrs = setlist.partners(self.graph, deck.record.path)
         except Exception:
@@ -2610,7 +2610,7 @@ class RecordsSession:
 
     def _candidates(self, deck: Deck, exclude: Optional[library.Record] = None) -> list:
         """Candidates for a fresh measured pick, with bounded intent preference."""
-        from utils.audio import beatgrid, setlist
+        from utils.audio import beatgrid, records_intent, setlist
         played = set(self.played)
         heard = [self._by_path[p] for p in played if p in self._by_path] + [deck.record]
         playing = (deck.grid.bpm * deck.ratio) if deck.grid else ((deck.record.bpm or 0) * deck.ratio or None)
