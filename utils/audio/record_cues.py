@@ -34,7 +34,10 @@ def _empty() -> dict:
 def _position(value) -> Optional[float]:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    result = float(value)
+    try:
+        result = float(value)
+    except (OverflowError, ValueError):
+        return None
     return result if math.isfinite(result) and result >= 0 else None
 
 
@@ -59,7 +62,8 @@ def _read_store(path: Path, *, preserve_invalid: bool = False) -> dict:
             set_aside(path)
         return {"version": VERSION, "records": {}}
     if not isinstance(payload, dict) or payload.get("version") != VERSION or not isinstance(payload.get("records"), dict):
-        set_aside(path)
+        if preserve_invalid:
+            set_aside(path)
         return {"version": VERSION, "records": {}}
     return payload
 
