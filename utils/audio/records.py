@@ -1978,7 +1978,8 @@ class CrossfadeSource(_AudioSource):
                 pass
             # Atomically retire PFL when the final browser leaves. A concurrent
             # new listener cannot be stranded with its decoder cleared afterward.
-            if not self._headphone_streams and self._headphones_deck is not None:
+            if not self._headphone_streams:
+                # Also invalidate a preview still warming on the request thread.
                 self._headphones_generation += 1
                 old, self._headphones_deck = self._headphones_deck, None
                 self._headphones_slot = None
