@@ -439,3 +439,29 @@ def test_a_configured_booth_browser_still_wins(monkeypatch):
     monkeypatch.setattr(D, "_cfg", lambda key, default=None: "/opt/brave/brave" if key == "dj_browser" else default)
     monkeypatch.setattr(D.shutil, "which", lambda name: "/usr/bin/" + name)
     assert D._browser() == "/opt/brave/brave"
+
+
+def test_snapshot_exposes_skill_catalog_and_manual_lane_ownership(session):
+    src = session.source
+    before = D.snapshot(session)["skills"]
+    assert before["enabled"] is True
+    assert "solo_build_pressure" in before["catalog"]
+    assert "blend_headroom_ride" in before["catalog"]
+    assert before["manual_overrides"] == []
+
+    assert src.set_control(1, "high", 0.7)
+    after = D.snapshot(session)["skills"]
+    assert ("1", "high") in [tuple(item) for item in after["manual_overrides"]]
+    assert after["active"]["id"] == "manual_override"
+
+    src.skill_scheduler.hand_back_all()
+    handed_back = D.snapshot(session)["skills"]
+    assert handed_back["manual_overrides"] == []
+    assert handed_back["enabled"] is True
+
+
+def test_booth_asset_displays_skill_name_and_explanation():
+    page = D.PAGE.read_text(encoding="utf-8")
+    assert "S.skills && S.skills.active" in page
+    assert "skill.name" in page
+    assert "skill.label" in page
