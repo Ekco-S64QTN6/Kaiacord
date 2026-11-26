@@ -268,6 +268,16 @@ air. Bring its fader up and the other down; two seconds after the old one goes q
 air. NEXT mixes the loaded deck in for you, or, with one playing by hand, has her finish the mix (`!music booth`
 reopens it; it is served on `127.0.0.1:47431`, `music.dj_dashboard_port`). With no query she picks the first record from her mood.
 
+**That describes the current mechanics, not the finished DJ standard.** Beat/key/phrase alignment
+and a measured lock only establish that two records can be mixed technically; they do not prove
+that the result is musically interesting, uncluttered or emotionally right. The current records
+planner does not yet provide expert vocal/arrangement judgment, purposeful use of the full DJ
+toolbox, or a fully musical hour-long story. Those are active development goals: Kaia must know
+when to wait, when to reject a technically valid blend, when to let a breakdown breathe, and when
+a surprising but coherent transition or effect will make the moment. See
+[the records architecture and DJ quality bar](../03-architecture/records-and-booth.md) and
+[the roadmap](../ROADMAP.md#records-music-records).
+
 Genres: psytrance, techno, house, deephouse, trance, drumnbass, acid, breakbeat, dub, lofi,
 triphop, synthwave, berlinschool, ambient. Requests: darker, brighter, faster, slower, drop,
 build, calmer, harder, more <part>, no <part>. **No model is involved and no VRAM
