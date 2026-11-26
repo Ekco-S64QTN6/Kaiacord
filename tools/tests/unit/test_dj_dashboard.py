@@ -469,6 +469,7 @@ def test_every_booth_launch_is_counted_so_an_open_page_shows_a_new_portrait(monk
     """The booth window is reused across sets; the page reloads (and picks a
     new portrait of her) when the launch count it saw changes."""
     monkeypatch.setattr(D, "_launch", 0)
+    monkeypatch.setattr(D, "_cfg", lambda _key, default=None: default)
     monkeypatch.setattr(D, "serve", lambda: "http://127.0.0.1:1/")
     monkeypatch.setattr(D, "viewers", lambda: 1)              # a page already open: reused
     monkeypatch.setattr(D, "_served_at", 0.0)
