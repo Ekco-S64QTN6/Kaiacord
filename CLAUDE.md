@@ -1030,8 +1030,10 @@ that are easy to break:
   artifact (maps, envelopes/levels, loudness gain, beat ticks, beatgrid calculations, measured
   pair edges, derived sets and booth waveforms) must be tied to a robust, versioned source-audio identity. Preserve metadata-only retag
   reuse, but detect same-path audio replacement even when timestamps and size are preserved.
-  Do not treat the current sampled-end `audio_signature()` as a complete content hash. Refresh and
-  invalidate related caches coherently, and keep expensive fingerprinting off the audio callback.
+  `audio_signature()` now streams a complete BLAKE2 digest of the audio payload (excluding
+  ID3v2/ID3v1 metadata), caches it against device/inode/size/mtime/ctime, and forces a full
+  revalidation at least every five minutes. Revalidate after any background decode before
+  publishing derived results. Keep all full-file hashing off the audio callback.
   See [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408).
 - **Keep musical intelligence out of the 20 ms callback.** Use cached/background analysis and
   planning; execute bounded, ramped, phrase-aware operations at safe boundaries. Never put
