@@ -189,9 +189,14 @@ def test_pfl_monitor_follows_loop_pcm_and_exits_with_the_program_deck(loop_sourc
             monitor_cycle.append(stream.get_nowait())
         assert all(np.allclose(np.frombuffer(a, np.int16), np.frombuffer(b, np.int16), atol=1)
                        for a, b in zip(program_cycle, monitor_cycle))
+        old_program = src.current
         assert src.set_loop(1, None)
-        while src.current._loop is not None or src.current is None:
+        for _ in range(len(loop.frames) + 3):
+            if src.current is not old_program:
+                break
             src.read()
+            stream.get_nowait()
+        assert src.current is not old_program
         assert src._headphones_deck is not None and src._headphones_deck is not head_old
         assert src._headphones_deck.at(0) == pytest.approx(5.0)
         next_program = src.read()
