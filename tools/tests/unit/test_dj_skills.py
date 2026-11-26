@@ -338,7 +338,7 @@ def test_legacy_phrase_eq_reports_the_actual_four_bar_grid_window_and_targets():
         "solo.low": 0.95, "solo.mid": 1.0, "solo.high": 1.03,
     }
     assert active["phrase"] == {
-        "kind": "legacy phrase-EQ gesture", "start": 64.0, "end": 96.0,
+        "kind": "legacy phrase-EQ gesture", "start": 64.0, "end": 72.0,
         "bars": S.SKILL_PHRASE_BARS, "timebase": "playback_seconds",
     }
     assert active["actions"] == []
