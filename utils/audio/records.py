@@ -203,6 +203,16 @@ def _bands():
 _SOS = None
 
 
+@dataclass(frozen=True)
+class DeckLoop:
+    """A bounded, predecoded beat loop and its independent source-time clock."""
+    frames: tuple[bytes, ...]
+    start_played: int
+    start_own: float
+    end_own: float
+    beats: int
+
+
 class Deck:
     """One record being decoded: frames pumped from a byte stream into a buffer.
 
@@ -229,7 +239,8 @@ class Deck:
         self.pad = max(0, int(pad))
         self.offset = max(0.0, offset)                      # seconds of the record skipped, own time
         self.total_frames = int(((seconds - self.offset) / ratio * RATE + self.pad) / FRAME_SAMPLES)
-        self.played = 0
+        self.played = 0                         # monotonic render-frame clock, even through loops
+        self._loop: Optional[DeckLoop] = None
         extra = {**({"gain": gain} if gain else {}), **({"offset": self.offset} if self.offset else {}),
                  **({"semitones": self.semitones} if self.semitones else {})}
         self._proc = stream_factory(record.path, ratio, **extra)
@@ -272,7 +283,12 @@ class Deck:
             return len(self._frames) >= frames or self._eof
 
     def frame(self) -> Optional[bytes]:
-        """The next frame; silence if decoding is behind; None once the record is over."""
+        """The next frame; loop playback never consumes the underlying track decoder."""
+        loop = self._loop
+        if loop is not None and self.played >= loop.start_played:
+            index = (self.played - loop.start_played) % len(loop.frames)
+            self.played += 1
+            return loop.frames[index]
         with self._lock:
             if self._frames:
                 self.played += 1
@@ -287,6 +303,10 @@ class Deck:
     def at(self, frames: Optional[int] = None) -> float:
         """Seconds into the record as played (stretched) at the start of frame `frames`."""
         n = self.played if frames is None else frames
+        loop = self._loop
+        if loop is not None and n >= loop.start_played:
+            index = (n - loop.start_played) % len(loop.frames)
+            return loop.start_own / self.ratio + index / FRAMES_PER_S
         return (n * FRAME_SAMPLES - self.pad) / RATE + self.offset / self.ratio
 
     @property
@@ -296,11 +316,27 @@ class Deck:
 
     @property
     def remaining(self) -> int:
+        loop = self._loop
+        if loop is not None:
+            return max(0, int(round((self.end - loop.end_own / self.ratio) * FRAMES_PER_S)))
         return max(0, self.total_frames - self.played)
 
     @property
+    def loop(self) -> Optional[dict]:
+        loop = self._loop
+        if loop is None:
+            return None
+        return {"beats": loop.beats, "active": self.played >= loop.start_played,
+                "start": loop.start_own, "end": loop.end_own}
+
+    @property
+    def loop_active(self) -> bool:
+        return self._loop is not None
+
+    @property
     def end(self) -> float:
-        return self.at(self.total_frames)
+        # Fixed track end; at() is intentionally loop-relative while looping.
+        return (self.total_frames * FRAME_SAMPLES - self.pad) / RATE + self.offset / self.ratio
 
     def split(self, frame: bytes) -> tuple:
         """(low, mid, presence, air) of a frame as float stereo, filtered with
