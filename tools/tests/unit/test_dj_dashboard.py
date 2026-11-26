@@ -519,9 +519,11 @@ def test_booth_control_rides_and_reset_routes_transfer_skill_ownership(session, 
         manual_before = list(src.skill_scheduler.snapshot()["manual_overrides"])
         post("/control", {"slot": None, "name": "xfader_curve", "value": "constant_power"})
         post("/control", {"slot": 2, "name": "xfader_assignment", "value": "THRU"})
+        post("/control", {"slot": None, "name": "xfader", "value": 0.15})
         controls = D.snapshot(session)["controls"]
         assert controls["xfader_curve"] == "constant_power"
         assert controls["xfader_assignments"] == {"1": "A", "2": "THRU"}
+        assert controls["xfader"] == pytest.approx(0.15)
         assert src.skill_scheduler.snapshot()["manual_overrides"] == manual_before
 
         # HANDS off pauses skills; turning it back on resumes Kaia automation.
@@ -540,6 +542,7 @@ def test_booth_control_rides_and_reset_routes_transfer_skill_ownership(session, 
         assert src.controls.channels[1]["high"] == pytest.approx(1.0)
         assert src.controls.state()["xfader_curve"] == "standard"
         assert src.controls.state()["xfader_assignments"] == {"1": "A", "2": "B"}
+        assert src.controls.state()["xfader"] is None
     finally:
         server, D._server = D._server, None
         if server:
