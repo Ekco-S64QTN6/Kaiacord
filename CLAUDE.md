@@ -1014,12 +1014,19 @@ that are easy to break:
   repeats it while the live program and selected PFL decoder clocks advance, and crossfades back
   to the live position over four 20 ms frames. A 600-frame hard cap releases a lost pointer hold.
   It is not a persistent loop, an autonomous DJ skill, or the full beat-juggling repertoire.
-  Live jog/pitch bend remains unimplemented. A manual tempo-synchronised master echo is one
-  bounded audio effect; it does not imply a general effects bank or autonomous effect skill.
+  The on-air jog platter now supports a manual live nudge: resample decoder PCM from 0.92× to
+  1.08×, keep the source cursor and selected PFL twin in step, and ramp to unity over eight
+  rendered frames on release. The complete hold is capped at 500 frames (10 seconds), even
+  when the gesture crosses the neutral centre; the browser also releases at that limit and on
+  cancellation, blur or page hide. Allocate its fixed PCM ring on the booth request thread, not
+  under the render lock. Do not use this as a permanent pitch setting, scratch/backspin control
+  or autonomous skill. A manual tempo-synchronised master echo is one bounded audio effect;
+  it does not imply a general effects bank or autonomous effect skill.
 - **Booth interactions are verified through real browser gestures.** The Playwright suite opens the
   loopback DJ page in Chromium and uses actual pointer clicks, Shift-clicks and context-menu gestures
-  for cue and loop pads. Do not replace these with direct POSTs or DOM event dispatch: the browser test
-  must exercise the page's real event handlers and verify the resulting engine and persisted state.
+  for cue and loop pads, plus real pointer-held SLIP and live-jog platter gestures. Do not replace
+  these with direct POSTs or DOM event dispatch: the browser test must exercise the page's real
+  event handlers and verify the resulting engine state and live source-clock behavior.
 - **One voice at a time, and a record is left where it changes**: the presence band changes hands with
   the mids (`presence`), the outgoing is gone a `tail` after the swap, and an end-of-record blend goes at
   the outro or last breakdown (`songmap`), else near the end, further back only as the last resort.
@@ -1080,8 +1087,9 @@ that are easy to break:
   The booth selectors must reflect the server snapshot and their actual values must affect the
   rendered channel gain. Keep the records-audio path filter watching `assets/dj/index.html` and
   test the transfer functions and HTTP/UI control routes. PFL, cue banks, beat loops, manual
-  slip rolls and the master echo now have real paths; do not claim live jog/pitch bend, further FX,
-  physical headphone/device acceptance or complete #403 parity without those separate paths/evidence.
+  slip rolls, live jog bend and the master echo now have real paths. Do not claim a permanent
+  pitch slider/ride, scratches, further FX, physical headphone/device acceptance or complete
+  #403 parity without those separate paths/evidence.
 
 - **Treat DJ skills as real musical operations, not labels or UI promises.** Every skill needs a
   purpose, preconditions, timing/phrase rules, bounded parameters, explanation, owned lanes,
@@ -1095,11 +1103,11 @@ that are easy to break:
   explicit KAIA MIX hand-back; automation must ease out and never fight the user. The booth's
   active skill state must show target parameters, action/phrase bounds and their timebase, plus
   manual lane ownership, directly from the scheduler; labels alone are not evidence of execution.
-  The manual slip-roll primitive and master echo are human-operated capabilities only; neither
-  is an autonomous skill yet. Do not add them to the skill catalog until phrase-aware action contracts,
-  composition rules, manual ownership and safe release/hand-back are implemented. Live jog/pitch bend,
-  scratches, filters, stutters, further FX, vocal/percussion separation and other absent capabilities
-  still require real #403 primitives; never fake them or expose cosmetic controls. Until #403 adds
+  The manual slip-roll, jog-bend and master-echo primitives are human-operated capabilities only;
+  none is an autonomous skill yet. Do not add them to the skill catalog until phrase-aware action
+  contracts, composition rules, manual ownership and safe release/hand-back are implemented.
+  Permanent pitch rides, scratches, filters, stutters, further FX, vocal/percussion separation and
+  other absent capabilities still require real #403 primitives; never fake them or expose cosmetic controls. Until #403 adds
   the shared runtime capability registry, the catalog must validate against its conservative
   current-engine allowlist and must state that this is a bridge,
   not a dynamic #403 capability model. No implementation or unit test proves musical taste: #402
