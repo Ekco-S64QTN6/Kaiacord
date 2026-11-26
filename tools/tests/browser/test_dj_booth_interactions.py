@@ -211,6 +211,17 @@ def test_real_browser_controls_the_tempo_synced_master_echo(booth):
 
             echo = page.locator("#echoToggle")
             assert echo.text_content().strip() == "ECHO OFF"
+
+            # Set up the next throw while it is idle. Polling renderer state
+            # must not overwrite the operator's next-throw settings.
+            page.locator("#echoBeats").select_option("2")
+            feedback = page.locator("#echoFeedback")
+            feedback.focus()
+            feedback.press("ArrowRight")
+            page.wait_for_timeout(250)
+            assert page.locator("#echoBeats").input_value() == "2"
+            assert feedback.input_value() == "0.4"
+
             with page.expect_response(
                 lambda result: result.url.endswith("/fx/echo")
                 and result.request.method == "POST"
@@ -218,6 +229,8 @@ def test_real_browser_controls_the_tempo_synced_master_echo(booth):
                 echo.click()
             assert enabled_response.value.status == 204
             assert source.effects.active
+            assert source.effects.snapshot()["beats"] == 2.0
+            assert source.effects.snapshot()["feedback"] == pytest.approx(0.4)
             _wait_for_ui_state(page, "#echoToggle", "ECHO ON")
             for _ in range(26):
                 source.read()
