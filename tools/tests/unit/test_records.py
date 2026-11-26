@@ -1677,7 +1677,7 @@ def test_measured_alternatives_use_normalized_lock_quality_and_artist_variety(mo
 def test_loudness_gain_cache_is_keyed_by_audio_identity(monkeypatch):
     identity = {"value": "audio-one"}
     calls = []
-    monkeypatch.setattr(R.library, "audio_signature", lambda _path: identity["value"])
+    monkeypatch.setattr(R.library, "audio_signature", lambda _path, **_kwargs: identity["value"])
 
     def fake_run(*_args, **_kwargs):
         calls.append(identity["value"])
