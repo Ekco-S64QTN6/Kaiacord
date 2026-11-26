@@ -78,16 +78,16 @@ _VERSION = re.compile(r"\s+-\s+.*\b(?:remix|mix|edit|version|rework|remaster(?:e
 _ARTIST_FILLER = {"feat", "ft", "vs", "and", "the", "with", "official", "music", "x", "various", "artists", "unknown"}
 
 
-def audio_signature(path: str) -> Optional[str]:
+def audio_signature(path: str, *, refresh: bool = False) -> Optional[str]:
     """The versioned complete audio-payload identity used by record caches.
 
     ID3v2/ID3v1 tags are excluded so an MP3 metadata-only retag does not force
-    analysis again. The complete payload is streamed through BLAKE2; unlike the
-    former sampled fingerprint, edits in the middle of a same-size file count.
-    Call only from background/maintenance paths, never the audio callback.
+    analysis again. The complete payload is streamed through BLAKE2; inode and
+    ctime changes invalidate the stat cache immediately, with periodic full
+    revalidation for unusual filesystems. Call only off the audio callback.
     """
     from utils.audio.audio_identity import audio_signature as identify
-    return identify(path)
+    return identify(path, refresh=refresh)
 
 
 @functools.lru_cache(maxsize=4096)
