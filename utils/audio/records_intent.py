@@ -183,4 +183,5 @@ def score_candidate(intent: ListenerIntent, current_profile, candidate_profile,
 def pending_label(intent: Optional[ListenerIntent]) -> Optional[str]:
     if intent is None or time.time() >= intent.expires_at:
         return None
-    return f"{intent.label} (next autonomous pick; expires in {max(1, int(intent.expires_at - time.time())) // 60} min)"
+    minutes = max(1, int((intent.expires_at - time.time() + 59) // 60))
+    return f"{intent.label} (next autonomous pick; expires in {minutes} min)"
