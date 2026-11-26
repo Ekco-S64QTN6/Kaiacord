@@ -293,6 +293,32 @@ def test_loop_is_rejected_without_a_counted_grid_or_during_a_transition(loop_sou
     assert deck._loop is None and src.plan is plan
 
 
+def test_loop_arming_rechecks_transition_planning_after_pcm_preparation(loop_source):
+    src = loop_source
+    original_factory = src._factory
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(target=lambda: result.append(src.set_loop(1, 2)), daemon=True)
+    worker.start()
+    assert entered.wait(timeout=1.0)
+    with src._lock:
+        src._planning = True
+    release.set()
+    worker.join(timeout=5.0)
+    with src._lock:
+        src._planning = False
+    assert not worker.is_alive()
+    assert result == [False]
+    assert src.current is not None and src.current._loop is None
+
 def test_loop_lengths_are_strictly_bounded(loop_source):
     src = loop_source
     assert not src.set_loop(1, True)
