@@ -45,6 +45,18 @@ async def _handle_bank_deposit(ctx, msg, send, rest, uid, uname, is_owner, *, lo
                 await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
                 return
             s = await load_character(uid)
+            if not s:
+                await interaction.response.send_message("No character found.", ephemeral=True)
+                return
+            # Re-authorize against the freshly loaded sheet while the player lock
+            # is held. A previously rendered view is not a location credential.
+            refusal = await _bank_refusal(s, uid)
+            if refusal:
+                await interaction.response.send_message(
+                    embed=discord.Embed(description=refusal, color=0xcc4444),
+                    ephemeral=True,
+                )
+                return
             if is_all: amount = s["gil"]
             if amount > s["gil"]:
                 await interaction.response.send_message(
@@ -92,6 +104,18 @@ async def _handle_bank_withdraw(ctx, msg, send, rest, uid, uname, is_owner, *, l
                 await interaction.response.send_message("```\nnot yours.\n```", ephemeral=True)
                 return
             s = await load_character(uid)
+            if not s:
+                await interaction.response.send_message("No character found.", ephemeral=True)
+                return
+            # The home-vault exception is ownership-dependent, so it must be
+            # checked again as well as the character's current location.
+            refusal = await _bank_refusal(s, uid)
+            if refusal:
+                await interaction.response.send_message(
+                    embed=discord.Embed(description=refusal, color=0xcc4444),
+                    ephemeral=True,
+                )
+                return
             bank = s.get("bank_balance", 0)
             if is_all: amount = bank
             if amount > bank:

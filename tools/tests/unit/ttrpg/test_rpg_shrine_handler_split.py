@@ -232,3 +232,58 @@ def test_offer_refuses_when_the_daily_cap_is_already_used(monkeypatch):
     (embed, view), = sent
     assert "reached today's offering limit" in embed.description
     assert view is None
+
+
+def test_stale_shrine_offering_refuses_after_character_leaves(monkeypatch):
+    store = {
+        "42": {
+            "user_id": "42",
+            "character_name": "Ash",
+            "location": "shrine",
+            "gil": 20,
+            "xp": 100,
+            "level": 3,
+            "conditions": [],
+            "offered_today": {},
+        }
+    }
+    saves = []
+
+    async def load(uid):
+        assert str(uid) == "42"
+        return copy.deepcopy(store["42"])
+
+    async def save(sheet):
+        saves.append(copy.deepcopy(sheet))
+        store[str(sheet["user_id"])] = copy.deepcopy(sheet)
+
+    monkeypatch.setattr(core, "load", load)
+    monkeypatch.setattr(core, "save", save)
+    monkeypatch.setattr(core, "check_level_up", lambda _sheet: (False, 3))
+    monkeypatch.setattr(core, "xp_to_next_level", lambda _level: 1000)
+    monkeypatch.setattr(core, "_make_status_btn", lambda *args: discord.ui.Button(label="Status"))
+    monkeypatch.setattr("utils.ttrpg.calendar.get_special_day", lambda: None)
+    monkeypatch.setattr("utils.ttrpg.world_state.load_world_state", lambda: {})
+    msg, sent = _sent_message()
+
+    async def run():
+        await core._handle_offer(None, msg, None, "", "42", "Ash", False)
+        view = sent[0][1]
+        button = next(child for child in view.children if child.label == "10g")
+        store["42"]["location"] = "stone_hearth"
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=42),
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+        await button.callback(interaction)
+        return interaction
+
+    interaction = asyncio.run(run())
+
+    assert store["42"]["location"] == "stone_hearth"
+    assert store["42"]["gil"] == 20
+    assert store["42"]["xp"] == 100
+    assert store["42"]["offered_today"] == {}
+    assert saves == []
+    interaction.response.send_message.assert_awaited_once()
+    assert interaction.response.send_message.await_args.kwargs["ephemeral"] is True

@@ -78,6 +78,15 @@ async def _handle_seed_shop(ctx, msg, send, rest, uid, uname, is_owner):
         s = await load(uid)
         if not s:
             return
+        if s.get("location") != "herbalists_hut":
+            await interaction.followup.send(
+                embed=discord.Embed(
+                    description="This seed-shop menu is no longer valid because you are not at the Herbalist's Hut.",
+                    color=0xcc4444,
+                ),
+                ephemeral=True,
+            )
+            return
         cost = CROPS[chosen]["seed_cost"]
         from utils.ttrpg.inventory_capacity import grant_item, unique_item_type_count
         if s["gil"] < cost:
