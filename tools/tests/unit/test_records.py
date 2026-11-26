@@ -1692,3 +1692,23 @@ def test_loudness_gain_cache_is_keyed_by_audio_identity(monkeypatch):
     assert first == second
     assert calls == ["audio-one", "audio-two"]
     R.gain_db.cache_clear()
+
+
+def test_records_session_checks_audio_graph_identity_off_event_loop(monkeypatch):
+    import threading
+
+    from utils.audio import setlist
+
+    checked = threading.Event()
+    thread_names = []
+    monkeypatch.setattr(setlist, "needs_build",
+                        lambda *_args: thread_names.append(threading.current_thread().name) or checked.set() or False)
+
+    vc = types.SimpleNamespace(
+        guild=types.SimpleNamespace(id=1),
+        channel=types.SimpleNamespace(name="General", members=[]),
+    )
+    session = R.RecordsSession(vc, [], "Ekco")
+    assert checked.wait(2.0)
+    assert thread_names == ["kaia-records-graph-check"]
+    assert session.graph is not None
