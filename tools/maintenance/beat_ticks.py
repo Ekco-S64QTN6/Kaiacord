@@ -33,6 +33,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from utils.audio.audio_identity import audio_signature
+
 CACHE = ROOT / "memory" / "records" / "ticks"
 
 
@@ -69,17 +74,22 @@ def fold(bpm: float, ticks, want):
     return bpm, ticks
 
 
-def analyse(path: str, want_bpm=None) -> dict:
+def analyse(path: str, want_bpm=None, identity: Optional[str] = None) -> dict:
     import essentia
     essentia.log.infoActive = False
     import essentia.standard as es
+    identity = identity or audio_signature(path)
+    if identity is None:
+        raise ValueError("could not identify record audio")
     x = _decode(path)
     if len(x) < 44100 * 10:
         raise ValueError("under ten seconds of audio")
     bpm, ticks, conf, _, _ = es.RhythmExtractor2013(method="multifeature")(x)
     bpm, ticks = fold(float(bpm), ticks, want_bpm)
+    if audio_signature(path) != identity:
+        raise RuntimeError("record audio changed while beat ticks were being analysed")
     return {"bpm": round(float(bpm), 3), "confidence": round(float(conf), 3),
-            "ticks": [round(float(t), 4) for t in ticks]}
+            "audio_signature": identity, "ticks": [round(float(t), 4) for t in ticks]}
 
 
 def _write(dest: Path, data: dict) -> None:
@@ -107,10 +117,18 @@ def main() -> int:
     failed = 0
     for path, bpm in jobs:
         dest = cache_path(path, cache)
-        if dest.exists() and not a.force:
-            continue
         try:
-            data = analyse(path, bpm)
+            identity = audio_signature(path)
+            if identity is None:
+                raise ValueError("could not identify record audio")
+            if dest.exists() and not a.force:
+                try:
+                    cached = json.loads(dest.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    cached = {}
+                if cached.get("audio_signature") == identity:
+                    continue
+            data = analyse(path, bpm, identity=identity)
             _write(dest, data)
             print(f"ok   {data['bpm']:7.2f} bpm  conf {data['confidence']:.2f}  {len(data['ticks'])} beats  {os.path.basename(path)}")
         except Exception as e:
