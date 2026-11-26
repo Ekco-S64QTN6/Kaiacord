@@ -229,14 +229,16 @@ candidate it has already begun choosing.
 
 The preference is soft and positive-evidence-only. For a bounded frontier of
 candidates, the picker compares the outgoing and incoming records' approximate
-exit/entry windows using the cached phrase profiles. More/less bass, darker,
+exit/entry windows using the cached phrase profiles in each record's own source
+time (tracked/source BPM, not the stretched playback BPM). More/less bass, darker,
 brighter and calmer/harder use the corresponding relative feature-level
 difference. Build/drop require a counted, phrase-aligned candidate section.
 Only a candidate whose score moves meaningfully in the requested direction
 may move ahead of the normal selection order; contrary, weak or missing
 evidence leaves the precomputed set path and existing candidate ranking intact.
-The candidate still must pass the existing transition planner and measured
-mixcheck before it can be brought in. A request is recorded as selected only
+The candidate still goes through the existing transition planner. Any overlap
+must pass the existing measured mixcheck; if no blend locks, only the existing
+no-overlap echo-out/switch fallback may be used. A request is recorded as selected only
 after the incoming deck has been prepared and a plan published; this is a
 selection decision, not a claim that audio parameters changed or that a
 listener's taste was satisfied.
