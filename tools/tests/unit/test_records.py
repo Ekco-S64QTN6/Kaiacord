@@ -2688,12 +2688,12 @@ def test_persistent_pitch_fader_composes_with_live_jog_and_returns_to_its_settin
 def test_transition_planner_matches_the_incoming_deck_to_the_persistent_pitch_rate():
     plan = plan_transition(
         3.1, 1.0, STEADY, 60.0, nxt(), "skip", 16, lead=2.0,
-        playback_rate=1.06,
+        playback_rate=1.04,
     )
     assert plan.kind == "blend"
-    assert plan.playback_rate == pytest.approx(1.06)
-    assert plan.ratio == pytest.approx(1.06)
+    assert plan.playback_rate == pytest.approx(1.04)
+    assert plan.ratio == pytest.approx(1.04)
     # Transition coordinates remain in decoded-source time; wall BPM changes.
     assert plan.beat == pytest.approx(0.5)
     assert plan.length == pytest.approx(8.0)
-    assert plan.drop >= 3.1 + 0.75 + 2.0 * 1.06
+    assert plan.drop >= 3.1 + 0.75 + 2.0 * 1.04

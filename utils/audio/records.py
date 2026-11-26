@@ -1896,7 +1896,7 @@ class CrossfadeSource(_AudioSource):
     def _plan_ahead(self, cur: Deck) -> float:
         """Seconds before the end of `cur` its way out is planned: room for the
         blend and the search, and for leaving at its outro or last breakdown."""
-        return self._mix_beats * 0.6 + 90 + getattr(cur, "out_lead", 0.0) / (cur.ratio * cur.pitch_rate)
+        return self._mix_beats * 0.6 + 90 + getattr(cur, "out_lead", 0.0) / (cur.ratio * getattr(cur, "pitch_rate", 1.0))
 
     def _swaps(self, deck: Deck) -> list:
         """Where the bass swap out of `deck` is tried before the end of its
@@ -2872,7 +2872,7 @@ class CrossfadeSource(_AudioSource):
                     self._pending_planning_mode = mode
                 return
             if (self.plan or self.current is None or self.hand is not None or self._hand_starting
-                    or self.current.pitch_ramping):
+                    or getattr(self.current, "pitch_ramping", False)):
                 return
             self._planning = True
             self.planning_mode = mode
@@ -3114,7 +3114,7 @@ class CrossfadeSource(_AudioSource):
             if pending_exit is not None and pending_exit.old.slot == slot:
                 return False
             if self.current is not None and self.current.slot == slot and (
-                self.current.roll_active or self.current.bend["active"] or self.current.pitch_ramping
+                self.current.roll_active or self.current.bend["active"] or getattr(self.current, "pitch_ramping", False)
             ):
                 # A new PFL decoder cannot inherit a live roll/jog cursor or a changing pitch ramp.
                 return False
@@ -3345,7 +3345,7 @@ class CrossfadeSource(_AudioSource):
         # itself on the last phrase that leaves room, however soon it is made.
         if (plan is None and self.hand is None and not getattr(cur, "loop_active", False)
                 and not getattr(cur, "roll_active", False)
-                and not getattr(cur, "bend_active", False) and not cur.pitch_ramping and not self._planning
+                and not getattr(cur, "bend_active", False) and not getattr(cur, "pitch_ramping", False) and not self._planning
                 and cur.remaining <= int(self._plan_ahead(cur) * FRAMES_PER_S)):
             self._begin_planning("end")
         if self.hand is not None and plan is None:
@@ -3363,7 +3363,7 @@ class CrossfadeSource(_AudioSource):
             t0 = cur.at(cur.played - 1)
         elif (plan is None and not getattr(cur, "loop_active", False)
               and not getattr(cur, "roll_active", False)
-              and not getattr(cur, "bend_active", False) and not cur.pitch_control_active
+              and not getattr(cur, "bend_active", False) and not getattr(cur, "pitch_control_active", False)
               and self.tempo_glide and not self._gliding and not self._planning
               and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
               and cur.grid is not None and cur.grid.bar_known
@@ -3391,7 +3391,7 @@ class CrossfadeSource(_AudioSource):
         if (plan is None and not getattr(cur, "loop_active", False)
                 and not getattr(cur, "bend_active", False)
                 and self.rides and out is not None and cur.grid is not None):
-            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) * cur.playback_rate / RATE
+            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) * getattr(cur, "playback_rate", 1.0) / RATE
             fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot, cur.ratio)
             if not handled:
                 # Preserve the old small phrase gesture only when no aligned
@@ -3427,7 +3427,7 @@ class CrossfadeSource(_AudioSource):
             # A published transition always owns a prepared incoming deck.
             # Narrow the optional reference for the renderer and type checker.
             assert incoming is not None
-            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) * cur.playback_rate / RATE
+            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) * getattr(cur, "playback_rate", 1.0) / RATE
             g = gains(plan, times)
             if self.rides:
                 fac, self.gesture, _skill_id = self.skill_scheduler.render_blend(
