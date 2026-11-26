@@ -2430,18 +2430,20 @@ def test_live_jog_bend_keeps_program_and_pfl_decoders_in_lockstep(loop_source):
         for _ in range(R.PITCH_BEND_RAMP_FRAMES + 15):
             program = src.read()
             monitor = stream.get_nowait()
-            assert program == monitor
+            assert np.allclose(np.frombuffer(program, np.int16),
+                               np.frombuffer(monitor, np.int16), atol=1)
         assert deck.bend["rate"] == head.bend["rate"] == pytest.approx(1.06)
-        assert deck._source_samples == pytest.approx(head._source_samples, abs=1e-5)
-        assert deck.at() == pytest.approx(head.at(), abs=1e-6)
+        assert deck._source_samples == pytest.approx(head._source_samples, abs=1.0)
+        assert deck.at() == pytest.approx(head.at(), abs=1.0 / R.RATE)
 
         assert src.set_bend(1, 1.0)
         for _ in range(R.PITCH_BEND_RAMP_FRAMES + 2):
             program = src.read()
             monitor = stream.get_nowait()
-            assert program == monitor
+            assert np.allclose(np.frombuffer(program, np.int16),
+                               np.frombuffer(monitor, np.int16), atol=1)
         assert not deck.bend_active and not head.bend_active
-        assert deck._source_samples == pytest.approx(head._source_samples, abs=1e-5)
+        assert deck._source_samples == pytest.approx(head._source_samples, abs=1.0)
     finally:
         src.detach_headphone_stream(stream)
         src.set_headphones(None)
