@@ -2414,16 +2414,17 @@ class RecordsSession:
         if self._closing or self._skill_profile_stop.is_set():
             return
         src = self.source
-        scheduler = getattr(src, "skill_scheduler", None) if src is not None else None
-        source_lock = getattr(src, "_lock", None) if src is not None else None
-        if scheduler is not None and source_lock is not None:
-            # The callback can run under src._lock (RLock). Clear the previous
-            # track's timeline before this frame can render against the new deck.
-            with source_lock:
-                if src.current is not None and src.current.record.path == record.path:
-                    import zlib
-                    fingerprint = zlib.crc32(record.path.encode("utf-8")) & 0xFFFFFFFF
-                    scheduler.set_solo_profile(None, fingerprint)
+        if src is not None:
+            scheduler = getattr(src, "skill_scheduler", None)
+            source_lock = getattr(src, "_lock", None)
+            if scheduler is not None and source_lock is not None:
+                # The callback can run under src._lock (RLock). Clear the
+                # previous track's timeline before this frame can render.
+                with source_lock:
+                    if src.current is not None and src.current.record.path == record.path:
+                        import zlib
+                        fingerprint = zlib.crc32(record.path.encode("utf-8")) & 0xFFFFFFFF
+                        scheduler.set_solo_profile(None, fingerprint)
         with self._skill_profile_queue_lock:
             self._skill_profile_generation += 1
             item = (self._skill_profile_generation, record)
@@ -2453,8 +2454,10 @@ class RecordsSession:
             if self._skill_profile_stop.is_set() or self._closing:
                 continue
             src = self.source
-            scheduler = getattr(src, "skill_scheduler", None) if src is not None else None
-            source_lock = getattr(src, "_lock", None) if src is not None else None
+            if src is None:
+                continue
+            scheduler = getattr(src, "skill_scheduler", None)
+            source_lock = getattr(src, "_lock", None)
             if scheduler is None or source_lock is None:
                 continue
             fingerprint = zlib.crc32(record.path.encode("utf-8")) & 0xFFFFFFFF
