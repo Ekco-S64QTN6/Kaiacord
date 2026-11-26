@@ -1593,6 +1593,7 @@ class CrossfadeSource(_AudioSource):
             deck = self.current if self.current is not None and self.current.slot == slot else None
             if (deck is None or deck.loop_active or deck.grid is None or not deck.grid.bar_known
                     or self.plan is not None or self.incoming is not None or self.hand is not None
+                    or self._planning or self._pending_planning_mode is not None
                     or self._pending_loop_exit is not None or slot in self.paused):
                 return False
             grid = deck.grid
