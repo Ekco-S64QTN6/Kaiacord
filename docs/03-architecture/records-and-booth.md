@@ -311,6 +311,33 @@ jog/pitch bend, scratches, filters, stutters, delay/reverb
 they must not appear as selectable skills or cosmetic controls. Human audition
 on real records and independent/blind assessment remain mandatory under #402.
 
+### Crossfader curves and deck assignment (#403, first slice)
+
+`records.Controls` retains the legacy standard law as its default. With deck 1
+assigned to A and deck 2 to B, the standard law is exactly the previous behavior:
+at the ends one side is attenuated linearly over half the travel, and around the
+centre both sides remain full. Existing sessions therefore keep the same sound.
+
+The booth can select three transfer laws: `standard` (legacy overlap),
+`constant_power` (A = cos(xπ/2), B = sin(xπ/2), an equal-power pair), and
+`cut` (A owns x < 0.5; B owns x ≥ 0.5). Each deck can independently be assigned
+to A, B or THRU; THRU bypasses only the crossfader for that deck, not its channel
+fader, trim, EQ or master. Assigning both decks to one side is permitted.
+
+Changing curve or deck assignment compiles a new pair of target gains and ramps
+from the currently applied pair over eight 20 ms PCM frames with cosine easing.
+`Controls.advance_frame()` is called once inside the locked `CrossfadeSource`
+render boundary; the booth thread does not advance or interpolate DSP state.
+Direct crossfader movement remains immediate to follow the operator's hand, and
+the cut law deliberately performs a hard A/B handoff at the midpoint.
+Non-finite values and unknown curve/assignment names are rejected. Reset returns
+the curve and assignments to standard/A/B and clears the direct crossfader position.
+
+This is the first bounded #403 mixer slice, not professional parity: it does not
+add PFL/cue-master routing, hot/memory cues, loops/rolls, jog/pitch bend, or an FX
+bus. Those remain separate #403 work and must be backed by real signal paths and
+browser interaction tests before they are exposed as capabilities.
+
 ### Real-time engineering boundary
 
 Keep the 20 ms Discord audio path bounded. Do not put disk or network I/O, full-track analysis,
