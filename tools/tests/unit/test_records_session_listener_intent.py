@@ -132,6 +132,7 @@ def test_measured_partner_frontier_is_reordered_by_the_requested_feature(monkeyp
     session.set_list = None
     session._rng = __import__("random").Random(1)
     session.say = lambda *_args: None
+    session._listener_profile_lock = threading.Lock()
     session._listener_profile_cache = {
         current.path: _profile(-18.0),
         strong.path: _profile(-2.0),
