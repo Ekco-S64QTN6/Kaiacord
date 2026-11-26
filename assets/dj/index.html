@@ -115,8 +115,10 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .transport { display: flex; gap: 8px; align-items: center; }
 .loopbank { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .looplabel { color: var(--dim); font: 700 8px var(--mono); letter-spacing: 1.2px; margin-right: 3px; }
-.looppad, .loopoff { min-width: 28px; padding: 4px 0; border: 1px solid var(--faint); border-radius: 3px; background: rgba(0,0,0,.45); color: var(--dim); font: 700 10px var(--mono); cursor: pointer; }
+.looppad, .rollpad, .loopoff { min-width: 26px; padding: 4px 0; border: 1px solid var(--faint); border-radius: 3px; background: rgba(0,0,0,.45); color: var(--dim); font: 700 9px var(--mono); cursor: pointer; }
 .looppad.active { color: var(--dc); border-color: var(--dc); background: color-mix(in srgb, var(--dc) 13%, transparent); box-shadow: inset 0 0 8px var(--dcg); }
+.rollpad { touch-action: none; user-select: none; border-color: color-mix(in srgb, var(--yellow) 45%, var(--faint)); }
+.rollpad.active { color: #171200; border-color: var(--yellow); background: var(--yellow); box-shadow: 0 0 10px rgba(255,228,92,.45); }
 .loopoff { color: var(--yellow); }
 .loopstatus { margin-left: auto; color: var(--dim); font: 700 8px var(--mono); letter-spacing: 1px; }
 .loopbank button:disabled { opacity: .25; cursor: default; }
@@ -712,6 +714,11 @@ function buildDeck(slot) {
       <button class="looppad" data-loop-beats="4" type="button" title="arm a four-beat loop on the next counted phrase">4</button>
       <button class="looppad" data-loop-beats="8" type="button" title="arm an eight-beat loop on the next counted phrase">8</button>
       <button class="loopoff" data-loop-exit type="button" title="exit at the next loop boundary">EXIT</button>
+      <span class="looplabel">SLIP</span>
+      <button class="rollpad" data-roll-beats="1" type="button" title="hold for a one-beat slip roll; release returns to the advancing live playhead">1</button>
+      <button class="rollpad" data-roll-beats="2" type="button" title="hold for a two-beat slip roll; release returns to the advancing live playhead">2</button>
+      <button class="rollpad" data-roll-beats="4" type="button" title="hold for a four-beat slip roll; release returns to the advancing live playhead">4</button>
+      <button class="rollpad" data-roll-beats="8" type="button" title="hold for an eight-beat slip roll; release returns to the advancing live playhead">8</button>
       <span class="loopstatus" data-loop-status>OFF</span>
     </div>`;
 }
@@ -982,15 +989,23 @@ function updateDeck(slot) {
       : `hot cue ${index + 1} at ${fmt(at)} — click to jump; Shift-click to overwrite; right-click to clear`;
   }
   const loop = d && d.loop ? d.loop : null;
+  const roll = d && d.roll ? d.roll : null;
   const canLoop = !!(d && d.on_air && d.state === "playing");
   for (const pad of q(slot, ".loopbank").querySelectorAll("[data-loop-beats]")) {
     const beats = Number(pad.dataset.loopBeats);
-    pad.disabled = !canLoop || !!loop;
+    pad.disabled = !canLoop || !!loop || !!roll;
     pad.classList.toggle("active", !!loop && loop.beats === beats);
+  }
+  for (const pad of q(slot, ".loopbank").querySelectorAll("[data-roll-beats]")) {
+    const beats = Number(pad.dataset.rollBeats);
+    pad.disabled = !canLoop || !!loop || (!!roll && roll.beats !== beats);
+    pad.classList.toggle("active", !!roll && roll.beats === beats);
   }
   const loopExit = q(slot, "[data-loop-exit]");
   loopExit.disabled = !loop;
-  q(slot, "[data-loop-status]").textContent = loop ? (loop.active ? `LOOP ${loop.beats}` : `ARM ${loop.beats}`) : "OFF";
+  q(slot, "[data-loop-status]").textContent = roll
+    ? roll.releasing ? "SLIP OUT" : roll.armed ? `ARM ROLL ${roll.beats}` : `SLIP ${roll.beats}`
+    : loop ? (loop.active ? `LOOP ${loop.beats}` : `ARM ${loop.beats}`) : "OFF";
   q(slot, '[data-f="play"]').classList.toggle("off", !d || (free && blendOn()));
   q(slot, '[data-c="ov"]').classList.toggle("scrub", canScrub(slot));
   q(slot, '[data-c="jog"]').classList.toggle("scrub", canScrub(slot));
@@ -1049,6 +1064,52 @@ function post(path, body) {
     return null;
   });
 }
+
+// Slip rolls are pointer-held controls. A missing pointer-up is also bounded
+// by the engine's 12-second auto-release, but release on blur/page hiding too.
+const heldRolls = new Map();
+function releaseRoll(slot, pointerId = null) {
+  const held = heldRolls.get(slot);
+  if (!held || (pointerId !== null && held.pointerId !== pointerId)) return;
+  heldRolls.delete(slot);
+  held.button.classList.remove("active");
+  held.start.finally(() => post("/roll", { slot, action: "release" }));
+}
+[1, 2].forEach((slot) => {
+  q(slot, ".loopbank").querySelectorAll("[data-roll-beats]").forEach((button) => {
+    button.addEventListener("pointerdown", (event) => {
+      if (button.disabled || heldRolls.has(slot)) return;
+      event.preventDefault();
+      button.setPointerCapture(event.pointerId);
+      const held = {
+        pointerId: event.pointerId,
+        button,
+        start: post("/roll", { slot, beats: Number(button.dataset.rollBeats), action: "hold" }),
+      };
+      heldRolls.set(slot, held);
+      button.classList.add("active");
+      held.start.then((response) => {
+        if (!response && heldRolls.get(slot) === held) {
+          heldRolls.delete(slot);
+          button.classList.remove("active");
+          toast("slip roll unavailable — needs an on-air counted deck with room ahead");
+        }
+      });
+    });
+    const release = (event) => releaseRoll(slot, event.pointerId);
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
+  });
+});
+const releaseAllRolls = () => {
+  for (const [slot, held] of heldRolls) releaseRoll(slot, held.pointerId);
+};
+window.addEventListener("blur", releaseAllRolls);
+window.addEventListener("pagehide", releaseAllRolls);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) releaseAllRolls();
+});
 function ctl(slot, name) {
   const key = `${slot}:${name}`, l = local[key];
   if (l && performance.now() < l.until) return l.v;
