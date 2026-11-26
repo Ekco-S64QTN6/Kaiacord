@@ -416,8 +416,6 @@ class Deck:
             self._bend_ramp_remaining -= 1
             if self._bend_ramp_remaining == 0:
                 self._bend_rate = self._bend_target
-                if self._bend_expired and self._bend_target == 1.0:
-                    self._bend_expired = False
 
         rate = self._bend_rate
         positions = self._bend_read_pos + _FRAME_SAMPLE_OFFSETS * rate
