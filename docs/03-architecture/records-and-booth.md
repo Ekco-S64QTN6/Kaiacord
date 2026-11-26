@@ -303,8 +303,11 @@ while blend and echo skills report their measured transition window. The booth
 renders these values from scheduler state rather than inferring them from labels.
 
 This is a limited first execution layer, not the full skill repertoire in #402.
-Loops/rolls, hot cues, jog/pitch bend, scratches, filters, stutters, delay/reverb
-and other FX remain unavailable until #403 supplies real engine primitives;
+Because #403 remains open and has not supplied a shared runtime capability registry,
+`dj_skills.py` uses a conservative current-engine allowlist and rejects any catalog
+entry that asks for a capability outside it. This is an explicit bridge, not a claim
+that the future #403 capability model is already integrated. Loops/rolls, hot cues,
+jog/pitch bend, scratches, filters, stutters, delay/reverb
 they must not appear as selectable skills or cosmetic controls. Human audition
 on real records and independent/blind assessment remain mandatory under #402.
 
