@@ -21,7 +21,9 @@ on:
       - "tools/tests/unit/test_setlist.py"
       - "tools/tests/unit/test_mixcheck.py"
       - "config/default_config.yaml"
+      - ".github/scripts/run_ci_tests.py"
       - ".github/workflows/records-audio-tests.yml"
+      - "tools/tests/unit/test_ci_test_selection.py"
   pull_request:
     paths:
       - "utils/audio/audio_identity.py"
@@ -41,7 +43,9 @@ on:
       - "tools/tests/unit/test_setlist.py"
       - "tools/tests/unit/test_mixcheck.py"
       - "config/default_config.yaml"
+      - ".github/scripts/run_ci_tests.py"
       - ".github/workflows/records-audio-tests.yml"
+      - "tools/tests/unit/test_ci_test_selection.py"
 
 permissions:
   contents: read
