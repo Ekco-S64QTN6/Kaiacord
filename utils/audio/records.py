@@ -1646,6 +1646,10 @@ class CrossfadeSource(_AudioSource):
                              daemon=True, name="kaia-records-loop-skip").start()
             return
         with self._lock:
+            rolling_slot = self.current.slot if self.current is not None and self.current.roll_active else None
+        if rolling_slot is not None:
+            self.set_roll(rolling_slot, 1, pressed=False)
+        with self._lock:
             # A skip already on its way stays on its way. Planned again from now,
             # each press moved it a phrase later — and the planner's search and a
             # fresh decoder ran again every time (24 Oct: six NEXTs in nine
@@ -1879,7 +1883,7 @@ class CrossfadeSource(_AudioSource):
 
         with self._lock:
             deck = self.current if self.current is not None and self.current.slot == slot else None
-            if (deck is None or deck.loop_active or deck.grid is None or not deck.grid.bar_known
+            if (deck is None or deck.loop_active or deck.roll_active or deck.grid is None or not deck.grid.bar_known
                     or self.plan is not None or self.incoming is not None or self.hand is not None
                     or self._planning or self._pending_planning_mode is not None
                     or self._pending_loop_exit is not None or slot in self.paused):
@@ -1943,6 +1947,150 @@ class CrossfadeSource(_AudioSource):
         log_info(f"[records] deck {slot} armed a {beats}-beat loop at {start_own:.3f}s")
         return True
 
+    def _roll_bounds(self, grid, own: float, beats: int) -> Optional[tuple[float, float]]:
+        """Choose the next counted bar and a bounded 1/2/4/8-beat roll segment."""
+        if grid is None or not grid.bar_known:
+            return None
+        lead = own + 2 * grid.beat
+        if grid.tracked:
+            ticks = grid.ticks
+            if ticks is None:
+                return None
+            start = grid.tick_bar(lead, every=1)
+            if start is None:
+                return None
+            index = int(np.searchsorted(ticks, start - 1e-6))
+            if index >= len(ticks) or abs(float(ticks[index]) - start) > 0.025:
+                return None
+            end_index = index + beats
+            if end_index >= len(ticks):
+                return None
+            end = float(ticks[end_index])
+        else:
+            start = grid.next_bar(lead, 1.0, every=1)
+            end = start + beats * grid.beat
+        return (float(start), float(end)) if end > start else None
+
+    def set_roll(self, slot: int, beats: int, *, pressed: bool) -> bool:
+        """Arm or release a momentary slip roll on the on-air deck.
+
+        The roll phrase is decoded on this request thread. While it repeats,
+        each output frame also consumes the matching frame from the live deck
+        decoder, keeping the underlying source clock moving. Release blends
+        back to that live position over four frames. A hard hold timeout is
+        enforced in Deck.frame() if the browser loses its pointer-up event.
+        """
+        if isinstance(slot, bool) or slot not in (1, 2) or not isinstance(pressed, bool):
+            return False
+        if pressed and (isinstance(beats, bool) or beats not in (1, 2, 4, 8)):
+            return False
+
+        if not pressed:
+            with self._lock:
+                deck = self.current if self.current is not None and self.current.slot == slot else None
+                if deck is None:
+                    return False
+                if not deck.roll_active:
+                    return True  # pointer-up after a failed/too-early arm is harmless
+                deck.stop_roll()
+                head = (self._headphones_deck
+                        if self._headphones_slot == slot and self._headphone_streams else None)
+                if head is not None:
+                    head.stop_roll()
+            return True
+
+        with self._lock:
+            deck = self.current if self.current is not None and self.current.slot == slot else None
+            if (deck is None or deck.loop_active or deck.roll_active or deck.grid is None
+                    or not deck.grid.bar_known or self.plan is not None or self.incoming is not None
+                    or self.hand is not None or self._planning or self._pending_planning_mode is not None
+                    or self._pending_loop_exit is not None or slot in self.paused):
+                return False
+            grid = deck.grid
+            own = max(0.0, deck.at() * deck.ratio)
+            bounds = self._roll_bounds(grid, own, beats)
+            if bounds is None:
+                return False
+            start_own, end_own = bounds
+            total_own = deck.end * deck.ratio
+            if start_own < own or end_own >= total_own - 0.04:
+                return False
+            old = deck
+            ratio, gain, semitones = deck.ratio, deck.gain, deck.semitones
+            head_old = (
+                self._headphones_deck
+                if self._headphones_slot == slot and self._headphone_streams
+                else None
+            )
+
+        roll_frames = int(round((end_own - start_own) / ratio * FRAMES_PER_S))
+        if not 1 <= roll_frames <= 500:
+            return False
+
+        preview = None
+        pcm: list[bytes] = []
+        try:
+            preview = Deck(
+                old.record, ratio, end_own, self._factory,
+                buffer_frames=max(150, roll_frames + 5), gain=gain,
+                offset=start_own, semitones=semitones,
+            )
+            deadline = time.monotonic() + 20.0
+            while len(pcm) < roll_frames and time.monotonic() < deadline:
+                if preview.ready(1):
+                    frame = preview.frame()
+                    if frame is None:
+                        break
+                    pcm.append(frame)
+                else:
+                    time.sleep(0.005)
+            if len(pcm) != roll_frames:
+                return False
+        except Exception as exc:
+            log_warning(f"[records] slip-roll PCM could not be prepared: {exc}")
+            return False
+        finally:
+            if preview is not None:
+                preview.close()
+
+        with self._lock:
+            stale = (
+                self.current is not old or old.loop_active or old.roll_active
+                or self.plan is not None or self.incoming is not None or self.hand is not None
+                or self._planning or self._pending_planning_mode is not None
+                or self._pending_loop_exit is not None or slot in self.paused
+            )
+            frames_until = int(round((start_own / ratio - old.at()) * FRAMES_PER_S))
+            head_frames_until = (
+                int(round((start_own / ratio - head_old.at()) * FRAMES_PER_S))
+                if head_old is not None else None
+            )
+            enough_live_audio = (
+                old.remaining > frames_until + SLIP_ROLL_MAX_FRAMES + SLIP_ROLL_RELEASE_FRAMES + 5
+            )
+            head_stale = (
+                head_old is not None
+                and (self._headphones_deck is not head_old or self._headphones_slot != slot
+                     or not self._headphone_streams or head_old.roll_active or head_old.loop_active)
+            )
+            if (not stale and not head_stale and frames_until >= 2 and enough_live_audio
+                    and (head_frames_until is None or head_frames_until >= 2)):
+                frames = tuple(pcm)
+                old._roll = DeckRoll(
+                    frames, old.played + frames_until, start_own, end_own, beats,
+                )
+                if head_old is not None and head_frames_until is not None:
+                    head_old._roll = DeckRoll(
+                        frames, head_old.played + head_frames_until, start_own, end_own, beats,
+                    )
+            else:
+                stale = True
+
+        if stale:
+            return False
+        log_info(f"[records] deck {slot} armed a {beats}-beat slip roll at {start_own:.3f}s")
+        return True
+
     def jump_to_cue(self, slot: int, position: float, expected_path: Optional[str] = None) -> bool:
         """Jump a deck to a saved source-time cue without disturbing the voice clock.
 
@@ -1984,7 +2132,7 @@ class CrossfadeSource(_AudioSource):
                 return True
             if deck is None:
                 return False
-            if (deck.loop_active or (self._pending_loop_exit is not None
+            if (deck.loop_active or deck.roll_active or (self._pending_loop_exit is not None
                                   and self._pending_loop_exit.old is deck)):
                 return False
             if expected_path is not None and deck.record.path != expected_path:
@@ -2746,7 +2894,8 @@ class CrossfadeSource(_AudioSource):
             plan = None
         # Early enough to fit a blend before a long outro: the plan places
         # itself on the last phrase that leaves room, however soon it is made.
-        if (plan is None and self.hand is None and not getattr(cur, "loop_active", False) and not self._planning
+        if (plan is None and self.hand is None and not getattr(cur, "loop_active", False)
+                and not getattr(cur, "roll_active", False) and not self._planning
                 and cur.remaining <= int(self._plan_ahead(cur) * FRAMES_PER_S)):
             self._begin_planning("end")
         if self.hand is not None and plan is None:
