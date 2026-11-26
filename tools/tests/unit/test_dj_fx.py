@@ -2,11 +2,11 @@
 import numpy as np
 import pytest
 
-from utils.audio.dj_fx import (
+from utils.audio.records import (
     FRAME_BYTES,
     FRAME_SAMPLES,
-    MAX_FEEDBACK,
-    MAX_WET,
+    FX_MAX_FEEDBACK as MAX_FEEDBACK,
+    FX_MAX_WET as MAX_WET,
     RATE,
     TempoEcho,
 )
