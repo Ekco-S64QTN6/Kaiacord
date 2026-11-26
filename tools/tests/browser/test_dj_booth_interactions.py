@@ -144,7 +144,7 @@ def test_real_clicks_store_overwrite_recall_clear_cues_and_control_beat_loops(bo
             hot = page.locator('#deck1 [data-cue-kind="hot"][data-cue-index="0"]')
             _real_post_click(page, hot, "/cuebank")
             page.wait_for_function(
-                "() => document.querySelector('#deck1 [data-cue-kind=hot][data-cue-index=0]').classList.contains('filled')",
+                "() => document.querySelector(`#deck1 [data-cue-kind=hot][data-cue-index="0"]`).classList.contains('filled')",
                 timeout=5000,
             )
             first_hot = D.record_cues.load(record)["hot"][0]
@@ -164,7 +164,7 @@ def test_real_clicks_store_overwrite_recall_clear_cues_and_control_beat_loops(bo
             )
             _real_post_click(page, hot, "/cuebank", button="right")
             page.wait_for_function(
-                "() => !document.querySelector('#deck1 [data-cue-kind=hot][data-cue-index=0]').classList.contains('filled')",
+                "() => !document.querySelector(`#deck1 [data-cue-kind=hot][data-cue-index="0"]`).classList.contains('filled')",
                 timeout=5000,
             )
             assert D.record_cues.load(record)["hot"][0] is None
