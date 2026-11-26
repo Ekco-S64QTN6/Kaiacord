@@ -547,8 +547,20 @@ def test_headphone_bus_blends_cue_and_post_master_at_equal_power():
     assert peak(R.headphone_frame(None, master, 0.0, 1.0)) == 4000
 
 
-def test_pfl_uses_a_separate_decoder_without_advancing_the_program_deck(session):
-    src = session.source
+@pytest.fixture
+def headphone_source():
+    first = Deck(rec("monitor", 120, "8A"), 1.0, 300.0, tone(1000, 20.0))
+    first.grid = STEADY
+    src = CrossfadeSource(first, lambda _deck: None, stream_factory=tone(-1000, 20.0),
+                          grid_at=lambda *_args: STEADY)
+    src._fine = lambda _deck, _plan: None
+    wait_for(first, 50)
+    yield src
+    src.cleanup()
+
+
+def test_pfl_uses_a_separate_decoder_without_advancing_the_program_deck(headphone_source):
+    src = headphone_source
     assert src.set_headphones(1)
     stream = src.attach_headphone_stream()
     assert stream is not None
@@ -568,8 +580,8 @@ def test_pfl_uses_a_separate_decoder_without_advancing_the_program_deck(session)
         assert src.set_headphones(None)
 
 
-def test_headphone_stream_queues_are_bounded_and_drop_oldest(session):
-    src = session.source
+def test_headphone_stream_queues_are_bounded_and_drop_oldest(headphone_source):
+    src = headphone_source
     stream = src.attach_headphone_stream()
     second = src.attach_headphone_stream()
     assert stream is not None and second is not None
