@@ -1797,6 +1797,9 @@ class CrossfadeSource(_AudioSource):
             self.hands_now = hands_now
             self.levels["b"] = -90.0
         else:
+            # A published transition always owns a prepared incoming deck.
+            # Narrow the optional reference for the renderer and type checker.
+            assert incoming is not None
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             g = gains(plan, times)
             if self.rides:
@@ -2466,11 +2469,14 @@ class RecordsSession:
                     src.skill_scheduler.set_solo_profile(None, fingerprint)
 
     def stop_skill_profile_worker(self) -> None:
-        self._skill_profile_stop.set()
-        thread = self._skill_profile_thread
+        stop_event = getattr(self, "_skill_profile_stop", None)
+        if stop_event is not None:
+            stop_event.set()
+        thread = getattr(self, "_skill_profile_thread", None)
         if thread is not None and thread.is_alive() and threading.current_thread() is not thread:
             thread.join(timeout=0.25)
-        self._skill_profile_thread = None
+        if hasattr(self, "_skill_profile_thread"):
+            self._skill_profile_thread = None
 
     def _listener_intent_selected(self, nxt: Next) -> None:
         """Consume the matching one-shot request only after a prepared plan exists."""
