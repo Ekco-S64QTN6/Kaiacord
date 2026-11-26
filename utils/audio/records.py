@@ -1029,7 +1029,7 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
         if drop > out_end - 0.05:
             drop = max(now + lead * playback_rate, out_end - 0.05)
     else:
-        drop = min(now + lead, max(now, out_end - 0.05))
+        drop = min(now + lead * playback_rate, max(now, out_end - 0.05))
     if out_grid:
         counted = out_grid.counted(drop * out_ratio) / out_ratio
         if abs(counted - drop) < beat / 2 and now + lead * playback_rate / 2 <= counted <= out_end:

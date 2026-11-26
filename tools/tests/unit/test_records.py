@@ -2697,3 +2697,14 @@ def test_transition_planner_matches_the_incoming_deck_to_the_persistent_pitch_ra
     assert plan.beat == pytest.approx(0.5)
     assert plan.length == pytest.approx(8.0)
     assert plan.drop >= 3.1 + 0.75 + 2.0 * 1.04
+
+
+
+def test_transition_without_outgoing_grid_scales_lead_to_pitch_source_clock():
+    plan = plan_transition(
+        10.0, 1.0, None, 30.0, nxt(), "skip", 16, lead=0.4,
+        playback_rate=1.04,
+    )
+    assert plan.kind == "cut"
+    assert plan.playback_rate == pytest.approx(1.04)
+    assert plan.drop == pytest.approx(10.0 + 0.4 * 1.04)
