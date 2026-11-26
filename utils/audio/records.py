@@ -2411,14 +2411,16 @@ class RecordsSession:
         if self._closing or self._skill_profile_stop.is_set():
             return
         src = self.source
-        if src is not None:
+        scheduler = getattr(src, "skill_scheduler", None) if src is not None else None
+        source_lock = getattr(src, "_lock", None) if src is not None else None
+        if scheduler is not None and source_lock is not None:
             # The callback can run under src._lock (RLock). Clear the previous
             # track's timeline before this frame can render against the new deck.
-            with src._lock:
+            with source_lock:
                 if src.current is not None and src.current.record.path == record.path:
                     import zlib
                     fingerprint = zlib.crc32(record.path.encode("utf-8")) & 0xFFFFFFFF
-                    src.skill_scheduler.set_solo_profile(None, fingerprint)
+                    scheduler.set_solo_profile(None, fingerprint)
         with self._skill_profile_queue_lock:
             self._skill_profile_generation += 1
             item = (self._skill_profile_generation, record)
@@ -2448,25 +2450,27 @@ class RecordsSession:
             if self._skill_profile_stop.is_set() or self._closing:
                 continue
             src = self.source
-            if src is None:
+            scheduler = getattr(src, "skill_scheduler", None) if src is not None else None
+            source_lock = getattr(src, "_lock", None) if src is not None else None
+            if scheduler is None or source_lock is None:
                 continue
             fingerprint = zlib.crc32(record.path.encode("utf-8")) & 0xFFFFFFFF
-            with src._lock:
+            with source_lock:
                 with self._skill_profile_queue_lock:
                     current_generation = generation == self._skill_profile_generation
                 if (not current_generation or self._closing or src.current is None
                         or src.current.record.path != record.path):
                     continue
                 try:
-                    src.skill_scheduler.set_solo_profile(profile, fingerprint)
+                    scheduler.set_solo_profile(profile, fingerprint)
                     if profile is not None:
-                        action_count = src.skill_scheduler.snapshot()["solo_actions"]
+                        action_count = scheduler.snapshot()["solo_actions"]
                         log_debug(f"[records] compiled {action_count} phrase-skill actions for {record.name}")
                     else:
                         log_debug(f"[records] phrase profile unavailable for {record.name}; legacy fallback remains")
                 except Exception as exc:
                     log_warning(f"[records] phrase-skill compilation failed for {record.name}: {exc}")
-                    src.skill_scheduler.set_solo_profile(None, fingerprint)
+                    scheduler.set_solo_profile(None, fingerprint)
 
     def stop_skill_profile_worker(self) -> None:
         stop_event = getattr(self, "_skill_profile_stop", None)
@@ -3150,7 +3154,9 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
             session.source.tempo_glide = bool(config.get("music.records_tempo_glide", True))
         except Exception as e:
             log_debug(f"[records] records_kaia_hands not read: {e}")
-        session.source.skill_scheduler.set_enabled(session.source.rides)
+        scheduler = getattr(session.source, "skill_scheduler", None)
+        if scheduler is not None:
+            scheduler.set_enabled(session.source.rides)
         session._queue_skill_profile(first)  # clear timeline and seed fallback before first PCM frame
         # The first record's decoder has to be ahead before the voice thread
         # starts asking: a set started while it was still spinning up (rubberband,
