@@ -444,10 +444,10 @@ def _grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optiona
     return _grid_for_cached(path, bpm, seconds, identity) if identity else None
 
 
-_grid_for.cache_clear = _grid_for_cached.cache_clear
-_grid_for.cache_info = _grid_for_cached.cache_info
-grid_for.cache_clear = _grid_for_cached.cache_clear
-grid_for.cache_info = _grid_for_cached.cache_info
+setattr(_grid_for, "cache_clear", _grid_for_cached.cache_clear)
+setattr(_grid_for, "cache_info", _grid_for_cached.cache_info)
+setattr(grid_for, "cache_clear", _grid_for_cached.cache_clear)
+setattr(grid_for, "cache_info", _grid_for_cached.cache_info)
 
 
 @functools.lru_cache(maxsize=256)
@@ -475,8 +475,8 @@ def first_sound(path: str, threshold_db: float = -45.0) -> float:
     return _first_sound_cached(path, threshold_db, identity) if identity else 0.0
 
 
-first_sound.cache_clear = _first_sound_cached.cache_clear
-first_sound.cache_info = _first_sound_cached.cache_info
+setattr(first_sound, "cache_clear", _first_sound_cached.cache_clear)
+setattr(first_sound, "cache_info", _first_sound_cached.cache_info)
 
 
 @functools.lru_cache(maxsize=256)
@@ -522,8 +522,8 @@ def bass_entry(path: str, bpm: Optional[float], bars: int = 64) -> Optional[int]
     return _bass_entry_cached(path, bpm, bars, identity) if identity else None
 
 
-bass_entry.cache_clear = _bass_entry_cached.cache_clear
-bass_entry.cache_info = _bass_entry_cached.cache_info
+setattr(bass_entry, "cache_clear", _bass_entry_cached.cache_clear)
+setattr(bass_entry, "cache_info", _bass_entry_cached.cache_info)
 
 
 @functools.lru_cache(maxsize=128)
@@ -561,8 +561,8 @@ def last_strong_beat(path: str, bpm: Optional[float], duration: float, tail: flo
     return _last_strong_beat_cached(path, bpm, duration, tail, identity) if identity else None
 
 
-last_strong_beat.cache_clear = _last_strong_beat_cached.cache_clear
-last_strong_beat.cache_info = _last_strong_beat_cached.cache_info
+setattr(last_strong_beat, "cache_clear", _last_strong_beat_cached.cache_clear)
+setattr(last_strong_beat, "cache_info", _last_strong_beat_cached.cache_info)
 
 
 def _decode_stretched(path: str, start: float, seconds: float, ratio: float) -> np.ndarray:
