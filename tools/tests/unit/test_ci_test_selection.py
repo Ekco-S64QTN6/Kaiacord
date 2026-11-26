@@ -43,6 +43,7 @@ REQUIRED_RELATED_TESTS = {
         "tools/tests/unit/test_records.py",
         "tools/tests/unit/test_dj_dashboard.py",
         "tools/tests/unit/test_records_session_listener_intent.py",
+        "tools/tests/unit/test_dj_fx.py",
     ),
     "utils/audio/dj_dashboard.py": (
         "tools/tests/unit/test_dj_dashboard.py",
