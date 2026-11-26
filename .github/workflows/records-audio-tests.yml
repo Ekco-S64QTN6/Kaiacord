@@ -69,7 +69,7 @@ jobs:
           echo "$RUNNER_TEMP/ffmpeg-bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/ffmpeg-bin/ffmpeg" -version
           python -m pip install --no-input --disable-pip-version-check --upgrade pip
-          python -m pip install --no-input --disable-pip-version-check pytest pytest-asyncio numpy scipy PyYAML
+          python -m pip install --no-input --disable-pip-version-check pytest pytest-asyncio numpy scipy PyYAML aiohttp python-dotenv
       - name: Test record identity, analysis caches, set ranking and mixer
         run: >-
           python -m pytest
