@@ -91,7 +91,10 @@ HITS_DIR = ENV_DIR.parent / "env_hits"
 
 
 def _cache_path(path: str, band: str = "kick") -> Path:
-    return (ENV_DIR if band == "kick" else HITS_DIR) / (hashlib.sha1(path.encode("utf-8")).hexdigest()[:20] + ".npy")
+    # The array and its source identity live in one atomic NPZ. A separate
+    # signature sidecar could be mismatched with the array if two background
+    # workers replace the cache concurrently.
+    return (ENV_DIR if band == "kick" else HITS_DIR) / (hashlib.sha1(path.encode("utf-8")).hexdigest()[:20] + ".v2.npz")
 
 
 def _decode(path: str) -> np.ndarray:
@@ -150,16 +153,17 @@ def envelope(path: str, band: str = "kick") -> Optional[np.ndarray]:
         _MEM[(path, band)] = held
         return held[1]
     try:
-        sidecar = cache.with_suffix(".sig")
-        if cache.exists() and sidecar.exists() and sidecar.read_text(encoding="utf-8").strip() == signature:
-            env = np.load(cache).astype(np.float32)
-            if audio_signature(path, refresh=True) != signature:
-                return None
-            _MEM[(path, band)] = (signature, env)
-            while len(_MEM) > MEM_RECORDS:
-                _MEM.pop(next(iter(_MEM)))
-            return env
-    except (OSError, ValueError):
+        if cache.exists():
+            with np.load(cache) as saved:
+                if str(saved["signature"].item()) == signature:
+                    env = saved["env"].astype(np.float32)
+                    if audio_signature(path, refresh=True) != signature:
+                        return None
+                    _MEM[(path, band)] = (signature, env)
+                    while len(_MEM) > MEM_RECORDS:
+                        _MEM.pop(next(iter(_MEM)))
+                    return env
+    except (OSError, ValueError, KeyError):
         pass
     try:
         samples = _decode(path)
@@ -172,13 +176,9 @@ def envelope(path: str, band: str = "kick") -> Optional[np.ndarray]:
         c = _cache_path(path, b)
         try:
             c.parent.mkdir(parents=True, exist_ok=True)
-            tmp = c.with_name(f".{c.name}.{os.getpid()}.{threading.get_ident()}.tmp.npy")
-            np.save(tmp, env.astype(np.float16))
+            tmp = c.with_name(f".{c.stem}.{os.getpid()}.{threading.get_ident()}.tmp.npz")
+            np.savez(tmp, env=env.astype(np.float16), signature=np.asarray(signature))
             os.replace(tmp, c)
-            sig = c.with_suffix(".sig")
-            sig_tmp = sig.with_name(f".{sig.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-            sig_tmp.write_text(signature, encoding="utf-8")
-            os.replace(sig_tmp, sig)
         except OSError:
             pass
     result = envs[band].astype(np.float32)
