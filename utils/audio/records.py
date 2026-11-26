@@ -1879,12 +1879,12 @@ class CrossfadeSource(_AudioSource):
         offset = self.cue if self.cue is not None else self.default_cue(queued)
         return (queued.record, ratio, queued.seconds, queued.gain, max(0.0, offset), 0)
 
-    def set_headphones(self, slot: Optional[int]) -> bool:
+    def set_headphones(self, slot: Optional[int], force: bool = False) -> bool:
         """Select a deck's independent PFL decoder, or turn CUE off.
 
         Decoder creation and warm-up happen on the HTTP request thread, never in
         the render worker. A generation token prevents a slow obsolete request
-        from replacing a newer selection.
+        from replacing a newer selection. Force rebuilds after a cue seek.
         """
         if slot is None:
             with self._lock:
@@ -1900,7 +1900,7 @@ class CrossfadeSource(_AudioSource):
             desc = self._headphone_descriptor_locked(slot)
             if desc is None:
                 return False
-            if (self._headphones_deck is not None and self._headphones_slot == slot
+            if (not force and self._headphones_deck is not None and self._headphones_slot == slot
                     and self._headphones_deck.record.path == desc[0].path):
                 return True
             self._headphones_generation += 1
@@ -1922,6 +1922,15 @@ class CrossfadeSource(_AudioSource):
             current = self._headphone_descriptor_locked(slot)
             stale = (generation != self._headphones_generation or current is None
                      or current[0].path != record.path)
+            if not stale:
+                # The decoder warms while the program deck continues to render.
+                # Drop obsolete frames so PFL starts at the program frame's time.
+                target_at = max(0.0, current[4] / current[1])
+                skip_frames = min(50, max(0, int(round((target_at - preview.at()) * FRAMES_PER_S))))
+                for _ in range(skip_frames):
+                    if preview.frame() is None:
+                        stale = True
+                        break
             if not stale:
                 old, self._headphones_deck = self._headphones_deck, preview
                 self._headphones_slot = slot
