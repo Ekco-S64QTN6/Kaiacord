@@ -17,6 +17,7 @@ import numpy as np
 MAX_PROFILE_ACTIONS = 64
 MAX_BLEND_ACTIONS = 4
 MAX_ACTION_SECONDS = 300.0
+SKILL_PHRASE_BARS = 4
 STAGE_MULTIPLIER = 0.84
 TRADE_BARS = 8
 
@@ -308,7 +309,7 @@ def _validate_action(action: SkillAction) -> None:
         assert action.phrase_start is not None and action.phrase_end is not None
         assert action.phrase_bars is not None
         if (not math.isfinite(action.phrase_start) or not math.isfinite(action.phrase_end)
-                or action.phrase_end <= action.phrase_start or action.phrase_bars != 4
+                or action.phrase_end <= action.phrase_start or action.phrase_bars != SKILL_PHRASE_BARS
                 or "solo" not in spec.contexts):
             raise ValueError("invalid counted phrase metadata")
     if action.lane == "none":
@@ -391,12 +392,12 @@ class SkillScheduler:
         self._solo_profile_present = profile is not None
         self._solo_profile_aligned = bool(profile is not None and profile.aligned)
         self._solo_duration = float(profile.duration) if profile is not None else 0.0
-        if profile is not None and profile.aligned and profile.phrase_bars == 4:
+        if profile is not None and profile.aligned and profile.phrase_bars == SKILL_PHRASE_BARS:
             for phrase in profile.phrases:
                 # The first catalog's structural preconditions are explicitly
                 # four-bar phrases. A counted one/eight-bar window is not the
                 # same action boundary and must remain on the legacy fallback.
-                if not phrase.aligned or phrase.bars != 4:
+                if not phrase.aligned or phrase.bars != SKILL_PHRASE_BARS:
                     continue
                 minimum_strength = {
                     "build_candidate": 0.55,
@@ -711,16 +712,16 @@ class SkillScheduler:
                 (float(end) - float(grid.downbeat) / max(0.01, float(ratio))) / bar_s
                 + float(grid.bar0)
             )
-            phrase_index = math.floor(bar_index / PHRASE_BARS)
+            phrase_index = math.floor(bar_index / SKILL_PHRASE_BARS)
             phrase_start = (
                 float(grid.downbeat) / max(0.01, float(ratio))
-                + (phrase_index * PHRASE_BARS - float(grid.bar0)) * bar_s
+                + (phrase_index * SKILL_PHRASE_BARS - float(grid.bar0)) * bar_s
             )
             phrase = {
                 "kind": "legacy phrase-EQ gesture",
                 "start": round(phrase_start, 3),
-                "end": round(phrase_start + PHRASE_BARS * bar_s, 3),
-                "bars": PHRASE_BARS,
+                "end": round(phrase_start + SKILL_PHRASE_BARS * bar_s, 3),
+                "bars": SKILL_PHRASE_BARS,
                 "timebase": "playback_seconds",
             }
         self._active_skill = {
