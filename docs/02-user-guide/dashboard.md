@@ -122,7 +122,9 @@ The nudge is available only on an on-air playing deck while no transition, loop,
 pause owns it. It is momentary, not a permanent pitch slider or an autonomous Kaia skill. A
 10-second whole-hold safety cap forces a return to normal speed, including when the platter
 crosses its centre without being released; the browser also releases the gesture on pointer
-cancellation, window blur and page hide.
+cancellation, window blur and page hide. If the booth later shows **JOG RELEASE** (for example,
+after a reload lost the original pointer state), tap the platter once to acknowledge the engine's
+completed safety return and re-arm jog control.
 
 This is one human-operated echo effect, not a full effects bank or an autonomous Kaia skill.
 Permanent pitch rides, further performance effects and physical headphone/device acceptance remain open in [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403).
