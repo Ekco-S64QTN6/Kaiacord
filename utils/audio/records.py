@@ -273,7 +273,7 @@ class Deck:
         self._bend_frames = 0
         self._bend_buffer_active = False
         self._bend_capacity = PITCH_BEND_BUFFER_FRAMES * FRAME_SAMPLES + FRAME_SAMPLES * 2
-        self._bend_ring = np.zeros((self._bend_capacity, 2), dtype=np.float32)
+        self._bend_ring: Optional[np.ndarray] = None
         self._bend_read_pos = 0.0
         self._bend_write_pos = 0
         self._loop: Optional[DeckLoop] = None
@@ -347,6 +347,10 @@ class Deck:
         if target != 1.0 and self._roll is not None:
             return False
         if target != 1.0 and not self._bend_buffer_active:
+            try:
+                self._bend_ring = np.zeros((self._bend_capacity, 2), dtype=np.float32)
+            except MemoryError:
+                return False
             self._bend_buffer_active = True
         if not math.isclose(target, self._bend_target, abs_tol=1e-5):
             if self._bend_target == 1.0 and target != 1.0:
@@ -360,6 +364,8 @@ class Deck:
         if self._bend_write_pos - self._bend_read_pos + FRAME_SAMPLES > self._bend_capacity:
             return False
         samples = np.frombuffer(frame, dtype=np.int16).reshape(FRAME_SAMPLES, 2).astype(np.float32)
+        if self._bend_ring is None:
+            return False
         start = self._bend_write_pos % self._bend_capacity
         end = start + FRAME_SAMPLES
         if end <= self._bend_capacity:
@@ -400,6 +406,8 @@ class Deck:
                 self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
                 return None
 
+        if self._bend_ring is None:
+            return None
         fractions = positions - indices
         a = self._bend_ring[indices % self._bend_capacity]
         b = self._bend_ring[(indices + 1) % self._bend_capacity]
@@ -424,18 +432,18 @@ class Deck:
             # A slip roll repeats the prepared phrase but consumes the matching
             # live decoder frame. On release, the live playhead is therefore
             # exactly where it would have been without the roll.
-            with self._lock:
-                if self._frames:
-                    live = self._frames.popleft()
-                    self._room.release()
-                elif self._eof:
+            if self._bend_buffer_active:
+                live = self._bent_frame()
+                if live is None:
                     self._roll = None
                     return None
-                else:
-                    live = SILENCE
-                    DECKS_STARVED += 1
-            self.played += 1
-            self._source_samples += FRAME_SAMPLES
+            else:
+                live = self._take_live_frame()
+                if live is None:
+                    self._roll = None
+                    return None
+                self.played += 1
+                self._source_samples += FRAME_SAMPLES
             repeated = roll.frames[index]
             if roll.release_played is None:
                 return repeated
@@ -2021,7 +2029,7 @@ class CrossfadeSource(_AudioSource):
 
         with self._lock:
             deck = self.current if self.current is not None and self.current.slot == slot else None
-            if (deck is None or deck.loop_active or deck.roll_active or deck.grid is None or not deck.grid.bar_known
+            if (deck is None or deck.loop_active or deck.roll_active or deck.bend_active or deck.grid is None or not deck.grid.bar_known
                     or self.plan is not None or self.incoming is not None or self.hand is not None
                     or self._planning or self._pending_planning_mode is not None
                     or self._pending_loop_exit is not None or slot in self.paused):
@@ -2581,8 +2589,7 @@ class CrossfadeSource(_AudioSource):
                     head.set_bend(1.0)
                 return ok
             if (
-                deck.loop_active or deck.roll_active or deck.bend_active and self._planning
-                or self.plan is not None or self.incoming is not None or self.hand is not None
+                deck.loop_active or deck.roll_active or self.plan is not None or self.incoming is not None or self.hand is not None
                 or self._planning or self._pending_planning_mode is not None
                 or self._pending_loop_exit is not None or slot in self.paused
                 or self._splice is not None
@@ -2878,9 +2885,10 @@ class CrossfadeSource(_AudioSource):
             pending_exit = self._pending_loop_exit
             if pending_exit is not None and pending_exit.old.slot == slot:
                 return False
-            if self.current is not None and self.current.slot == slot and self.current.roll_active:
-                # The PFL decoder must be armed with the same roll buffer and
-                # live source cursor; refuse a mid-roll replacement.
+            if self.current is not None and self.current.slot == slot and (
+                self.current.roll_active or self.current.bend_active
+            ):
+                # A new PFL decoder could not inherit the live roll/bend cursor.
                 return False
             desc = self._headphone_descriptor_locked(slot)
             if desc is None:
