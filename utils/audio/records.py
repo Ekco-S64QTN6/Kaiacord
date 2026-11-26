@@ -428,7 +428,10 @@ class Deck:
             if live is None:
                 return None
             if not live:
-                return SILENCE
+                # b"" is temporary decoder starvation. The caller emits
+                # silence without moving the source cursor or freezing a roll
+                # on a repeated single frame.
+                return b""
             if not self._bend_append(live):
                 # A long slow jog can fill the bounded ring. Return to neutral
                 # rather than dropping source audio or overwriting unread PCM.
@@ -467,6 +470,8 @@ class Deck:
                 if live is None:
                     self._roll = None
                     return None
+                if not live:
+                    return SILENCE
             else:
                 live = self._take_live_frame()
                 if live is None:
@@ -495,7 +500,8 @@ class Deck:
             self.played += 1
             return loop.frames[index]
         if self._bend_buffer_active:
-            return self._bent_frame()
+            bent = self._bent_frame()
+            return SILENCE if bent == b"" else bent
         live = self._take_live_frame()
         if live is None:
             return None
