@@ -142,6 +142,10 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .mastercol .lbl { font-size: 9px; letter-spacing: 2px; color: var(--dim); }
 .mvu { display: flex; gap: 4px; height: 100%; min-height: 0; }
 #xf { width: 100%; height: 28px; display: block; }
+.xfopts { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 7px; margin: 2px 0 1px; font-size: 9px; letter-spacing: 1px; color: var(--dim); }
+.xfopts label { display: flex; align-items: center; gap: 3px; }
+.xfopts select { max-width: 92px; padding: 2px 4px; color: var(--text); background: rgba(0,0,0,.55); border: 1px solid var(--line); border-radius: 2px; font: 9px var(--mono); letter-spacing: .5px; }
+.xfopts select:focus { outline: 1px solid var(--cyan); border-color: var(--cyan); }
 .xlabels { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 2px; color: var(--dim); margin-top: -4px; }
 .fx { border: 1px solid var(--line); border-radius: 3px; padding: 5px 10px; background: rgba(0,0,0,.35); }
 .fx .row { display: flex; align-items: baseline; gap: 10px; }
@@ -438,7 +442,20 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
         <div class="mastercol"><div class="lbl">MASTER</div><div class="mvu"><canvas class="vu" id="mvuL"></canvas><canvas class="vu" id="mvuR"></canvas></div><div class="mk"><div class="knob"><canvas id="mknob" title="master volume — drag, double-click to reset"></canvas>MST</div><div class="knob"><canvas id="phknob" title="headphones (CUE) volume — this window only"></canvas>PH</div></div></div>
         <div class="strip" id="strip2"></div>
       </div>
-      <div><canvas id="xf"></canvas><div class="xlabels"><span>CH 1</span><span>CROSSFADER</span><span>CH 2</span></div></div>
+      <div class="xfsection">
+        <div class="xfopts">
+          <label>CURVE <select id="xfcurve" title="crossfader law: standard preserves the current overlap, smooth is equal-power, cut switches at centre">
+            <option value="standard">STANDARD</option><option value="constant_power">SMOOTH</option><option value="cut">CUT</option>
+          </select></label>
+          <label>CH 1 <select id="xfassign1" title="assign deck 1 to crossfader A, B or THRU">
+            <option value="A">A</option><option value="B">B</option><option value="THRU">THRU</option>
+          </select></label>
+          <label>CH 2 <select id="xfassign2" title="assign deck 2 to crossfader A, B or THRU">
+            <option value="A">A</option><option value="B">B</option><option value="THRU">THRU</option>
+          </select></label>
+        </div>
+        <canvas id="xf"></canvas><div class="xlabels"><span>CH 1</span><span>CROSSFADER</span><span>CH 2</span></div>
+      </div>
       <div class="fx">
         <div class="blendsel" id="blendsel" title="how long kaia blends one record into the next">BLEND
           <span data-beats="32">SHORT</span><span data-beats="64">LONG</span><span data-beats="256" title="two minutes at 125 bpm, a full minute of it both records up">EPIC</span><em id="blendsec"></em><span id="rides" title="kaia riding the EQs and gains through the set — phrase by phrase">HANDS</span></div>
@@ -1052,6 +1069,17 @@ function slider(el, slot, name, axis, reset) {
   scrubbing(slot);
 });
 slider($("xf"), 0, "xfader", "x", null);
+[
+  ["xfcurve", null, "xfader_curve"],
+  ["xfassign1", 1, "xfader_assignment"],
+  ["xfassign2", 2, "xfader_assignment"],
+].forEach(([id, slot, name]) => {
+  $(id).addEventListener("change", () => {
+    post("/control", { slot, name, value: $(id).value }).then((r) => {
+      if (!r) toast("crossfader setting could not be applied");
+    });
+  });
+});
 knob($("mknob"), 0, "master", 1);
 knob($("phknob"), 0, "phones", 0.8);
 $("blendsel").addEventListener("click", (e) => {
@@ -1219,6 +1247,15 @@ function updateMixer() {
     for (const n of ["trim", "high", "mid", "low"]) qs(slot, `[data-n="${n}"]`).classList.toggle("touched", ctl(slot, n) !== FLAT[n]);
     drawFader(qs(slot, '[data-k="fader"]'), fd, fd < 1 ? COL.yellow : col);
   });
+  const controls = S.controls || {};
+  const assignments = controls.xfader_assignments || {};
+  const syncChoice = (id, value) => {
+    const el = $(id);
+    if (el && document.activeElement !== el && el.value !== value) el.value = value;
+  };
+  syncChoice("xfcurve", controls.xfader_curve || "standard");
+  syncChoice("xfassign1", assignments["1"] || "A");
+  syncChoice("xfassign2", assignments["2"] || "B");
   const mv = ctl(0, "master");
   drawKnobV($("mknob"), mv / 1.5, mv !== 1 ? COL.yellow : COL.green, 2 / 3, null);
   drawKnobV($("phknob"), phonesVol, COL.cyan, 0, null);
