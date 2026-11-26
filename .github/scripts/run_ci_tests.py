@@ -107,6 +107,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_speaker_heuristics.py",
         "tools/tests/unit/test_dm_privacy.py",
         "tools/tests/unit/test_dm_trigger.py",
+        "tools/tests/unit/test_command_gate_and_download_limits.py",
         "tools/tests/unit/test_vision_fetch_security.py",
         "tools/tests/unit/test_rag_retrieval_metadata.py",
         "tools/tests/unit/test_channel_memory_lifecycle.py",
