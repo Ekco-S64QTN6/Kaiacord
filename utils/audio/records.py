@@ -2818,6 +2818,7 @@ class CrossfadeSource(_AudioSource):
             if self.current is not deck or current_head is not head:
                 return False
             if (deck.loop_active or deck.roll_active or deck.bend_active
+                    or self.effects.active or self.effects.tail_active
                     or self.plan is not None or self.incoming is not None or self.hand is not None
                     or self._planning or self._pending_planning_mode is not None or self._gliding
                     or self._pending_loop_exit is not None or slot in self.paused or self._splice is not None):
