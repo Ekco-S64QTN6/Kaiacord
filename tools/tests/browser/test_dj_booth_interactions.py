@@ -196,3 +196,63 @@ def test_real_clicks_store_overwrite_recall_clear_cues_and_control_beat_loops(bo
         finally:
             page.close()
             browser.close()
+
+
+def test_real_browser_controls_the_tempo_synced_master_echo(booth):
+    _session, source, _record, base = booth
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1600, "height": 1100})
+        page.add_init_script("localStorage.setItem('kaia.fx', '0')")
+        try:
+            response = page.goto(base, wait_until="domcontentloaded", timeout=15000)
+            assert response is not None and response.ok
+            _wait_for_ui_state(page, "#deck1 [data-f=state]", "ON AIR")
+
+            echo = page.locator("#echoToggle")
+            assert echo.text_content().strip() == "ECHO OFF"
+
+            # Set up the next throw while it is idle. Polling renderer state
+            # must not overwrite the operator's next-throw settings.
+            page.locator("#echoBeats").select_option("2")
+            feedback = page.locator("#echoFeedback")
+            feedback.focus()
+            feedback.press("ArrowRight")
+            page.wait_for_timeout(250)
+            assert page.locator("#echoBeats").input_value() == "2"
+            assert feedback.input_value() == "0.4"
+
+            with page.expect_response(
+                lambda result: result.url.endswith("/fx/echo")
+                and result.request.method == "POST"
+            ) as enabled_response:
+                echo.click()
+            assert enabled_response.value.status == 204
+            assert source.effects.active
+            assert source.effects.snapshot()["beats"] == 2.0
+            assert source.effects.snapshot()["feedback"] == pytest.approx(0.4)
+            _wait_for_ui_state(page, "#echoToggle", "ECHO ON")
+            for _ in range(26):
+                source.read()
+            assert source.effects.snapshot()["enabled"] is True
+            assert np.max(np.abs(source.effects._buffer)) > 0
+
+            with page.expect_response(
+                lambda result: result.url.endswith("/fx/echo")
+                and result.request.method == "POST"
+            ) as stopped_response:
+                echo.click()
+            assert stopped_response.value.status == 204
+            assert source.effects.tail_active
+            _wait_for_ui_state(page, "#echoToggle", "ECHO TAIL")
+
+            with page.expect_response(
+                lambda result: result.url.endswith("/reset")
+                and result.request.method == "POST"
+            ) as reset_response:
+                page.locator("#auto").click()
+            assert reset_response.value.status == 204
+            assert not source.effects.active and not source.effects.tail_active
+        finally:
+            page.close()
+            browser.close()

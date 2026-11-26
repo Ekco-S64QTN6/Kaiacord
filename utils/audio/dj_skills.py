@@ -1,9 +1,12 @@
 """Bounded, phrase-aware DJ skills for the records mixer.
 
-The catalog is limited to real controls already rendered by this engine:
-three EQ bands, the channel-gain stage, and the existing measured echo-out.
-Profile construction and action compilation belong on workers. Render methods
-consume immutable bounded plans and NumPy frame times only.
+The autonomous catalog is limited to real controls already composed by this
+engine: three EQ bands, channel gain and the measured transition echo-out. A
+manual tempo-synchronised master echo is also available in records.py, but is
+not an autonomous skill until it has a phrase-aware action contract, explicit
+composition/ownership and a safe release path. Profile construction and action
+compilation belong on workers. Render methods consume immutable bounded plans
+and NumPy frame times only.
 """
 from __future__ import annotations
 
@@ -25,7 +28,7 @@ STAGE_MULTIPLIER = 0.84
 ENGINE_CAPABILITIES = frozenset({
     "eq.low", "eq.mid", "eq.high", "channel_gain",
     "transition.mix", "transition.echo_tail", "transition.measured_fallback",
-    "phrase_profile.aligned", "beat_grid.bar_known",
+    "phrase_profile.aligned", "beat_grid.bar_known", "fx.echo",
 })
 TRADE_BARS = 8
 

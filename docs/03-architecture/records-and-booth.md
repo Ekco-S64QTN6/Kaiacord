@@ -274,8 +274,15 @@ catalog contains only:
 - The existing blend headroom stage, eight-bar upper-band exchange and outgoing
   air ease. The upper bands trade in opposite directions; no vocal/midrange
   classification or new EQ/DSP bands are inferred.
-- The existing finite, measured echo-out fallback. This is not a general echo,
-  delay, reverb or FX bus.
+- The existing finite, measured transition echo-out fallback.
+- A separate, manual master-bus tempo echo now runs through `TempoEcho` in the
+  buffered renderer. It locks its delay to the on-air playback BPM at activation
+  (½, 1, 2 or 4 beats), caps feedback at 0.65 and wet gain at 0.50, ramps
+  parameter changes over eight 20 ms frames, and stops accepting input when
+  released while a finite six-repeat tail decays. It affects the program/master
+  path, not the independent pre-fader PFL cue. It is a real first effect
+  primitive, **not** a general multi-effect send/return, an autonomous DJ skill,
+  or proof of audible quality on a physical headphone/device chain.
 
 The records profile worker builds/reads the cached phrase profile and compiles at
 most 64 solo actions. Its queue has one pending slot and latest-track-wins
@@ -305,11 +312,13 @@ renders these values from scheduler state rather than inferring them from labels
 This is a limited first execution layer, not the full skill repertoire in #402.
 Because #403 remains open and has not supplied a shared runtime capability registry,
 `dj_skills.py` uses a conservative current-engine allowlist and rejects any catalog
-entry that asks for a capability outside it. This is an explicit bridge, not a claim
-that the future #403 capability model is already integrated. Loops/rolls, hot cues,
-jog/pitch bend, scratches, filters, stutters, delay/reverb
-they must not appear as selectable skills or cosmetic controls. Human audition
-on real records and independent/blind assessment remain mandatory under #402.
+entry that asks for a capability outside it. The manual `fx.echo` engine capability
+is registered, but no autonomous skill currently owns or schedules it; the operator
+alone controls the master echo in the booth. This is an explicit bridge, not a claim
+that the future #403 capability model is already integrated. Momentary/slip rolls,
+live jog/pitch bend, scratches, filters, stutters and effects beyond the manual
+master echo must not appear as selectable skills or cosmetic controls. Human
+audition on real records and independent/blind assessment remain mandatory under #402.
 
 ### Crossfader curves and deck assignment (#403, first slice)
 
@@ -347,12 +356,23 @@ decoder at the loop end and commits it at the next wrap boundary; the selected P
 same loop frames and exits on that same boundary. Hot/memory cue seeks are refused while a loop or
 its boundary exit owns the deck, rather than silently replacing the loop clock. This is beat looping,
 not momentary roll behavior.
-Momentary rolls, live jog/pitch bend, and a bounded FX bus remain unimplemented and need real engine
-signal paths before they are exposed. The `records-browser-tests` Playwright suite opens the actual
-loopback booth in Chromium and exercises memory/hot cue store, Shift-click overwrite, filled-pad recall,
-right-click clear, loop arm and loop exit through real browser input. It checks the persisted cue bank,
-decoder hand-off and loop state after the browser events; it does not substitute direct HTTP calls for
-those UI gestures.
+A real, bounded manual master echo is now an additional #403 primitive. The booth exposes
+its tempo subdivision, feedback and wet level; the renderer snapshots its committed state and
+applies the PCM delay/feedback path after the program mix. The delay is fixed to the activation
+tempo while running, feedback/wet are capped and ramped, release closes the input gate and
+lets a finite tail decay, and KAIA MIX/reset cancels it. The PFL CUE signal remains independent;
+the MASTER leg hears the effected program. This is one master echo effect, not a general FX
+send/return, an automated skill or a substitute for local audio audition. Momentary/slip rolls
+and live jog/pitch bend remain unimplemented. Further effects (filter, delay variants, reverb,
+phaser/flanger, stutter/repeat and performance effects) still need their own bounded DSP,
+cancellation and recovery paths before exposure.
+
+The `records-browser-tests` Playwright suite opens the actual loopback booth in Chromium and
+exercises memory/hot cue store, Shift-click overwrite, filled-pad recall, right-click clear,
+loop arm/exit, and the real master-echo on/off and hand-back controls through browser input.
+It checks persisted cue state, decoder hand-off, loop state and effect activation/release;
+it does not substitute direct HTTP calls for those UI gestures. This fixture verifies the
+software path, not a physical headphone/device audition.
 
 ### Real-time engineering boundary
 
@@ -590,9 +610,10 @@ than the filename or editable tags. Empty-pad click stores the current source po
 pad jumps there; Shift-click overwrites; right-click clears. Recall warms a replacement decoder on the
 booth request thread, verifies the deck identity again, and swaps it at a frame boundary. It refuses a
 transition that has already started and never seeks by consuming frames from the program decoder.
-Cue-bank reads and atomic writes run on dashboard threads, not the renderer. The current checks cover
-persistence, engine swaps, and the dashboard HTTP route; automated browser gesture coverage remains
-an explicit #403 acceptance item rather than an inferred pass.
+Cue-bank reads and atomic writes run on dashboard threads, not the renderer. The Playwright
+acceptance suite covers cue gestures, beat-loop arm/exit and master-echo activation/release in
+Chromium against a deterministic real mixer session. It does not establish physical headphone
+routing, device latency or artistic suitability; those still require local audition.
 A cue set on the record already in her plan (she plans a record's end minutes ahead) calls that plan
 off and replans from the cue; it used to be refused, and the jog snapped back to the start. A knob's
 pointer is what is *applied* — the hand's setting times the automix and her hands — so her moves turn
@@ -600,8 +621,11 @@ it; the hand's own setting is the yellow dot, and a deck not sounding shows the 
 multipliers are streamed apart from the automix (`hands_now`), and a knob she is holding turns pink — a ring,
 an arc from where it would be without her, and a dB badge — or she visibly does nothing (the page has a
 `.kaia` grid class; a knob marked with it collapsed the mixer column).
-**FX** (header pill, remembered per browser, off under reduced motion) is a stage built only from the stream: a
-floor and horizon on the beat of the record on air, level bars from the applied bands, a reticle zooming onto
+The header **FX** pill (remembered per browser, off under reduced motion) remains a visual
+stage built only from the stream; it is not an audio effect control. The separate **AUDIO FX**
+row exposes the real tempo-synchronised master echo and reports enabled/tail state from the
+renderer snapshot. The visual stage is a floor and horizon on the beat of the record on air,
+level bars from the applied bands, a reticle zooming onto
 each knob Kaia's hand is on with sparks the way she turns it, an aura and combo that build through locked blends
 (LOCKED on a measured blend, BASS SWAP, PERFECT BLEND when one finishes), ECHO OUT in purple on an echo-out (it
 neither adds to the combo nor breaks it), and red — vignette, glitch, shake, combo broken — on a late voice frame.

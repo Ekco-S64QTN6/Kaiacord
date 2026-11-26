@@ -371,6 +371,7 @@ def _snapshot_locked(session, src, mood: Optional[dict] = None) -> dict:
         "started": session.started_at, "played": len(session.names), "listeners": session._humans(),
         "launch": _launch,
         "decks": decks, "channels": channels, "master": src.levels["master"], "mix": mix,
+        "fx": {"echo": src.effects.snapshot()},
         "planning": src.planning_mode, "late": {"count": late_count, "worst_ms": round(worst_late * 1000)},
         # frames a decoder was behind and played as silence this set
         "starved": R.DECKS_STARVED - getattr(session, "starved_at_start", R.DECKS_STARVED),
@@ -734,6 +735,20 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(409, b"", "text/plain")
             result = {"ok": True, "action": action, "cue_bank": record_cues.load(record)}
             return self._send(200, json.dumps(result).encode(), "application/json")
+        if self.path == "/fx/echo":
+            action = body.get("action")
+            if action == "off":
+                ok = src.set_echo(False)
+            elif action == "on":
+                ok = src.set_echo(
+                    True,
+                    beats=body.get("beats", 1),
+                    feedback=body.get("feedback", 0.35),
+                    wet=body.get("wet", 0.30),
+                )
+            else:
+                return self._send(400, b"", "text/plain")
+            return self._send(204 if ok else 409, b"", "text/plain")
         # Keep booth mutations at an audio-frame boundary. RecordsSession.load()
         # follows the same mixer -> load lock order to avoid a lock cycle.
         with src._lock:
@@ -763,6 +778,7 @@ class _Handler(BaseHTTPRequestHandler):
                     if src.hand is not None:
                         src.finish()                 # she takes the mix from where the hands left it
                     src.controls.reset()
+                    src.effects.cancel()
                     src.paused.clear()
                     src.skill_scheduler.hand_back_all()
                     src.rides = True

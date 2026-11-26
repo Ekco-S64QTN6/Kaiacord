@@ -89,9 +89,22 @@ drag to cue it, hear it in the window's PHONES, ▶ to start it synced, and mix 
 [commands](commands.md#music) and `music.dj_dashboard`.
 
 The booth's lock, meters and timeline report technical synchronization and the mixer's actual
-state; they do **not** grade whether a transition is musically good. The current control surface
-also does not yet represent the full professional DJ toolbox. Real cue/loop/jog/FX parity and
-browser interaction coverage are tracked separately from Kaia's musical decision-making in
-[#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) and
-[#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401); the musical quality target is
-[#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402).
+state; they do **not** grade whether a transition is musically good. The deck surface now has
+memory/hot cues and counted beat loops, plus a separate **AUDIO FX** row for the real master echo.
+The header **FX** pill still controls visual booth effects only; it is not an audio effect.
+
+To use the master echo, choose a TIME subdivision (½, 1, 2 or 4 beats), set FB (feedback, capped
+at 0.65) and WET (effect level, capped at 0.50), then click **ECHO OFF** to turn it on. The delay
+locks to the current on-air playback tempo when enabled. While active, you can adjust feedback
+and wet level; the beat subdivision stays locked until the effect has fully released. Clicking
+**ECHO ON** closes the input gate and lets a finite tail decay. The button reports **ECHO TAIL**
+during that release. **KAIA MIX** cancels the tail immediately and hands the mixer back to Kaia.
+The effect is on the program/master path: the headphone MASTER leg hears it, while the
+independent PFL CUE leg remains dry.
+
+This is one human-operated echo effect, not a full effects bank or an autonomous Kaia skill.
+Momentary/slip rolls, live jog/pitch bend, further performance effects and physical
+headphone/device acceptance remain open in [#403](https://github.com/Ekco-S64QTN6/Kaiacord).
+The browser gesture coverage is separate from Kaia's musical decision-making in
+[#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402); technical tests still do not
+prove that a transition sounds good.
