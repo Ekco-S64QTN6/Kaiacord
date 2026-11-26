@@ -339,7 +339,8 @@ decoder, preserves EQ/trim while bypassing channel and crossfader gains, and ble
 master locally. Hot/memory cues are persisted by stable audio identity and are not catalog metadata.
 This is still not professional parity: loops/rolls, live jog/pitch bend, and a bounded FX bus remain
 unimplemented. They must each have real engine signal paths and browser interaction tests before they
-are exposed as capabilities.
+are exposed as capabilities. Browser-driven gesture coverage for the cue-pad UI itself also remains
+pending; the present tests stop at the actual HTTP/API boundary.
 
 ### Real-time engineering boundary
 
@@ -574,7 +575,9 @@ than the filename or editable tags. Empty-pad click stores the current source po
 pad jumps there; Shift-click overwrites; right-click clears. Recall warms a replacement decoder on the
 booth request thread, verifies the deck identity again, and swaps it at a frame boundary. It refuses a
 transition that has already started and never seeks by consuming frames from the program decoder.
-Cue-bank reads and atomic writes run on dashboard threads, not the renderer.
+Cue-bank reads and atomic writes run on dashboard threads, not the renderer. The current checks cover
+persistence, engine swaps, and the dashboard HTTP route; automated browser gesture coverage remains
+an explicit #403 acceptance item rather than an inferred pass.
 A cue set on the record already in her plan (she plans a record's end minutes ahead) calls that plan
 off and replans from the cue; it used to be refused, and the jog snapped back to the start. A knob's
 pointer is what is *applied* — the hand's setting times the automix and her hands — so her moves turn
