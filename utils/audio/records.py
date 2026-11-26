@@ -2675,7 +2675,7 @@ class CrossfadeSource(_AudioSource):
             if (
                 deck.loop_active or deck.roll_active
                 or self.plan is not None or self.incoming is not None or self.hand is not None
-                or self._planning or self._pending_planning_mode is not None
+                or self._planning or self._pending_planning_mode is not None or self._gliding
                 or self._pending_loop_exit is not None or slot in self.paused
                 or self._splice is not None
                 or deck.remaining <= PITCH_BEND_MAX_FRAMES + PITCH_BEND_RAMP_FRAMES + 10
@@ -3368,7 +3368,7 @@ class CrossfadeSource(_AudioSource):
             time.sleep(0.02)
         with self._lock:
             if (cur is not self.current or self.plan is not None or self.hand is not None or self._planning
-                    or not new.ready() or k_pre <= cur.played + 1):
+                    or cur.bend_active or not new.ready() or k_pre <= cur.played + 1):
                 new.close()
                 return
             new.grid, new.slot = cur.grid, cur.slot
