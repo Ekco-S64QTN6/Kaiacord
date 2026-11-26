@@ -339,8 +339,9 @@ decoder, preserves EQ/trim while bypassing channel and crossfader gains, and ble
 master locally. Hot/memory cues are persisted by stable audio identity and are not catalog metadata.
 A real beat-loop path is now implemented for 1/2/4/8 beats on a counted, bar-known on-air deck.
 The loop segment is decoded ahead of time into a fixed-size PCM tuple on the booth request thread;
-the renderer only indexes that bounded buffer. The loop arms at a two-bar phrase boundary, keeps
-`Deck.played` monotonic for renderer scheduling, and reports wrapped source position through `Deck.at()`.
+the renderer only indexes that bounded buffer. The loop arms at a two-bar phrase boundary only when no transition is active or being prepared;
+that ownership is rechecked after decoding before the loop is committed. It keeps `Deck.played` monotonic
+for renderer scheduling, and reports wrapped source position through `Deck.at()`.
 Automatic end planning and tempo glide are suspended while the loop owns the deck. Exit warms a normal
 decoder at the loop end and commits it at the next wrap boundary; the selected PFL decoder shares the
 same loop frames and exits on that same boundary. Hot/memory cue seeks are refused while a loop or
