@@ -781,3 +781,51 @@ def test_master_echo_http_control_changes_real_pcm_and_releases_its_tail(session
         server, D._server = D._server, None
         if server:
             server.shutdown()
+
+
+def test_live_jog_http_control_updates_the_deck_and_releases_to_neutral(session, monkeypatch):
+    monkeypatch.setattr(D, "_cfg", lambda k, d: 0 if k == "dj_dashboard_port" else d)
+    src = session.source
+    base = D.serve()
+
+    def post(payload):
+        request = urllib.request.Request(
+            base + "bend",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
+
+    try:
+        assert post({"slot": 1, "action": "set", "rate": 1.05}) == 204
+        assert src.current.bend["active"] is True
+        assert src.current.bend["target"] == pytest.approx(1.05)
+        state = D.snapshot(session)["decks"]["1"]
+        assert state["bend"]["active"] is True
+        assert state["tempo"] == pytest.approx(126.0)
+        assert state["pitch"] == pytest.approx(5.0)
+
+        assert post({"slot": 1, "action": "set", "rate": 1.081}) == 400
+        assert post({"slot": 1, "action": "set", "rate": True}) == 400
+        assert post({"slot": 1, "action": "set", "rate": float("nan")}) == 400
+
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 5):
+            src.read()
+        assert src.current.bend["rate"] == pytest.approx(1.05)
+
+        assert post({"slot": 1, "action": "release"}) == 204
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+            src.read()
+        assert src.current.bend["active"] is False
+        assert src.current.bend["rate"] == pytest.approx(1.0)
+        assert post({"slot": 1, "action": "release"}) == 204
+    finally:
+        server, D._server = D._server, None
+        if server:
+            server.shutdown()
+            server.server_close()
