@@ -1,0 +1,101 @@
+"""Record audio identity invalidates every path-keyed audio cache."""
+
+import json
+import os
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from utils.audio import audio_identity, beatgrid, library, mixcheck
+
+
+def _same_stat_replacement(path):
+    before = path.stat()
+    path.write_bytes(b"B" * before.st_size)
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = path.stat()
+    assert after.st_size == before.st_size
+    assert after.st_mtime_ns == before.st_mtime_ns
+
+
+def test_tick_json_is_rejected_when_audio_at_the_path_is_replaced(tmp_path, monkeypatch):
+    monkeypatch.setattr(beatgrid, "TICKS_DIR", tmp_path / "ticks")
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    audio_identity.clear_audio_signature_cache()
+    signature = library.audio_signature(str(path))
+    assert signature
+
+    cache = beatgrid._ticks_path(str(path))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({"bpm": 124, "confidence": 0.9,
+                                 "audio_signature": signature,
+                                 "ticks": [i * 0.48 for i in range(20)]}), encoding="utf-8")
+    beatgrid._read_ticks.cache_clear()
+    assert len(beatgrid.ticks_for(str(path))) == 20
+
+    _same_stat_replacement(path)
+    assert beatgrid.ticks_for(str(path)) is None
+    beatgrid._read_ticks.cache_clear()
+    audio_identity.clear_audio_signature_cache()
+
+
+def test_opening_grid_lru_is_keyed_by_audio_identity(tmp_path, monkeypatch):
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    audio_identity.clear_audio_signature_cache()
+    calls = []
+    monkeypatch.setattr(beatgrid, "_window", lambda *_args: np.zeros(32, dtype=np.float32))
+    monkeypatch.setattr(beatgrid, "find_grid",
+                        lambda *_args: calls.append(1) or beatgrid.Grid(124.0, 0.0, 8.0))
+    monkeypatch.setattr(beatgrid, "first_strong_beat", lambda *_args: 0.0)
+    monkeypatch.setattr(beatgrid, "TICKS_DIR", tmp_path / "no-ticks")
+    beatgrid._grid_for.cache_clear()
+
+    first = beatgrid.grid_for(str(path), 124.0)
+    second = beatgrid.grid_for(str(path), 124.0)
+    assert first is not None and second is not None and len(calls) == 1
+
+    _same_stat_replacement(path)
+    replaced = beatgrid.grid_for(str(path), 124.0)
+    assert replaced is not None and len(calls) == 2
+    beatgrid._grid_for.cache_clear()
+    audio_identity.clear_audio_signature_cache()
+
+
+def test_mixcheck_envelope_and_level_are_recomputed_for_replaced_audio(tmp_path, monkeypatch):
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    monkeypatch.setattr(mixcheck, "ENV_DIR", tmp_path / "env")
+    monkeypatch.setattr(mixcheck, "HITS_DIR", tmp_path / "hits")
+    decoded = []
+    monkeypatch.setattr(mixcheck, "_decode",
+                        lambda _path: decoded.append(len(decoded) + 1) or
+                        np.array([[float(decoded[-1]), 0.0]], dtype=np.float32))
+    monkeypatch.setattr(mixcheck, "kick_envelope",
+                        lambda samples: np.full(int(mixcheck.ENV_RATE * 10), samples[0, 0], dtype=np.float32))
+    monkeypatch.setattr(mixcheck, "hits_envelope",
+                        lambda samples: np.full(int(mixcheck.ENV_RATE * 10), samples[0, 0] / 2, dtype=np.float32))
+    mixcheck._MEM.clear()
+    mixcheck._levels.clear()
+    audio_identity.clear_audio_signature_cache()
+
+    first = mixcheck.envelope(str(path))
+    assert first is not None and len(decoded) == 1
+    mixcheck._MEM.clear()
+    assert np.array_equal(mixcheck.envelope(str(path)), first)
+    assert len(decoded) == 1
+    level_one = mixcheck.kick_level(str(path))
+    assert level_one is not None
+
+    _same_stat_replacement(path)
+    second = mixcheck.envelope(str(path))
+    assert second is not None and len(decoded) == 2
+    assert not np.array_equal(first, second)
+    level_two = mixcheck.kick_level(str(path))
+    assert level_two is not None and level_two != level_one
+
+    mixcheck._MEM.clear()
+    mixcheck._levels.clear()
+    audio_identity.clear_audio_signature_cache()
