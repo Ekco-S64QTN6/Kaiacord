@@ -83,6 +83,10 @@ def test_mixcheck_envelope_and_level_are_recomputed_for_replaced_audio(tmp_path,
 
     first = mixcheck.envelope(str(path))
     assert first is not None and len(decoded) == 1
+    cache = mixcheck._cache_path(str(path))
+    with np.load(cache) as saved:
+        assert str(saved["signature"].item()) == library.audio_signature(str(path))
+        assert np.array_equal(saved["env"].astype(np.float32), first)
     mixcheck._MEM.clear()
     assert np.array_equal(mixcheck.envelope(str(path)), first)
     assert len(decoded) == 1
