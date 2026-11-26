@@ -297,6 +297,10 @@ that lane eases to neutral over one bar and does not resume behind the user's
 back. The existing HANDS switch disables/enables the skill scheduler; KAIA MIX
 resets the mixer and explicitly clears manual ownership. The skill snapshot
 reports the active skill, reason, profile state, catalog and manual overrides.
+Each active state exposes its actual lane targets/parameters and action windows;
+solo structural skills include the counted four-bar phrase's source-time bounds,
+while blend and echo skills report their measured transition window. The booth
+renders these values from scheduler state rather than inferring them from labels.
 
 This is a limited first execution layer, not the full skill repertoire in #402.
 Loops/rolls, hot cues, jog/pitch bend, scratches, filters, stutters, delay/reverb
