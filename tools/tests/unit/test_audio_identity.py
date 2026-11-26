@@ -22,7 +22,8 @@ def test_metadata_only_id3_retag_keeps_audio_identity(tmp_path):
     path.write_bytes(_id3(b"TIT2 original title", audio))
     clear_audio_signature_cache(str(path))
     original = audio_signature(str(path))
-    assert original
+    assert original and original.startswith("v2:")
+    assert audio_signature(str(path)) == original       # stat-cache hit keeps the same versioned format
 
     path.write_bytes(_id3(b"TIT2 a much longer replacement title and artist", audio))
     retagged = audio_signature(str(path))
