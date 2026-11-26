@@ -211,12 +211,19 @@ async def test_private_command_dispatch_runs_under_private_context_and_resets_af
     mock_processor, monkeypatch, kind
 ):
     """Commands run before response generation, so privacy must be set before dispatch."""
+    import asyncio
     from utils.core import message_processor, private_turn
 
     seen_private_states = []
 
     async def dispatch(*_args):
         seen_private_states.append(private_turn.active())
+
+        async def background_child():
+            return private_turn.active()
+
+        child = asyncio.create_task(background_child())
+        seen_private_states.append(await child)
         return True
 
     monkeypatch.setattr(message_processor, "resolve_command", lambda _content: object())
@@ -243,8 +250,26 @@ async def test_private_command_dispatch_runs_under_private_context_and_resets_af
     assert private_turn.active() is False
     await mock_processor.process(msg)
 
-    assert seen_private_states == [True]
+    assert seen_private_states == [True, True]
     assert private_turn.active() is False, "private command context leaked beyond process()"
+
+
+@pytest.mark.asyncio
+async def test_private_command_context_is_restored_when_dispatch_raises(mock_processor, monkeypatch):
+    from utils.core import message_processor, private_turn
+
+    async def dispatch(*_args):
+        assert private_turn.active() is True
+        raise RuntimeError("synthetic dispatch failure")
+
+    monkeypatch.setattr(message_processor, "resolve_command", lambda _content: object())
+    monkeypatch.setattr(message_processor, "dispatch_command", dispatch)
+    msg = _thread_message(private=True, content="!private-command")
+
+    with pytest.raises(RuntimeError, match="synthetic dispatch failure"):
+        await mock_processor.process(msg)
+
+    assert private_turn.active() is False
 
 
 @pytest.mark.asyncio
