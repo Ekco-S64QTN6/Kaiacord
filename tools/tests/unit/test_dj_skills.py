@@ -174,7 +174,7 @@ def test_blend_manual_override_eases_owned_lane_and_explicit_handback_restores_s
 
     scheduler.manual_override(1, "high", at=50.0, bar_s=2.0)
     during, _, _ = scheduler.render_blend(plan, times, out_slot=1, in_slot=2)
-    assert abs(float(during[2][-1]) - 1.0) < abs(float(baseline[2][-1]) - 1.0)
+    assert abs(float(during[2][-1]) - S.STAGE_MULTIPLIER) < abs(float(baseline[2][-1]) - S.STAGE_MULTIPLIER)
     assert during[5][-1] == pytest.approx(baseline[5][-1])
     assert scheduler.snapshot()["manual_overrides"]
 
