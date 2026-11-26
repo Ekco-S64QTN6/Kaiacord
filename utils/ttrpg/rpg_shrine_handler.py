@@ -181,6 +181,18 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner, *, load_char
                 return
 
             s = await load_character(uid)
+            if not s or s.get("location") != "shrine":
+                await interaction.response.send_message(
+                    embed=discord.Embed(
+                        description="This offering menu is no longer valid because you are not at the Shrine of the Silent Ones.",
+                        color=0xcc4444,
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            # Authorization is checked against the fresh sheet while the
+            # per-player action lock is held, before any gil/XP mutation.
             t = date.today().strftime("%Y-%m-%d")
             od = s.get("offered_today", {})
             already = od.get(t, 0) if isinstance(od, dict) else 0
@@ -206,7 +218,7 @@ async def _handle_offer(ctx, msg, send, rest, uid, uname, is_owner, *, load_char
             has_vigil = wstate.get("blessing_window_until", 0) > time.time()
             has_pilgrims = wstate.get("pilgrim_blessing_until", 0) > time.time()
             vigil_blessing_granted = False
-            
+
             if (has_vigil or has_pilgrims) and "blessed" not in s.get("conditions", []):
                 s.setdefault("conditions", []).append("blessed")
                 vigil_blessing_granted = True
