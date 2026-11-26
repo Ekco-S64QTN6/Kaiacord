@@ -106,6 +106,23 @@ recognition. No real-crate audition or blind listening evaluation has been perfo
 | **Mix-out points need ears** | She leaves a record at its outro or last breakdown where a blend locks there, found from loudness curves. The curves find sections, not taste: a few blends at each kind of point want listening to. | Watch |
 | **Tempo glide audible** | A record stretched 5–6% glides back 0.5% every 8 bars, each a resplice; it can be heard. `music.records_tempo_glide` turns it off. | Owner's call |
 
+## Repository-wide engineering audit (#366)
+
+A tracked-file inventory and status ledger now lives at
+[`docs/audits/repository-review-ledger.csv`](audits/repository-review-ledger.csv), with its
+status contract and validator in [`docs/audits/README.md`](audits/README.md) and
+`tools/maintenance/check_review_manifest.py`. The baseline `main` tree at
+`b91c34f9807acb3c669b8a85c529dc680b1b63a1` contained 776 tracked file blobs: 684 Python and
+92 non-Python. The ledger gives each inventoried path a blob identity, a triage risk tier and an
+explicit review status. All initial entries are `not_reviewed`; the risk tiers are inventory
+triage only, not audit findings. The validator checks that the ledger still accounts for the
+tracked files and that review evidence is tied to the exact blob reviewed.
+
+**This does not complete #366.** The file-by-file source review, test audit, security/privacy/
+concurrency/persistence analysis, route/API and frontend sink review, shared-sibling review,
+and environment-dependent acceptance remain open. Do not describe the repository as audited
+until each applicable row has evidence and the outstanding runtime checks have been completed.
+
 ## Aethelgard
 
 | Item | What | Call |

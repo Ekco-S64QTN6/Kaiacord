@@ -189,6 +189,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_dj_skills.py",
     ),
     "tools/maintenance/beat_ticks.py": ("tools/tests/unit/test_audio_cache_identity.py",),
+    "tools/maintenance/check_review_manifest.py": ("tools/tests/unit/test_review_manifest.py",),
     "utils/commands/music_handler.py": (
         "tools/tests/unit/test_records_startup_cleanup.py",
         "tools/tests/unit/test_music_handler_records_requests.py",
