@@ -1921,16 +1921,32 @@ class CrossfadeSource(_AudioSource):
         with self._lock:
             current = self._headphone_descriptor_locked(slot)
             stale = (generation != self._headphones_generation or current is None
-                     or current[0].path != record.path)
+                     or current[0].path != record.path
+                     or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6))
+            target_at = max(0.0, current[4] / current[1]) if not stale else 0.0
+            skip_frames = min(150, max(0, int(round((target_at - preview.at()) * FRAMES_PER_S))))
+        # Waiting for enough decoded source frames happens on the HTTP thread,
+        # with no mixer lock held. Never use Deck.frame() to seek: an empty
+        # preview buffer would count as a program decoder starvation event.
+        if not stale and skip_frames and not _wait_deck(preview, skip_frames + 1, 1.0):
+            preview.close()
+            return False
+        with self._lock:
+            current = self._headphone_descriptor_locked(slot)
+            stale = (generation != self._headphones_generation or current is None
+                     or current[0].path != record.path
+                     or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6))
             if not stale:
-                # The decoder warms while the program deck continues to render.
-                # Drop obsolete frames so PFL starts at the program frame's time.
                 target_at = max(0.0, current[4] / current[1])
-                skip_frames = min(50, max(0, int(round((target_at - preview.at()) * FRAMES_PER_S))))
-                for _ in range(skip_frames):
-                    if preview.frame() is None:
+                skip_frames = min(150, max(0, int(round((target_at - preview.at()) * FRAMES_PER_S))))
+                with preview._lock:
+                    if len(preview._frames) < skip_frames:
                         stale = True
-                        break
+                    else:
+                        for _ in range(skip_frames):
+                            preview._frames.popleft()
+                            preview.played += 1
+                            preview._room.release()
             if not stale:
                 old, self._headphones_deck = self._headphones_deck, preview
                 self._headphones_slot = slot
