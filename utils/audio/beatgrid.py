@@ -313,7 +313,8 @@ def ticks_for(path: str) -> Optional[np.ndarray]:
         cache_mtime_ns = cache.stat().st_mtime_ns
     except OSError:
         return None
-    return _read_ticks(str(cache), identity, cache_mtime_ns)
+    ticks = _read_ticks(str(cache), identity, cache_mtime_ns)
+    return ticks if ticks is None or _audio_identity(path, refresh=True) == identity else None
 
 
 def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
@@ -362,8 +363,6 @@ def grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float 
     if identity is None:
         return None
     grid = _grid_at(path, bpm, start, seconds, anchor)
-    if _audio_identity(path, refresh=True) != identity:
-        return None
     result = _snap(grid, path, anchor)
     return result if _audio_identity(path, refresh=True) == identity else None
 
@@ -374,8 +373,6 @@ def grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional
     if identity is None:
         return None
     grid = _grid_for(path, bpm, seconds)
-    if _audio_identity(path, refresh=True) != identity:
-        return None
     result = _snap(grid, path)
     return result if _audio_identity(path, refresh=True) == identity else None
 
@@ -428,8 +425,7 @@ def _grid_for_cached(path: str, bpm: Optional[float], seconds: float, identity: 
         return None
     first = first_strong_beat(onsets, g)
     if first is None:
-        result = Grid(g.bpm, g.downbeat, g.contrast, bar_known=False)
-        return result if _audio_identity(path, refresh=True) == identity else None
+        return Grid(g.bpm, g.downbeat, g.contrast, bar_known=False)
     contrast = g.contrast
     if first > 3.0:
         # A blend starts the record at its first beat, so its steadiness is
@@ -441,8 +437,7 @@ def _grid_for_cached(path: str, bpm: Optional[float], seconds: float, identity: 
                 contrast = max(contrast, g2.contrast)
         except (OSError, subprocess.SubprocessError, ValueError):
             pass
-    result = Grid(g.bpm, first, contrast, bar_known=True)
-    return result if _audio_identity(path, refresh=True) == identity else None
+    return Grid(g.bpm, first, contrast, bar_known=True)
 
 
 def _grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional[Grid]:
