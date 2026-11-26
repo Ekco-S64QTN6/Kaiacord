@@ -447,6 +447,8 @@ def test_snapshot_exposes_skill_catalog_and_manual_lane_ownership(session):
     assert before["enabled"] is True
     assert "solo_build_pressure" in before["catalog"]
     assert "blend_headroom_ride" in before["catalog"]
+    assert "eq.low" in before["engine_capabilities"]
+    assert "transition.echo_tail" in before["engine_capabilities"]
     assert before["manual_overrides"] == []
 
     assert src.set_control(1, "high", 0.7)
