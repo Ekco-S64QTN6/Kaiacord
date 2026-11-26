@@ -196,26 +196,32 @@ field notes, each used the way its own protocol says (`agent_boards.enabled`).
 
 ### 11. Records and the DJ booth (`utils/audio/records.py`, `beatgrid.py`, `dj_dashboard.py`)
 
-**Responsibility**: `!music records` — the local library mixed like a DJ set, CPU only.
+**Responsibility**: `!music records` — a local-library two-deck mixer and booth, currently built
+around deterministic selection and technically measured transitions.
 
-- Next record by Camelot key, tempo and genre, preferring a steady opening; levelled to a common
-  LUFS; stretched with rubberband to the playing tempo (and shifted a semitone where that brings a
-  clashing key into line); its bar one dropped on a phrase of the record playing.
-- A blend is staged per band over 32–256 beats — highs in, mids in, a long ride with both records up,
-  the bass swapped on the bar where the new bassline comes in, then mids and highs out — with Kaia's
-  phrase-locked EQ and gain moves on top (`kaia_hands`). A blend is planned on the tracked ticks and
-  then measured on the two records' kick envelopes bar by bar (`mixcheck`): locked, moved by the
-  offset every bar agrees on, or — no common pulse — a clean switch. `setlist` measures every
-  tempo-compatible pair once into a graph and walks it into sets she rotates through. Every transition is journalled
-  (`memory/records/transitions.jsonl`: planned, then called off or done).
-- The incoming decoder is started and buffered off discord.py's voice thread; anything holding the
-  GIL for tens of milliseconds is a stutter, which is why vector search runs from a cached matrix
-  and long-lived objects are frozen out of garbage collection (`gc_quiet`).
-- The DJ booth is a pop-out window (127.0.0.1) with two CDJs and a mixer showing the mixer's own
-  state at 20 Hz. Its controls are real: the mixer multiplies the automix, and the free deck works
-  like a CDJ — load from the crate, cue by dragging, hear it in the window's headphones (never on
-  air), play it synced on the beat and mix it by hand, or let Kaia mix it in.
+- **Current foundations:** a pre-measured setlist graph; key/tempo/family preferences; tracked beat
+  grids, phrase-aware planning and measured kick/hit checks; rubberband stretch/key sync; band-split
+  EQ, bass/presence handoffs, cached structural cues and limited phrase-locked mixer gestures.
+- **Product goal:** an expert DJ whose choices make musical sense over an hour. She must understand
+  the roles and timing of vocals, hooks, bass, percussion, breakdowns, density and energy; build
+  tension/release and breathing room; take intentional creative risks; and judge whether the
+  audible result is interesting, clear and emotionally right. A technically locked transition may
+  still be the wrong transition. Beat/key/phrase checks are guardrails, not a quality score.
+- **Not yet achieved:** the existing graph and `mixcheck` do not evaluate taste or full musical
+  context, `songmap` curves are structural proxies rather than vocal detection, and `kaia_hands`
+  is a small predetermined gesture set. The full composable DJ skill library, rich set-level
+  storytelling, audible evaluation and real-crate human listening acceptance are tracked in
+  [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402).
+- **Booth capability is a separate layer:** the UI must expose only controls backed by real audio
+  operations; professional cue/loop/jog/FX parity and interaction tests are tracked in
+  [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) and
+  [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401).
+- The incoming decoder is buffered away from discord.py's voice thread. The 20 ms audio path
+  must stay bounded; analysis and set planning belong in cached/background work, with safe
+  phrase-boundary execution and manual hand-back. Preserve the mixer frame/lock invariants.
 
+See [Records and the DJ booth](records-and-booth.md) for the full implementation reference and
+product-quality bar.
 ---
 
 ## Data Flow
