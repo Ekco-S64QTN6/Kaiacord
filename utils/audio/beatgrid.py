@@ -425,7 +425,8 @@ def _grid_for_cached(path: str, bpm: Optional[float], seconds: float, identity: 
         return None
     first = first_strong_beat(onsets, g)
     if first is None:
-        return Grid(g.bpm, g.downbeat, g.contrast, bar_known=False)
+        result = Grid(g.bpm, g.downbeat, g.contrast, bar_known=False)
+        return result if _audio_identity(path, refresh=True) == identity else None
     contrast = g.contrast
     if first > 3.0:
         # A blend starts the record at its first beat, so its steadiness is
@@ -437,7 +438,8 @@ def _grid_for_cached(path: str, bpm: Optional[float], seconds: float, identity: 
                 contrast = max(contrast, g2.contrast)
         except (OSError, subprocess.SubprocessError, ValueError):
             pass
-    return Grid(g.bpm, first, contrast, bar_known=True)
+    result = Grid(g.bpm, first, contrast, bar_known=True)
+    return result if _audio_identity(path, refresh=True) == identity else None
 
 
 def _grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional[Grid]:
