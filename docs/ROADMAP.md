@@ -63,7 +63,8 @@ PFL path: a separate deck decoder taps EQ/trim before channel and crossfader gai
 local PCM headphone stream with an equal-power CUE↔MASTER blend and monitor level. Eight hot cues and
 one memory cue per deck persist in `memory/records/cues.json`, keyed by stable audio identity; recall
 uses a separately warmed decoder and a frame-boundary swap, never consumes program-deck frames, and
-refuses a started transition. Cue reads/writes stay out of the renderer. This does not close #403:
+refuses a started transition. Cue reads/writes stay out of the renderer. Engine and HTTP route tests cover persistence and recall,
+but automated browser gesture coverage for the pads remains pending. This does not close #403:
 loops/rolls, live jog/pitch bend and a bounded FX bus remain unimplemented.
 
 **#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
