@@ -127,7 +127,6 @@ def _mutate(record, mutation) -> bool:
                 return False
             payload["records"][key] = bank
             write_atomic(path, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-            st = path.stat()
             _CACHE[key] = (_stat_key(path), bank)
     return True
 
