@@ -68,6 +68,13 @@ def test_profile_compiler_schedules_build_pressure_and_drop_reveal_on_counted_ph
     assert "build candidate" in build_label
     assert build[0][-1] == pytest.approx(0.94, abs=0.01)
     assert build[2][-1] == pytest.approx(1.04, abs=0.01)
+    active = scheduler.snapshot()["active"]
+    assert active["parameters"] == {"solo.low": 0.94, "solo.high": 1.04}
+    assert active["phrase"] == {
+        "kind": "build_pressure", "start": 0.0, "end": 8.0,
+        "bars": 4, "timebase": "source_record_seconds",
+    }
+    assert len(active["actions"]) == 2
 
     drop, drop_label, drop_id, handled = scheduler.render_solo(
         np.array([10.1, 10.11], dtype=np.float32), slot=1
@@ -277,6 +284,24 @@ def test_structural_skills_reject_profiles_compiled_with_another_phrase_width():
     profile = SimpleNamespace(**{**vars(profile), "phrase_bars": 8})
     scheduler.set_solo_profile(profile, fingerprint=24)
     assert scheduler.snapshot()["solo_actions"] == 0
+
+
+
+
+def test_skill_scheduler_replays_the_same_phrase_actions_deterministically():
+    profile = _profile(
+        _phrase(0, 8, "build_candidate", strength=0.8),
+        _phrase(8, 16, "drop_candidate", strength=0.9),
+    )
+    times = np.linspace(6.0, 6.2, num=FRAME_COUNT := 12, dtype=np.float32)
+    first, second = S.SkillScheduler(), S.SkillScheduler()
+    first.set_solo_profile(profile, fingerprint=55)
+    second.set_solo_profile(profile, fingerprint=55)
+    out_a = first.render_solo(times, slot=1)
+    out_b = second.render_solo(times, slot=1)
+    assert out_a[1:] == out_b[1:]
+    for a, b in zip(out_a[0], out_b[0]):
+        assert np.array_equal(a, b)
 
 
 def test_profile_missing_falls_back_without_claiming_structure():
