@@ -554,10 +554,6 @@ class _Handler(BaseHTTPRequestHandler):
             pass
         finally:
             source.detach_headphone_stream(stream)
-            with source._lock:
-                no_listeners = not source._headphone_streams
-            if no_listeners:
-                source.set_headphones(None)
             try:
                 self.wfile.write(b"0\r\n\r\n")
                 self.wfile.flush()
