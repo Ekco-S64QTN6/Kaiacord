@@ -15,7 +15,7 @@ def _profile(bass, section="groove_candidate"):
         start=0.0, end=64.0, aligned=True, section=section,
         bass_db=bass, upper_db=-12.0, full_db=-12.0,
     )
-    return SimpleNamespace(duration=64.0, phrases=(phrase,))
+    return SimpleNamespace(duration=64.0, grid_bpm=120.0, phrases=(phrase,))
 
 
 def _bare_session():
@@ -113,6 +113,89 @@ def test_an_old_pick_cannot_consume_a_newer_listener_request():
 
     assert session._listener_intent.request_id == new_id
     assert session._listener_intent.kind == "brighter"
+
+
+
+
+def test_weak_or_contrary_evidence_preserves_the_precomputed_set_order(monkeypatch):
+    from utils.audio import beatgrid, setlist
+
+    session, current = _bare_session()
+    higher_rank = library.Record("/music/higher-rank.mp3", "Beta", "Higher rank", 120.0, "8A", "House")
+    set_next = library.Record("/music/set-next.mp3", "Gamma", "Set next", 120.0, "8A", "House")
+    edges = {
+        higher_rank.path: {"beats": 64, "back": 0, "cue": 0, "agree": 16, "bars": 16},
+        set_next.path: {"beats": 64, "back": 0, "cue": 0, "agree": 16, "bars": 16},
+    }
+    session.graph = {"edges": {current.path: edges}, "sets": [[current.path, set_next.path]]}
+    session._by_path = {current.path: current, higher_rank.path: higher_rank, set_next.path: set_next}
+    session.played = []
+    session.crate = [current, higher_rank, set_next]
+    session.set_list = [current.path, set_next.path]
+    session._rng = __import__("random").Random(1)
+    session.say = lambda *_args: None
+    session._listener_profile_lock = threading.Lock()
+    session._listener_profile_cache = {
+        current.path: _profile(-18.0),
+        higher_rank.path: _profile(-17.0),  # only +1 dB: below the preference floor
+        set_next.path: _profile(-22.0),     # contrary direction
+    }
+    session._listener_intent = records_intent.ListenerIntent(
+        request_id=10, kind="more_bass", label="more bass",
+        requested_by="listener", created_at=time.time(),
+        expires_at=time.time() + 300,
+    )
+    session._listener_pick_generation = 1
+    session._listener_intent_min_pick_generation = 1
+
+    monkeypatch.setattr(setlist, "partners", lambda _graph, _path: edges)
+    monkeypatch.setattr(setlist, "family", lambda _record: "house")
+    monkeypatch.setattr(setlist, "transition_rank",
+                        lambda _a, candidate, *_args, **_kwargs: 0 if candidate.path == higher_rank.path else 1)
+    monkeypatch.setattr(R, "probe_seconds", lambda _path: 180.0)
+    monkeypatch.setattr(R, "gain_db", lambda _path: 0.0)
+    monkeypatch.setattr(R, "_envelope", lambda _path: None)
+    monkeypatch.setattr(beatgrid, "ensure_ticks", lambda *_args: None)
+    monkeypatch.setattr(beatgrid, "grid_for", lambda *_args: Grid(120.0, 0.0, 8.0))
+    monkeypatch.setattr(beatgrid, "first_sound", lambda _path: 0.0)
+    monkeypatch.setattr(beatgrid, "bass_entry", lambda *_args: None)
+
+    chosen = session._partner(SimpleNamespace(
+        record=current, grid=Grid(120.0, 0.0, 8.0), ratio=1.0,
+    ))
+
+    assert chosen is not None and chosen.record.path == set_next.path
+    assert chosen.listener_intent_id is None
+
+
+def test_listener_profile_scoring_uses_source_bpm_not_stretched_playback_bpm(monkeypatch):
+    from utils.audio import records_intent
+
+    session, current = _bare_session()
+    candidate = library.Record("/music/candidate.mp3", "Artist", "Candidate", 100.0, "8A", "House")
+    current_profile = SimpleNamespace(duration=64.0, grid_bpm=120.0, phrases=())
+    candidate_profile = SimpleNamespace(duration=64.0, grid_bpm=100.0, phrases=())
+    session._listener_profile_lock = threading.Lock()
+    session._listener_profile_cache = {
+        current.path: current_profile,
+        candidate.path: candidate_profile,
+    }
+    intent = records_intent.ListenerIntent(
+        request_id=11, kind="more_bass", label="more bass",
+        requested_by="listener", created_at=time.time(),
+        expires_at=time.time() + 300,
+    )
+    observed = {}
+
+    def capture(_intent, _current, _candidate, current_bpm, candidate_bpm, _edge):
+        observed["bpms"] = (current_bpm, candidate_bpm)
+        return 0.5, "source time"
+
+    monkeypatch.setattr(records_intent, "score_candidate", capture)
+    deck = SimpleNamespace(record=current, grid=Grid(120.0, 0.0, 8.0), ratio=1.25)
+    session._listener_candidate_score(deck, candidate, {"beats": 64}, intent)
+
+    assert observed["bpms"] == (120.0, 100.0)
 
 
 def test_measured_partner_frontier_is_reordered_by_the_requested_feature(monkeypatch):
