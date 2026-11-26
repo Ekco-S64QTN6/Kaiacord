@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from utils.audio import audio_identity, beatgrid, library, mixcheck
+from utils.audio import audio_identity, beatgrid, dj_dashboard, library, mixcheck
 
 
 def _same_stat_replacement(path):
@@ -74,9 +74,9 @@ def test_mixcheck_envelope_and_level_are_recomputed_for_replaced_audio(tmp_path,
                         lambda _path: decoded.append(len(decoded) + 1) or
                         np.array([[float(decoded[-1]), 0.0]], dtype=np.float32))
     monkeypatch.setattr(mixcheck, "kick_envelope",
-                        lambda samples: np.full(int(mixcheck.ENV_RATE * 10), samples[0, 0], dtype=np.float32))
+                        lambda samples: np.full(int(np.ceil(mixcheck.ENV_RATE * 10)), samples[0, 0], dtype=np.float32))
     monkeypatch.setattr(mixcheck, "hits_envelope",
-                        lambda samples: np.full(int(mixcheck.ENV_RATE * 10), samples[0, 0] / 2, dtype=np.float32))
+                        lambda samples: np.full(int(np.ceil(mixcheck.ENV_RATE * 10)), samples[0, 0] / 2, dtype=np.float32))
     mixcheck._MEM.clear()
     mixcheck._levels.clear()
     audio_identity.clear_audio_signature_cache()
@@ -170,7 +170,7 @@ def test_tick_maintenance_replaces_cache_when_signature_changes(tmp_path, monkey
         analysed.append(identity)
         return {"audio_signature": identity, "bpm": 124.0, "confidence": 0.9, "ticks": [i * 0.48 for i in range(20)]}
 
-    namespace["analyse"] = fake_analyse
+    monkeypatch.setitem(namespace["main"].__globals__, "analyse", fake_analyse)
     monkeypatch.setattr(sys, "argv", ["beat_ticks.py", str(path), "--cache", str(cache_dir)])
     assert namespace["main"]() == 0
     assert analysed == [signature]
@@ -304,3 +304,55 @@ def test_last_strong_beat_lru_refreshes_after_same_path_audio_replacement(tmp_pa
     assert len(calls) == 2
     beatgrid.last_strong_beat.cache_clear()
     audio_identity.clear_audio_signature_cache()
+
+
+def test_booth_waveform_refreshes_after_same_path_size_and_mtime_replacement(tmp_path, monkeypatch):
+    from utils.audio.audio_identity import clear_audio_signature_cache
+
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 8192)
+    tid = D.track_id(str(path))
+    D._waves.pop(tid, None)
+    D._paths.pop(tid, None)
+    D._wave_identity.pop(tid, None)
+    D._wave_stats.pop(tid, None)
+    D._wave_checked.pop(tid, None)
+    D._wave_checking.discard(tid)
+    monkeypatch.setattr(D, "WAVE_ID_RECHECK_S", 0.0)
+
+    rendered = []
+
+    def waveform(_path):
+        rendered.append(len(rendered) + 1)
+        return {"generation": rendered[-1]}
+
+    monkeypatch.setattr(D, "waveform", waveform)
+    clear_audio_signature_cache(str(path))
+    assert D._want_wave(str(path)) == tid
+
+    deadline = time.time() + 3
+    while (not D._waves.get(tid) or len(rendered) < 1) and time.time() < deadline:
+        time.sleep(0.01)
+    assert D._waves[tid] == {"generation": 1}
+
+    before = path.stat()
+    path.write_bytes(b"B" * before.st_size)
+    import os
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = path.stat()
+    assert after.st_size == before.st_size and after.st_mtime_ns == before.st_mtime_ns
+
+    D._want_wave(str(path))
+    deadline = time.time() + 3
+    while (len(rendered) < 2 or D._waves.get(tid) != {"generation": 2}) and time.time() < deadline:
+        time.sleep(0.01)
+    assert rendered == [1, 2]
+    assert D._waves[tid] == {"generation": 2}
+
+    D._waves.pop(tid, None)
+    D._paths.pop(tid, None)
+    D._wave_identity.pop(tid, None)
+    D._wave_stats.pop(tid, None)
+    D._wave_checked.pop(tid, None)
+    D._wave_checking.discard(tid)
+    clear_audio_signature_cache(str(path))
