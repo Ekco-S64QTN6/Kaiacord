@@ -640,7 +640,7 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None,
     fam = {p: family(live[p]) for p in live}
     used: dict = {}
     sets: list = []
-    assessment_cache: dict[tuple[str, str], object] = {}
+    assessment_cache = {}
     target = SET_TARGET_S if secs_known else float("inf")
     floor = SET_MIN_S if secs_known else 0.0
 
