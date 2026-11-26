@@ -1001,6 +1001,29 @@ that are easy to break:
 - **Check a mix change on click tracks through the real `CrossfadeSource`**, and a booth change by driving
   it headless (Playwright) against a real session — not by reading the HTML.
 - **The booth shows only the mixer's own state.** If the mix did not do it, the screen does not show it.
+- **Musical outcome outranks mechanical perfection.** A beat/key/phrase lock or a high compatibility
+  score is a technical prerequisite, never proof of a good DJ transition. A locked pair can still
+  be boring, crowded or emotionally wrong. Judge the musical moment — vocals/hooks, bass, percussion,
+  arrangement, density, energy, tension/release and what the listener needs — and the arc of the
+  whole hour. Kaia must be able to wait, reject a technically valid blend, choose a surprising but
+  coherent partner, cut, contrast, or let a breakdown breathe. Longer blends, more layers, higher
+  energy and more effects are not automatically better.
+- **Treat DJ skills as real musical operations, not labels or UI promises.** Every skill needs a
+  purpose, preconditions, timing/phrase rules, bounded parameters, explanation and safe exit.
+  Scratches, loops, rolls, cue juggling, vocal overlays, mashups, filters, FX, stutters, repeats,
+  backspins and brakes require real mixer/DSP support; never fake them by seeking a full-track
+  playhead or exposing a cosmetic control. Effects and tricks must serve the music.
+- **Evaluate what can be heard.** Unit tests and mixcheck validate technical behavior, not taste.
+  Do not call the DJ goal complete without real-crate listening and independent/blind human
+  assessment of full-set musicality. The present compatibility graph, narrow mixcheck and limited
+  phrase-locked `kaia_hands` gestures are foundations, not expert judgment. Full target and
+  capability list: [records-and-booth.md](docs/03-architecture/records-and-booth.md);
+  active scopes: [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402),
+  [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403), [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401).
+- **Keep musical intelligence out of the 20 ms callback.** Use cached/background analysis and
+  planning; execute bounded, ramped, phrase-aware operations at safe boundaries. Never put
+  disk/network I/O, unbounded DSP or blocking inference/planning on the voice thread. Preserve
+  the frame/lock invariants fixed in #312 and #317.
 
 Records, a live set and the radio share one voice connection: whichever starts stops the others
 without disconnecting (`stop(disconnect=False)`), or the incoming one would lose the channel it was
