@@ -315,10 +315,11 @@ Because #403 remains open and has not supplied a shared runtime capability regis
 entry that asks for a capability outside it. The manual `fx.echo` engine capability
 is registered, but no autonomous skill currently owns or schedules it; the operator
 alone controls the master echo in the booth. This is an explicit bridge, not a claim
-that the future #403 capability model is already integrated. Momentary/slip rolls,
-live jog/pitch bend, scratches, filters, stutters and effects beyond the manual
-master echo must not appear as selectable skills or cosmetic controls. Human
-audition on real records and independent/blind assessment remain mandatory under #402.
+that the future #403 capability model is already integrated. The manual slip-roll primitive
+and master echo are real operator controls, but neither is currently an autonomous skill. Do not
+advertise roll/beat-juggle compositions, live jog/pitch bend, scratches, filters, stutters or effects
+beyond the manual echo as selectable skills or cosmetic controls. Human audition on real records
+and independent/blind assessment remain mandatory under #402.
 
 ### Crossfader curves and deck assignment (#403, first slice)
 
@@ -354,8 +355,21 @@ for renderer scheduling, and reports wrapped source position through `Deck.at()`
 Automatic end planning and tempo glide are suspended while the loop owns the deck. Exit warms a normal
 decoder at the loop end and commits it at the next wrap boundary; the selected PFL decoder shares the
 same loop frames and exits on that same boundary. Hot/memory cue seeks are refused while a loop or
-its boundary exit owns the deck, rather than silently replacing the loop clock. This is beat looping,
-not momentary roll behavior.
+its boundary exit owns the deck, rather than silently replacing the loop clock.
+
+**Momentary slip rolls** are a separate control from a persistent beat loop. The 1/2/4/8-beat
+phrase PCM is decoded on the booth request thread and armed for the next counted bar. While the
+roll is held, each renderer frame outputs the repeated phrase but also consumes the corresponding
+frame from the live program decoder; the monotonic deck clock therefore keeps advancing underneath
+the temporary repeat. The selected PFL decoder receives the same predecoded roll and advances its
+own live decoder in lockstep, even when no browser headphone stream is currently attached. On
+pointer release, the output blends back to the live decoder over four 20 ms frames, at the source
+position that would have been reached without the roll. A 600-frame (12-second) hard cap forces
+release if pointer-up is lost. Arm requires a counted bar-known on-air deck, no transition/loop/
+pause ownership, and enough decoded track remaining for the bounded hold. The renderer does not
+seek or decode; predecode stays on the request thread. This is a manual performance primitive,
+not yet an autonomous DJ skill or a full beat-juggling skill library.
+
 A real, bounded manual master echo is now an additional #403 primitive. The booth exposes
 its tempo subdivision, feedback and wet level; the renderer snapshots its committed state and
 applies the PCM delay/feedback path after the program mix. The delay is fixed to the activation
