@@ -521,12 +521,13 @@ class _Handler(BaseHTTPRequestHandler):
         session = _session()
         if session is None or session.source is None or getattr(session, "_closing", False):
             return self._send(409, b"", "text/plain")
+        source = session.source
         voice = getattr(session, "voice_source", None)
         try:
             buffered = int(voice._frames.qsize()) if voice is not None else 0
         except Exception:
             buffered = 0
-        stream = session.source.attach_headphone_stream(buffered)
+        stream = source.attach_headphone_stream(buffered)
         if stream is None:
             return self._send(503, b"headphone listener limit reached", "text/plain")
         self.send_response(200)
@@ -552,7 +553,7 @@ class _Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
-            session.source.detach_headphone_stream(stream)
+            source.detach_headphone_stream(stream)
             try:
                 self.wfile.write(b"0\\r\\n\\r\\n")
                 self.wfile.flush()
@@ -632,7 +633,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == "/phones":
             raw_slot = body.get("slot")
             slot = None if raw_slot in (None, "") else int(raw_slot)
-            ok = src.set_headphones(slot)
+            ok = src.set_headphones(slot, force=body.get("force") is True)
             return self._send(204 if ok else 400, b"", "text/plain")
         # Keep booth mutations at an audio-frame boundary. RecordsSession.load()
         # follows the same mixer -> load lock order to avoid a lock cycle.
