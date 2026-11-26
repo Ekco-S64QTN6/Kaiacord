@@ -14,6 +14,7 @@ from collections import OrderedDict
 from typing import Optional
 
 
+IDENTITY_VERSION = 2
 _CHUNK = 1024 * 1024
 _CACHE_LIMIT = 1024
 # ctime/inode catches ordinary same-mtime/same-size replacement immediately.
@@ -97,7 +98,7 @@ def audio_signature(path: str, *, refresh: bool = False) -> Optional[str]:
         _cache.move_to_end(path)
         while len(_cache) > _CACHE_LIMIT:
             _cache.popitem(last=False)
-    return signature
+    return f"v{IDENTITY_VERSION}:{signature}"
 
 
 def clear_audio_signature_cache(path: Optional[str] = None) -> None:
