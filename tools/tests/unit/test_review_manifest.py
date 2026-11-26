@@ -4,6 +4,7 @@ import subprocess
 
 import pytest
 
+from tools.maintenance import check_review_manifest as checker
 from tools.maintenance.check_review_manifest import (
     REQUIRED_COLUMNS,
     read_rows,
@@ -191,3 +192,39 @@ def test_inventory_rejects_duplicate_path_records():
     tracked = {"utils/core/processor.py": "abc123"}
     errors = validate_inventory(tracked, [_row(), _row()])
     assert any("duplicate path" in error for error in errors)
+
+
+def test_read_rows_rejects_an_empty_csv(tmp_path):
+    path = tmp_path / "empty.csv"
+    path.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="empty ledger"):
+        read_rows(path)
+
+
+def test_cli_main_reports_the_current_pending_review_counts(monkeypatch, capsys):
+    monkeypatch.setattr(
+        checker, "tracked_file_blobs",
+        lambda: {"utils/core/processor.py": "abc123"},
+    )
+    monkeypatch.setattr(checker, "read_rows", lambda: [_row()])
+    assert checker.main() == 0
+    assert "1 files; 0 reviewed, 0 not applicable, 1 not reviewed" in capsys.readouterr().out
+
+
+def test_cli_main_returns_one_when_the_ledger_is_incomplete(monkeypatch, capsys):
+    monkeypatch.setattr(
+        checker, "tracked_file_blobs",
+        lambda: {"utils/core/processor.py": "abc123"},
+    )
+    monkeypatch.setattr(checker, "read_rows", lambda: [])
+    assert checker.main() == 1
+    assert "missing tracked file" in capsys.readouterr().out
+
+
+def test_cli_main_returns_two_when_the_git_inventory_cannot_be_read(monkeypatch, capsys):
+    def fail_inventory():
+        raise RuntimeError("no git index")
+
+    monkeypatch.setattr(checker, "tracked_file_blobs", fail_inventory)
+    assert checker.main() == 2
+    assert "cannot validate: no git index" in capsys.readouterr().err
