@@ -228,7 +228,7 @@ SLIP_ROLL_RELEASE_FRAMES = 4
 PITCH_BEND_LIMIT = 0.08
 PITCH_BEND_MAX_FRAMES = 500
 PITCH_BEND_RAMP_FRAMES = 8
-PITCH_BEND_BUFFER_FRAMES = 64
+PITCH_BEND_BUFFER_FRAMES = 4
 
 
 @dataclass(frozen=True)
@@ -285,6 +285,8 @@ class Deck:
         self._bend_setup_lock = threading.Lock()
         self._bend_read_pos = 0.0
         self._bend_write_pos = 0
+        self._bend_pending_samples: Optional[np.ndarray] = None
+        self._bend_pending_offset = 0
         self._loop: Optional[DeckLoop] = None
         self._roll: Optional[DeckRoll] = None
         extra = {**({"gain": gain} if gain else {}), **({"offset": self.offset} if self.offset else {}),
@@ -383,22 +385,54 @@ class Deck:
             self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
         return True
 
-    def _bend_append(self, frame: bytes) -> bool:
-        """Append one decoded frame to the fixed-size resampler ring."""
-        if self._bend_write_pos - self._bend_read_pos + FRAME_SAMPLES > self._bend_capacity:
+    def _bend_ensure(self, through: int) -> Optional[bool]:
+        """Append only the source samples required by the next output frame.
+
+        Complete decoded frames arrive from the pump, but unused tails remain
+        pending instead of entering the ring. This keeps a slow nudge from
+        accumulating buffered samples across repeated gestures.
+        """
+        ring = self._bend_ring
+        if ring is None:
             return False
-        samples = np.frombuffer(frame, dtype=np.int16).reshape(FRAME_SAMPLES, 2).astype(np.float32)
-        if self._bend_ring is None:
-            return False
-        start = self._bend_write_pos % self._bend_capacity
-        end = start + FRAME_SAMPLES
-        if end <= self._bend_capacity:
-            self._bend_ring[start:end] = samples
-        else:
-            split = self._bend_capacity - start
-            self._bend_ring[start:] = samples[:split]
-            self._bend_ring[:end - self._bend_capacity] = samples[split:]
-        self._bend_write_pos += FRAME_SAMPLES
+        wanted = through + 1
+        while self._bend_write_pos < wanted:
+            pending = self._bend_pending_samples
+            if pending is None or self._bend_pending_offset >= FRAME_SAMPLES:
+                frame = self._take_live_frame()
+                if frame is None:
+                    return None
+                if not frame:
+                    return False
+                pending = np.frombuffer(frame, dtype=np.int16).reshape(
+                    FRAME_SAMPLES, 2
+                ).astype(np.float32)
+                self._bend_pending_samples = pending
+                self._bend_pending_offset = 0
+
+            free = int(self._bend_capacity - (self._bend_write_pos - self._bend_read_pos))
+            if free <= 0:
+                return False
+            available = FRAME_SAMPLES - self._bend_pending_offset
+            count = min(available, wanted - self._bend_write_pos, free)
+            if count <= 0:
+                return False
+
+            start = self._bend_write_pos % self._bend_capacity
+            end = start + count
+            source_start = self._bend_pending_offset
+            source_end = source_start + count
+            if end <= self._bend_capacity:
+                ring[start:end] = pending[source_start:source_end]
+            else:
+                first = self._bend_capacity - start
+                ring[start:] = pending[source_start:source_start + first]
+                ring[:end - self._bend_capacity] = pending[source_start + first:source_end]
+            self._bend_write_pos += count
+            self._bend_pending_offset = source_end
+            if self._bend_pending_offset >= FRAME_SAMPLES:
+                self._bend_pending_samples = None
+                self._bend_pending_offset = 0
         return True
 
     def _bent_frame(self) -> Optional[bytes]:
@@ -421,21 +455,13 @@ class Deck:
         positions = self._bend_read_pos + _FRAME_SAMPLE_OFFSETS * rate
         indices = np.floor(positions).astype(np.int64)
         needed = int(indices[-1]) + 1
-        while self._bend_write_pos <= needed:
-            live = self._take_live_frame()
-            if live is None:
-                return None
-            if not live:
-                # b"" is temporary decoder starvation. The caller emits
-                # silence without moving the source cursor or freezing a roll
-                # on a repeated single frame.
-                return b""
-            if not self._bend_append(live):
-                # A long slow jog can fill the bounded ring. Return to neutral
-                # rather than dropping source audio or overwriting unread PCM.
-                self._bend_target = 1.0
-                self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
-                return None
+        available = self._bend_ensure(needed)
+        if available is None:
+            return None
+        if not available:
+            # b"" is temporary decoder starvation. The caller emits silence
+            # without moving the source cursor or freezing a slip roll.
+            return b""
 
         if self._bend_ring is None:
             return None
