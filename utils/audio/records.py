@@ -1078,6 +1078,8 @@ class CrossfadeSource(_AudioSource):
         self._echo_cap: list = []
         self._echo_tail: Optional[np.ndarray] = None
         self._echo_pos = 0
+        from utils.audio.dj_skills import SkillScheduler
+        self.skill_scheduler = SkillScheduler()
         self._lock = threading.RLock()
         self._prefetch()
 
@@ -1188,6 +1190,7 @@ class CrossfadeSource(_AudioSource):
             return False
         incoming, self.incoming = self.incoming, None
         self.plan, self._start_frame = None, None
+        self.skill_scheduler.cancel_blend()
         if incoming:
             incoming.close()
         self._queued = self._queued or plan.nxt
@@ -1467,6 +1470,21 @@ class CrossfadeSource(_AudioSource):
             self._begin_planning(replan)
         return True
 
+    def set_control(self, slot: Optional[int], name: str, value) -> bool:
+        """Apply a booth control and transfer that lane's automation ownership to the user."""
+        with self._lock:
+            ok = self.controls.set(slot, name, value)
+            if not ok:
+                return False
+            current = self.current
+            at = current.at() if current is not None else 0.0
+            bar_s = (
+                4.0 * current.grid.beat / max(0.01, current.ratio)
+                if current is not None and current.grid is not None else 2.0
+            )
+            self.skill_scheduler.manual_override(slot, name, at, bar_s)
+            return True
+
     @staticmethod
     def _db(frame: Optional[bytes]) -> float:
         if not frame:
@@ -1598,6 +1616,7 @@ class CrossfadeSource(_AudioSource):
                     self._start_frame = k
                     self.incoming = incoming
                     self.plan = plan
+                    self.skill_scheduler.plan_blend(plan, self.energy, ramp(plan), tail(plan))
 
                 if nxt.listener_intent_id is not None and self._on_picked is not None:
                     try:
@@ -1750,8 +1769,18 @@ class CrossfadeSource(_AudioSource):
         hands_now = (1.0,) * 6
         if plan is None and self.rides and out is not None and cur.grid is not None:
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
-            fac, self.gesture = kaia_hands(None, times, self.energy, cur.grid, cur.ratio,
-                                           seed=hash(cur.record.path) & 0xFFFF)
+            fac, label, skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot)
+            if not handled:
+                # Preserve the old small phrase gesture only when no aligned
+                # structural profile action can speak to this section. A stable
+                # CRC fingerprint survives Python process restarts.
+                import zlib
+                fingerprint = zlib.crc32(cur.record.path.encode("utf-8")) & 0xFFFF
+                fac, label = kaia_hands(None, times, self.energy, cur.grid, cur.ratio,
+                                        seed=fingerprint)
+                fac = self.skill_scheduler.mask_solo_fallback(fac, times, cur.slot)
+                self.skill_scheduler.report_legacy(label, float(times[0]), float(times[-1]))
+            self.gesture = label
             hands_now = tuple(round(float(np.asarray(x).reshape(-1)[-1]), 3) for x in fac)
             if any(float(np.abs(x - 1).max()) > 1e-4 for x in fac[:3]):
                 solo = tuple(fac[:3]) + (0.0, 0.0, 0.0)
@@ -1770,7 +1799,9 @@ class CrossfadeSource(_AudioSource):
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             g = gains(plan, times)
             if self.rides:
-                fac, self.gesture = kaia_hands(plan, times, self.energy)
+                fac, self.gesture, skill_id = self.skill_scheduler.render_blend(
+                    plan, times, cur.slot, incoming.slot
+                )
                 g = tuple(a * b for a, b in zip(g, fac))
                 hands_now = tuple(round(float(np.asarray(x).reshape(-1)[-1]), 3) for x in fac)
             out_parts = cur.split(out) if out is not None else None
@@ -1947,6 +1978,8 @@ class CrossfadeSource(_AudioSource):
         self.plan, self._start_frame = None, None
         self.cue, self.by_hand = None, False
         self.gesture = ""
+        self.skill_scheduler.cancel_blend()
+        self.skill_scheduler.clear_active()
         if old:
             old.close()
         if self.current and self._on_change:
@@ -1960,6 +1993,8 @@ class CrossfadeSource(_AudioSource):
         """Retire decks only at a frame boundary."""
         with self._lock:
             self._cancel_splice()
+            self.skill_scheduler.cancel_blend()
+            self.skill_scheduler.clear_active()
             for deck in (self.current, self.incoming, self.hand):
                 if deck:
                     deck.close()
