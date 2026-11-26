@@ -2447,10 +2447,8 @@ class RecordsSession:
                 try:
                     src.skill_scheduler.set_solo_profile(profile, fingerprint)
                     if profile is not None:
-                        log_debug(
-                            f"[records] compiled {len(src.skill_scheduler.snapshot()['solo_actions']) if False else 'bounded'} "
-                            f"phrase-skill actions for {record.name}"
-                        )
+                        action_count = src.skill_scheduler.snapshot()["solo_actions"]
+                        log_debug(f"[records] compiled {action_count} phrase-skill actions for {record.name}")
                     else:
                         log_debug(f"[records] phrase profile unavailable for {record.name}; legacy fallback remains")
                 except Exception as exc:
