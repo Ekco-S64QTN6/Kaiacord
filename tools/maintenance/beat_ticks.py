@@ -12,8 +12,10 @@ Run by the system Python, which has Essentia (the bot's venv does not):
     /usr/bin/python3 tools/maintenance/beat_ticks.py PATH [PATH…]        # these records
     /usr/bin/python3 tools/maintenance/beat_ticks.py --catalog FILE       # a whole dj_catalog.json
 
-Each record's ticks go to <cache>/<sha1 of path>.json: {"bpm", "confidence",
-"ticks"}. A tracker that lands on half or double the catalog's tempo is folded
+Each record's ticks go to <cache>/<sha1 of path>.json with BPM, confidence,
+ticks and the complete audio signature that produced them. Existing entries
+are retained only while that signature still matches. A tracker that lands on
+half or double the catalog's tempo is folded
 back to it (half-time ticks get the beats between them). Existing entries are
 kept unless --force. Prints one line per record; exits non-zero if any failed.
 
@@ -31,6 +33,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
