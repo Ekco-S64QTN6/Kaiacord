@@ -131,6 +131,18 @@ concurrency/persistence analysis, route/API and frontend sink review, shared-sib
 and environment-dependent acceptance remain open. Do not describe the repository as audited
 until each applicable row has evidence and the outstanding runtime checks have been completed.
 
+At the later review baseline \`b02b2e18273277c3c7f8df22defff8ae954f178b\`, the recursive Git tree
+contains 780 file blobs (686 Python and 94 non-Python). The ledger excludes itself and contains
+779 rows; all 779 remain \`not_reviewed\`. This preserves the rule that reading a file during a
+targeted investigation does not automatically count as a completed manifest-backed review.
+
+One suspected live-write-guard symlink bypass was checked and disproved: the current guard resolves
+both the checkout root and candidate path with \`realpath()\`, and its regression tests exercise a
+directory alias, a \`.test\`-named symlink to a live file, and hard-link creation using a temporary
+checkout. The evidence is recorded in #366. A second guard makes the CI import cutoff auditable:
+every tracked production Python module with more than 40 importing unit/integration tests must have
+an explicit selector mapping and an independent required-mapping entry.
+
 ## Aethelgard
 
 | Item | What | Call |

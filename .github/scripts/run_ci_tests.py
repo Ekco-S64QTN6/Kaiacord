@@ -308,17 +308,22 @@ def select_tests(paths: list[str]) -> list[Path]:
     return sorted(selected)
 
 
-#: A module imported by more test files than this (yaml_config, the logger) is
-#: left to its explicit mappings: running every importer would be the suite.
+#: Limit import-derived fan-out for ubiquitous modules. Any production module that
+#: exceeds this limit must be covered by an explicit RELATED_TESTS entry and the
+#: independent REQUIRED_RELATED_TESTS guard in test_ci_test_selection.py.
 MAX_IMPORTERS = 40
 
 
-def importing_tests(rel: str, available: dict) -> list[Path]:
-    """Test files that import the changed module by name.
+def find_importers(
+    rel: str,
+    available: dict,
+    test_sources: dict[Path, str] | None = None,
+) -> list[Path]:
+    """Return every unit/integration test importing this module.
 
-    Tests named for a behaviour rather than a file were reachable only through
-    RELATED_TESTS, and a missing entry meant CI ran none of them: three
-    kaia_rag_query tests failed on main for a week this way.
+    The optional source cache lets the audit test scan all production modules
+    without rereading every test file for every candidate. Normal selection
+    keeps the original on-demand file reads.
     """
     if not rel.endswith(".py"):
         return []
@@ -331,13 +336,25 @@ def importing_tests(rel: str, available: dict) -> list[Path]:
     hits = []
     for path in available.values():
         try:
-            text = path.read_text(encoding="utf-8")
+            if test_sources is not None and path in test_sources:
+                text = test_sources[path]
+            else:
+                text = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        if any(p.search(text) for p in patterns):
+        if any(pattern.search(text) for pattern in patterns):
             hits.append(path)
-    return hits if len(hits) <= MAX_IMPORTERS else []
+    return hits
 
+
+def importing_tests(rel: str, available: dict) -> list[Path]:
+    """Return import-derived tests unless the module exceeds the fan-out cap.
+
+    High-fan-in modules are selected through explicit behavior mappings rather
+    than silently expanding every change into a large fraction of the suite.
+    """
+    hits = find_importers(rel, available)
+    return hits if len(hits) <= MAX_IMPORTERS else []
 
 def main() -> int:
     paths = changed_paths()
