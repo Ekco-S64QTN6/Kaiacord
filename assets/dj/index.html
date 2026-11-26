@@ -644,7 +644,8 @@ const canScrub = (slot) => isFree(slot) && !blendOn();
 const canBend = (slot) => {
   const d = S && S.decks && S.decks[slot];
   return !!(d && d.on_air && d.state === "playing" && !S.mix
-    && !(S.paused || []).includes(slot) && !d.loop && !d.roll);
+    && !(S.paused || []).includes(slot) && !d.loop && !d.roll
+    && !(d.bend && d.bend.active));
 };
 const handDeck = () => { const d = S && S.decks && S.decks[S.free]; return d && d.hand && !S.mix && (d.state === "playing" || d.state === "cued") ? d : null; };
 function mixNow() { return S.mix ? S.mix.now + since() - syncLag() : 0; }
@@ -999,7 +1000,7 @@ function updateDeck(slot) {
   const loop = d && d.loop ? d.loop : null;
   const roll = d && d.roll ? d.roll : null;
   const bend = d && d.bend ? d.bend : { active: false, percent: 0, target_percent: 0 };
-  const canLoop = !!(d && d.on_air && d.state === "playing");
+  const canLoop = !!(d && d.on_air && d.state === "playing" && !bend.active);
   for (const pad of q(slot, ".loopbank").querySelectorAll("[data-loop-beats]")) {
     const beats = Number(pad.dataset.loopBeats);
     pad.disabled = !canLoop || !!loop || !!roll;
@@ -1092,6 +1093,7 @@ function post(path, body) {
 const heldRolls = new Map();
 const heldBends = new Map();
 function queueBend(state, rate) {
+  if (!state || state.releasing) return;
   state.latest = rate;
   if (state.timer) return;
   state.timer = setTimeout(() => {
@@ -1104,15 +1106,19 @@ function queueBend(state, rate) {
 }
 function releaseBend(slot, pointerId = null) {
   const state = heldBends.get(slot);
-  if (!state || (pointerId !== null && state.pointerId !== pointerId)) return;
-  heldBends.delete(slot);
+  if (!state || state.releasing || (pointerId !== null && state.pointerId !== pointerId)) return;
+  state.releasing = true;
   clearTimeout(state.timer);
   clearTimeout(state.timeout);
   state.jog.classList.remove("bending");
   if (state.onRelease) state.onRelease();
+  // Keep the slot owned until the final neutral release reaches the engine;
+  // an immediate second gesture must not race this gesture's HTTP hand-back.
   state.queue = state.queue.then(() =>
     post("/bend", { slot, action: "set", rate: state.latest })
-  ).then(() => post("/bend", { slot, action: "release" }));
+  ).then(() => post("/bend", { slot, action: "release" })).finally(() => {
+    if (heldBends.get(slot) === state) heldBends.delete(slot);
+  });
 }
 function releaseAllBends() {
   for (const [slot, state] of heldBends) releaseBend(slot, state.pointerId);
@@ -1495,7 +1501,7 @@ function scrubbing(slot) {
       bendHold = { angle: ang, turns: 0 };
       const state = {
         slot, pointerId: e.pointerId, jog, latest: 1.0,
-        timer: 0, timeout: 0, queue: Promise.resolve(),
+        timer: 0, timeout: 0, releasing: false, queue: Promise.resolve(),
         onRelease: () => { if (held === "bend") held = null; bendHold = null; },
       };
       heldBends.set(slot, state);
