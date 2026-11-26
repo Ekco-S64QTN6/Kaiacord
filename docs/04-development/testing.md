@@ -191,10 +191,10 @@ changed behavior.
 
 The selector caps import-derived discovery at 40 test files to avoid turning a change to a
 ubiquitous module into a near-full-suite run. That cap must never silently mean zero coverage:
-the independent \`test_ci_test_selection.py\` audit scans every tracked production Python module,
+the independent `test_ci_test_selection.py` audit scans every tracked production Python module,
 finds modules whose unit/integration importer count exceeds the cap, and requires both an explicit
-\`RELATED_TESTS\` mapping and an independent \`REQUIRED_RELATED_TESTS\` entry. The existing mapping
+`RELATED_TESTS` mapping and an independent `REQUIRED_RELATED_TESTS` entry. The existing mapping
 tests then verify that the named files exist and are actually selected.
 
-Changes are pushed straight to \`main\`; read the run for the pushed SHA, and
+Changes are pushed straight to `main`; read the run for the pushed SHA, and
 fix forward with another commit if it fails.

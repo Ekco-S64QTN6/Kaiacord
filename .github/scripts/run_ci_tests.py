@@ -356,6 +356,7 @@ def importing_tests(rel: str, available: dict) -> list[Path]:
     hits = find_importers(rel, available)
     return hits if len(hits) <= MAX_IMPORTERS else []
 
+
 def main() -> int:
     paths = changed_paths()
     tests = select_tests(paths)

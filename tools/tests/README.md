@@ -111,8 +111,8 @@ Hardware, GPU, Ollama, and network tests remain excluded from this offline measu
 The changed-module selector limits automatic import-derived discovery to 40 test files.
 Modules above that fan-in threshold are not allowed to disappear from focused CI: the independent
 selector regression suite scans tracked production Python files and requires each over-threshold
-module to have an explicit \`RELATED_TESTS\` mapping plus a separate
-\`REQUIRED_RELATED_TESTS\` entry. It also verifies that mapped paths exist and are selected.
+module to have an explicit `RELATED_TESTS` mapping plus a separate
+`REQUIRED_RELATED_TESTS` entry. It also verifies that mapped paths exist and are selected.
 
 ## Writing a test
 
