@@ -395,8 +395,8 @@ def _snapshot_locked(session, src, mood: Optional[dict] = None) -> dict:
 def _cue_target(src, slot: int):
     """Capture a deck's record and source-time playhead without doing disk I/O."""
     with src._lock:
-        deck = (src.current if src.current is not None and src.current.slot == slot
-                else src.hand if src.hand is not None and src.hand.slot == slot else None)
+        deck = next((item for item in (src.current, src.hand, src.incoming)
+                     if item is not None and item.slot == slot), None)
         if deck is not None:
             return deck.record, max(0.0, deck.at() * deck.ratio)
         queued = src._queued if src.free_slot() == slot else None
