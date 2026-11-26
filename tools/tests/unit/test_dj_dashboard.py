@@ -184,6 +184,53 @@ def test_booth_asset_routes_phones_through_audio_worklet_not_track_files():
     assert "phonesTick" not in page
 
 
+def test_hot_and_memory_cue_http_controls_store_recall_clear_and_publish_state(session, monkeypatch, tmp_path):
+    monkeypatch.setattr(D, "_cfg", lambda k, d: 0 if k == "dj_dashboard_port" else d)
+    monkeypatch.setattr(D.record_cues, "record_key", lambda record: record.path)
+    monkeypatch.setattr(D.record_cues, "telemetry_path", lambda _path: str(tmp_path / "cues.json"))
+    D.record_cues.clear_cache()
+    src = session.source
+    for _ in range(20):
+        src.read()
+    record = src.current.record
+    base = D.serve()
+
+    def send(payload):
+        request = urllib.request.Request(
+            base + "cuebank",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return json.loads(response.read())
+
+    try:
+        expected = src.current.at() * src.current.ratio
+        stored = send({"slot": 1, "kind": "hot", "index": 0, "action": "toggle"})
+        assert stored["action"] == "stored"
+        assert stored["cue_bank"]["hot"][0] == pytest.approx(expected)
+        memory = send({"slot": 1, "kind": "memory", "action": "toggle"})
+        assert memory["action"] == "stored"
+        snapshot = D.snapshot(session)
+        assert snapshot["decks"]["1"]["cue_bank"]["memory"] == pytest.approx(expected)
+
+        assert D.record_cues.set_hot(record, 0, 5.0)
+        old_deck = src.current
+        jumped = send({"slot": 1, "kind": "hot", "index": 0, "action": "toggle"})
+        assert jumped["action"] == "jumped"
+        assert src.current is not old_deck
+        assert src.current.at() * src.current.ratio == pytest.approx(5.0, abs=0.03)
+
+        cleared = send({"slot": 1, "kind": "hot", "index": 0, "action": "clear"})
+        assert cleared["action"] == "cleared"
+        assert cleared["cue_bank"]["hot"][0] is None
+    finally:
+        D.record_cues.clear_cache()
+        server, D._server = D._server, None
+        if server:
+            server.shutdown()
+
 def test_decks_alternate_like_a_pair_of_cdjs(session):
     session.source.skip()
     deadline = time.time() + 5
