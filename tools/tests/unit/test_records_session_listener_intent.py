@@ -31,6 +31,7 @@ def _bare_session():
     session._listener_intent_lock = threading.Lock()
     session._listener_intent_sequence = 0
     session._listener_pick_generation = 0
+    session._listener_pick_active_generation = None
     session._listener_intent_min_pick_generation = 1
     session._listener_intent = None
     session.last_listener_intent = None
@@ -95,10 +96,12 @@ def test_request_during_an_in_progress_pick_applies_to_the_following_pick():
     assert result.understood and result.queued_after_current
     # The pick worker enters _choose after _picking is set. Its generation is
     # skipped even if the command arrived just before that worker started.
-    session._listener_pick_started()
+    first_generation = session._listener_pick_started()
     assert session._current_listener_intent() is None
-    session._listener_pick_started()
+    session._listener_pick_finished(first_generation)
+    second_generation = session._listener_pick_started()
     assert session._current_listener_intent() is session._listener_intent
+    session._listener_pick_finished(second_generation)
 
 
 def test_an_old_pick_cannot_consume_a_newer_listener_request():
@@ -147,6 +150,7 @@ def test_weak_or_contrary_evidence_preserves_the_precomputed_set_order(monkeypat
         expires_at=time.time() + 300,
     )
     session._listener_pick_generation = 1
+    session._listener_pick_active_generation = None
     session._listener_intent_min_pick_generation = 1
 
     monkeypatch.setattr(setlist, "partners", lambda _graph, _path: edges)
