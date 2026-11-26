@@ -211,6 +211,7 @@ class DeckLoop:
     start_own: float
     end_own: float
     beats: int
+    start_index: int = 0
 
 
 class Deck:
@@ -286,7 +287,7 @@ class Deck:
         """The next frame; loop playback never consumes the underlying track decoder."""
         loop = self._loop
         if loop is not None and self.played >= loop.start_played:
-            index = (self.played - loop.start_played) % len(loop.frames)
+            index = (loop.start_index + self.played - loop.start_played) % len(loop.frames)
             self.played += 1
             return loop.frames[index]
         with self._lock:
@@ -305,7 +306,7 @@ class Deck:
         n = self.played if frames is None else frames
         loop = self._loop
         if loop is not None and n >= loop.start_played:
-            index = (n - loop.start_played) % len(loop.frames)
+            index = (loop.start_index + n - loop.start_played) % len(loop.frames)
             return loop.start_own / self.ratio + index / FRAMES_PER_S
         return (n * FRAME_SAMPLES - self.pad) / RATE + self.offset / self.ratio
 
@@ -2280,6 +2281,17 @@ class CrossfadeSource(_AudioSource):
                             preview.played += 1
                             preview._room.release()
             if not stale:
+                program = self.current if self.current is not None and self.current.slot == slot else None
+                loop = program._loop if program is not None else None
+                if loop is not None:
+                    if program.played >= loop.start_played:
+                        loop_index = (program.played - loop.start_played) % len(loop.frames)
+                        loop_start_frame = preview.played
+                    else:
+                        loop_index = 0
+                        loop_start_frame = preview.played + loop.start_played - program.played
+                    preview._loop = DeckLoop(loop.frames, loop_start_frame, loop.start_own,
+                                             loop.end_own, loop.beats, loop_index)
                 old, self._headphones_deck = self._headphones_deck, preview
                 self._headphones_slot = slot
         if stale:
