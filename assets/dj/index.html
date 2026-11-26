@@ -1145,7 +1145,7 @@ async function phonesStart() {
         '  }',
         '}',
         'registerProcessor("kaia-phones", KaiaPhonesProcessor);'
-      ].join("\\n");
+      ].join("\n");
       const moduleUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
       try { await phonesContext.audioWorklet.addModule(moduleUrl); } finally { URL.revokeObjectURL(moduleUrl); }
       phonesNode = new AudioWorkletNode(phonesContext, "kaia-phones", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
