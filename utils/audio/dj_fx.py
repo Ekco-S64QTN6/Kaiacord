@@ -66,6 +66,7 @@ class TempoEcho:
     def __init__(self) -> None:
         capacity = int(MAX_DELAY_S * RATE) + 1
         self._buffer = np.zeros((capacity, 2), dtype=np.float32)
+        self._offsets = np.arange(FRAME_SAMPLES, dtype=np.int64)
         self._write = 0
         self._delay_samples = 0
         self._beats = 1.0
@@ -134,19 +135,21 @@ class TempoEcho:
         ):
             return False
 
-        delay_samples = int(round(RATE * 60.0 / tempo * beat_count))
-        if not FRAME_SAMPLES < delay_samples < len(self._buffer) - FRAME_SAMPLES:
+        if (self._feeding or self.tail_active) and beat_count != self._beats:
             return False
-        if (self._feeding or self.tail_active) and delay_samples != self._delay_samples:
+        delay_samples = (
+            self._delay_samples if self._feeding or self.tail_active
+            else int(round(RATE * 60.0 / tempo * beat_count))
+        )
+        if not FRAME_SAMPLES < delay_samples < len(self._buffer) - FRAME_SAMPLES:
             return False
 
         if not self._feeding and not self.tail_active:
             self._buffer.fill(0.0)
             self._write = 0
             self._delay_samples = delay_samples
-        self._delay_samples = delay_samples
+            self._bpm = tempo
         self._beats = beat_count
-        self._bpm = tempo
         self._feeding = True
         self._tail_frames = 0
         self._tail_fade_started = False
@@ -169,8 +172,7 @@ class TempoEcho:
             self._wet = self._wet_from + (self._wet_target - self._wet_from) * weight
             self._ramp_remaining -= 1
 
-        offsets = np.arange(FRAME_SAMPLES, dtype=np.int64)
-        write_indices = (self._write + offsets) % len(self._buffer)
+        write_indices = (self._write + self._offsets) % len(self._buffer)
         read_indices = (write_indices - self._delay_samples) % len(self._buffer)
         delayed = self._buffer[read_indices].copy()
         if self._feeding:
