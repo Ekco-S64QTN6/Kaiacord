@@ -1110,8 +1110,8 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add
 // Nothing in this path reads /audio/<id> or advances the program deck.
 const phonesOn = { 1: false, 2: false }, cueHeld = { 1: false, 2: false };
 let phonesContext = null, phonesNode = null, phonesAbort = null;
-let phonesConnecting = false, phonesDesired = false, phonesPending = false;
-let phonesRequested = { slot: undefined, id: null };
+let phonesConnecting = false, phonesDesired = false, phonesPending = false, phonesForcePending = false;
+let phonesRequested = { slot: undefined, id: null, ratio: null, semitones: null, gain: null };
 async function phonesStart() {
   phonesDesired = true;
   if (phonesAbort || phonesConnecting) return;
@@ -1186,16 +1186,24 @@ function phonesStop() {
   if (phonesContext && phonesContext.state === "running") phonesContext.suspend().catch(() => {});
 }
 function syncPhones(force = false) {
+  if (force) phonesForcePending = true;
   const slot = cueHeld[1] ? 1 : cueHeld[2] ? 2 : phonesOn[1] ? 1 : phonesOn[2] ? 2 : null;
   const deck = slot && S && S.decks ? S.decks[slot] : null;
   const wantedSlot = deck ? slot : null, id = deck ? deck.id : null;
+  const ratio = deck ? (deck.ratio || 1) : null;
+  const semitones = deck ? (deck.semitones || 0) : null;
+  const gain = deck ? (deck.gain_db || 0) : null;
   if (wantedSlot === null) phonesStop();
-  if (phonesPending || (!force && phonesRequested.slot === wantedSlot && phonesRequested.id === id)) return;
-  phonesPending = true;
-  post("/phones", { slot: wantedSlot, force }).then((response) => {
+  const sameDeck = phonesRequested.slot === wantedSlot && phonesRequested.id === id;
+  const paramsChanged = sameDeck && (phonesRequested.ratio !== ratio ||
+    phonesRequested.semitones !== semitones || phonesRequested.gain !== gain);
+  const rebuild = phonesForcePending || paramsChanged;
+  if (phonesPending || (!rebuild && sameDeck)) return;
+  phonesPending = true; phonesForcePending = false;
+  post("/phones", { slot: wantedSlot, force: rebuild }).then((response) => {
     phonesPending = false;
-    if (response) phonesRequested = { slot: wantedSlot, id };
-    else { phonesRequested = { slot: wantedSlot, id }; toast("headphone cue selection failed"); }
+    phonesRequested = { slot: wantedSlot, id, ratio, semitones, gain };
+    if (!response) toast("headphone cue selection failed");
   });
 }
 window.addEventListener("pagehide", phonesStop);
