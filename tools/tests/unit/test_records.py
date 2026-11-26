@@ -12,7 +12,7 @@ import pytest
 from utils.audio import library
 from utils.audio import records as R
 from utils.audio.beatgrid import Grid
-from utils.audio.records import FRAME_BYTES, FRAMES_PER_S, RATE, CrossfadeSource, Deck, Next, plan_transition, gains
+from utils.audio.records import FRAME_BYTES, FRAME_SAMPLES, FRAMES_PER_S, RATE, CrossfadeSource, Deck, Next, plan_transition, gains
 
 
 @pytest.fixture(autouse=True)
