@@ -333,10 +333,11 @@ the cut law deliberately performs a hard A/B handoff at the midpoint.
 Non-finite values and unknown curve/assignment names are rejected. Reset returns
 the curve and assignments to standard/A/B and clears the direct crossfader position.
 
-This is the first bounded #403 mixer slice, not professional parity: it does not
-add PFL/cue-master routing, hot/memory cues, loops/rolls, jog/pitch bend, or an FX
-bus. Those remain separate #403 work and must be backed by real signal paths and
-browser interaction tests before they are exposed as capabilities.
+The first #403 slices now provide the crossfader laws/assignments and a real PFL/cue-monitor
+signal path. PFL uses a separate decoder, preserves EQ/trim while bypassing channel and crossfader gains,
+and blends against the rendered master locally. This is still not professional parity: hot/memory cues,
+loops/rolls, jog/pitch bend, and a bounded FX bus remain unimplemented. They must each have real engine
+signal paths and browser interaction tests before they are exposed as capabilities.
 
 ### Real-time engineering boundary
 
