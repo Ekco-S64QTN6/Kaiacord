@@ -1,0 +1,48 @@
+name: Records booth browser tests
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "assets/dj/index.html"
+      - "utils/audio/dj_dashboard.py"
+      - "utils/audio/records.py"
+      - "utils/audio/record_cues.py"
+      - "tools/tests/browser/test_dj_booth_interactions.py"
+      - ".github/workflows/records-browser-tests.yml"
+      - "requirements.txt"
+  pull_request:
+    paths:
+      - "assets/dj/index.html"
+      - "utils/audio/dj_dashboard.py"
+      - "utils/audio/records.py"
+      - "utils/audio/record_cues.py"
+      - "tools/tests/browser/test_dj_booth_interactions.py"
+      - ".github/workflows/records-browser-tests.yml"
+      - "requirements.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  booth-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project and browser-test dependencies
+        timeout-minutes: 7
+        run: |
+          python -m pip install --no-input --disable-pip-version-check --upgrade pip
+          python -m pip install --no-input --disable-pip-version-check -r requirements.txt pytest
+      - name: Install headed-capable Chromium and system libraries
+        timeout-minutes: 6
+        run: python -m playwright install --with-deps chromium
+      - name: Exercise real booth controls in Chromium
+        timeout-minutes: 5
+        run: python -m pytest -q tools/tests/browser/test_dj_booth_interactions.py
