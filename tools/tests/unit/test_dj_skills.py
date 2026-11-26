@@ -229,3 +229,19 @@ def test_profile_missing_falls_back_without_claiming_structure():
     )
     assert not handled and label == "" and skill_id == ""
     assert all(np.allclose(f, 1.0) for f in factors)
+
+
+def test_solo_phrase_actions_follow_source_time_when_deck_is_stretched():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 8, "build_candidate"),
+    ), fingerprint=0x12345678)
+    # Deck.at() is stretched playback time. A 1.25x deck reaches source 4 s at
+    # playback 3.2 s; the action must begin there, not at playback 4 s.
+    factors, label, skill_id, handled = scheduler.render_solo(
+        np.array([3.19, 3.20], dtype=np.float32), slot=1, ratio=1.25
+    )
+    assert handled and skill_id == "solo_build_pressure"
+    assert "build candidate" in label
+    assert factors[0][-1] == pytest.approx(0.94, abs=0.01)
+    assert scheduler.solo_fingerprint == 0x12345678
