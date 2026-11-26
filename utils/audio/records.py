@@ -2949,7 +2949,8 @@ class CrossfadeSource(_AudioSource):
                                                playback_rate=deck.pitch_rate)
                         if plan.kind == "blend":             # it fits, but locks nowhere
                             plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode,
-                                                   self._mix_beats, lead=lead, allow_blend=False)
+                                                   self._mix_beats, lead=lead, allow_blend=False,
+                                                   playback_rate=deck.pitch_rate)
                             plan.check = "no common beat anywhere it could be mixed"
                         plan = as_echo(plan)
                     # A stretch that moves onsets early is started that much
