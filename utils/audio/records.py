@@ -218,6 +218,12 @@ class DeckLoop:
 SLIP_ROLL_MAX_FRAMES = 600
 SLIP_ROLL_RELEASE_FRAMES = 4
 
+#: Temporary live jog bend: +/-8%, 10-second fail-safe hold, smooth 8-frame release.
+PITCH_BEND_LIMIT = 0.08
+PITCH_BEND_MAX_FRAMES = 500
+PITCH_BEND_RAMP_FRAMES = 8
+PITCH_BEND_BUFFER_FRAMES = 64
+
 
 @dataclass(frozen=True)
 class DeckRoll:
@@ -258,6 +264,18 @@ class Deck:
         self.offset = max(0.0, offset)                      # seconds of the record skipped, own time
         self.total_frames = int(((seconds - self.offset) / ratio * RATE + self.pad) / FRAME_SAMPLES)
         self.played = 0                         # monotonic render-frame clock, even through loops and slip rolls
+        # Source time is counted in decoded 48 kHz samples. It normally equals
+        # played * 960, but live jog bend consumes source samples faster/slower.
+        self._source_samples = 0.0
+        self._bend_target = 1.0
+        self._bend_rate = 1.0
+        self._bend_ramp_remaining = 0
+        self._bend_frames = 0
+        self._bend_buffer_active = False
+        self._bend_capacity = PITCH_BEND_BUFFER_FRAMES * FRAME_SAMPLES + FRAME_SAMPLES * 2
+        self._bend_ring = np.zeros((self._bend_capacity, 2), dtype=np.float32)
+        self._bend_read_pos = 0.0
+        self._bend_write_pos = 0
         self._loop: Optional[DeckLoop] = None
         self._roll: Optional[DeckRoll] = None
         extra = {**({"gain": gain} if gain else {}), **({"offset": self.offset} if self.offset else {}),
@@ -301,8 +319,100 @@ class Deck:
         with self._lock:
             return len(self._frames) >= frames or self._eof
 
+    def _take_live_frame(self) -> Optional[bytes]:
+        """Consume one frame from the underlying decoder without touching deck clocks."""
+        with self._lock:
+            if self._frames:
+                frame = self._frames.popleft()
+                self._room.release()
+                return frame
+        if self._eof:
+            return None
+        global DECKS_STARVED
+        DECKS_STARVED += 1
+        return SILENCE
+
+    def set_bend(self, rate: float) -> bool:
+        """Set a temporary playback-rate multiplier; 1.0 is the neutral jog position."""
+        if isinstance(rate, bool):
+            return False
+        try:
+            target = float(rate)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
+            return False
+        if target != 1.0 and self._loop is not None:
+            return False
+        if target != 1.0 and self._roll is not None:
+            return False
+        if target != 1.0 and not self._bend_buffer_active:
+            self._bend_buffer_active = True
+        if not math.isclose(target, self._bend_target, abs_tol=1e-5):
+            if self._bend_target == 1.0 and target != 1.0:
+                self._bend_frames = 0
+            self._bend_target = target
+            self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
+        return True
+
+    def _bend_append(self, frame: bytes) -> bool:
+        """Append one decoded frame to the fixed-size resampler ring."""
+        if self._bend_write_pos - self._bend_read_pos + FRAME_SAMPLES > self._bend_capacity:
+            return False
+        samples = np.frombuffer(frame, dtype=np.int16).reshape(FRAME_SAMPLES, 2).astype(np.float32)
+        start = self._bend_write_pos % self._bend_capacity
+        end = start + FRAME_SAMPLES
+        if end <= self._bend_capacity:
+            self._bend_ring[start:end] = samples
+        else:
+            split = self._bend_capacity - start
+            self._bend_ring[start:] = samples[:split]
+            self._bend_ring[:end - self._bend_capacity] = samples[split:]
+        self._bend_write_pos += FRAME_SAMPLES
+        return True
+
+    def _bent_frame(self) -> Optional[bytes]:
+        """Resample the live decoded stream at the temporary jog rate."""
+        if self._bend_target != 1.0 or self._bend_rate != 1.0:
+            self._bend_frames += 1
+            if self._bend_frames >= PITCH_BEND_MAX_FRAMES:
+                self._bend_target = 1.0
+                self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
+        if self._bend_ramp_remaining:
+            remaining = self._bend_ramp_remaining
+            self._bend_rate += (self._bend_target - self._bend_rate) / remaining
+            self._bend_ramp_remaining -= 1
+            if self._bend_ramp_remaining == 0:
+                self._bend_rate = self._bend_target
+
+        rate = self._bend_rate
+        positions = self._bend_read_pos + np.arange(FRAME_SAMPLES, dtype=np.float32) * rate
+        indices = np.floor(positions).astype(np.int64)
+        needed = int(indices[-1]) + 1
+        while self._bend_write_pos <= needed:
+            live = self._take_live_frame()
+            if live is None:
+                return None
+            if not self._bend_append(live):
+                # A long slow jog can fill the bounded ring. Return to neutral
+                # rather than dropping source audio or overwriting unread PCM.
+                self._bend_target = 1.0
+                self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
+                return None
+
+        fractions = positions - indices
+        a = self._bend_ring[indices % self._bend_capacity]
+        b = self._bend_ring[(indices + 1) % self._bend_capacity]
+        mixed = a + (b - a) * fractions[:, None]
+        out = np.clip(np.rint(mixed), -32768, 32767).astype(np.int16).tobytes()
+        consumed = FRAME_SAMPLES * rate
+        self._bend_read_pos += consumed
+        self._source_samples += consumed
+        self.played += 1
+        return out
+
     def frame(self) -> Optional[bytes]:
-        """The next PCM frame, including a slip roll that advances the live decoder."""
+        """The next PCM frame, including a slip roll or bounded live jog bend."""
         global DECKS_STARVED
         roll = self._roll
         if roll is not None and self.played >= roll.start_played:
@@ -325,6 +435,7 @@ class Deck:
                     live = SILENCE
                     DECKS_STARVED += 1
             self.played += 1
+            self._source_samples += FRAME_SAMPLES
             repeated = roll.frames[index]
             if roll.release_played is None:
                 return repeated
@@ -343,18 +454,17 @@ class Deck:
             index = (loop.start_index + self.played - loop.start_played) % len(loop.frames)
             self.played += 1
             return loop.frames[index]
-        with self._lock:
-            if self._frames:
-                self.played += 1
-                self._room.release()
-                return self._frames.popleft()
-        if self._eof:
+        if self._bend_buffer_active:
+            return self._bent_frame()
+        live = self._take_live_frame()
+        if live is None:
             return None
-        DECKS_STARVED += 1
-        return SILENCE
+        self.played += 1
+        self._source_samples += FRAME_SAMPLES
+        return live
 
     def at(self, frames: Optional[int] = None) -> float:
-        """Seconds into the record as played (stretched) at the start of frame `frames`."""
+        """Seconds into the record at the live decoded source cursor."""
         n = self.played if frames is None else frames
         loop = self._loop
         if loop is not None and n >= loop.start_played:
@@ -364,7 +474,13 @@ class Deck:
         if roll is not None and n >= roll.start_played:
             index = (n - roll.start_played) % len(roll.frames)
             return roll.start_own / self.ratio + index / FRAMES_PER_S
-        return (n * FRAME_SAMPLES - self.pad) / RATE + self.offset / self.ratio
+        if frames is None or n == self.played:
+            samples = self._source_samples
+        elif self._bend_buffer_active:
+            samples = self._source_samples + (n - self.played) * FRAME_SAMPLES * self._bend_rate
+        else:
+            samples = n * FRAME_SAMPLES
+        return (samples - self.pad) / RATE + self.offset / self.ratio
 
     @property
     def key(self) -> Optional[str]:
@@ -376,7 +492,8 @@ class Deck:
         loop = self._loop
         if loop is not None:
             return max(0, int(round((self.end - loop.end_own / self.ratio) * FRAMES_PER_S)))
-        return max(0, self.total_frames - self.played)
+        samples_left = max(0.0, self.total_frames * FRAME_SAMPLES - self._source_samples)
+        return int(samples_left // FRAME_SAMPLES)
 
     @property
     def loop(self) -> Optional[dict]:
@@ -420,6 +537,17 @@ class Deck:
         elif roll.release_played is None:
             self._roll = replace(roll, release_played=self.played)
         return True
+
+    @property
+    def bend(self) -> dict:
+        return {
+            "active": not math.isclose(self._bend_target, 1.0, abs_tol=1e-5)
+                      or not math.isclose(self._bend_rate, 1.0, abs_tol=1e-5),
+            "rate": round(self._bend_rate, 4),
+            "target": round(self._bend_target, 4),
+            "percent": round((self._bend_rate - 1.0) * 100.0, 2),
+            "target_percent": round((self._bend_target - 1.0) * 100.0, 2),
+        }
 
     @property
     def end(self) -> float:
