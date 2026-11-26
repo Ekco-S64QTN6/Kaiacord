@@ -169,13 +169,15 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `dj_skills.py` | Bounded catalog and phrase action scheduler for currently real mixer operations; beat loops live in `records.py`, while rolls, jog, scratch and general FX are not invented or advertised |
 | `records_intent.py` | Typed, expiring listener direction for future autonomous records picks; feature-proxy scoring only, not vocal/percussion detection or immediate mixer control |
 | `beatgrid.py` | Beat and bar grids (bar one as the first strong beat, bars counted from it), the bassline's entry bar, the last strong beat, the rubberband stretch and key-shift filter |
-| `dj_dashboard.py` | The DJ booth: state and waveform server, bounded local PFL PCM stream, pop-out window (page in `assets/dj/`) |\n| `tools/tests/browser/test_dj_booth_interactions.py` | Playwright real-pointer coverage for persistent cue-bank gestures and beat-loop arm/exit controls |
+| `dj_dashboard.py` | The DJ booth: state and waveform server, bounded local PFL PCM stream, pop-out window (page in `assets/dj/`) |
+| `tools/tests/browser/test_dj_booth_interactions.py` | Playwright real-pointer coverage for persistent cue-bank gestures and beat-loop arm/exit controls |
 | `setlist.py`, `mixcheck.py` | Which records lock with which, measured ahead of time, and the sets that follow; whether a planned blend locks, measured on the two records |
 | `dj_voice.py` | What she says about her DJing in the booth's feed, built from what the mixer actually did |
 | `voice_busy.py` | Whether she is playing in voice now; work that can wait (`wait_until_quiet`) holds off |
 | `process_lifecycle.py` | Terminating and reaping the child processes the audio and radio code own |
 
-The records DJ's product-quality bar is musical judgment over the whole set, not maximizing\ntechnical lock scores. See [records-and-booth.md](records-and-booth.md) for the expert-DJ target,\ncurrent limitations, skill repertoire and listening-based acceptance requirements.\n\n## Radio (`utils/radio/`)
+The records DJ's product-quality bar is musical judgment over the whole set, not maximizing
+technical lock scores. See [records-and-booth.md](records-and-booth.md) for the expert-DJ target,\ncurrent limitations, skill repertoire and listening-based acceptance requirements.\n\n## Radio (`utils/radio/`)
 
 Guest on volunteer services: polled every `radio.poll_hours`, history in `memory/radio/`.
 
