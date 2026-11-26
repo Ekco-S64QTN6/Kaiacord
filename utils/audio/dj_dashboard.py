@@ -589,9 +589,10 @@ class _Handler(BaseHTTPRequestHandler):
                     str(body.get("name", "")), body.get("value"),
                 )
             elif self.path == "/rides":
-                src.rides = not src.rides
-                src.skill_scheduler.set_enabled(src.rides)
-                src.gesture = ""
+                with src._lock:
+                    src.rides = not src.rides
+                    src.skill_scheduler.set_enabled(src.rides)
+                    src.gesture = ""
                 log_info(f"[records] Kaia's hands on the mixer {'on' if src.rides else 'off'} from the booth")
                 ok = True
             elif self.path == "/blend":
@@ -599,13 +600,14 @@ class _Handler(BaseHTTPRequestHandler):
                 if ok:
                     log_info(f"[records] blends from the booth: {src._mix_beats} beats")
             elif self.path == "/reset":
-                if src.hand is not None:
-                    src.finish()                     # she takes the mix from where the hands left it
-                src.controls.reset()
-                src.paused.clear()
-                src.skill_scheduler.hand_back_all()
-                src.rides = True
-                src.gesture = ""
+                with src._lock:
+                    if src.hand is not None:
+                        src.finish()                 # she takes the mix from where the hands left it
+                    src.controls.reset()
+                    src.paused.clear()
+                    src.skill_scheduler.hand_back_all()
+                    src.rides = True
+                    src.gesture = ""
                 log_info("[records] the booth handed the mix back to Kaia")
                 ok = True
             elif self.path in ("/pause", "/play"):
