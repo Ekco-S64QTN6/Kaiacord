@@ -1343,6 +1343,13 @@ class CrossfadeSource(_AudioSource):
         planned for later (the end of the record) that has not started is
         called off and planned again from here; a skip already planned is kept.
         With a deck playing by hand, Kaia finishes that mix instead."""
+        with self._lock:
+            loop_slot = (self.current.slot if self.current is not None and self.current.loop_active
+                         else None)
+        if loop_slot is not None:
+            threading.Thread(target=lambda: self.set_loop(loop_slot, None, after_skip=True),
+                             daemon=True, name="kaia-records-loop-skip").start()
+            return
         if self.hand is not None:
             self.finish()
             return
@@ -2284,7 +2291,25 @@ class CrossfadeSource(_AudioSource):
     def read(self) -> bytes:
         """Render one program frame and publish its independent headphone mix."""
         retired = None
+        retired_loop = None
+        abandoned_loop_preview = None
         with self._lock:
+            pending = self._pending_loop_exit
+            if pending is not None:
+                owner, old, preview, boundary, after_skip = pending
+                if owner == "current" and self.current is old and old.played >= boundary:
+                    preview._zi = old._zi
+                    preview.grid, preview.slot = old.grid, old.slot
+                    preview.outs, preview.out_lead = old.outs, old.out_lead
+                    self.current = preview
+                    old._loop = None
+                    self._pending_loop_exit = None
+                    retired_loop = old
+                    if after_skip:
+                        self._begin_planning("skip")
+                elif self.current is not old:
+                    self._pending_loop_exit = None
+                    abandoned_loop_preview = preview
             frame = self._read_locked()
             cue = None
             if self._headphone_streams and self._headphones_deck is not None:
@@ -2314,6 +2339,10 @@ class CrossfadeSource(_AudioSource):
         # decoder pump and must never hold the mixer lock while doing so.
         if retired is not None:
             retired.close()
+        if retired_loop is not None:
+            retired_loop.close()
+        if abandoned_loop_preview is not None:
+            abandoned_loop_preview.close()
         return frame
 
     def _read_locked(self) -> bytes:
@@ -2330,7 +2359,7 @@ class CrossfadeSource(_AudioSource):
             plan = None
         # Early enough to fit a blend before a long outro: the plan places
         # itself on the last phrase that leaves room, however soon it is made.
-        if (plan is None and self.hand is None and not self._planning
+        if (plan is None and self.hand is None and not cur.loop_active and not self._planning
                 and cur.remaining <= int(self._plan_ahead(cur) * FRAMES_PER_S)):
             self._begin_planning("end")
         if self.hand is not None and plan is None:
@@ -2346,7 +2375,7 @@ class CrossfadeSource(_AudioSource):
         if self._splice is not None:
             out, cur = self._splice_frame(cur, k, out)
             t0 = cur.at(cur.played - 1)
-        elif (plan is None and self.tempo_glide and not self._gliding and not self._planning
+        elif (plan is None and not cur.loop_active and self.tempo_glide and not self._gliding and not self._planning
               and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
               and cur.grid is not None and cur.grid.bar_known
               and cur.remaining > int((self._plan_ahead(cur) + 30) * FRAMES_PER_S)):
@@ -2370,7 +2399,7 @@ class CrossfadeSource(_AudioSource):
         hands = self.controls
         solo = SOLO
         hands_now = (1.0,) * 6
-        if plan is None and self.rides and out is not None and cur.grid is not None:
+        if plan is None and not cur.loop_active and self.rides and out is not None and cur.grid is not None:
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot, cur.ratio)
             if not handled:
@@ -2606,7 +2635,10 @@ class CrossfadeSource(_AudioSource):
             self._cancel_splice()
             self.skill_scheduler.cancel_blend()
             self.skill_scheduler.clear_active()
-            for deck in (self.current, self.incoming, self.hand, self._headphones_deck):
+            pending_loop = self._pending_loop_exit
+            self._pending_loop_exit = None
+            for deck in (self.current, self.incoming, self.hand, self._headphones_deck,
+                         pending_loop[2] if pending_loop is not None else None):
                 if deck:
                     deck.close()
             self.current = self.incoming = self.hand = None
