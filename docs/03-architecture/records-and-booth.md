@@ -125,7 +125,7 @@ refresh must stay off the 20 ms voice callback.
 `utils/audio/songmap.py` extends the existing normalized STFT map; it does not build a
 second analyser. Version 3 maps contain:
 
-- `full`: overall centre-channel energy relative to the record's usual level.
+- `full`: all-frequency mid-channel energy relative to the record's usual level.
 - `bass`: energy below 180 Hz, relative to the record's usual level.
 - `lead`: sustained 300–3400 Hz centre energy after hit suppression. It is a lead/midrange
   proxy, **not** vocal detection or stem separation.
@@ -138,8 +138,9 @@ second analyser. Version 3 maps contain:
 background worker, then rechecks the source identity before combining them. Where a counted
 bar one is known, windows align to the requested phrase length (four bars by default); a
 pre-beat intro remains a separate unaligned window. If the grid cannot count bar one, the
-API returns fixed-time windows with `aligned=False` and `bars=None`. Raw `start`/`end`
-seconds are always retained.
+API returns fixed-time windows with `aligned=False` and `bars=None`, while retaining
+any raw tracker BPM/contrast as uncalibrated metadata. Raw `start`/`end` seconds are
+always retained.
 
 Each window exposes normalized feature levels, local full-energy change, and optional
 `intro_candidate`, `groove_candidate`, `build_candidate`, `breakdown_candidate`,
