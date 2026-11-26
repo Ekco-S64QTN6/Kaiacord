@@ -1,4 +1,4 @@
-"""The DJ booth shows the mixer's own state and its one control is the real skip."""
+"""Unit and HTTP tests for the DJ booth's real mixer and deck controls."""
 import io
 import json
 import time
