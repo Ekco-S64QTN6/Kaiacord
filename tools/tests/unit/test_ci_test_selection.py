@@ -28,6 +28,7 @@ REQUIRED_RELATED_TESTS = {
     ),
     "utils/core/message_processor.py": (
         "tools/tests/unit/test_dm_privacy.py",
+        "tools/tests/unit/test_dm_trigger.py",
         "tools/tests/unit/test_vision_fetch_security.py",
         "tools/tests/unit/test_channel_memory_lifecycle.py",
     ),
