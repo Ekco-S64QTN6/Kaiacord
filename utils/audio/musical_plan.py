@@ -62,7 +62,7 @@ def _role(section: Optional[str]) -> str:
 
 
 def _purpose(outgoing: Optional[str], incoming: Optional[str]) -> str:
-    pairs = {
+    pairs: dict[tuple[Optional[str], Optional[str]], str] = {
         ("build_candidate", "drop_candidate"): "pay off the outgoing build with an incoming drop",
         ("breakdown_candidate", "drop_candidate"): "return from a breathing space into an incoming drop",
         ("outro_candidate", "intro_candidate"): "make a fresh handoff from the outgoing outro",
@@ -143,7 +143,7 @@ def assess_transition(current, candidate, edge: Optional[dict],
             if penalty >= 0.035:
                 reasons.append(explanation)
 
-    section_pairs = {
+    section_pairs: dict[tuple[Optional[str], Optional[str]], tuple[float, str]] = {
         ("build_candidate", "drop_candidate"): (0.28, "the incoming drop can answer the outgoing build"),
         ("breakdown_candidate", "drop_candidate"): (0.24, "the incoming drop can restore energy after a breathing space"),
         ("outro_candidate", "intro_candidate"): (0.18, "the incoming intro offers a clean new chapter"),
