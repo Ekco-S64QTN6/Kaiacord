@@ -1449,6 +1449,7 @@ class CrossfadeSource(_AudioSource):
                 # incoming; its transition owns the free channel until release.
                 if queued is None or self.plan is not None or self.incoming is not None:
                     return False
+                assert queued is not None
                 if expected_path is not None and queued.record.path != expected_path:
                     return False
                 self._gen += 1
@@ -1457,6 +1458,8 @@ class CrossfadeSource(_AudioSource):
                 self.skill_scheduler.clear_active()
                 self.gesture = ""
                 return True
+            if deck is None:
+                return False
             if expected_path is not None and deck.record.path != expected_path:
                 return False
 
@@ -1509,6 +1512,7 @@ class CrossfadeSource(_AudioSource):
             preview.close()
             return False
 
+        assert preview is not None
         old_deck.close()
         if replan:
             self._begin_planning(replan)
@@ -1671,6 +1675,8 @@ class CrossfadeSource(_AudioSource):
     def _adopt_hand(self) -> None:
         """The deck played by hand is the record on air now."""
         old, hand = self.current, self.hand
+        if hand is None:
+            return
         self._cancel_splice()
         self._glide_next = self.frames_sent + int(GLIDE_AFTER_BARS * 2 * FRAMES_PER_S)
         self.current = hand
