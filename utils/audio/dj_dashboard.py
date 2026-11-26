@@ -819,6 +819,8 @@ class _Handler(BaseHTTPRequestHandler):
                 if ok:
                     log_info(f"[records] blends from the booth: {src._mix_beats} beats")
             elif self.path == "/reset":
+                if src.current is not None and src.current.bend_active:
+                    src.set_bend(src.current.slot, 1.0, release=True)
                 with src._lock:
                     if src.hand is not None:
                         src.finish()                 # she takes the mix from where the hands left it
@@ -836,6 +838,8 @@ class _Handler(BaseHTTPRequestHandler):
                 slot = int(body.get("slot") or 0)
                 ok = slot in (1, 2)
                 if ok and src.current is not None and slot == src.current.slot:
+                    if src.current.bend_active:
+                        src.set_bend(slot, 1.0, release=True)
                     src.paused.symmetric_difference_update({slot})
                 elif ok and src.hand is not None:
                     ok = src.stop_hand()
