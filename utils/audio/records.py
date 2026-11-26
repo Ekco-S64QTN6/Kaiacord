@@ -2136,8 +2136,9 @@ class RecordsSession:
         self.requests: list[str] = []             # track paths asked for at the booth, in order
         # Musical direction is separate from booth track requests and expires
         # after one successfully prepared autonomous pick or fifteen minutes.
+        from utils.audio import records_intent
         self._listener_intent_lock = threading.Lock()
-        self._listener_intent = None
+        self._listener_intent: Optional[records_intent.ListenerIntent] = None
         self._listener_intent_sequence = 0
         self._listener_pick_generation = 0
         self._listener_pick_active_generation: Optional[int] = None
