@@ -109,8 +109,8 @@ and audible evidence that the choices are good are still work to build.
 
 **Cache identity is a prerequisite for musical intelligence.** The current path/mtime-based caches
 can reuse previous audio analysis or transition evidence when media is replaced at the same path.
-This affects the song maps, kick/hit envelopes, measured transition graph, beat-tick JSON and
-path-keyed beatgrid calculations. The existing `audio_signature()` samples the file's ends; it is
+This affects song maps, kick/hit envelopes and levels, loudness/true-peak gain compensation,
+measured transition edges, beat-tick JSON and path-keyed beatgrid calculations. The existing `audio_signature()` samples the file's ends; it is
 not a full content identity for a same-length file whose middle changes. Before expanding musical
 profiles, make every audio-derived cache validate one robust, versioned identity, distinguish
 metadata-only retagging from audio changes, and invalidate its related in-memory/disk results
