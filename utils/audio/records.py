@@ -1299,6 +1299,7 @@ class CrossfadeSource(_AudioSource):
             if nxt is None or cur is None:
                 return "nothing"
             self._hand_starting = True
+            self.skill_scheduler.clear_active()
             gen = self._gen
             cue = self.cue if self.cue is not None else self.default_cue(nxt)
 
@@ -3134,6 +3135,7 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
             session.source.tempo_glide = bool(config.get("music.records_tempo_glide", True))
         except Exception as e:
             log_debug(f"[records] records_kaia_hands not read: {e}")
+        session.source.skill_scheduler.set_enabled(session.source.rides)
         # The first record's decoder has to be ahead before the voice thread
         # starts asking: a set started while it was still spinning up (rubberband,
         # a busy machine) opened on frames of silence.
