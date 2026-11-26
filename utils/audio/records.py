@@ -1174,7 +1174,6 @@ class Controls:
         }
 
 
-@dataclass(frozen=True)
 # ── bounded master effects ─────────────────────────────────────────
 # First effect: tempo-synchronised echo. Keep the processor in this shared
 # module so the standalone KaiaBooth copy needs no unsynchronised import.
@@ -1366,6 +1365,7 @@ class TempoEcho:
         }
 
 
+@dataclass(frozen=True)
 class PendingLoopExit:
     """Prepared program/PFL decoders waiting for the next loop wrap."""
     old: Deck
