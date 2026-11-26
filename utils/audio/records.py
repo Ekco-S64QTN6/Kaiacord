@@ -1348,7 +1348,7 @@ class CrossfadeSource(_AudioSource):
             self.finish()
             return
         with self._lock:
-            loop_slot = (self.current.slot if self.current is not None and self.current.loop_active
+            loop_slot = (self.current.slot if self.current is not None and getattr(self.current, "loop_active", False)
                          else None)
         if loop_slot is not None:
             threading.Thread(target=lambda: self.set_loop(loop_slot, None, after_skip=True),
@@ -2418,7 +2418,7 @@ class CrossfadeSource(_AudioSource):
             plan = None
         # Early enough to fit a blend before a long outro: the plan places
         # itself on the last phrase that leaves room, however soon it is made.
-        if (plan is None and self.hand is None and not cur.loop_active and not self._planning
+        if (plan is None and self.hand is None and not getattr(cur, "loop_active", False) and not self._planning
                 and cur.remaining <= int(self._plan_ahead(cur) * FRAMES_PER_S)):
             self._begin_planning("end")
         if self.hand is not None and plan is None:
@@ -2434,7 +2434,7 @@ class CrossfadeSource(_AudioSource):
         if self._splice is not None:
             out, cur = self._splice_frame(cur, k, out)
             t0 = cur.at(cur.played - 1)
-        elif (plan is None and not cur.loop_active and self.tempo_glide and not self._gliding and not self._planning
+        elif (plan is None and not getattr(cur, "loop_active", False) and self.tempo_glide and not self._gliding and not self._planning
               and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
               and cur.grid is not None and cur.grid.bar_known
               and cur.remaining > int((self._plan_ahead(cur) + 30) * FRAMES_PER_S)):
@@ -2458,7 +2458,7 @@ class CrossfadeSource(_AudioSource):
         hands = self.controls
         solo = SOLO
         hands_now = (1.0,) * 6
-        if plan is None and not cur.loop_active and self.rides and out is not None and cur.grid is not None:
+        if plan is None and not getattr(cur, "loop_active", False) and self.rides and out is not None and cur.grid is not None:
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot, cur.ratio)
             if not handled:
