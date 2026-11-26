@@ -19,7 +19,7 @@ from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 VERSION = 1
 HOT_CUE_COUNT = 8
 _LOCK = threading.RLock()
-_CACHE: dict[str, tuple[tuple[int, int] | None, dict]] = {}
+_CACHE: dict[str, tuple[tuple[int, int, int, int] | None, dict]] = {}
 
 
 def store_path() -> Path:
@@ -47,7 +47,7 @@ def record_key(record) -> Optional[str]:
         return None
 
 
-def _read_store(path: Path) -> dict:
+def _read_store(path: Path, *, preserve_invalid: bool = False) -> dict:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -55,7 +55,8 @@ def _read_store(path: Path) -> dict:
     except (OSError, UnicodeError, json.JSONDecodeError):
         # Preserve a damaged store rather than interpreting it as an empty bank
         # and silently overwriting every cue when the next pad is pressed.
-        set_aside(path)
+        if preserve_invalid:
+            set_aside(path)
         return {"version": VERSION, "records": {}}
     if not isinstance(payload, dict) or payload.get("version") != VERSION or not isinstance(payload.get("records"), dict):
         set_aside(path)
@@ -83,7 +84,7 @@ def load(record) -> dict:
     path = store_path()
     try:
         st = path.stat()
-        stat_key = (int(st.st_size), int(st.st_mtime_ns))
+        stat_key = (int(st.st_dev), int(st.st_ino), int(st.st_size), int(st.st_mtime_ns))
     except OSError:
         stat_key = None
     with _LOCK:
@@ -94,7 +95,7 @@ def load(record) -> dict:
         bank = _clean_bank(payload["records"].get(key))
         try:
             st = path.stat()
-            stat_key = (int(st.st_size), int(st.st_mtime_ns))
+            stat_key = (int(st.st_dev), int(st.st_ino), int(st.st_size), int(st.st_mtime_ns))
         except OSError:
             stat_key = None
         _CACHE[key] = (stat_key, bank)
@@ -108,14 +109,14 @@ def _mutate(record, mutation) -> bool:
     path = store_path()
     with _LOCK:
         with append_lock(path):
-            payload = _read_store(path)
+            payload = _read_store(path, preserve_invalid=True)
             bank = _clean_bank(payload["records"].get(key))
             if not mutation(bank):
                 return False
             payload["records"][key] = bank
             write_atomic(path, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
             st = path.stat()
-            _CACHE[key] = ((int(st.st_size), int(st.st_mtime_ns)), bank)
+            _CACHE[key] = ((int(st.st_dev), int(st.st_ino), int(st.st_size), int(st.st_mtime_ns)), bank)
     return True
 
 
