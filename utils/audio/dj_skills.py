@@ -525,7 +525,7 @@ class SkillScheduler:
             self._active_skill = None
 
     def manual_override(self, slot: Optional[int], name: str, at: float,
-                        bar_s: float) -> None:
+                        bar_s: float, value: Optional[float] = None) -> None:
         """Give the human ownership of a lane and release Kaia's move over a bar."""
         name = str(name).lower()
         if name in ("low", "mid", "high"):
@@ -545,6 +545,14 @@ class SkillScheduler:
             "label": "manual control owns this lane; Kaia's move is easing out",
             "reason": f"manual {name} control", "context": "manual",
             "start": float(at), "end": release.end,
+            "parameters": {name: round(float(value), 3)} if value is not None else {},
+            "actions": [],
+            "phrase": {
+                "kind": "manual release window",
+                "start": round(float(at), 3),
+                "end": round(float(release.end), 3),
+                "timebase": "playback_seconds",
+            },
         }
 
     def hand_back_all(self) -> None:
@@ -684,15 +692,29 @@ class SkillScheduler:
         self._active_skill = None
         return tuple(factors), "", ""
 
-    def report_legacy(self, label: str, start: float, end: float) -> None:
+    def report_legacy(self, label: str, start: float, end: float,
+                      factors: tuple[np.ndarray, ...]) -> None:
         if not label:
             self._active_skill = None
             return
         spec = SKILL_CATALOG["solo_legacy_phrase_eq"]
+        lanes = ("solo.low", "solo.mid", "solo.high")
+        parameters = {
+            lane: round(float(np.asarray(factor).reshape(-1)[-1]), 3)
+            for lane, factor in zip(lanes, factors)
+        }
         self._active_skill = {
             "id": "solo_legacy_phrase_eq", "name": spec.name,
             "label": label, "reason": spec.purpose, "context": "solo",
             "start": float(start), "end": float(end),
+            "parameters": parameters,
+            "actions": [],
+            "phrase": {
+                "kind": "legacy phrase-EQ gesture",
+                "start": round(float(start), 3),
+                "end": round(float(end), 3),
+                "timebase": "playback_seconds",
+            },
         }
 
     def clear_active(self) -> None:
