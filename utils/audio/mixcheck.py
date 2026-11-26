@@ -134,27 +134,28 @@ MEM_RECORDS = 48
 
 
 def envelope(path: str, band: str = "kick") -> Optional[np.ndarray]:
-    """The record's onset envelope at ENV_RATE — "kick" (low band) or "hits"
-    (2–5 kHz) — cached beside the ticks. One decode makes both."""
-    cache = _cache_path(path, band)
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
+    """The record's onset envelope, cached against its complete audio identity.
+
+    Identity checks are streamed on the planner/maintenance worker. No file
+    hashing, decoding or disk access belongs in the audio-render callback.
+    """
+    from utils.audio.library import audio_signature
+
+    signature = audio_signature(path)
+    if signature is None:
         return None
+    cache = _cache_path(path, band)
     held = _MEM.pop((path, band), None)
-    if held is not None and held[0] == mtime:
+    if held is not None and held[0] == signature:
         _MEM[(path, band)] = held
         return held[1]
     try:
-        if cache.exists() and cache.stat().st_mtime < mtime:
-            # Older than the file: still good if only its tags changed.
-            from utils.audio.library import audio_signature
-            sig = cache.with_suffix(".sig")
-            if sig.exists() and sig.read_text().strip() == (audio_signature(path) or "-"):
-                os.utime(cache)
-        if cache.exists() and cache.stat().st_mtime >= mtime:
+        sidecar = cache.with_suffix(".sig")
+        if cache.exists() and sidecar.exists() and sidecar.read_text(encoding="utf-8").strip() == signature:
             env = np.load(cache).astype(np.float32)
-            _MEM[(path, band)] = (mtime, env)
+            if audio_signature(path) != signature:
+                return None
+            _MEM[(path, band)] = (signature, env)
             while len(_MEM) > MEM_RECORDS:
                 _MEM.pop(next(iter(_MEM)))
             return env
@@ -165,10 +166,8 @@ def envelope(path: str, band: str = "kick") -> Optional[np.ndarray]:
         envs = {"kick": kick_envelope(samples), "hits": hits_envelope(samples)}
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    if len(envs["kick"]) < ENV_RATE * 10:
+    if len(envs["kick"]) < ENV_RATE * 10 or audio_signature(path) != signature:
         return None
-    from utils.audio.library import audio_signature
-    sig = audio_signature(path) or ""
     for b, env in envs.items():
         c = _cache_path(path, b)
         try:
@@ -176,21 +175,31 @@ def envelope(path: str, band: str = "kick") -> Optional[np.ndarray]:
             tmp = c.with_name(f".{c.name}.{os.getpid()}.{threading.get_ident()}.tmp.npy")
             np.save(tmp, env.astype(np.float16))
             os.replace(tmp, c)
-            c.with_suffix(".sig").write_text(sig)
+            sig = c.with_suffix(".sig")
+            sig_tmp = sig.with_name(f".{sig.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            sig_tmp.write_text(signature, encoding="utf-8")
+            os.replace(sig_tmp, sig)
         except OSError:
             pass
-    return envs[band].astype(np.float32)
-
+    result = envs[band].astype(np.float32)
+    _MEM[(path, band)] = (signature, result)
+    while len(_MEM) > MEM_RECORDS:
+        _MEM.pop(next(iter(_MEM)))
+    return result
 
 _levels: dict = {}
 
 
 def kick_level(path: str, env: Optional[np.ndarray] = None, band: str = "kick") -> Optional[float]:
-    """The record's onset energy per second in `band` where it plays: the 75th
-    percentile over one-second windows, so breakdowns and a long intro do not
-    pull it down."""
-    if (path, band) in _levels:
-        return _levels[(path, band)]
+    """The record's onset energy per second in `band`, keyed by audio identity."""
+    from utils.audio.library import audio_signature
+
+    signature = audio_signature(path)
+    if signature is None:
+        return None
+    key = (path, band, signature)
+    if key in _levels:
+        return _levels[key]
     env = envelope(path, band) if env is None else env
     if env is None:
         return None
@@ -198,9 +207,11 @@ def kick_level(path: str, env: Optional[np.ndarray] = None, band: str = "kick") 
     n = len(env) // w
     if n < 10:
         return None
+    if audio_signature(path) != signature:
+        return None
     lvl = float(np.percentile(env[:n * w].reshape(n, w).sum(axis=1), 75))
-    _levels[(path, band)] = lvl if lvl > 0 else None
-    return _levels[(path, band)]
+    _levels[key] = lvl if lvl > 0 else None
+    return _levels[key]
 
 
 def kick_bars(env: np.ndarray, level: Optional[float], own_times: list, bar_s: float) -> list:
