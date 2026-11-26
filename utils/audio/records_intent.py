@@ -51,6 +51,12 @@ _UNSUPPORTED = {
     "acapella": "I can't identify or separate vocals in these records.",
     "percussion": "I can't classify percussion from the transient curve; it is only spectral-change activity.",
     "drum": "I can't classify drums from the transient curve; it is only spectral-change activity.",
+    "kick": "I can't identify kick drums from the transient curve; it is only spectral-change activity.",
+    "snare": "I can't identify snares from the transient curve; it is only spectral-change activity.",
+    "hihat": "I can't identify hi-hats from the transient curve; it is only spectral-change activity.",
+    "cymbal": "I can't identify cymbals from the transient curve; it is only spectral-change activity.",
+    "singer": "I can't identify singers: the lead curve is only a midrange/presence proxy.",
+    "singing": "I can't identify singing: the lead curve is only a midrange/presence proxy.",
     "faster": "Records mode currently keeps the incoming deck matched to the playing tempo; I can't promise a faster set from a track request.",
     "slower": "Records mode currently keeps the incoming deck matched to the playing tempo; I can't promise a slower set from a track request.",
     "tempo": "Records mode currently keeps the incoming deck matched to the playing tempo; I can't promise a tempo change from this request.",
@@ -67,7 +73,7 @@ def create_request(text: str, requested_by: str, request_id: int,
 
     for word, explanation in _UNSUPPORTED.items():
         matched = word in words or (
-            word in {"vocal", "drum", "voice"}
+            word in {"vocal", "drum", "voice", "percussion", "acapella"}
             and any(token.startswith(word) for token in words)
         )
         if matched:
