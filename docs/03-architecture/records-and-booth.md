@@ -345,8 +345,11 @@ Keep the 20 ms Discord audio path bounded. Do not put disk or network I/O, full-
 unbounded DSP, blocking model inference or expensive planning in the voice callback. Perform
 analysis and set planning off the callback using cached/background work; schedule bounded,
 sample/phrase-aware operations at safe boundaries, ramp parameters, preserve the mixer's frame
-and lock invariants, and always provide manual override and hand-back. Keep the engine's audible
-capabilities honest: a planner can only select a skill the mixer can actually execute.
+and lock invariants, and always provide manual override and hand-back. The PFL decoder is warmed
+on the booth request thread; `CrossfadeSource.read()` only consumes one already-buffered frame and
+publishes a fixed-size headphone frame into bounded per-client queues. HTTP streaming and browser
+playback run on their own threads/processes. Keep the engine's audible capabilities honest: a
+planner can only select a skill the mixer can actually execute.
 
 **`!music records` mixes the local library** (`utils/audio/library.py`, `records.py`,
 `beatgrid.py`). The crate is a `dj_catalog.json` of BPM, Camelot key and genre written *outside* the
