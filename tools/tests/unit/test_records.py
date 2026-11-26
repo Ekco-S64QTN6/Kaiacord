@@ -2422,6 +2422,37 @@ def test_live_jog_bend_resamples_the_pcm_and_tracks_the_real_source_cursor(targe
         deck.close()
 
 
+def test_live_jog_ring_stays_bounded_across_repeated_slow_holds():
+    values = np.arange(720_000, dtype=np.int16)
+    pcm = np.column_stack((values, values)).astype(np.int16).tobytes()
+
+    def ramp_factory(_path, _ratio, **_kwargs):
+        return io.BytesIO(pcm)
+
+    deck = Deck(rec("repeated-jog", 120, "8A"), 1.0, 15.0, ramp_factory)
+    wait_for(deck, 25)
+    try:
+        for _ in range(5):
+            assert deck.set_bend(0.92)
+            for _ in range(40):
+                frame = deck.frame()
+                assert frame is not None and len(frame) == FRAME_BYTES
+            assert deck.set_bend(1.0, release=True)
+            for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+                frame = deck.frame()
+                assert frame is not None and len(frame) == FRAME_BYTES
+            assert deck.bend_active is False
+            # The ring contains only the interpolation look-ahead, not a
+            # growing backlog from each 8% slow-down.
+            buffered = deck._bend_write_pos - deck._bend_read_pos
+            assert 0 <= buffered < 2 * FRAME_SAMPLES
+            assert deck._bend_capacity == R.PITCH_BEND_BUFFER_FRAMES * FRAME_SAMPLES + 2 * FRAME_SAMPLES
+        assert deck.played == 5 * (40 + R.PITCH_BEND_RAMP_FRAMES)
+        assert deck._source_samples > 0
+    finally:
+        deck.close()
+
+
 def test_live_jog_bend_keeps_program_and_pfl_decoders_in_lockstep(loop_source):
     src = loop_source
     deck = src.current
