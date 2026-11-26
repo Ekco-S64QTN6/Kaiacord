@@ -81,7 +81,7 @@ def test_verify_moves_a_blend_by_the_measured_amount(monkeypatch):
     from types import SimpleNamespace
     from utils.audio import library, setlist
     inc = clicks(BPM, 120, offset=0.5)
-    monkeypatch.setattr(library, "audio_signature", lambda path: path)
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
     def fake_envelope(path, band="kick"):
         env = OUT if path == "out" else inc
         M._MEM[(path, band)] = (path, env)
@@ -104,7 +104,7 @@ def _plan(off_s):
 def test_a_far_move_every_bar_agrees_on_is_still_made(monkeypatch):
     from utils.audio import library, setlist
     inc = clicks(BPM, 120, offset=0.5)
-    monkeypatch.setattr(library, "audio_signature", lambda path: path)
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
     def fake_envelope(path, band="kick"):
         env = OUT if path == "out" else inc
         M._MEM[(path, band)] = (path, env)
@@ -124,7 +124,7 @@ def test_a_lag_at_the_edge_of_the_search_moves_nothing(monkeypatch):
     side of a larger one, so the blend is refused where it stands."""
     from utils.audio import library, setlist
     inc = clicks(BPM, 120, offset=0.5)
-    monkeypatch.setattr(library, "audio_signature", lambda path: path)
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
     def fake_envelope(path, band="kick"):
         env = OUT if path == "out" else inc
         M._MEM[(path, band)] = (path, env)
@@ -200,7 +200,7 @@ def test_bars_where_only_one_record_has_a_kick_cannot_clash(monkeypatch):
     envs = {("out-pads", "kick"): out, ("out-pads", "hits"): quiet, ("in-loose", "kick"): inc,
             ("in-loose", "hits"): inc}
     from utils.audio import library
-    monkeypatch.setattr(library, "audio_signature", lambda path: path)
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
     def fake_envelope(path, band="kick"):
         env = envs[(path, band)]
         M._MEM[(path, band)] = (path, env)
@@ -223,7 +223,7 @@ def test_no_shared_kick_is_not_enough_when_the_claps_clash(monkeypatch):
     inc = clicks(BPM, 120, offset=0.5)
     envs = {("out", "kick"): out, ("out", "hits"): claps_out, ("in", "kick"): inc, ("in", "hits"): claps_in}
     from utils.audio import library
-    monkeypatch.setattr(library, "audio_signature", lambda path: path)
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
     def fake_envelope(path, band="kick"):
         env = envs[(path, band)]
         M._MEM[(path, band)] = (path, env)
