@@ -1017,17 +1017,22 @@ that are easy to break:
   Do not call the DJ goal complete without real-crate listening and independent/blind human
   assessment of full-set musicality. The present compatibility graph, narrow mixcheck and limited
   phrase-locked `kaia_hands` gestures are foundations, not expert judgment. Full target and
-  capability list: [records-and-booth.md](docs/03-architecture/records-and-booth.md);
-  active scopes: [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402),
-  [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403), [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401).
-  active scopes: [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408) (audio-cache
-  identity), [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404) (musical-state
-  profiles), [#405](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405) (set-level musical
-  planning), [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) (real mixer capabilities),
+  capability list: [records-and-booth.md](docs/03-architecture/records-and-booth.md).
+  Active work: [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408) (audio-cache identity),
+  [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404) (musical-state profiles),
+  [#405](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405) (set-level musical planning),
+  [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) (real mixer capabilities),
   [#406](https://github.com/Ekco-S64QTN6/Kaiacord/issues/406) (skill/action execution),
   [#407](https://github.com/Ekco-S64QTN6/Kaiacord/issues/407) (records requests), and
   [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401) (dashboard test coverage). #402
   remains the parent musical-quality and real-listening acceptance bar.
+- **A record path or mtime is not audio identity.** Every audio-derived cache and decision
+  artifact (maps, envelopes, beat ticks, beatgrid calculations, measured pair edges and derived
+  sets) must be tied to a robust, versioned source-audio identity. Preserve metadata-only retag
+  reuse, but detect same-path audio replacement even when timestamps and size are preserved.
+  Do not treat the current sampled-end `audio_signature()` as a complete content hash. Refresh and
+  invalidate related caches coherently, and keep expensive fingerprinting off the audio callback.
+  See [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408).
 - **Keep musical intelligence out of the 20 ms callback.** Use cached/background analysis and
   planning; execute bounded, ramped, phrase-aware operations at safe boundaries. Never put
   disk/network I/O, unbounded DSP or blocking inference/planning on the voice thread. Preserve
