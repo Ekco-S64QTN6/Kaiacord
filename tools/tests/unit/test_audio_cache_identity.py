@@ -139,3 +139,67 @@ def test_forgetting_changed_record_removes_inbound_and_outbound_graph_evidence()
     assert graph["edges"]["b"] == {}
     assert graph["checked"]["b"] == []
     assert "a" not in graph["checked"]
+
+
+def test_tick_maintenance_replaces_cache_when_signature_changes(tmp_path, monkeypatch):
+    import runpy
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[3] / "tools" / "maintenance" / "beat_ticks.py"
+    namespace = runpy.run_path(str(script), run_name="beat_ticks_test")
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    signature = library.audio_signature(str(path))
+    cache_dir = tmp_path / "ticks"
+    dest = namespace["cache_path"](str(path), cache_dir)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps({"audio_signature": "old-signature", "ticks": []}), encoding="utf-8")
+
+    analysed = []
+
+    def fake_analyse(record_path, bpm=None, identity=None):
+        analysed.append(identity)
+        return {"audio_signature": identity, "bpm": 124.0, "confidence": 0.9, "ticks": [i * 0.48 for i in range(20)]}
+
+    namespace["analyse"] = fake_analyse
+    monkeypatch.setattr(sys, "argv", ["beat_ticks.py", str(path), "--cache", str(cache_dir)])
+    assert namespace["main"]() == 0
+    assert analysed == [signature]
+    assert json.loads(dest.read_text(encoding="utf-8"))["audio_signature"] == signature
+
+    # A second invocation with an unchanged record reuses the correctly
+    # identified tick cache instead of invoking Essentia again.
+    assert namespace["main"]() == 0
+    assert analysed == [signature]
+
+
+def test_setlist_worker_side_cache_uses_the_new_audio_identity(tmp_path, monkeypatch):
+    from utils.audio import setlist
+
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    audio_identity.clear_audio_signature_cache()
+    record = library.Record(str(path), "Artist", "Record", 124.0, "8A", "House")
+    created = []
+
+    class FakeSide:
+        def __init__(self, rec):
+            self.record = rec
+            self.ok = True
+            created.append(rec.path)
+
+    monkeypatch.setattr(setlist, "_Side", FakeSide)
+    original_live, original_ids, original_sides = setlist._W_LIVE, setlist._W_IDENTITIES, setlist._W_SIDES
+    setlist._W_LIVE = {str(path): record}
+    setlist._W_IDENTITIES = {str(path): library.audio_signature(str(path))}
+    setlist._W_SIDES = {}
+    try:
+        assert setlist._side(str(path)) is not None
+        _same_stat_replacement(path)
+        setlist._W_IDENTITIES[str(path)] = library.audio_signature(str(path))
+        assert setlist._side(str(path)) is not None
+        assert created == [str(path), str(path)]
+    finally:
+        setlist._W_LIVE, setlist._W_IDENTITIES, setlist._W_SIDES = original_live, original_ids, original_sides
+        audio_identity.clear_audio_signature_cache()
