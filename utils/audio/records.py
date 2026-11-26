@@ -1938,7 +1938,7 @@ class CrossfadeSource(_AudioSource):
                 old._loop = DeckLoop(loop_frames_pcm, old.played + frames_until,
                                      start_own, end_own, beats)
                 head = (self._headphones_deck
-                        if self._headphones_slot == slot and self._headphone_streams else None)
+                        if self._headphones_slot == slot else None)
                 if head is not None:
                     head._loop = DeckLoop(loop_frames_pcm, head.played + frames_until,
                                           start_own, end_own, beats)
@@ -2019,7 +2019,7 @@ class CrossfadeSource(_AudioSource):
             ratio, gain, semitones = deck.ratio, deck.gain, deck.semitones
             head_old = (
                 self._headphones_deck
-                if self._headphones_slot == slot and self._headphone_streams
+                if self._headphones_slot == slot
                 else None
             )
 
@@ -2847,13 +2847,17 @@ class CrossfadeSource(_AudioSource):
                     abandoned_head_loop_preview = head_preview
             frame = self._read_locked()
             cue = None
-            if self._headphone_streams and self._headphones_deck is not None:
+            if self._headphones_deck is not None:
+                # Keep the selected PFL decoder's source clock aligned with
+                # the program deck even before a browser has attached a PCM
+                # stream. Slip rolls depend on both decoders consuming exactly
+                # one live frame per rendered program frame.
                 deck = self._headphones_deck
                 raw = deck.frame()
                 if raw is None:
                     retired, self._headphones_deck = deck, None
                     self._headphones_slot = None
-                else:
+                elif self._headphone_streams:
                     slot = self._headphones_slot
                     if slot in (1, 2):
                         cue = mix_frames(deck.split(raw), None, SOLO,
@@ -2915,7 +2919,9 @@ class CrossfadeSource(_AudioSource):
         if self._splice is not None:
             out, cur = self._splice_frame(cur, k, out)
             t0 = cur.at(cur.played - 1)
-        elif (plan is None and not getattr(cur, "loop_active", False) and self.tempo_glide and not self._gliding and not self._planning
+        elif (plan is None and not getattr(cur, "loop_active", False)
+              and not getattr(cur, "roll_active", False)
+              and self.tempo_glide and not self._gliding and not self._planning
               and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
               and cur.grid is not None and cur.grid.bar_known
               and cur.remaining > int((self._plan_ahead(cur) + 30) * FRAMES_PER_S)):
