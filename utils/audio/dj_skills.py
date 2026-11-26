@@ -106,7 +106,7 @@ SKILL_CATALOG: dict[str, SkillDefinition] = {
         "Avoid a gratuitous move when the profile describes a stable groove",
         ("solo",), ("counted phrase", "groove_candidate section"),
         ("phrase_profile.aligned",), "hold mixer automation flat for the candidate groove window",
-        (), (), (), "no mixer state is acquired; nothing needs restoring",
+        (), ("none",), (), "no mixer state is acquired; nothing needs restoring",
         "when alignment is unavailable, make no structural claim",
         "letting a steady groove carry without an unnecessary move", "no_op",
     ),
@@ -217,6 +217,37 @@ def _factor(action: SkillAction, times: np.ndarray) -> np.ndarray:
     if action.mode == "air_handoff":
         return (1.0 - action.target * weight).astype(np.float32)
     return (1.0 + (action.target - 1.0) * weight).astype(np.float32)
+
+
+def _action_lanes(action: SkillAction) -> set[str]:
+    if action.lane == "none":
+        return set()
+    if action.lane == "upper_pair":
+        return {"out.high", "in.high"}
+    return {action.lane}
+
+
+def _validate_action_set(actions: tuple[SkillAction, ...] | list[SkillAction],
+                         limit: int) -> None:
+    if len(actions) > limit:
+        raise ValueError(f"DJ skill plan exceeds its action bound ({limit})")
+    for index, action in enumerate(actions):
+        lanes = _action_lanes(action)
+        if not lanes:
+            continue
+        spec = SKILL_CATALOG[action.skill_id]
+        for other in actions[index + 1:]:
+            if not lanes.intersection(_action_lanes(other)) or not (
+                max(action.start, other.start) < min(action.end, other.end)
+            ):
+                continue
+            other_spec = SKILL_CATALOG[other.skill_id]
+            if (other.skill_id not in spec.composes_with
+                    or action.skill_id not in other_spec.composes_with):
+                raise ValueError(
+                    f"overlapping DJ skills do not declare composition: "
+                    f"{action.skill_id} / {other.skill_id}"
+                )
 
 
 def _validate_action(action: SkillAction) -> None:
@@ -345,6 +376,7 @@ class SkillScheduler:
                 if len(actions) >= MAX_PROFILE_ACTIONS:
                     actions = actions[:MAX_PROFILE_ACTIONS]
                     break
+        _validate_action_set(actions, MAX_PROFILE_ACTIONS)
         self._solo_actions = tuple(actions)
         self._active_skill = None
 
@@ -390,7 +422,8 @@ class SkillScheduler:
                 depth, "easing the outgoing upper band toward the bass handoff",
                 mode="air_handoff",
             ))
-        self._blend_actions = tuple(actions[:MAX_BLEND_ACTIONS])
+        _validate_action_set(actions, MAX_BLEND_ACTIONS)
+        self._blend_actions = tuple(actions)
 
     def cancel_blend(self) -> None:
         self._blend_plan_id = None
@@ -515,8 +548,10 @@ class SkillScheduler:
                 for i in range(3, 6):
                     factors[i] *= value
             elif action.lane == "upper_pair":
-                factors[2] *= self._manual_fade(out_slot, "high", _factor(action, times), times)
-                factors[5] *= self._manual_fade(in_slot, "high", _factor(action, times), times)
+                incoming_high = _factor(action, times)
+                outgoing_high = 2.0 - incoming_high
+                factors[2] *= self._manual_fade(out_slot, "high", outgoing_high, times)
+                factors[5] *= self._manual_fade(in_slot, "high", incoming_high, times)
             elif action.lane == "out.high":
                 factors[2] *= self._manual_fade(out_slot, "high", _factor(action, times), times)
             active.append(action)
