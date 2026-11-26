@@ -164,13 +164,13 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `strudel_source.py` | The Discord audio source fed by the capture |
 | `levels.json` | Measured per-part gains, written by `audition_tracks.py --calibrate` |
 | `library.py` | The record crate from `dj_catalog.json` and which record plays next |
-| `records.py` | Records decks/mixer, measured transitions, frame renderer, manual lane ownership, crossfader curves/assignments, independent PFL headphone bus, safe cue recall, bounded beat loops, momentary slip rolls with live-clock release and a manually controlled tempo-locked master echo |
+| `records.py` | Records decks/mixer, measured transitions, frame renderer, manual lane ownership, crossfader curves/assignments, independent PFL headphone bus, safe cue recall, bounded beat loops, momentary slip rolls, live jog bend with source-clock/PFL synchronization, and a manual tempo-locked master echo |
 | `record_cues.py` | Persistent one-memory/eight-hot cue banks keyed by stable audio identity, with atomic serialized storage outside the DJ catalog |
-| `dj_skills.py` | Bounded catalog and phrase action scheduler for autonomous operations; the manual slip-roll and master-echo primitives exist in `records.py` but are not autonomous skills; jog, scratch and further FX remain absent |
+| `dj_skills.py` | Bounded catalog and phrase action scheduler for autonomous operations; slip roll, live jog bend and master echo exist as manual `records.py` controls only, not autonomous skills; permanent pitch rides, scratch and further FX remain absent |
 | `records_intent.py` | Typed, expiring listener direction for future autonomous records picks; feature-proxy scoring only, not vocal/percussion detection or immediate mixer control |
 | `beatgrid.py` | Beat and bar grids (bar one as the first strong beat, bars counted from it), the bassline's entry bar, the last strong beat, the rubberband stretch and key-shift filter |
 | `dj_dashboard.py` | The DJ booth: state and waveform server, bounded local PFL PCM stream, pop-out window (page in `assets/dj/`) |
-| `tools/tests/browser/test_dj_booth_interactions.py` | Playwright real-browser coverage for cue-bank gestures, beat-loop arm/exit, master-echo hand-back and momentary slip-roll pointer hold/release |
+| `tools/tests/browser/test_dj_booth_interactions.py` | Playwright real-browser coverage for cue-bank gestures, beat-loop arm/exit, master-echo hand-back, momentary slip-roll hold/release and live jog platter bend/release |
 | `setlist.py`, `mixcheck.py` | Which records lock with which, measured ahead of time, and the sets that follow; whether a planned blend locks, measured on the two records |
 | `dj_voice.py` | What she says about her DJing in the booth's feed, built from what the mixer actually did |
 | `voice_busy.py` | Whether she is playing in voice now; work that can wait (`wait_until_quiet`) holds off |
