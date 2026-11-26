@@ -81,7 +81,7 @@ def test_only_the_matching_successfully_prepared_pick_consumes_the_intent():
 
     assert session._listener_intent is None
     assert session.last_listener_intent["status"] == "selected"
-    assert session.last_listener_intent["record"] == "Next"
+    assert session.last_listener_intent["record"] == "Next Artist — Next"
     assert session.last_listener_intent["score"] == 0.75
 
 
@@ -111,7 +111,7 @@ def test_an_old_pick_cannot_consume_a_newer_listener_request():
     asyncio.run(session.request("brighter", "listener"))
     new_id = session._listener_intent.request_id
 
-    old_pick = R.Next(library.Record("/music/old.mp3", "Artist", "Old", 120, "8A"), 120)
+    old_pick = R.Next(library.Record("/music/old.mp3", "Artist", "Old", 120, "8A", "House"), 120)
     old_pick.listener_intent_id = old_id
     session._listener_intent_selected(old_pick)
 
