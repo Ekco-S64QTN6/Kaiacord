@@ -95,10 +95,10 @@ latest-track-wins worker and use source-time coordinates even when a deck is str
 actions compile before plan publication. The renderer evaluates only a bounded action list and
 ramps. Manual lane changes claim ownership and ease Kaia's action out; KAIA MIX hands back.
 Until #403 supplies the shared runtime capability registry, the catalog validates against a
-conservative current-engine capability allowlist. This does not implement #403's missing PFL,
-loops' full professional repertoire, permanent pitch rides, general FX, and does not claim
-scratches, stutters or vocal/percussion recognition. Manual slip rolls, jog bend and master echo
-remain operator controls rather than autonomous skills. No real-crate audition or blind listening evaluation has been performed here;
+conservative current-engine capability allowlist. Manual slip rolls, live jog bend and master
+echo are operator controls rather than autonomous skills. Permanent pitch rides, the full FX bank
+and beat-juggling repertoire remain outside the current autonomous catalog; it also does not claim
+scratches, stutters or vocal/percussion recognition. No real-crate audition or blind listening evaluation has been performed here;
 #402 remains the acceptance parent.
 
 | Item | What | Call |
@@ -112,6 +112,23 @@ remain operator controls rather than autonomous skills. No real-crate audition o
 | **One voice at a time** | The vocals change hands at the swap in the mids and the presence band (to 6 kHz); only the air above rides early. The outgoing's whole vocal still plays over the incoming's held-down one during the ride, and where a record's voice is cannot be measured without stems. | Watch |
 | **Mix-out points need ears** | She leaves a record at its outro or last breakdown where a blend locks there, found from loudness curves. The curves find sections, not taste: a few blends at each kind of point want listening to. | Watch |
 | **Tempo glide audible** | A record stretched 5–6% glides back 0.5% every 8 bars, each a resplice; it can be heard. `music.records_tempo_glide` turns it off. | Owner's call |
+
+## Repository-wide engineering audit (#366)
+
+A tracked-file inventory and status ledger now lives at
+[`docs/audits/repository-review-ledger.csv`](audits/repository-review-ledger.csv), with its
+status contract and validator in [`docs/audits/README.md`](audits/README.md) and
+`tools/maintenance/check_review_manifest.py`. The baseline `main` tree at
+`b91c34f9807acb3c669b8a85c529dc680b1b63a1` contained 776 tracked file blobs: 684 Python and
+92 non-Python. The ledger gives each inventoried path a blob identity, a triage risk tier and an
+explicit review status. All initial entries are `not_reviewed`; the risk tiers are inventory
+triage only, not audit findings. The validator checks that the ledger still accounts for the
+tracked files and that review evidence is tied to the exact blob reviewed.
+
+**This does not complete #366.** The file-by-file source review, test audit, security/privacy/
+concurrency/persistence analysis, route/API and frontend sink review, shared-sibling review,
+and environment-dependent acceptance remain open. Do not describe the repository as audited
+until each applicable row has evidence and the outstanding runtime checks have been completed.
 
 ## Aethelgard
 
