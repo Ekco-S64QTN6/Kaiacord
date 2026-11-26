@@ -172,41 +172,49 @@ def _want_wave(path: str) -> str:
     def run():
         from utils.audio.library import audio_signature
 
-        signature = audio_signature(path, refresh=True)
-        with _lock:
-            previous = _wave_identity.get(tid)
-            if not signature:
-                _waves[tid] = {"error": "could not read"} if tid in _paths else None
-                _wave_checked[tid] = time.monotonic()
-                _wave_checking.discard(tid)
-                return
-            cached_wave = _waves.get(tid)
-            if (previous == signature and cached_wave is not None
-                    and not (isinstance(cached_wave, dict) and cached_wave.get("error"))):
-                _wave_checked[tid] = time.monotonic()
-                _wave_checking.discard(tid)
-                return
-            _wave_identity[tid] = signature
-            _waves[tid] = None
-
-        w = waveform(path)
-        still_same = audio_signature(path) == signature
         try:
-            current = os.stat(path)
-            current_stat = (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
-        except OSError:
-            current_stat = None
-        with _lock:
-            if tid in _paths and _paths[tid] == path:
-                if still_same:
-                    _waves[tid] = w or {"error": "could not read"}
+            signature = audio_signature(path, refresh=True)
+            with _lock:
+                previous = _wave_identity.get(tid)
+                if not signature:
+                    if tid in _paths:
+                        _waves[tid] = {"error": "could not read"}
                     _wave_checked[tid] = time.monotonic()
-                    _wave_stats[tid] = current_stat
-                else:
-                    _waves[tid] = None
+                    return
+                cached_wave = _waves.get(tid)
+                if (previous == signature and cached_wave is not None
+                        and not (isinstance(cached_wave, dict) and cached_wave.get("error"))):
+                    _wave_checked[tid] = time.monotonic()
+                    return
+                _wave_identity[tid] = signature
+                _waves[tid] = None
+
+            w = waveform(path)
+            still_same = audio_signature(path) == signature
+            try:
+                current = os.stat(path)
+                current_stat = (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
+            except OSError:
+                current_stat = None
+            with _lock:
+                if tid in _paths and _paths[tid] == path:
+                    if still_same:
+                        _waves[tid] = w or {"error": "could not read"}
+                        _wave_checked[tid] = time.monotonic()
+                        _wave_stats[tid] = current_stat
+                    else:
+                        _waves[tid] = None
+                        _wave_checked[tid] = 0.0
+                        _wave_stats[tid] = current_stat
+        except Exception as exc:
+            log_debug(f"[dj] waveform refresh failed for {path}: {exc}")
+            with _lock:
+                if tid in _paths and _paths[tid] == path:
+                    _waves[tid] = {"error": "could not read"}
                     _wave_checked[tid] = 0.0
-                    _wave_stats[tid] = current_stat
-            _wave_checking.discard(tid)
+        finally:
+            with _lock:
+                _wave_checking.discard(tid)
 
     threading.Thread(target=run, daemon=True, name="kaia-dj-wave").start()
     return tid
