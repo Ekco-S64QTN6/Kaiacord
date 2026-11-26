@@ -93,7 +93,7 @@ so a mis-marked test fails fast instead of loading a model:
 |:--|:--|
 | `unit-tests.yml` | every push to `main`: `.github/scripts/run_ci_tests.py` — `compileall` over `utils/` and `tools/`, the hygiene baseline (`test_suite_hygiene`, `test_chat_model_calls`, `test_no_shadowed_imports`, `test_no_undefined_globals`), plus the tests for what the diff touched (`test_<stem>.py`, every test file that imports the changed module — skipped for one imported by more than `MAX_IMPORTERS` — `RELATED_TESTS`, all of `tools/tests/unit/ttrpg/` for a `utils/ttrpg/` change) |
 | `ttrpg-tests.yml` | Full `tools/tests/unit/ttrpg/` suite when `utils/ttrpg/**`, `tools/tests/unit/ttrpg/**`, or the workflow file changes; also supports manual dispatch |
-| `records-audio-tests.yml` | `test_records.py` when `utils/audio/records.py` changes |
+| `records-audio-tests.yml` | records, dashboard and PCM echo suites when `utils/audio/records.py` or the focused DJ tests change |
 | `quality.yml` | every push to `main`: `ruff check .` (error rules), then `tools/maintenance/type_ratchet.py` |
 | `dependency-audit.yml` | weekly and on a `requirements.txt` change: `pip-audit`, report-only |
 
@@ -1010,7 +1010,9 @@ that are easy to break:
   loop's source position. Suppress end planning and tempo glide while the loop is armed/active. Exit
   must warm both program and selected PFL decoders at the loop end, then swap them together at the next
   loop boundary. Hot-cue seeks must not replace a deck while its loop or loop-exit handoff owns it.
-  This is not a roll: momentary rolls, live jog/pitch bend and FX are not implemented.
+  This is not a roll: momentary/slip rolls and live jog/pitch bend remain unimplemented. A manual
+  tempo-synchronised master echo is implemented as one bounded audio effect; it does not imply
+  a general effects bank or autonomous effect skill.
 - **Booth interactions are verified through real browser gestures.** The Playwright suite opens the
   loopback DJ page in Chromium and uses actual pointer clicks, Shift-clicks and context-menu gestures
   for cue and loop pads. Do not replace these with direct POSTs or DOM event dispatch: the browser test
@@ -1074,8 +1076,9 @@ that are easy to break:
   remains immediate. Reject non-finite values and unknown names. Reset must restore standard/A/B.
   The booth selectors must reflect the server snapshot and their actual values must affect the
   rendered channel gain. Keep the records-audio path filter watching `assets/dj/index.html` and
-  test both transfer functions and HTTP/UI control routes. This is only the first #403 slice;
-  do not claim PFL, loops, jog/pitch bend or FX until those real paths exist.
+  test the transfer functions and HTTP/UI control routes. PFL, cue banks, beat loops and the manual
+  tempo echo now have real paths; do not claim momentary rolls, live jog/pitch bend, further FX,
+  physical headphone/device acceptance or complete #403 parity without those separate paths/evidence.
 
 - **Treat DJ skills as real musical operations, not labels or UI promises.** Every skill needs a
   purpose, preconditions, timing/phrase rules, bounded parameters, explanation, owned lanes,
@@ -1089,11 +1092,13 @@ that are easy to break:
   explicit KAIA MIX hand-back; automation must ease out and never fight the user. The booth's
   active skill state must show target parameters, action/phrase bounds and their timebase, plus
   manual lane ownership, directly from the scheduler; labels alone are not evidence of execution.
-  Loops, rolls,
-  hot cues, jog/pitch bend, scratches, filters, stutters, general FX, vocal/percussion separation
-  and other absent mixer capabilities require real #403 primitives; never fake them or expose
-  cosmetic controls. Until #403 adds the shared runtime capability registry, the catalog must
-  validate against its conservative current-engine allowlist and must state that this is a bridge,
+  Momentary/slip rolls, live jog/pitch bend, scratches, filters, stutters, effects beyond the
+  manual master echo, vocal/percussion separation and other absent mixer capabilities require real
+  #403 primitives; never fake them or expose cosmetic controls. The master echo is a human-operated
+  capability only: do not add it to the autonomous skill catalog until a phrase-aware action contract,
+  composition rules, manual ownership and safe release/hand-back are implemented. Until #403 adds
+  the shared runtime capability registry, the catalog must validate against its conservative
+  current-engine allowlist and must state that this is a bridge,
   not a dynamic #403 capability model. No implementation or unit test proves musical taste: #402
   still requires real-crate audition and independent/blind listening assessment.
 - **Evaluate what can be heard.** Unit tests and mixcheck validate technical behavior, not taste.
