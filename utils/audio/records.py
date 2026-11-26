@@ -2223,16 +2223,32 @@ class RecordsSession:
                 "requested_by": intent.requested_by, "expires_at": intent.expires_at,
             }
         src = self.source
-        queued = bool(src and (
-            src._queued is not None or src._picking or src.incoming is not None
-            or src.plan is not None or src._planning
-        ))
+        picking = False
+        queued = False
+        if src is not None:
+            # Read the planner's handoff state atomically so a command cannot
+            # slip between clearing _picking and publishing the chosen _queued.
+            source_lock = getattr(src, "_lock", None)
+            if source_lock is not None:
+                with source_lock:
+                    picking = bool(src._picking)
+                    queued = bool(
+                        src._queued is not None or src.incoming is not None
+                        or src.plan is not None or src._planning
+                    )
+            else:
+                picking = bool(src._picking)
+                queued = bool(
+                    src._queued is not None or src.incoming is not None
+                    or src.plan is not None or src._planning
+                )
+        queued = queued or picking
         with self._listener_intent_lock:
             # A pick already in progress is not retroactively changed. Skip its
             # generation, including the tiny window after _picking is set but
             # before the worker enters _choose().
             self._listener_intent_min_pick_generation = (
-                self._listener_pick_generation + (2 if src and src._picking else 1)
+                self._listener_pick_generation + (2 if picking else 1)
             )
         reply = (
             f"Got it — I'll favour {intent.label} in the next records choice, "
