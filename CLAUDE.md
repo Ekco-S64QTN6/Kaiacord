@@ -1020,7 +1020,8 @@ that are easy to break:
   capability list: [records-and-booth.md](docs/03-architecture/records-and-booth.md);
   active scopes: [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402),
   [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403), [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401).
-  active scopes: [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404) (musical-state
+  active scopes: [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408) (audio-cache
+  identity), [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404) (musical-state
   profiles), [#405](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405) (set-level musical
   planning), [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) (real mixer capabilities),
   [#406](https://github.com/Ekco-S64QTN6/Kaiacord/issues/406) (skill/action execution),
