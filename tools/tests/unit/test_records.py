@@ -2364,3 +2364,130 @@ def test_slip_roll_rejects_conflicting_loop_transition_pause_and_unusable_grids(
 
     assert src.set_loop(1, 2)
     assert not src.set_roll(1, 1, pressed=True)
+
+
+@pytest.mark.parametrize("target,expected_direction", [(1.08, 1), (0.92, -1)])
+def test_live_jog_bend_resamples_the_pcm_and_tracks_the_real_source_cursor(target, expected_direction):
+    values = np.arange(30_000, dtype=np.int16)
+    pcm = np.repeat(values, 2).tobytes()
+
+    def ramp_factory(_path, _ratio, **_kwargs):
+        return io.BytesIO(pcm)
+
+    deck = Deck(rec("jog-ramp", 120, "8A"), 1.0, 0.6, ramp_factory)
+    wait_for(deck, 30)
+    try:
+        start = deck.at()
+        assert deck.set_bend(target)
+        assert deck.bend["active"] is True
+
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 12):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+
+        assert deck.bend["rate"] == pytest.approx(target, abs=1e-5)
+        output = np.frombuffer(deck.frame(), dtype=np.int16).reshape(-1, 2)[:, 0].astype(np.float32)
+        mean_step = float(np.mean(np.diff(output[100:850])))
+        assert mean_step > 1.04 if expected_direction > 0 else mean_step < 0.96
+
+        consumed = deck._source_samples
+        rendered_frames = R.PITCH_BEND_RAMP_FRAMES + 13
+        neutral_consumption = rendered_frames * FRAME_SAMPLES
+        if expected_direction > 0:
+            assert consumed > neutral_consumption
+        else:
+            assert consumed < neutral_consumption
+        assert deck.at() > start if expected_direction > 0 else deck.at() < start + rendered_frames * FRAME_SAMPLES / RATE
+
+        # Releasing the platter ramps back to 1.0 without jumping the source cursor.
+        before_release = deck._source_samples
+        assert deck.set_bend(1.0)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            assert deck.frame() is not None
+        assert deck.bend["active"] is False
+        assert deck.bend["rate"] == pytest.approx(1.0)
+        assert deck._source_samples > before_release
+        assert deck.at() == pytest.approx(
+            (deck._source_samples - deck.pad) / RATE + deck.offset / deck.ratio
+        )
+    finally:
+        deck.close()
+
+
+def test_live_jog_bend_keeps_program_and_pfl_decoders_in_lockstep(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    src.controls.set(None, "phones", 1.0)
+    src.controls.set(None, "phones_mix", 0.0)
+    assert src.set_headphones(1)
+    stream = src.attach_headphone_stream()
+    assert stream is not None
+    head = src._headphones_deck
+    assert head is not None
+    try:
+        assert src.set_bend(1, 1.06)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 15):
+            program = src.read()
+            monitor = stream.get_nowait()
+            assert program == monitor
+        assert deck.bend["rate"] == head.bend["rate"] == pytest.approx(1.06)
+        assert deck._source_samples == pytest.approx(head._source_samples, abs=1e-5)
+        assert deck.at() == pytest.approx(head.at(), abs=1e-6)
+
+        assert src.set_bend(1, 1.0)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 2):
+            program = src.read()
+            monitor = stream.get_nowait()
+            assert program == monitor
+        assert not deck.bend_active and not head.bend_active
+        assert deck._source_samples == pytest.approx(head._source_samples, abs=1e-5)
+    finally:
+        src.detach_headphone_stream(stream)
+        src.set_headphones(None)
+
+
+def test_live_jog_bend_validation_conflicts_timeout_and_skip_release(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+
+    for bad in (True, False, float("nan"), float("inf"), 0.91, 1.09, "1.02", None):
+        assert not src.set_bend(1, bad)
+
+    src._planning = True
+    assert not src.set_bend(1, 1.04)
+    src._planning = False
+
+    src.paused.add(1)
+    assert not src.set_bend(1, 1.04)
+    src.paused.clear()
+
+    assert src.set_loop(1, 2)
+    assert not src.set_bend(1, 1.04)
+    assert src.set_loop(1, None)
+    while src._pending_loop_exit is not None:
+        src.read()
+
+    assert src.set_bend(1, 1.04)
+    assert deck.bend_active
+    src.skip()
+    assert deck.bend["target"] == pytest.approx(1.0)
+
+
+def test_live_jog_bend_defers_automatic_planning_until_neutral(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    src._glide_next = 0
+    assert src.set_bend(1, 1.04)
+
+    for _ in range(15):
+        src.read()
+    assert src.plan is None
+    assert deck.bend_active
+
+    assert src.set_bend(1, 1.0)
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+        src.read()
+    assert not deck.bend_active
