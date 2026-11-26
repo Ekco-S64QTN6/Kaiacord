@@ -1027,8 +1027,8 @@ that are easy to break:
   [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401) (dashboard test coverage). #402
   remains the parent musical-quality and real-listening acceptance bar.
 - **A record path or mtime is not audio identity.** Every audio-derived cache and decision
-  artifact (maps, envelopes, beat ticks, beatgrid calculations, measured pair edges and derived
-  sets) must be tied to a robust, versioned source-audio identity. Preserve metadata-only retag
+  artifact (maps, envelopes/levels, loudness gain, beat ticks, beatgrid calculations, measured
+  pair edges, derived sets and booth waveforms) must be tied to a robust, versioned source-audio identity. Preserve metadata-only retag
   reuse, but detect same-path audio replacement even when timestamps and size are preserved.
   Do not treat the current sampled-end `audio_signature()` as a complete content hash. Refresh and
   invalidate related caches coherently, and keep expensive fingerprinting off the audio callback.
