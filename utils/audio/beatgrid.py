@@ -314,7 +314,7 @@ def ticks_for(path: str) -> Optional[np.ndarray]:
     except OSError:
         return None
     ticks = _read_ticks(str(cache), identity, cache_mtime_ns)
-    return ticks if ticks is None or _audio_identity(path, refresh=True) == identity else None
+    return ticks if ticks is None or _audio_identity(path) == identity else None
 
 
 def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
@@ -374,7 +374,7 @@ def grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional
         return None
     grid = _grid_for(path, bpm, seconds)
     result = _snap(grid, path)
-    return result if _audio_identity(path, refresh=True) == identity else None
+    return result if _audio_identity(path) == identity else None
 
 
 grid_for.cache_clear = _grid_for_cached.cache_clear       # the onset grid underneath is cached
