@@ -1039,24 +1039,6 @@ class Controls:
     def _flat() -> dict:
         return {"trim": 0.0, "high": 1.0, "mid": 1.0, "low": 1.0, "fader": 1.0}
 
-    def set_echo(self, enabled: bool, beats: float = 1.0,
-                  feedback: float = 0.35, wet: float = 0.30) -> bool:
-        """Control the real master echo using the current on-air playback tempo."""
-        with self._lock:
-            if not enabled:
-                return self.effects.set(False)
-            current = self.current
-            if current is None:
-                return False
-            bpm = (
-                current.grid.bpm * current.ratio
-                if current.grid is not None
-                else (current.record.bpm or 0.0) * current.ratio
-            )
-            return self.effects.set(
-                True, bpm=bpm, beats=beats, feedback=feedback, wet=wet
-            )
-
     @staticmethod
     def _number(value: float | str | None) -> Optional[float]:
         if value is None or isinstance(value, bool):
@@ -2007,6 +1989,24 @@ class CrossfadeSource(_AudioSource):
                     and isinstance(value, (int, float)) and not isinstance(value, bool)):
                 self.skill_scheduler.manual_override(slot, name, at, bar_s, float(value))
             return True
+
+    def set_echo(self, enabled: bool, beats: float = 1.0,
+                 feedback: float = 0.35, wet: float = 0.30) -> bool:
+        """Control the real master echo using the current on-air playback tempo."""
+        with self._lock:
+            if not enabled:
+                return self.effects.set(False)
+            current = self.current
+            if current is None:
+                return False
+            bpm = (
+                current.grid.bpm * current.ratio
+                if current.grid is not None
+                else (current.record.bpm or 0.0) * current.ratio
+            )
+            return self.effects.set(
+                True, bpm=bpm, beats=beats, feedback=feedback, wet=wet
+            )
 
     @staticmethod
     def _db(frame: Optional[bytes]) -> float:
