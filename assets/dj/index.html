@@ -1356,7 +1356,10 @@ function updateBottom() {
   const phraseText = skill && skill.phrase
     ? `${String(skill.phrase.kind || "phrase").replaceAll("_", " ")}${skill.phrase.bars ? ` · ${skill.phrase.bars}-bar` : ""}${Number.isFinite(skill.phrase.start) && Number.isFinite(skill.phrase.end) ? ` · ${skill.phrase.start.toFixed(1)}–${skill.phrase.end.toFixed(1)}s ${skill.phrase.timebase || ""}` : ""}`
     : "";
-  const skillDetails = [parameterText, phraseText].filter(Boolean).join(" · ");
+  const manualText = S.skills && S.skills.manual_overrides && S.skills.manual_overrides.length
+    ? "manual " + S.skills.manual_overrides.map(([slot, lane]) => `${slot} ${lane}`).join(", ")
+    : "";
+  const skillDetails = [parameterText, phraseText, manualText].filter(Boolean).join(" · ");
   const skillLabel = skill && skill.label
     ? `${skill.name}: ${skill.label}${skillDetails ? " · " + skillDetails : ""}`
     : S.gesture;
