@@ -470,6 +470,9 @@ def test_booth_asset_displays_skill_name_and_explanation():
     assert "skill.parameters" in page
     assert "skill.phrase" in page
     assert "parameterText" in page
+    assert "phraseText" in page
+    assert "manualText" in page
+    assert "manual_overrides" in page
 
 
 def test_track_change_clears_previous_phrase_actions_before_new_profile_finishes(session):
