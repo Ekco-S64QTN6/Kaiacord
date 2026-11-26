@@ -751,7 +751,7 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None,
     plans = []
     for index, path in enumerate(sets):
         transitions = []
-        recent_roles = []
+        recent_roles: list[str] = []
         for a, b in zip(path, path[1:]):
             edge = edges.get(a, {}).get(b, {})
             judged = assessment(a, b)
