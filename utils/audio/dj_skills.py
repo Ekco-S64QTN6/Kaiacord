@@ -97,7 +97,7 @@ SKILL_CATALOG: dict[str, SkillDefinition] = {
         "Deliberately avoid adding an EQ move to a sparse passage",
         ("solo",), ("counted phrase", "breakdown_candidate section"),
         ("phrase_profile.aligned",), "hold mixer automation flat for the candidate breakdown window",
-        (), (), (), "no mixer state is acquired; nothing needs restoring",
+        ("none",), (), (), "no mixer state is acquired; nothing needs restoring",
         "when alignment is unavailable, make no structural claim",
         "letting the breakdown breathe without an extra EQ move", "no_op",
     ),
