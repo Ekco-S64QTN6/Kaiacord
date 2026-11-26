@@ -1002,6 +1002,13 @@ that are easy to break:
   right-click clears. Warm the replacement `Deck` off the renderer, re-check the expected record and
   transition ownership under `CrossfadeSource._lock`, swap only at the frame boundary, then close the
   old decoder after releasing the lock. Cue-bank disk access stays on dashboard threads.
+- **Beat loops are bounded, predecoded and use a separate source-time clock.** Only 1/2/4/8-beat loops
+  are currently supported, and only on a counted, bar-known on-air deck. Decode the exact loop PCM on
+  the booth request thread (maximum 500 frames); never seek or decode in `CrossfadeSource.read()`.
+  `Deck.played` remains monotonic for renderer/transition scheduling; `Deck.at()` alone wraps to the
+  loop's source position. Suppress end planning and tempo glide while the loop is armed/active. Exit
+  must warm both program and selected PFL decoders at the loop end, then swap them together at the next
+  loop boundary. This is not a roll: momentary rolls, live jog/pitch bend and FX are not implemented.
 - **One voice at a time, and a record is left where it changes**: the presence band changes hands with
   the mids (`presence`), the outgoing is gone a `tail` after the swap, and an end-of-record blend goes at
   the outro or last breakdown (`songmap`), else near the end, further back only as the last resort.
