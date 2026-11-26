@@ -65,7 +65,11 @@ def create_request(text: str, requested_by: str, request_id: int,
         return None, "Tell me what musical direction you'd like."
 
     for word, explanation in _UNSUPPORTED.items():
-        if word in words:
+        matched = word in words or (
+            word in {"vocal", "drum", "voice"}
+            and any(token.startswith(word) for token in words)
+        )
+        if matched:
             return None, explanation
 
     kind = None
