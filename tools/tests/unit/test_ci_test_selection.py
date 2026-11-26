@@ -52,6 +52,9 @@ REQUIRED_RELATED_TESTS = {
     "utils/audio/record_cues.py": (
         "tools/tests/unit/test_record_cues.py",
     ),
+    "tools/maintenance/check_review_manifest.py": (
+        "tools/tests/unit/test_review_manifest.py",
+    ),
     "assets/dj/index.html": (
         "tools/tests/unit/test_dj_dashboard.py",
     ),
