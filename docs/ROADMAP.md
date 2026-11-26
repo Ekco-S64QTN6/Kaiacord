@@ -33,6 +33,16 @@ Implementation sequence (keep these independently reviewable):
 6. [#407 — records-mode listener requests](https://github.com/Ekco-S64QTN6/Kaiacord/issues/407) routes intent to the active records session without changing Strudel behavior.
 7. [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) remains the parent acceptance bar: real-crate full-set listening and independent assessment of musicality, not only passing technical tests.
 
+
+**#405 implementation boundary (PR in progress):** the first profile-guided set-planning layer now
+ranks only already-measured graph edges, compares approximate exit/entry phrase evidence, applies
+soft recent-role pacing preferences, and records separate technical/musical/arc explanations in
+`graph.json`. A cluttered option is deferred only when another measured option exists; this is
+not yet a live wait-for-the-next-phrase execution policy. Missing profiles fall back to the existing
+rank. The lead/midrange and other feature curves remain proxies, not vocal/stem/percussion truth.
+Real-crate listening and independent assessment have not been performed here and remain mandatory
+before any claim that the sets sound better. `#402` remains the acceptance parent.
+
 | Item | What | Call |
 |:--|:--|:--|
 | **Expert DJ judgment and set storytelling** | Replace compatibility-first selection as the definition of quality with a musical decision process: understand the records' structure and musical roles, choose the right moment, account for vocals/hooks/density/energy/tension/release, plan the full hour's pacing and contrast, and evaluate what actually sounds. Kaia must sometimes wait, reject a technically valid blend, cut, contrast or choose an unexpected but coherent partner. | Yes — owner-confirmed; [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
