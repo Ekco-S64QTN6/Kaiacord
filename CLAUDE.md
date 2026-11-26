@@ -1018,6 +1018,22 @@ that are easy to break:
   observations and set-arc context. Build profiles only in the background `records_graph.py`
   process, never in the renderer callback. `SET_METHOD` changes must not bump graph `METHOD`.
   See [#405](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405).
+- **Keep records listener requests isolated from Strudel and from booth track picks.**
+  `music_handler.py` must route a `request` to `RecordsSession.request()` when records is
+  active and must not resolve/call the Strudel session in that branch; when records is not
+  active, preserve the existing Strudel request behavior. Keep explicit booth track paths in
+  `RecordsSession.requests` and musical intent in the separate `records_intent` slot. The
+  bounded records vocabulary is more/less bass, darker/brighter, build/drop and calmer/harder;
+  vocal/acapella and percussion/drum detection are unsupported and must be declined honestly.
+  Requests are latest-wins, one-shot and expire after 15 minutes. A pick worker already in
+  flight when a request arrives must finish with its prior choice; the new intent may only
+  steer a later autonomous pick. It can reorder the baseline only with meaningful positive
+  profile evidence; weak/contrary/missing evidence preserves the existing set order. This
+  changes a future selection, not the currently playing deck's EQ, tempo or effects. Mark the
+  request selected only after the incoming deck is prepared and a plan is published; never
+  claim the sound changed. Profile work stays on the picker worker, never the 20 ms callback.
+  See [#407](https://github.com/Ekco-S64QTN6/Kaiacord/issues/407).
+
 - **Musical outcome outranks mechanical perfection.** A beat/key/phrase lock or a high compatibility
   score is a technical prerequisite, never proof of a good DJ transition. A locked pair can still
   be boring, crowded or emotionally wrong. Judge the musical moment — vocals/hooks, bass, percussion,

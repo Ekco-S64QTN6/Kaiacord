@@ -2,6 +2,7 @@
 import io
 import json
 import random
+import threading
 import time
 import types
 
@@ -433,6 +434,10 @@ def test_the_next_record_is_one_with_a_steady_opening_where_one_fits(monkeypatch
     crate = [rec("now", 120, "8A"), rec("loose", 120, "8A"), rec("steady", 120, "8A")]
     session = R.RecordsSession.__new__(R.RecordsSession)
     session.crate, session.played, session._rng, session.requests = crate, [crate[0].path], random.Random(1), []
+    session._listener_intent_lock = threading.Lock()
+    session._listener_intent = None
+    session._listener_pick_generation = 0
+    session._listener_intent_min_pick_generation = 1
     monkeypatch.setattr(R, "probe_seconds", lambda path: 200.0)
     monkeypatch.setattr(R, "gain_db", lambda path: 0.0)
     monkeypatch.setattr(beatgrid, "grid_for", lambda path, bpm: STEADY if "steady" in path else LOOSE)
@@ -1666,6 +1671,10 @@ def test_measured_alternatives_use_normalized_lock_quality_and_artist_variety(mo
     session.graph = graph
     session.crate = [current, good, same_artist, lower_confidence]
     session._rng = random.Random(4)
+    session._listener_intent_lock = threading.Lock()
+    session._listener_intent = None
+    session._listener_pick_generation = 0
+    session._listener_intent_min_pick_generation = 1
     monkeypatch.setattr(beatgrid, "ticks_for", lambda _path: [0.0])
 
     deck = SimpleNamespace(record=current, grid=SimpleNamespace(bpm=124.0), ratio=1.0)

@@ -200,11 +200,61 @@ playlist preference rebuilds set paths without re-measuring audio edges.
 This is the first cached-profile preference layer, not a complete live
 "wait for the next phrase" execution policy. In particular, a defer label only
 reorders available measured choices; when the graph has no alternative, the
-set builder retains the least-bad measured path. There is no vocal separation,
-listener-request arc planner or human-confirmed taste model here. Unit tests
-prove deterministic policy behavior on fixtures, not audible improvement.
-Real-crate full-set listening and independent assessment remain mandatory under
-[#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402).
+set builder retains the least-bad measured path. There is no vocal separation
+or human-confirmed taste model here. Bounded listener-directed next-pick
+preferences are implemented separately under [#407](https://github.com/Ekco-S64QTN6/Kaiacord/issues/407).
+Unit tests prove deterministic policy behavior on fixtures, not audible
+improvement. Real-crate full-set listening and independent assessment remain
+mandatory under [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402).
+
+### Records-mode listener direction (#407)
+
+`RecordsSession.request()` is the records-mode entry point for musical
+direction. `music_handler.py` routes a `!music` request to the active records
+session before considering Strudel; when records is active it does not resolve
+or call the Strudel request handler. With no records session, the existing
+Strudel `session.request()` behavior is unchanged. A records musical request
+does not enter `RecordsSession.requests`, which remains the separate booth
+queue for explicit track paths.
+
+`records_intent.py` parses a deliberately bounded vocabulary: more/less bass,
+darker/brighter, build/drop, calmer/harder. Each accepted request is typed,
+latest-wins, one-shot, and expires after 15 minutes. It steers a future
+autonomous pick; it does not immediately change the playing record's EQ,
+tempo, faders, or effects. If a next-record choice is already queued, planned,
+or being picked, the request is deferred to the following autonomous choice.
+A pick worker already in flight when the request arrives is explicitly skipped
+using a selection generation, so the response cannot promise to change a
+candidate it has already begun choosing.
+
+The preference is soft and positive-evidence-only. For a bounded frontier of
+candidates, the picker compares the outgoing and incoming records' approximate
+exit/entry windows using the cached phrase profiles in each record's own source
+time (tracked/source BPM, not the stretched playback BPM). More/less bass, darker,
+brighter and calmer/harder use the corresponding relative feature-level
+difference. Build/drop require a counted, phrase-aligned candidate section.
+Only a candidate whose score moves meaningfully in the requested direction
+may move ahead of the normal selection order; contrary, weak or missing
+evidence leaves the precomputed set path and existing candidate ranking intact.
+The candidate still goes through the existing transition planner. Any overlap
+must pass the existing measured mixcheck; if no blend locks, only the existing
+no-overlap echo-out/switch fallback may be used. A request is recorded as selected only
+after the incoming deck has been prepared and a plan published; this is a
+selection decision, not a claim that audio parameters changed or that a
+listener's taste was satisfied.
+
+The feature curves remain limited evidence: bass/upper/full are relative
+spectral levels, and the lead curve is not a vocal detector. Transient
+activity is not drum or percussion classification. Requests for vocals,
+acapella, percussion or drums are declined with an explanation; faster/slower
+tempo requests are also declined because this request path does not implement
+a tempo change. Missing profiles are neutral, a preference can remain pending
+until a later candidate or expire unused, and unsupported requests never fall
+through to Strudel while records mode is active. These tests validate routing
+and decision bookkeeping, not audible improvement; [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402)
+still requires real-crate listening and independent assessment.
+
+
 
 ### Real-time engineering boundary
 

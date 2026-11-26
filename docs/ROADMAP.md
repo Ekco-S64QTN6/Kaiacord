@@ -34,7 +34,7 @@ Implementation sequence (keep these independently reviewable):
 7. [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) remains the parent acceptance bar: real-crate full-set listening and independent assessment of musicality, not only passing technical tests.
 
 
-**#405 implementation boundary (PR in progress):** the first profile-guided set-planning layer now
+**#405 implementation boundary (merged in PR #411):** the first profile-guided set-planning layer
 ranks only already-measured graph edges, compares approximate exit/entry phrase evidence, applies
 soft recent-role pacing preferences, and records separate technical/musical/arc explanations in
 `graph.json`. A cluttered option is deferred only when another measured option exists; this is
@@ -42,6 +42,18 @@ not yet a live wait-for-the-next-phrase execution policy. Missing profiles fall 
 rank. The lead/midrange and other feature curves remain proxies, not vocal/stem/percussion truth.
 Real-crate listening and independent assessment have not been performed here and remain mandatory
 before any claim that the sets sound better. `#402` remains the acceptance parent.
+
+**#407 implementation boundary (branch in progress):** listener requests are routed to the active
+records session without resolving Strudel while records mode is playing. Explicit booth track-path
+requests remain separate from musical direction. The first supported direction set is more/less
+bass, darker/brighter, build/drop and calmer/harder; vocal/acapella and percussion/drum detection
+are deliberately unsupported. A latest-wins one-shot preference expires after 15 minutes and
+steers only a later autonomous pick. It may move a candidate ahead of the baseline only when
+cached phrase evidence supports the requested direction; missing, weak or contrary evidence
+preserves the existing set order. It does not change the currently playing deck or claim an
+audible effect. A request received during an in-flight pick is deferred to the following pick.
+Unit tests cover routing, request lifecycle and preference ranking, not audible DJ quality.
+Real-crate listening and independent assessment remain under `#402`.
 
 | Item | What | Call |
 |:--|:--|:--|

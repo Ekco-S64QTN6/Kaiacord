@@ -92,7 +92,9 @@ async def handle_music_command(ctx, msg, send_kaia_response):
         return await msg.channel.send(embed=notice("bringing the next one in."))
 
     verb, genre, request = _parse(parts)
-    session = get_session(msg.guild.id)
+    # Records is the active mode when present. Do not resolve or mutate the
+    # separate Strudel session for a records-mode listener request.
+    session = None if crate_session else get_session(msg.guild.id)
     if crate_session and verb in _OFF:
         await msg.channel.send(embed=notice("fading out."))
         return await crate_session.stop()
@@ -114,12 +116,21 @@ async def handle_music_command(ctx, msg, send_kaia_response):
             "`!music records [artist or title]` — records from the library, mixed · `!music skip` · "
             "`!music booth` — the DJ booth window",
             "",
-            "**requests while i play:** " + " · ".join(f"`{r}`" for r in dj.REQUESTS),
+            "**records direction:** more/less bass · darker/brighter · build/drop · calmer/harder",
+            "**records limits:** no vocal or percussion detection; requests steer a future pick, not the track already queued",
+            "**Strudel requests:** " + " · ".join(f"`{r}`" for r in dj.REQUESTS),
         )), COLOR_MUSIC)
         await msg.channel.send(embed=embed)
         return
 
     if verb == "request":
+        if crate_session:
+            result = await crate_session.request(request, getattr(msg.author, "display_name", ""))
+            await msg.channel.send(embed=notice(
+                f"🎧 {result.reply}" if result.understood else result.reply,
+                error=not result.understood,
+            ))
+            return
         if not session:
             await msg.channel.send(embed=notice(
                 "i'm not playing anything — `!music on` first.", error=True))
@@ -248,6 +259,8 @@ def _records_status(session) -> discord.Embed:
     add_field(e, "Next", clean(st["next"], 200) if st["next"] else "choosing…", inline=False)
     add_field(e, "Channel", st["channel"], inline=True)
     add_field(e, "Listeners", str(st["listeners"]), inline=True)
+    if st.get("listener_intent"):
+        add_field(e, "Listener direction", st["listener_intent"], inline=False)
     return e
 
 
