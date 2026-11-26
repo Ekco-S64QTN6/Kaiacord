@@ -110,13 +110,15 @@ and audible evidence that the choices are good are still work to build.
 **Cache identity is a prerequisite for musical intelligence.** The current path/mtime-based caches
 can reuse previous audio analysis or transition evidence when media is replaced at the same path.
 This affects song maps, kick/hit envelopes and levels, loudness/true-peak gain compensation,
-measured transition edges, beat-tick JSON, path-keyed beatgrid calculations and booth waveforms. The existing `audio_signature()` samples the file's ends; it is
-not a full content identity for a same-length file whose middle changes. Before expanding musical
-profiles, make every audio-derived cache validate one robust, versioned identity, distinguish
-metadata-only retagging from audio changes, and invalidate its related in-memory/disk results
-together. This is [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408), a prerequisite
-for [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404). Perform expensive hashing and
-refresh off the 20 ms voice callback.
+measured transition edges, beat-tick JSON, path-keyed beatgrid calculations and booth waveforms. The shared `audio_signature()` now streams a complete BLAKE2 digest of the audio payload,
+excluding leading ID3v2 and trailing ID3v1 metadata. It caches that digest against device/inode,
+size, mtime and ctime so ordinary same-path, same-size replacements with a preserved mtime
+invalidate immediately; a full revalidation is forced at least every five minutes to cover
+unusual filesystems. Every map, envelope/level, beat-tick, beatgrid, loudness, graph and booth
+waveform cache must validate this identity and invalidate related in-memory/disk results together.
+Background analyses recheck identity before publishing their result. This is [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408),
+a prerequisite for [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404). Full hashing and
+refresh must stay off the 20 ms voice callback.
 
 ### Real-time engineering boundary
 
