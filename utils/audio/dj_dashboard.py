@@ -364,7 +364,10 @@ def _snapshot_locked(session, src, mood: Optional[dict] = None) -> dict:
         "on_air": cur.slot if cur else None, "free": free, "loading": getattr(session, "loading", None),
         "last_load": getattr(session, "last_load", None),
         "handover": round(src._hand_quiet / FRAMES_PER_S, 2) if hand is not None else None,
-        "key_sync": src.key_sync, "rides": src.rides, "gesture": src.gesture if src.rides else "", "energy": round(src.energy, 2),
+        "key_sync": src.key_sync, "rides": src.rides,
+        "gesture": src.gesture if src.rides else "",
+        "skills": src.skill_scheduler.snapshot(),
+        "energy": round(src.energy, 2),
     }
 
 
@@ -581,10 +584,13 @@ class _Handler(BaseHTTPRequestHandler):
                 ok = True
             elif self.path == "/control":
                 slot = body.get("slot")
-                ok = src.controls.set(int(slot) if slot not in (None, "") else None, str(body.get("name", "")),
-                                      body.get("value"))
+                ok = src.set_control(
+                    int(slot) if slot not in (None, "") else None,
+                    str(body.get("name", "")), body.get("value"),
+                )
             elif self.path == "/rides":
                 src.rides = not src.rides
+                src.skill_scheduler.set_enabled(src.rides)
                 src.gesture = ""
                 log_info(f"[records] Kaia's hands on the mixer {'on' if src.rides else 'off'} from the booth")
                 ok = True
@@ -597,6 +603,9 @@ class _Handler(BaseHTTPRequestHandler):
                     src.finish()                     # she takes the mix from where the hands left it
                 src.controls.reset()
                 src.paused.clear()
+                src.skill_scheduler.hand_back_all()
+                src.rides = True
+                src.gesture = ""
                 log_info("[records] the booth handed the mix back to Kaia")
                 ok = True
             elif self.path in ("/pause", "/play"):
