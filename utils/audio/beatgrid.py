@@ -286,9 +286,9 @@ def _ticks_path(path: str) -> Path:
     return TICKS_DIR / (hashlib.sha1(path.encode("utf-8")).hexdigest()[:16] + ".json")
 
 
-def _audio_identity(path: str) -> Optional[str]:
+def _audio_identity(path: str, *, refresh: bool = False) -> Optional[str]:
     from utils.audio.library import audio_signature
-    return audio_signature(path)
+    return audio_signature(path, refresh=refresh)
 
 
 @functools.lru_cache(maxsize=512)
@@ -357,16 +357,31 @@ def _snap(g: Optional[Grid], path: str, anchor: Optional[Grid] = None) -> Option
 
 def grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float = 40.0,
             anchor: Optional[Grid] = None) -> Optional[Grid]:
-    """`_grid_at`, its tempo and phase from the record's ticks where it has them."""
-    return _snap(_grid_at(path, bpm, start, seconds, anchor), path, anchor)
+    """Read a local beat grid only while the source audio remains unchanged."""
+    identity = _audio_identity(path)
+    if identity is None:
+        return None
+    grid = _grid_at(path, bpm, start, seconds, anchor)
+    if _audio_identity(path, refresh=True) != identity:
+        return None
+    result = _snap(grid, path, anchor)
+    return result if _audio_identity(path, refresh=True) == identity else None
 
 
 def grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional[Grid]:
-    """`_grid_for`, its tempo and phase from the record's ticks where it has them."""
-    return _snap(_grid_for(path, bpm, seconds), path)
+    """The opening grid, tick-snapped and keyed to the current audio identity."""
+    identity = _audio_identity(path)
+    if identity is None:
+        return None
+    grid = _grid_for(path, bpm, seconds)
+    if _audio_identity(path, refresh=True) != identity:
+        return None
+    result = _snap(grid, path)
+    return result if _audio_identity(path, refresh=True) == identity else None
 
 
-grid_for.cache_clear = lambda: _grid_for.cache_clear()       # the onset grid underneath is cached
+grid_for.cache_clear = _grid_for_cached.cache_clear       # the onset grid underneath is cached
+grid_for.cache_info = _grid_for_cached.cache_info
 
 
 def _grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float = 40.0,
@@ -413,7 +428,8 @@ def _grid_for_cached(path: str, bpm: Optional[float], seconds: float, identity: 
         return None
     first = first_strong_beat(onsets, g)
     if first is None:
-        return Grid(g.bpm, g.downbeat, g.contrast, bar_known=False)
+        result = Grid(g.bpm, g.downbeat, g.contrast, bar_known=False)
+        return result if _audio_identity(path, refresh=True) == identity else None
     contrast = g.contrast
     if first > 3.0:
         # A blend starts the record at its first beat, so its steadiness is
@@ -425,7 +441,8 @@ def _grid_for_cached(path: str, bpm: Optional[float], seconds: float, identity: 
                 contrast = max(contrast, g2.contrast)
         except (OSError, subprocess.SubprocessError, ValueError):
             pass
-    return Grid(g.bpm, first, contrast, bar_known=True)
+    result = Grid(g.bpm, first, contrast, bar_known=True)
+    return result if _audio_identity(path, refresh=True) == identity else None
 
 
 def _grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional[Grid]:
@@ -452,7 +469,8 @@ def _first_sound_cached(path: str, threshold_db: float, identity: str) -> float:
         return 0.0
     rms = np.sqrt(np.mean(a[: n * 400].astype(np.float32).reshape(n, 400) ** 2, axis=1))
     loud = np.flatnonzero(rms > 32768 * 10 ** (threshold_db / 20))
-    return float(max(0.0, loud[0] * 0.05 - 0.05)) if len(loud) else 0.0
+    result = float(max(0.0, loud[0] * 0.05 - 0.05)) if len(loud) else 0.0
+    return result if _audio_identity(path, refresh=True) == identity else 0.0
 
 
 def first_sound(path: str, threshold_db: float = -45.0) -> float:
@@ -461,6 +479,7 @@ def first_sound(path: str, threshold_db: float = -45.0) -> float:
 
 
 first_sound.cache_clear = _first_sound_cached.cache_clear
+first_sound.cache_info = _first_sound_cached.cache_info
 
 
 @functools.lru_cache(maxsize=256)
@@ -496,7 +515,8 @@ def _bass_entry_cached(path: str, bpm: Optional[float], bars: int, identity: str
     for k in range(count - 4):
         if on[k] and on[k + 1:k + 5].sum() >= 3:
             near = int(round(k / 4)) * 4
-            return near if abs(near - k) <= 1 else k
+            result = near if abs(near - k) <= 1 else k
+            return result if _audio_identity(path, refresh=True) == identity else None
     return None
 
 
@@ -506,6 +526,7 @@ def bass_entry(path: str, bpm: Optional[float], bars: int = 64) -> Optional[int]
 
 
 bass_entry.cache_clear = _bass_entry_cached.cache_clear
+bass_entry.cache_info = _bass_entry_cached.cache_info
 
 
 @functools.lru_cache(maxsize=128)
@@ -533,7 +554,8 @@ def _last_strong_beat_cached(path: str, bpm: Optional[float], duration: float, t
     strong = h > 0.35 * np.percentile(h, 75)
     for k in range(len(teeth) - 1, 2, -1):
         if strong[k] and strong[k - 3:k].sum() >= 2:
-            return float(start + teeth[k] / HOPS_PER_S)
+            result = float(start + teeth[k] / HOPS_PER_S)
+            return result if _audio_identity(path, refresh=True) == identity else None
     return None
 
 
@@ -543,6 +565,7 @@ def last_strong_beat(path: str, bpm: Optional[float], duration: float, tail: flo
 
 
 last_strong_beat.cache_clear = _last_strong_beat_cached.cache_clear
+last_strong_beat.cache_info = _last_strong_beat_cached.cache_info
 
 
 def _decode_stretched(path: str, start: float, seconds: float, ratio: float) -> np.ndarray:
