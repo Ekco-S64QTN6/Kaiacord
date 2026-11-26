@@ -361,7 +361,10 @@ class Deck:
         """Set a temporary playback-rate multiplier; 1.0 is the neutral jog position."""
         if isinstance(rate, bool) or not isinstance(rate, (int, float)):
             return False
-        target = float(rate)
+        try:
+            target = float(rate)
+        except (TypeError, ValueError, OverflowError):
+            return False
         if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
             return False
         if target != 1.0 and (
