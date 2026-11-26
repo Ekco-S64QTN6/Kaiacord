@@ -1008,7 +1008,8 @@ that are easy to break:
   `Deck.played` remains monotonic for renderer/transition scheduling; `Deck.at()` alone wraps to the
   loop's source position. Suppress end planning and tempo glide while the loop is armed/active. Exit
   must warm both program and selected PFL decoders at the loop end, then swap them together at the next
-  loop boundary. This is not a roll: momentary rolls, live jog/pitch bend and FX are not implemented.
+  loop boundary. Hot-cue seeks must not replace a deck while its loop or loop-exit handoff owns it.
+  This is not a roll: momentary rolls, live jog/pitch bend and FX are not implemented.
 - **One voice at a time, and a record is left where it changes**: the presence band changes hands with
   the mids (`presence`), the outgoing is gone a `tail` after the swap, and an end-of-record blend goes at
   the outro or last breakdown (`songmap`), else near the end, further back only as the last resort.
