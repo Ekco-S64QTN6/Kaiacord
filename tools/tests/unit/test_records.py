@@ -245,8 +245,8 @@ def test_loop_exit_warms_after_the_loop_and_switches_only_at_a_wrap(loop_source)
     assert old.at() == pytest.approx(4.02)
     assert src.set_loop(1, None)
     pending = src._pending_loop_exit
-    assert pending is not None and pending[1] is old
-    boundary = pending[3]
+    assert pending is not None and pending.old is old
+    boundary = pending.boundary
     assert boundary == loop.start_played + len(loop.frames)
     while src.current is old:
         src.read()
