@@ -164,7 +164,7 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `strudel_source.py` | The Discord audio source fed by the capture |
 | `levels.json` | Measured per-part gains, written by `audition_tracks.py --calibrate` |
 | `library.py` | The record crate from `dj_catalog.json` and which record plays next |
-| `records.py` | The records mixer: decks, transition planning (blend, or a clean switch on the bar), band-split mixing, Kaia's hands on the mixer, the free deck worked by hand, LUFS levels, the set session |
+| `records.py` | The current records mixer: decks, technically measured transition planning, band-split mixing, limited phrase-locked Kaia gestures, the free deck worked by hand, LUFS levels and the set session; expert musical judgment and full DJ repertoire are the target, not yet an implemented capability |
 | `beatgrid.py` | Beat and bar grids (bar one as the first strong beat, bars counted from it), the bassline's entry bar, the last strong beat, the rubberband stretch and key-shift filter |
 | `dj_dashboard.py` | The DJ booth: server, state stream, waveforms, the pop-out window (page in `assets/dj/`) |
 | `setlist.py`, `mixcheck.py` | Which records lock with which, measured ahead of time, and the sets that follow; whether a planned blend locks, measured on the two records |
@@ -172,7 +172,7 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `voice_busy.py` | Whether she is playing in voice now; work that can wait (`wait_until_quiet`) holds off |
 | `process_lifecycle.py` | Terminating and reaping the child processes the audio and radio code own |
 
-## Radio (`utils/radio/`)
+The records DJ's product-quality bar is musical judgment over the whole set, not maximizing\ntechnical lock scores. See [records-and-booth.md](records-and-booth.md) for the expert-DJ target,\ncurrent limitations, skill repertoire and listening-based acceptance requirements.\n\n## Radio (`utils/radio/`)
 
 Guest on volunteer services: polled every `radio.poll_hours`, history in `memory/radio/`.
 
