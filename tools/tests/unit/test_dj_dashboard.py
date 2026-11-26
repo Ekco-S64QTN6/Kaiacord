@@ -752,7 +752,7 @@ def test_master_echo_http_control_changes_real_pcm_and_releases_its_tail(session
             return error.code
 
     try:
-        assert post({}
+        assert post({
             "action": "on", "beats": 1, "feedback": 0.5, "wet": 0.30,
         }) == 204
         state = D.snapshot(session)
