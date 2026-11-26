@@ -35,6 +35,7 @@ from typing import Optional, cast
 import numpy as np
 
 from utils.infrastructure.logging.kaia_logger import log_debug, log_info, log_warning
+from utils.audio import record_cues
 
 PAGE = Path(__file__).resolve().parents[2] / "assets" / "dj" / "index.html"
 WAVE_RATE = 8000
@@ -270,13 +271,28 @@ _launch = 0
 
 
 def snapshot(session) -> dict:
-    """The booth as it stands, sampled at a committed mixer frame boundary."""
+    """The booth as it stands, sampled at a committed mixer frame boundary.
+
+    Cue-bank disk reads and audio identity checks happen after releasing the
+    renderer lock; they are cached and never run on the 20 ms audio path.
+    """
     if session is None or session.source is None:
         return {"live": False, "t": time.time(), "launch": _launch}
     src = session.source
-    mood = _mood()                      # read before the mixer's lock: it may touch disk
+    mood = _mood()
     with src._lock:
-        return _snapshot_locked(session, src, mood)
+        state = _snapshot_locked(session, src, mood)
+        records_by_slot = {}
+        for deck in (src.current, src.incoming, src.hand):
+            if deck is not None:
+                records_by_slot[deck.slot] = deck.record
+        if src._queued is not None:
+            records_by_slot.setdefault(src.free_slot(), src._queued.record)
+    for slot, record in records_by_slot.items():
+        deck_state = state.get("decks", {}).get(str(slot))
+        if deck_state is not None and deck_state.get("id") == track_id(record.path):
+            deck_state["cue_bank"] = record_cues.load(record)
+    return state
 
 
 def _snapshot_locked(session, src, mood: Optional[dict] = None) -> dict:
@@ -374,6 +390,20 @@ def _snapshot_locked(session, src, mood: Optional[dict] = None) -> dict:
         "skills": src.skill_scheduler.snapshot(),
         "energy": round(src.energy, 2),
     }
+
+
+def _cue_target(src, slot: int):
+    """Capture a deck's record and source-time playhead without doing disk I/O."""
+    with src._lock:
+        deck = next((item for item in (src.current, src.hand, src.incoming)
+                     if item is not None and item.slot == slot), None)
+        if deck is not None:
+            return deck.record, max(0.0, deck.at() * deck.ratio)
+        queued = src._queued if src.free_slot() == slot else None
+        if queued is not None:
+            position = src.cue if src.cue is not None else src.default_cue(queued)
+            return queued.record, max(0.0, float(position))
+    return None
 
 
 def _name_of(session, path: str) -> str:
@@ -646,6 +676,42 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(400, b"", "text/plain")
             ok = src.set_headphones(slot, force=body.get("force") is True)
             return self._send(204 if ok else 400, b"", "text/plain")
+        if self.path == "/cuebank":
+            raw_slot, raw_index = body.get("slot"), body.get("index")
+            if isinstance(raw_slot, bool) or raw_slot not in (1, 2, "1", "2"):
+                return self._send(400, b"", "text/plain")
+            slot = int(raw_slot)
+            kind = body.get("kind")
+            if kind not in ("hot", "memory"):
+                return self._send(400, b"", "text/plain")
+            index = None
+            if kind == "hot":
+                if isinstance(raw_index, bool) or not isinstance(raw_index, int) or not 0 <= raw_index < record_cues.HOT_CUE_COUNT:
+                    return self._send(400, b"", "text/plain")
+                index = raw_index
+            target = _cue_target(src, slot)
+            if target is None:
+                return self._send(409, b"", "text/plain")
+            record, current_position = target
+            bank = record_cues.load(record)
+            cue = bank["memory"] if kind == "memory" else bank["hot"][index]
+            action = body.get("action", "toggle")
+            if action == "clear":
+                ok = record_cues.clear_memory(record) if kind == "memory" else record_cues.clear_hot(record, index)
+                action = "cleared"
+            elif action == "store" or (action == "toggle" and cue is None):
+                ok = (record_cues.set_memory(record, current_position) if kind == "memory"
+                      else record_cues.set_hot(record, index, current_position))
+                action = "stored"
+            elif action in ("toggle", "jump"):
+                ok = src.jump_to_cue(slot, cue, expected_path=record.path)
+                action = "jumped"
+            else:
+                return self._send(400, b"", "text/plain")
+            if not ok:
+                return self._send(409, b"", "text/plain")
+            result = {"ok": True, "action": action, "cue_bank": record_cues.load(record)}
+            return self._send(200, json.dumps(result).encode(), "application/json")
         # Keep booth mutations at an audio-frame boundary. RecordsSession.load()
         # follows the same mixer -> load lock order to avoid a lock cycle.
         with src._lock:

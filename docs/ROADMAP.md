@@ -55,15 +55,17 @@ audible effect. A request received during an in-flight pick is deferred to the f
 Unit tests cover routing, request lifecycle and preference ranking, not audible DJ quality.
 Real-crate listening and independent assessment remain under `#402`.
 
-**#403 implementation boundary (crossfader slice merged in PR #416; PFL monitor slice implemented in PR #418):**
+**#403 implementation boundary (crossfader in PR #416; PFL in PR #418; hot/memory cue bank in PR #419):**
 the mixer provides backward-compatible `standard`, equal-power `constant_power` and midpoint `cut`
 crossfader laws, plus per-deck A/B/THRU assignments. Curve and assignment changes ramp over eight
-20 ms rendered frames; direct crossfader movement follows the hand immediately. The booth now also
-has a real PFL path: a separate deck decoder taps EQ/trim before channel and crossfader gains, then
-feeds a bounded local PCM headphone stream with an equal-power CUE↔MASTER blend and monitor level.
-The PFL decoder does not consume program-deck frames; the renderer publishes to bounded per-client
-queues and the browser plays them through an AudioWorklet. This does not close #403: hot/memory cues,
-loops/rolls, jog/pitch bend and a bounded FX bus remain unimplemented.
+20 ms rendered frames; direct crossfader movement follows the hand immediately. The booth has a real
+PFL path: a separate deck decoder taps EQ/trim before channel and crossfader gains, then feeds a bounded
+local PCM headphone stream with an equal-power CUE↔MASTER blend and monitor level. Eight hot cues and
+one memory cue per deck persist in `memory/records/cues.json`, keyed by stable audio identity; recall
+uses a separately warmed decoder and a frame-boundary swap, never consumes program-deck frames, and
+refuses a started transition. Cue reads/writes stay out of the renderer. Engine and HTTP route tests cover persistence and recall,
+but automated browser gesture coverage for the pads remains pending. This does not close #403:
+loops/rolls, live jog/pitch bend and a bounded FX bus remain unimplemented.
 
 **#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
 uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove

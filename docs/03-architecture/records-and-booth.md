@@ -333,11 +333,14 @@ the cut law deliberately performs a hard A/B handoff at the midpoint.
 Non-finite values and unknown curve/assignment names are rejected. Reset returns
 the curve and assignments to standard/A/B and clears the direct crossfader position.
 
-The first #403 slices now provide the crossfader laws/assignments and a real PFL/cue-monitor
-signal path. PFL uses a separate decoder, preserves EQ/trim while bypassing channel and crossfader gains,
-and blends against the rendered master locally. This is still not professional parity: hot/memory cues,
-loops/rolls, jog/pitch bend, and a bounded FX bus remain unimplemented. They must each have real engine
-signal paths and browser interaction tests before they are exposed as capabilities.
+The #403 slices now provide crossfader laws/assignments, a real PFL/cue-monitor signal path, and
+persistent one-memory/eight-hot cue banks with frame-safe decoder replacement. PFL uses a separate
+decoder, preserves EQ/trim while bypassing channel and crossfader gains, and blends against the rendered
+master locally. Hot/memory cues are persisted by stable audio identity and are not catalog metadata.
+This is still not professional parity: loops/rolls, live jog/pitch bend, and a bounded FX bus remain
+unimplemented. They must each have real engine signal paths and browser interaction tests before they
+are exposed as capabilities. Browser-driven gesture coverage for the cue-pad UI itself also remains
+pending; the present tests stop at the actual HTTP/API boundary.
 
 ### Real-time engineering boundary
 
@@ -347,9 +350,11 @@ analysis and set planning off the callback using cached/background work; schedul
 sample/phrase-aware operations at safe boundaries, ramp parameters, preserve the mixer's frame
 and lock invariants, and always provide manual override and hand-back. The PFL decoder is warmed
 on the booth request thread; `CrossfadeSource.read()` only consumes one already-buffered frame and
-publishes a fixed-size headphone frame into bounded per-client queues. HTTP streaming and browser
-playback run on their own threads/processes. Keep the engine's audible capabilities honest: a
-planner can only select a skill the mixer can actually execute.
+publishes a fixed-size headphone frame into bounded per-client queues. Hot-cue recall also warms its
+replacement decoder on the request thread, commits only after frame-boundary identity checks, and
+reaps the old decoder after releasing the lock. Cue-bank disk reads/writes stay in dashboard threads.
+HTTP streaming and browser playback run on their own threads/processes. Keep the engine's audible
+capabilities honest: a planner can only select a skill the mixer can actually execute.
 
 **`!music records` mixes the local library** (`utils/audio/library.py`, `records.py`,
 `beatgrid.py`). The crate is a `dj_catalog.json` of BPM, Camelot key and genre written *outside* the
@@ -563,6 +568,16 @@ bounded 20 ms frames; per-client queues are capped at 50 frames and drop the old
 The monitor is local to the booth and is never sent back to Discord. The older `/audio/<id>` file endpoint is
 not used for PHONES. The deck CUE button temporarily selects PFL while held. Kaia raises a hand-loaded
 fader when *her* blend into it starts, not when she plans it — a planned blend is called off by ▶.
+
+Each loaded deck exposes one memory cue and eight hot cues. Their source-time positions are persisted
+outside `dj_catalog.json`, in `memory/records/cues.json`, keyed by `audio_identity.audio_signature` rather
+than the filename or editable tags. Empty-pad click stores the current source position; clicking a filled
+pad jumps there; Shift-click overwrites; right-click clears. Recall warms a replacement decoder on the
+booth request thread, verifies the deck identity again, and swaps it at a frame boundary. It refuses a
+transition that has already started and never seeks by consuming frames from the program decoder.
+Cue-bank reads and atomic writes run on dashboard threads, not the renderer. The current checks cover
+persistence, engine swaps, and the dashboard HTTP route; automated browser gesture coverage remains
+an explicit #403 acceptance item rather than an inferred pass.
 A cue set on the record already in her plan (she plans a record's end minutes ahead) calls that plan
 off and replans from the cue; it used to be refused, and the jog snapped back to the start. A knob's
 pointer is what is *applied* — the hand's setting times the automix and her hands — so her moves turn

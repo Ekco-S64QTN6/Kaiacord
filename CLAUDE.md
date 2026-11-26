@@ -996,6 +996,12 @@ that are easy to break:
   frame and publishes fixed 20 ms PCM to bounded per-client queues. `/phones/stream` is served by an
   HTTP thread; the booth uses an AudioWorklet at 48 kHz. The equal-power CUE/MASTER blend and monitor
   level are separate from program controls and must never route browser audio back to Discord.
+- **Memory/hot cues are persistent, audio-identity scoped and frame-safe.** The one memory cue and eight
+  hot cues per deck live in `memory/records/cues.json`, keyed by `audio_identity.audio_signature`, never
+  in `dj_catalog.json`. Empty click stores source time; a filled pad recalls it; Shift-click overwrites;
+  right-click clears. Warm the replacement `Deck` off the renderer, re-check the expected record and
+  transition ownership under `CrossfadeSource._lock`, swap only at the frame boundary, then close the
+  old decoder after releasing the lock. Cue-bank disk access stays on dashboard threads.
 - **One voice at a time, and a record is left where it changes**: the presence band changes hands with
   the mids (`presence`), the outgoing is gone a `tail` after the swap, and an end-of-record blend goes at
   the outro or last breakdown (`songmap`), else near the end, further back only as the last resort.
