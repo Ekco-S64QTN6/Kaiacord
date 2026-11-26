@@ -876,3 +876,10 @@ def test_pause_and_kaia_mix_release_an_active_live_jog_bend(session, monkeypatch
         if server:
             server.shutdown()
             server.server_close()
+
+
+def test_booth_elapsed_and_remaining_clocks_use_the_live_jog_rate():
+    page = D.PAGE.read_text(encoding="utf-8")
+    assert "const effectiveRate = ratio * (d && d.bend && d.bend.rate ? d.bend.rate : 1);" in page
+    assert "fmt(pos / effectiveRate)" in page
+    assert "const rem = d ? (d.length - pos) / effectiveRate : NaN;" in page
