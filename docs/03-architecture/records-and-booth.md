@@ -392,8 +392,8 @@ return to unity if pointer-up is lost. Pointer cancel, lost capture, blur, page 
 events also release the gesture. If a page reload loses the original pointer state, the
 platter remains available for a one-tap release acknowledgement while **JOG RELEASE** is shown;
 pause, skip and KAIA MIX/reset are also explicit hand-back paths. Planning, automatic tempo glide
-and solo phrase skills are suspended while the nudge owns the deck; transitions, loops, slip rolls,
-pause and splice ownership refuse a new bend. The live source cursor is retained across the temporary rate change, so the
+and solo phrase skills are suspended while the nudge owns the deck; a new bend is refused while
+a transition, loop, slip roll, pause, splice or tempo-glide preparation owns the deck. The live source cursor is retained across the temporary rate change, so the
 record resumes where the decoder actually advanced to. This remains a human-operated primitive,
 not an autonomous pitch-ride skill, scratch, backspin or permanent pitch control. Physical device
 latency and musical suitability still require listening.
