@@ -7,7 +7,6 @@ from utils.audio.records import (
     FRAME_SAMPLES,
     FX_MAX_FEEDBACK as MAX_FEEDBACK,
     FX_MAX_WET as MAX_WET,
-    RATE,
     TempoEcho,
 )
 
