@@ -2104,7 +2104,7 @@ class CrossfadeSource(_AudioSource):
 
         with self._lock:
             deck = self.current if self.current is not None and self.current.slot == slot else None
-            if (deck is None or deck.loop_active or deck.roll_active or deck.bend_active or deck.grid is None or not deck.grid.bar_known
+            if (deck is None or deck.loop_active or deck.roll_active or deck.bend["active"] or deck.grid is None or not deck.grid.bar_known
                     or self.plan is not None or self.incoming is not None or self.hand is not None
                     or self._planning or self._pending_planning_mode is not None
                     or self._pending_loop_exit is not None or slot in self.paused):
@@ -2647,7 +2647,10 @@ class CrossfadeSource(_AudioSource):
             return False
         if isinstance(rate, bool) or not isinstance(rate, (int, float)):
             return False
-        target = float(rate)
+        try:
+            target = float(rate)
+        except (TypeError, ValueError, OverflowError):
+            return False
         if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
             return False
         with self._lock:
