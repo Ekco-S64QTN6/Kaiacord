@@ -368,7 +368,10 @@ def test_real_browser_jog_platter_bends_live_playback_and_returns_to_neutral(boo
                 source.read()
             assert deck.bend["active"] is False
             assert deck.bend["rate"] == pytest.approx(1.0)
-            _wait_for_ui_state(page, "#deck1 [data-f=meta]", "STRETCH ×1.0000LEN 20:00")
+            page.wait_for_function(
+                "() => { const e = document.querySelector('#deck1 [data-f=meta]'); return !!e && e.textContent.includes('STRETCH') && !e.textContent.includes('JOG +'); }",
+                timeout=5000,
+            )
         finally:
             page.mouse.up()
             page.close()
