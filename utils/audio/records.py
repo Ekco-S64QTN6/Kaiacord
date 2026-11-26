@@ -43,6 +43,7 @@ except Exception:                      # pragma: no cover
     _AudioSource = object
 
 from utils.audio import library
+from utils.audio.dj_fx import TempoEcho
 from utils.infrastructure.logging.kaia_logger import log_action, log_debug, log_error, log_info, log_warning
 from utils.infrastructure.system.gc_quiet import settle
 
@@ -1038,6 +1039,24 @@ class Controls:
     def _flat() -> dict:
         return {"trim": 0.0, "high": 1.0, "mid": 1.0, "low": 1.0, "fader": 1.0}
 
+    def set_echo(self, enabled: bool, beats: float = 1.0,
+                  feedback: float = 0.35, wet: float = 0.30) -> bool:
+        """Control the real master echo using the current on-air playback tempo."""
+        with self._lock:
+            if not enabled:
+                return self.effects.set(False)
+            current = self.current
+            if current is None:
+                return False
+            bpm = (
+                current.grid.bpm * current.ratio
+                if current.grid is not None
+                else (current.record.bpm or 0.0) * current.ratio
+            )
+            return self.effects.set(
+                True, bpm=bpm, beats=beats, feedback=feedback, wet=wet
+            )
+
     @staticmethod
     def _number(value: float | str | None) -> Optional[float]:
         if value is None or isinstance(value, bool):
@@ -1234,6 +1253,8 @@ class CrossfadeSource(_AudioSource):
         self.history: list[dict] = []
         self.planning_mode: Optional[str] = None
         self.controls = Controls()
+        # The master FX bus runs on the buffered mixer worker, never in Discord's voice callback.
+        self.effects = TempoEcho()
         # A private decoder feeds PFL without advancing, splitting or stealing
         # frames from either program deck. Stream clients receive bounded PCM.
         self._headphones_deck: Optional[Deck] = None
@@ -2548,6 +2569,10 @@ class CrossfadeSource(_AudioSource):
                         self._advance()
         if self._echo_tail is not None and frame:
             frame = self._echo_play(frame)
+        # This is the audible, bounded master FX bus. PFL is mixed separately;
+        # the local headphone MASTER leg receives the effected program frame.
+        if frame:
+            frame = self.effects.process(frame)
         self.levels["a"] = self._db(out)
         self.levels["master"] = self._db(frame)
         self.meter.append((self.frames_sent, cur.slot, self.levels["a"], self.levels["b"], self.levels["master"]))
@@ -2724,6 +2749,7 @@ class CrossfadeSource(_AudioSource):
             self._cancel_splice()
             self.skill_scheduler.cancel_blend()
             self.skill_scheduler.clear_active()
+            self.effects.cancel()
             pending_loop = self._pending_loop_exit
             self._pending_loop_exit = None
             for deck in (self.current, self.incoming, self.hand, self._headphones_deck,
