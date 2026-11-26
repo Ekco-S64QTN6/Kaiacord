@@ -717,8 +717,13 @@ class _Handler(BaseHTTPRequestHandler):
                 rate = body.get("rate")
                 if isinstance(rate, bool) or not isinstance(rate, (int, float)):
                     return self._send(400, b"", "text/plain")
-                if not math.isfinite(float(rate)) or not 0.92 <= float(rate) <= 1.08:
+                try:
+                    requested_rate = float(rate)
+                except (TypeError, ValueError, OverflowError):
                     return self._send(400, b"", "text/plain")
+                if not math.isfinite(requested_rate) or not 0.92 <= requested_rate <= 1.08:
+                    return self._send(400, b"", "text/plain")
+                rate = requested_rate
             else:
                 return self._send(400, b"", "text/plain")
             ok = src.set_bend(slot, rate, release=(action == "release"))
