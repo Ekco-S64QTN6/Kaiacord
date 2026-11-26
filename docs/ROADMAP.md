@@ -25,7 +25,7 @@ checks are guardrails, not an artistic score. The full product bar and capabilit
 
 Implementation sequence (keep these independently reviewable):
 
-1. [#408 — invalidate record caches by audio identity](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408) fixes stale profile/graph reuse when audio bytes change but timestamps are preserved.
+1. [#408 — invalidate record caches by audio identity](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408) ties every derived record artifact (profiles, envelopes, ticks/grids, graph edges, loudness gain and booth waveforms) to the actual audio content, not path/mtime alone.
 2. [#404 — cached phrase-level musical-state profiles](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404) builds the evidence layer by extending `songmap` on top of correct cache identity.
 3. [#405 — full-set musical arcs and transition intent](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405) consumes those profiles; it must not equate technical lock with artistic quality.
 4. [#403 — professional booth/mixer parity](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) supplies the real hardware/control primitives; it can progress alongside the analysis/planner work.
