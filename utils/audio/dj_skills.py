@@ -493,8 +493,12 @@ class SkillScheduler:
         """Evaluate only this plan's bounded actions at the current PCM frame."""
         ones = np.ones_like(times, dtype=np.float32)
         identity = tuple(ones.copy() for _ in range(6))
-        if (not self.enabled or self._blend_plan_id != id(plan)
-                or getattr(plan, "kind", "") != "blend"):
+        if not self.enabled or self._blend_plan_id != id(plan):
+            return identity, "", ""
+        if getattr(plan, "kind", "") == "echo":
+            active = self._active_skill or {}
+            return identity, str(active.get("label", "")), "echo_out"
+        if getattr(plan, "kind", "") != "blend":
             return identity, "", ""
         factors = [ones.copy() for _ in range(6)]
         active: list[SkillAction] = []
