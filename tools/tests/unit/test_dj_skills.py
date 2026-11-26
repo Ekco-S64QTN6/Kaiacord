@@ -182,6 +182,9 @@ def test_blend_compiler_retains_headroom_exchange_and_outgoing_air_skills():
         "bars": 32.0, "timebase": "playback_seconds",
     }
     assert len(active["actions"]) == 3
+    assert {action["lane"] for action in active["actions"]} == {
+        "out.gain", "in.gain", "upper_pair",
+    }
 
 
 def test_blend_manual_override_eases_owned_lane_and_explicit_handback_restores_skill():
@@ -338,6 +341,7 @@ def test_legacy_phrase_eq_reports_the_actual_four_bar_grid_window_and_targets():
         "kind": "legacy phrase-EQ gesture", "start": 64.0, "end": 96.0,
         "bars": S.SKILL_PHRASE_BARS, "timebase": "playback_seconds",
     }
+    assert active["actions"] == []
 
 
 def test_profile_missing_falls_back_without_claiming_structure():
