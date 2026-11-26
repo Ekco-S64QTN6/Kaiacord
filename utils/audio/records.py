@@ -100,8 +100,8 @@ def _gain_db_cached(path: str, identity: str) -> float:
     return round(max(-12.0, min(gain, 12.0)), 1)
 
 
-gain_db.cache_clear = _gain_db_cached.cache_clear
-gain_db.cache_info = _gain_db_cached.cache_info
+setattr(gain_db, "cache_clear", _gain_db_cached.cache_clear)
+setattr(gain_db, "cache_info", _gain_db_cached.cache_info)
 
 
 def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0.0,
