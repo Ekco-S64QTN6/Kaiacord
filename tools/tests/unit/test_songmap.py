@@ -174,7 +174,7 @@ def test_profile_without_a_counted_bar_uses_unaligned_time_windows():
     assert m is not None
     profile = S.profile_from_map(m, Grid(120.0, 0.5, 8.0, bar_known=False), fallback_window_s=7.0)
     assert not profile.aligned
-    assert profile.grid_bpm is None and profile.grid_contrast is None
+    assert profile.grid_bpm == 120.0 and profile.grid_contrast == 8.0
     assert profile.phrases
     assert all(not p.aligned and p.bars is None for p in profile.phrases)
     assert profile.phrases[0].start == 0.0
