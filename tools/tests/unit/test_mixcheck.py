@@ -87,6 +87,8 @@ def test_verify_moves_a_blend_by_the_measured_amount(monkeypatch):
         M._MEM[(path, band)] = (path, env)
         return env
     monkeypatch.setattr(M, "envelope", fake_envelope)
+    M._MEM.clear()
+    M._levels.clear()
     plan = SimpleNamespace(ratio=1.0, start=16 * BEAT + 0.054 - 0.5, offset=0.0, drop=16 * BEAT,
                            length=32 * BEAT, beat=BEAT)
     v, shift = setlist.verify("out", 1.0, "in", plan)
@@ -108,6 +110,8 @@ def test_a_far_move_every_bar_agrees_on_is_still_made(monkeypatch):
         M._MEM[(path, band)] = (path, env)
         return env
     monkeypatch.setattr(M, "envelope", fake_envelope)
+    M._MEM.clear()
+    M._levels.clear()
     off = 0.2 * BEAT                                   # past FAR_MOVE, inside the edge
     assert M.FAR_MOVE <= 0.2 < M.EDGE * M.REACH
     v, shift = setlist.verify("out", 1.0, "in", _plan(off))
@@ -126,6 +130,8 @@ def test_a_lag_at_the_edge_of_the_search_moves_nothing(monkeypatch):
         M._MEM[(path, band)] = (path, env)
         return env
     monkeypatch.setattr(M, "envelope", fake_envelope)
+    M._MEM.clear()
+    M._levels.clear()
     v, shift = setlist.verify("out", 1.0, "in", _plan(0.24 * BEAT))
     assert not v.locked and shift == 0.0 and "edge" in v.why
 
