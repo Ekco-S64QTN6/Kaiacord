@@ -55,16 +55,18 @@ audible effect. A request received during an in-flight pick is deferred to the f
 Unit tests cover routing, request lifecycle and preference ranking, not audible DJ quality.
 Real-crate listening and independent assessment remain under `#402`.
 
-**#406 implementation boundary (branch in progress):** the first bounded skill catalog now
+**#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
 uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove
 choices, the legacy phrase-EQ fallback, the existing blend headroom/upper-band/air actions, and
 the planner's existing finite echo-out. Solo actions compile from cached phrase profiles on a
 latest-track-wins worker and use source-time coordinates even when a deck is stretched; blend
 actions compile before plan publication. The renderer evaluates only a bounded action list and
 ramps. Manual lane changes claim ownership and ease Kaia's action out; KAIA MIX hands back.
-This does not implement #403's missing PFL, loops, jog/pitch bend or general FX, and does not
-claim scratches, stutters or vocal/percussion recognition. No real-crate audition or blind
-listening evaluation has been performed here; #402 remains the acceptance parent.
+Until #403 supplies the shared runtime capability registry, the catalog validates against a
+conservative current-engine capability allowlist. This does not implement #403's missing PFL,
+loops, jog/pitch bend or general FX, and does not claim scratches, stutters or vocal/percussion
+recognition. No real-crate audition or blind listening evaluation has been performed here;
+#402 remains the acceptance parent.
 
 | Item | What | Call |
 |:--|:--|:--|
