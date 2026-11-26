@@ -1419,13 +1419,14 @@ class CrossfadeSource(_AudioSource):
             self._begin_planning(replan)
         return True
 
-    def jump_to_cue(self, slot: int, position: float) -> bool:
+    def jump_to_cue(self, slot: int, position: float, expected_path: Optional[str] = None) -> bool:
         """Jump a deck to a saved source-time cue without disturbing the voice clock.
 
         The replacement decoder is opened and warmed on the booth request thread.
         The swap itself is committed under the renderer lock at a 20 ms frame
         boundary; the retired decoder is closed after releasing that lock.
-        A cue cannot take ownership away from an active transition.
+        A cue cannot take ownership away from an active transition, and an HTTP
+        request can bind the jump to the record whose cue bank it just read.
         """
         if isinstance(slot, bool) or slot not in (1, 2):
             return False
@@ -1439,27 +1440,31 @@ class CrossfadeSource(_AudioSource):
         with self._lock:
             if self.blend_started():
                 return False
-            replan = self.plan.mode if self.plan is not None else self.planning_mode
-            if self.plan is not None:
-                self._call_off_plan()
-            self._gen += 1
-            generation = self._gen
-
             owner = ("current" if self.current is not None and self.current.slot == slot
                      else "hand" if self.hand is not None and self.hand.slot == slot else None)
             deck = self.current if owner == "current" else self.hand if owner == "hand" else None
-            if deck is None:
-                # A record loaded on the free deck has no decoder to seek yet;
-                # remember the exact source position for its next PLAY.
-                queued = self._queued if self.free_slot() == slot else None
-                if queued is None:
+            queued = self._queued if owner is None and self.free_slot() == slot else None
+            if owner is None:
+                # Do not cancel a plan just to edit a deck that is currently
+                # incoming; its transition owns the free channel until release.
+                if queued is None or self.plan is not None or self.incoming is not None:
                     return False
+                if expected_path is not None and queued.record.path != expected_path:
+                    return False
+                self._gen += 1
                 self.cue = min(target, max(0.0, queued.seconds - 0.04))
                 self.by_hand = True
                 self.skill_scheduler.clear_active()
                 self.gesture = ""
                 return True
+            if expected_path is not None and deck.record.path != expected_path:
+                return False
 
+            replan = self.plan.mode if self.plan is not None else self.planning_mode
+            if self.plan is not None:
+                self._call_off_plan()
+            self._gen += 1
+            generation = self._gen
             seconds = max(0.0, deck.end * deck.ratio)
             if seconds <= 0.04:
                 return False
@@ -1487,14 +1492,15 @@ class CrossfadeSource(_AudioSource):
         with self._lock:
             active = (self.current is old_deck) if owner == "current" else (self.hand is old_deck)
             stale = (generation != self._gen or not active or self.blend_started()
-                     or self._splice is not None)
+                     or self._splice is not None
+                     or (expected_path is not None and old_deck.record.path != expected_path))
             if not stale:
                 preview.grid = old_deck.grid
                 preview.slot = old_deck.slot
                 preview.outs = old_deck.outs
                 preview.out_lead = old_deck.out_lead
                 preview._scouting = False
-                if old_deck is self.current:
+                if owner == "current":
                     self.current = preview
                 else:
                     self.hand = preview
