@@ -188,6 +188,7 @@ def test_hot_cue_does_not_cancel_a_transition_for_the_incoming_deck(hotcue_sourc
     src.plan = plan
     assert not src.jump_to_cue(2, 12.0)
     assert src.current is original and src.incoming is incoming and src.plan is plan
+    src.incoming = None
     incoming.close()
 
 
