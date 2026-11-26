@@ -40,7 +40,7 @@ jobs:
         run: |
           python -m pip install --no-input --disable-pip-version-check --upgrade pip
           python -m pip install --no-input --disable-pip-version-check -r requirements.txt pytest
-      - name: Install headed-capable Chromium and system libraries
+      - name: Install Chromium and system libraries
         timeout-minutes: 6
         run: python -m playwright install --with-deps chromium
       - name: Exercise real booth controls in Chromium
