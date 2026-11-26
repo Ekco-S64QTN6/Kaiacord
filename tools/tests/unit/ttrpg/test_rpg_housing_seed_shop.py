@@ -111,7 +111,7 @@ def test_seed_shop_still_purchases_at_the_herbalists_hut(monkeypatch):
 
     assert store["42"]["location"] == "herbalists_hut"
     assert store["42"]["gil"] == 100 - cost
-    assert any(item.get("item") == seed_key for item in store["42"]["inventory"])
+    assert seed_key in store["42"]["inventory"]
     assert len(saves) == 1
     interaction.followup.send.assert_awaited_once()
     assert "Purchased" in interaction.followup.send.await_args.kwargs["embed"].description
