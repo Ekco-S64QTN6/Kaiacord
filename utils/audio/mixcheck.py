@@ -153,7 +153,7 @@ def envelope(path: str, band: str = "kick") -> Optional[np.ndarray]:
         sidecar = cache.with_suffix(".sig")
         if cache.exists() and sidecar.exists() and sidecar.read_text(encoding="utf-8").strip() == signature:
             env = np.load(cache).astype(np.float32)
-            if audio_signature(path) != signature:
+            if audio_signature(path, refresh=True) != signature:
                 return None
             _MEM[(path, band)] = (signature, env)
             while len(_MEM) > MEM_RECORDS:
@@ -166,7 +166,7 @@ def envelope(path: str, band: str = "kick") -> Optional[np.ndarray]:
         envs = {"kick": kick_envelope(samples), "hits": hits_envelope(samples)}
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    if len(envs["kick"]) < ENV_RATE * 10 or audio_signature(path) != signature:
+    if len(envs["kick"]) < ENV_RATE * 10 or audio_signature(path, refresh=True) != signature:
         return None
     for b, env in envs.items():
         c = _cache_path(path, b)
@@ -214,7 +214,7 @@ def kick_level(path: str, env: Optional[np.ndarray] = None, band: str = "kick") 
     n = len(env) // w
     if n < 10:
         return None
-    if audio_signature(path) != signature:
+    if audio_signature(path, refresh=True) != signature:
         return None
     lvl = float(np.percentile(env[:n * w].reshape(n, w).sum(axis=1), 75))
     _levels[key] = lvl if lvl > 0 else None
