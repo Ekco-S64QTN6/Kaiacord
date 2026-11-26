@@ -348,8 +348,11 @@ same loop frames and exits on that same boundary. Hot/memory cue seeks are refus
 its boundary exit owns the deck, rather than silently replacing the loop clock. This is beat looping,
 not momentary roll behavior.
 Momentary rolls, live jog/pitch bend, and a bounded FX bus remain unimplemented and need real engine
-signal paths before they are exposed. Browser-driven gesture coverage for the cue pads and loop controls
-also remains pending; current tests exercise the engine and HTTP boundary.
+signal paths before they are exposed. The `records-browser-tests` Playwright suite opens the actual
+loopback booth in Chromium and exercises memory/hot cue store, Shift-click overwrite, filled-pad recall,
+right-click clear, loop arm and loop exit through real browser input. It checks the persisted cue bank,
+decoder hand-off and loop state after the browser events; it does not substitute direct HTTP calls for
+those UI gestures.
 
 ### Real-time engineering boundary
 
