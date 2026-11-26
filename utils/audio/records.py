@@ -365,7 +365,9 @@ class Deck:
             return False
         if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
             return False
-        if target != 1.0 and (self._bend_expired or self._loop is not None or self._roll is not None):
+        if target != 1.0 and (
+            self._bend_expired or self._loop is not None or self._roll is not None
+        ):
             return False
         if target != 1.0 and not self._bend_buffer_active:
             if not self.prepare_bend():
@@ -2625,10 +2627,11 @@ class CrossfadeSource(_AudioSource):
             if math.isclose(target, 1.0, abs_tol=1e-5):
                 ok = deck.set_bend(1.0, release=release)
                 if head is not None:
-                    head.set_bend(1.0, release=release)
+                    ok = head.set_bend(1.0, release=release) and ok
                 return ok
             if (
-                deck.loop_active or deck.roll_active or self.plan is not None or self.incoming is not None or self.hand is not None
+                deck.loop_active or deck.roll_active
+                or self.plan is not None or self.incoming is not None or self.hand is not None
                 or self._planning or self._pending_planning_mode is not None
                 or self._pending_loop_exit is not None or slot in self.paused
                 or self._splice is not None
@@ -2653,10 +2656,11 @@ class CrossfadeSource(_AudioSource):
             current = self.current
             if current is None:
                 return False
+            playback_rate = current.ratio * current.bend["rate"]
             bpm = (
-                current.grid.bpm * current.ratio
+                current.grid.bpm * playback_rate
                 if current.grid is not None
-                else (current.record.bpm or 0.0) * current.ratio
+                else (current.record.bpm or 0.0) * playback_rate
             )
             return self.effects.set(
                 True, bpm=bpm, beats=beats, feedback=feedback, wet=wet
