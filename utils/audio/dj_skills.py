@@ -19,6 +19,14 @@ MAX_BLEND_ACTIONS = 4
 MAX_ACTION_SECONDS = 300.0
 SKILL_PHRASE_BARS = 4
 STAGE_MULTIPLIER = 0.84
+# Conservative current-engine allowlist. #403 has not yet supplied a shared
+# runtime capability registry; do not add a skill that requires an absent DSP
+# or booth primitive until that work lands.
+ENGINE_CAPABILITIES = frozenset({
+    "eq.low", "eq.mid", "eq.high", "channel_gain",
+    "transition.mix", "transition.echo_tail", "transition.measured_fallback",
+    "phrase_profile.aligned", "beat_grid.bar_known",
+})
 TRADE_BARS = 8
 
 
@@ -190,6 +198,12 @@ def validate_catalog() -> None:
             spec.cancel_release, spec.fallback, spec.explanation, spec.renderer,
         )):
             raise ValueError(f"incomplete DJ skill definition: {skill_id}")
+        missing_capabilities = set(spec.capabilities) - ENGINE_CAPABILITIES
+        if missing_capabilities:
+            raise ValueError(
+                f"{skill_id} requires unavailable engine capabilities: "
+                + ", ".join(sorted(missing_capabilities))
+            )
         for name, low, high in spec.parameter_bounds:
             if not name or not math.isfinite(low) or not math.isfinite(high) or low > high:
                 raise ValueError(f"invalid parameter bounds in {skill_id}")
@@ -747,4 +761,5 @@ class SkillScheduler:
             "manual_overrides": sorted((str(slot), lane)
                                        for slot, lane in self._manual_overrides),
             "catalog": sorted(SKILL_CATALOG),
+            "engine_capabilities": sorted(ENGINE_CAPABILITIES),
         }
