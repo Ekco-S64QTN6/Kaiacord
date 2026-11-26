@@ -379,9 +379,11 @@ class Deck:
 
     def _bent_frame(self) -> Optional[bytes]:
         """Resample the live decoded stream at the temporary jog rate."""
-        if self._bend_target != 1.0 or self._bend_rate != 1.0:
+        if self._bend_target != 1.0:
             self._bend_frames += 1
             if self._bend_frames >= PITCH_BEND_MAX_FRAMES:
+                # Apply the timeout once; repeatedly resetting the ramp while
+                # it returns to unity would leave the platter permanently bent.
                 self._bend_target = 1.0
                 self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
         if self._bend_ramp_remaining:
