@@ -6,7 +6,7 @@ transition happened at the same point of a song. A DJ leaves a record where it
 changes — as its outro starts, or as it falls into its last breakdown.
 
 Five curves over the record, each relative to that record's own usual level:
-`full` (overall mid/side energy), `bass` (under 180 Hz), `lead` (sustained
+`full` (all-frequency mid-channel energy), `bass` (under 180 Hz), `lead` (sustained
 300-3400 Hz centre energy), `upper` (3500-5200 Hz energy at this analyser's
 11.025 kHz sample rate), and `transient` (positive spectral flux). `lead` is
 not a vocal detector or stem separation: it is a sustained midrange/centre
@@ -357,8 +357,10 @@ def profile_from_map(m: Map, grid=None, *, phrase_bars: int = 4,
     return PhraseProfile(
         duration=round(duration, 3),
         phrase_bars=phrase_bars,
-        grid_bpm=float(grid.bpm) if aligned else None,
-        grid_contrast=float(grid.contrast) if aligned else None,
+        # Contrast is retained as a raw tracker statistic even when the bar
+        # count is not trustworthy; consumers must not treat it as a probability.
+        grid_bpm=float(grid.bpm) if grid is not None else None,
+        grid_contrast=float(grid.contrast) if grid is not None else None,
         aligned=aligned,
         phrases=tuple(states),
     )
