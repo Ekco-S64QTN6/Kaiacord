@@ -211,3 +211,96 @@ def test_setlist_worker_side_cache_uses_the_new_audio_identity(tmp_path, monkeyp
     finally:
         setlist._W_LIVE, setlist._W_IDENTITIES, setlist._W_SIDES = original_live, original_ids, original_sides
         audio_identity.clear_audio_signature_cache()
+
+
+def test_first_sound_lru_refreshes_after_same_path_audio_replacement(tmp_path, monkeypatch):
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 8192)
+    audio_identity.clear_audio_signature_cache()
+    beatgrid.first_sound.cache_clear()
+    calls = []
+
+    def decode(*_args, **_kwargs):
+        calls.append(1)
+        samples = np.zeros(8000 * 10, dtype=np.int16)
+        first_loud_frame = 20 if len(calls) == 1 else 5
+        samples[first_loud_frame * 400:(first_loud_frame + 1) * 400] = 12000
+        return SimpleNamespace(stdout=samples.tobytes())
+
+    monkeypatch.setattr(beatgrid.subprocess, "run", decode)
+    first = beatgrid.first_sound(str(path))
+    assert beatgrid.first_sound(str(path)) == first
+    assert len(calls) == 1
+
+    _same_stat_replacement(path)
+    replaced = beatgrid.first_sound(str(path))
+    assert len(calls) == 2
+    assert replaced != first
+    beatgrid.first_sound.cache_clear()
+    audio_identity.clear_audio_signature_cache()
+
+
+def test_bass_entry_lru_refreshes_after_same_path_audio_replacement(tmp_path, monkeypatch):
+    from scipy import signal
+
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 8192)
+    audio_identity.clear_audio_signature_cache()
+    beatgrid.bass_entry.cache_clear()
+    decoded = []
+
+    monkeypatch.setattr(beatgrid, "grid_for",
+                        lambda *_args: beatgrid.Grid(120.0, 0.0, 8.0, bar_known=True))
+    monkeypatch.setattr(beatgrid.subprocess, "run",
+                        lambda *_args, **_kwargs: decoded.append(1) or
+                        SimpleNamespace(stdout=np.zeros(10 * int(2 * beatgrid.RATE), dtype=np.int16).tobytes()))
+    monkeypatch.setattr(signal, "butter", lambda *_args, **_kwargs: None)
+
+    def filtered(_sos, samples):
+        if len(decoded) == 1:
+            return np.ones(len(samples), dtype=np.float32)
+        bar_samples = int(2 * beatgrid.RATE)
+        levels = np.ones(10 * bar_samples, dtype=np.float32)
+        levels[:4 * bar_samples] = 0.0
+        return levels
+
+    monkeypatch.setattr(signal, "sosfilt", filtered)
+    first = beatgrid.bass_entry(str(path), 120.0)
+    assert first == 0
+    assert beatgrid.bass_entry(str(path), 120.0) == first
+    assert len(decoded) == 1
+
+    _same_stat_replacement(path)
+    replaced = beatgrid.bass_entry(str(path), 120.0)
+    assert replaced == 4
+    assert len(decoded) == 2
+    beatgrid.bass_entry.cache_clear()
+    audio_identity.clear_audio_signature_cache()
+
+
+def test_last_strong_beat_lru_refreshes_after_same_path_audio_replacement(tmp_path, monkeypatch):
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 8192)
+    audio_identity.clear_audio_signature_cache()
+    beatgrid.last_strong_beat.cache_clear()
+    calls = []
+
+    monkeypatch.setattr(beatgrid, "find_grid",
+                        lambda *_args: beatgrid.Grid(120.0, 0.0, 8.0))
+    def window(_path, _start, seconds):
+        calls.append(1)
+        duration = 120.0 if len(calls) == 1 else 80.0
+        return np.ones(int(duration * beatgrid.HOPS_PER_S), dtype=np.float32)
+
+    monkeypatch.setattr(beatgrid, "_window", window)
+    first = beatgrid.last_strong_beat(str(path), 120.0, 120.0, 120.0)
+    assert first is not None
+    assert beatgrid.last_strong_beat(str(path), 120.0, 120.0, 120.0) == first
+    assert len(calls) == 1
+
+    _same_stat_replacement(path)
+    replaced = beatgrid.last_strong_beat(str(path), 120.0, 120.0, 120.0)
+    assert replaced is not None and replaced < first
+    assert len(calls) == 2
+    beatgrid.last_strong_beat.cache_clear()
+    audio_identity.clear_audio_signature_cache()
