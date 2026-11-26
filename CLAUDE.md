@@ -1041,6 +1041,17 @@ that are easy to break:
   whole hour. Kaia must be able to wait, reject a technically valid blend, choose a surprising but
   coherent partner, cut, contrast, or let a breakdown breathe. Longer blends, more layers, higher
   energy and more effects are not automatically better.
+- **Keep the records crossfader transfer law explicit and backward-compatible.** `standard` must
+  reproduce the old A/B overlap law exactly. `constant_power` is a cosine/sine equal-power pair;
+  `cut` switches A to B at the defined midpoint. Each deck may be assigned A, B or THRU, with
+  THRU bypassing only the crossfader. Curve and assignment changes ramp from currently applied
+  gains over eight 20 ms frames advanced once under the source render lock; direct fader movement
+  remains immediate. Reject non-finite values and unknown names. Reset must restore standard/A/B.
+  The booth selectors must reflect the server snapshot and their actual values must affect the
+  rendered channel gain. Keep the records-audio path filter watching `assets/dj/index.html` and
+  test both transfer functions and HTTP/UI control routes. This is only the first #403 slice;
+  do not claim PFL, loops, jog/pitch bend or FX until those real paths exist.
+
 - **Treat DJ skills as real musical operations, not labels or UI promises.** Every skill needs a
   purpose, preconditions, timing/phrase rules, bounded parameters, explanation, owned lanes,
   composition rules and safe cancellation/release. The first `dj_skills.py` catalog may select only
