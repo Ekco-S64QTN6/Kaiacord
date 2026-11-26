@@ -2300,7 +2300,7 @@ class RecordsSession:
             current_bpm, candidate.bpm or 120.0, edge,
         )
 
-    def _listener_intent_applied(self, nxt: Next) -> None:
+    def _listener_intent_selected(self, nxt: Next) -> None:
         """Consume the matching one-shot request only after a prepared plan exists."""
         request_id = nxt.listener_intent_id
         if request_id is None:
@@ -2549,26 +2549,31 @@ class RecordsSession:
                 if scored is not None:
                     intent_scores[path] = scored
 
-        if intent_scores:
-            position = {path: i for i, path in enumerate(ranked)}
-            options = sorted(
-                ranked,
-                key=lambda path: (
-                    0 if path in intent_scores else 1,
-                    -intent_scores[path][0] if path in intent_scores else 0.0,
-                    position[path],
-                ),
+        # Preserve the precomputed set path by default. A listener preference
+        # may move a candidate ahead of it only when the profile evidence moves
+        # in the requested direction by a meaningful amount.
+        default_options = ranked
+        if self.set_list and deck.record.path in self.set_list:
+            i = self.set_list.index(deck.record.path)
+            ahead = [p for p in self.set_list[i + 1:] if p not in played]
+            if ahead and ahead[0] in ranked:
+                default_options = [ahead[0]]
+        preferred = {
+            path: value for path, value in intent_scores.items()
+            if value[0] >= records_intent.MIN_PREFERENCE_SCORE
+        } if intent is not None else {}
+        if preferred:
+            preferred_paths = sorted(
+                preferred, key=lambda path: (-preferred[path][0], ranked.index(path))
             )
+            options = preferred_paths + [
+                path for path in default_options if path not in preferred_paths
+            ] + [
+                path for path in ranked
+                if path not in preferred_paths and path not in default_options
+            ]
         else:
-            # Without usable profile evidence keep following the precomputed
-            # set path exactly as before.
-            if self.set_list and deck.record.path in self.set_list:
-                i = self.set_list.index(deck.record.path)
-                ahead = [p for p in self.set_list[i + 1:] if p not in played]
-                if ahead and ahead[0] in ranked:
-                    options = [ahead[0]] + [p for p in ranked if p != ahead[0]]
-            else:
-                options = ranked
+            options = default_options
 
         for path in options[:4]:
             rec = self._by_path[path]
@@ -2587,9 +2592,9 @@ class RecordsSession:
             nxt = Next(rec, seconds, gain_db(rec.path), beatgrid.grid_for(rec.path, rec.bpm),
                        beatgrid.first_sound(rec.path), beatgrid.bass_entry(rec.path, rec.bpm),
                        source="set" if self.set_list and path in self.set_list else "partner")
-            if path in intent_scores and intent is not None:
+            if path in preferred and intent is not None:
                 nxt.listener_intent_id = intent.request_id
-                nxt.listener_intent_score, nxt.listener_intent_reason = intent_scores[path]
+                nxt.listener_intent_score, nxt.listener_intent_reason = preferred[path]
                 if self.set_list and path not in self.set_list:
                     self.set_list = next(
                         (s for s in self.graph.get("sets", []) if path in s), None
@@ -2637,17 +2642,19 @@ class RecordsSession:
             )
             if value is not None:
                 scored[rec.path] = value
-        if not scored:
+        preferred = {
+            path: value for path, value in scored.items()
+            if value[0] >= records_intent.MIN_PREFERENCE_SCORE
+        }
+        if not preferred:
             return ranked
         position = {rec.path: i for i, rec in enumerate(ranked)}
-        return sorted(
-            ranked,
-            key=lambda rec: (
-                0 if rec.path in scored else 1,
-                -scored[rec.path][0] if rec.path in scored else 0.0,
-                position[rec.path],
-            ),
+        preferred_records = sorted(
+            (rec for rec in ranked if rec.path in preferred),
+            key=lambda rec: (-preferred[rec.path][0], position[rec.path]),
         )
+        preferred_paths = {rec.path for rec in preferred_records}
+        return preferred_records + [rec for rec in ranked if rec.path not in preferred_paths]
 
     def _alternatives(self, deck: Deck, rejected: Next):
         """Readied records to try when her pick will not lock with the outgoing."""
@@ -2661,7 +2668,8 @@ class RecordsSession:
             nxt.source = "partner" if rec.path in nbrs else "search"
             if intent is not None:
                 scored = self._listener_candidate_score(deck, rec, nbrs.get(rec.path), intent)
-                if scored is not None:
+                from utils.audio import records_intent
+                if scored is not None and scored[0] >= records_intent.MIN_PREFERENCE_SCORE:
                     nxt.listener_intent_id = intent.request_id
                     nxt.listener_intent_score, nxt.listener_intent_reason = scored
             yield nxt
@@ -2943,7 +2951,7 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
                                          mix_beats=int(mix_beats))
         session.source.say = session.say
         session.source.alternatives = session._alternatives
-        session.source._on_picked = session._listener_intent_applied
+        session.source._on_picked = session._listener_intent_selected
         try:
             from utils.infrastructure.system.yaml_config import config
             session.source.rides = bool(config.get("music.records_kaia_hands", True))
