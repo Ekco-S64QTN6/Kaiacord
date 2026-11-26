@@ -23,6 +23,15 @@ perfectly locked transition can still be boring, crowded or emotionally wrong. B
 checks are guardrails, not an artistic score. The full product bar and capability target are in
 [records-and-booth.md](03-architecture/records-and-booth.md).
 
+Implementation sequence (keep these independently reviewable):
+
+1. [#404 — cached phrase-level musical-state profiles](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404) builds the evidence layer by extending `songmap`.
+2. [#405 — full-set musical arcs and transition intent](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405) consumes those profiles; it must not equate technical lock with artistic quality.
+3. [#403 — professional booth/mixer parity](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) supplies the real hardware/control primitives; it can progress alongside the analysis/planner work.
+4. [#406 — composable DJ skills and phrase scheduler](https://github.com/Ekco-S64QTN6/Kaiacord/issues/406) composes only the actions the active mixer actually supports.
+5. [#407 — records-mode listener requests](https://github.com/Ekco-S64QTN6/Kaiacord/issues/407) routes intent to the active records session without changing Strudel behavior.
+6. [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) remains the parent acceptance bar: real-crate full-set listening and independent assessment of musicality, not only passing technical tests.
+
 | Item | What | Call |
 |:--|:--|:--|
 | **Expert DJ judgment and set storytelling** | Replace compatibility-first selection as the definition of quality with a musical decision process: understand the records' structure and musical roles, choose the right moment, account for vocals/hooks/density/energy/tension/release, plan the full hour's pacing and contrast, and evaluate what actually sounds. Kaia must sometimes wait, reject a technically valid blend, cut, contrast or choose an unexpected but coherent partner. | Yes — owner-confirmed; [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
