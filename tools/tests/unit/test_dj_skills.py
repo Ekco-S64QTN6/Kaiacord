@@ -221,6 +221,20 @@ def test_cancelled_blend_actions_are_discarded_and_echo_label_uses_existing_echo
     assert all(np.allclose(f, 1.0) for f in factors)
 
 
+
+
+def test_aligned_profile_without_an_active_structural_action_allows_legacy_fallback():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 8, "unclassified_candidate"),
+    ), fingerprint=7)
+    factors, label, skill_id, handled = scheduler.render_solo(
+        np.array([2.0, 2.02], dtype=np.float32), slot=1
+    )
+    assert not handled and label == "" and skill_id == ""
+    assert all(np.allclose(factor, 1.0) for factor in factors)
+
+
 def test_profile_missing_falls_back_without_claiming_structure():
     scheduler = S.SkillScheduler()
     scheduler.set_solo_profile(None, fingerprint=0)
@@ -236,8 +250,8 @@ def test_solo_phrase_actions_follow_source_time_when_deck_is_stretched():
     scheduler.set_solo_profile(_profile(
         _phrase(0, 8, "build_candidate"),
     ), fingerprint=0x12345678)
-    # Deck.at() is stretched playback time. A 1.25x deck reaches source 4 s at
-    # playback 4.8 s; the action is fully engaged at source 6 s, not playback 6 s.
+    # Deck.at() is stretched playback time. At playback 4.8 s the 1.25x deck
+    # has reached source 6 s, where this build action is fully engaged.
     factors, label, skill_id, handled = scheduler.render_solo(
         np.array([4.8, 4.81], dtype=np.float32), slot=1, ratio=1.25
     )
