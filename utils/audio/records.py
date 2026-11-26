@@ -550,6 +550,10 @@ class Deck:
         }
 
     @property
+    def bend_active(self) -> bool:
+        return bool(self.bend["active"])
+
+    @property
     def end(self) -> float:
         # Fixed track end; at() is intentionally loop-relative while looping.
         return (self.total_frames * FRAME_SAMPLES - self.pad) / RATE + self.offset / self.ratio
@@ -1778,6 +1782,12 @@ class CrossfadeSource(_AudioSource):
         if rolling_slot is not None:
             self.set_roll(rolling_slot, 1, pressed=False)
         with self._lock:
+            bending_slot = (
+                self.current.slot if self.current is not None and self.current.bend_active else None
+            )
+        if bending_slot is not None:
+            self.set_bend(bending_slot, 1.0)
+        with self._lock:
             # A skip already on its way stays on its way. Planned again from now,
             # each press moved it a phrase later — and the planner's search and a
             # fresh decoder ran again every time (24 Oct: six NEXTs in nine
@@ -2543,6 +2553,51 @@ class CrossfadeSource(_AudioSource):
                 self.skill_scheduler.manual_override(slot, name, at, bar_s, float(value))
             return True
 
+    def set_bend(self, slot: int, rate: float) -> bool:
+        """Apply a live temporary jog rate to the on-air deck and its PFL twin.
+
+        The rate is a playback multiplier (0.92–1.08). One is neutral. Release
+        is always accepted for the current deck so a transition/skip can hand
+        ownership back even after the initiating browser gesture ends.
+        """
+        if isinstance(slot, bool) or slot not in (1, 2):
+            return False
+        if isinstance(rate, bool):
+            return False
+        try:
+            target = float(rate)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
+            return False
+        with self._lock:
+            deck = self.current if self.current is not None and self.current.slot == slot else None
+            if deck is None:
+                return False
+            head = self._headphones_deck if self._headphones_slot == slot else None
+            if math.isclose(target, 1.0, abs_tol=1e-5):
+                ok = deck.set_bend(1.0)
+                if head is not None:
+                    head.set_bend(1.0)
+                return ok
+            if (
+                deck.loop_active or deck.roll_active or deck.bend_active and self._planning
+                or self.plan is not None or self.incoming is not None or self.hand is not None
+                or self._planning or self._pending_planning_mode is not None
+                or self._pending_loop_exit is not None or slot in self.paused
+                or self._splice is not None
+                or deck.remaining <= PITCH_BEND_MAX_FRAMES + PITCH_BEND_RAMP_FRAMES + 10
+            ):
+                return False
+            if head is not None and (head.loop_active or head.roll_active):
+                return False
+            if not deck.set_bend(target):
+                return False
+            if head is not None and not head.set_bend(target):
+                deck.set_bend(1.0)
+                return False
+            return True
+
     def set_echo(self, enabled: bool, beats: float = 1.0,
                  feedback: float = 0.35, wet: float = 0.30) -> bool:
         """Control the real master echo using the current on-air playback tempo."""
@@ -3031,7 +3086,7 @@ class CrossfadeSource(_AudioSource):
         # Early enough to fit a blend before a long outro: the plan places
         # itself on the last phrase that leaves room, however soon it is made.
         if (plan is None and self.hand is None and not getattr(cur, "loop_active", False)
-                and not getattr(cur, "roll_active", False) and not self._planning
+                and not getattr(cur, "roll_active", False) and not cur.bend_active and not self._planning
                 and cur.remaining <= int(self._plan_ahead(cur) * FRAMES_PER_S)):
             self._begin_planning("end")
         if self.hand is not None and plan is None:
@@ -3048,7 +3103,7 @@ class CrossfadeSource(_AudioSource):
             out, cur = self._splice_frame(cur, k, out)
             t0 = cur.at(cur.played - 1)
         elif (plan is None and not getattr(cur, "loop_active", False)
-              and not getattr(cur, "roll_active", False)
+              and not getattr(cur, "roll_active", False) and not cur.bend_active
               and self.tempo_glide and not self._gliding and not self._planning
               and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
               and cur.grid is not None and cur.grid.bar_known
