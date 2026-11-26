@@ -55,6 +55,13 @@ audible effect. A request received during an in-flight pick is deferred to the f
 Unit tests cover routing, request lifecycle and preference ranking, not audible DJ quality.
 Real-crate listening and independent assessment remain under `#402`.
 
+**#403 implementation boundary (branch in progress):** the first mixer slice adds
+backward-compatible `standard`, equal-power `constant_power` and midpoint `cut` crossfader
+laws, plus per-deck A/B/THRU assignments. Curve and assignment changes ramp over eight
+20 ms rendered frames; direct crossfader movement follows the hand immediately. The booth
+exposes and tests those controls. This does not close #403: PFL/cue-master routing,
+hot/memory cues, loops/rolls, jog/pitch bend and an actual bounded FX bus remain unimplemented.
+
 **#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
 uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove
 choices, the legacy phrase-EQ fallback, the existing blend headroom/upper-band/air actions, and
