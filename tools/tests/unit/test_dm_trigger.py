@@ -70,7 +70,7 @@ async def test_dm_triggers_without_kaia_mention(mock_processor):
     msg.role_mentions = []
     msg.content = "Can you help me write a python script?"
 
-    await mock_processor._process_internal(msg)
+    await mock_processor.process(msg)
 
     # Pipeline should have been called
     assert mock_processor._run_intelligence_pipeline.called
@@ -103,7 +103,7 @@ async def test_guild_message_without_kaia_is_ignored(mock_processor):
     msg.role_mentions = []
     msg.content = "Does anyone know what time it is?"
 
-    await mock_processor._process_internal(msg)
+    await mock_processor.process(msg)
 
     # Intelligence pipeline should NOT be called
     assert not mock_processor._run_intelligence_pipeline.called
@@ -132,7 +132,7 @@ async def test_guild_message_with_kaia_triggers(mock_processor):
     msg.role_mentions = []
     msg.content = "hey kaia, what time is it?"
 
-    await mock_processor._process_internal(msg)
+    await mock_processor.process(msg)
 
     # Intelligence pipeline should be called
     assert mock_processor._run_intelligence_pipeline.called
@@ -169,7 +169,7 @@ def _thread_message(private: bool, parent_name: str = "kaia-opolis", content: st
 @pytest.mark.asyncio
 async def test_a_private_thread_is_kept_as_a_dm_is(mock_processor):
     """Invitation-only: its turns must not reach the logs retrieval serves to everyone."""
-    await mock_processor._process_internal(_thread_message(private=True))
+    await mock_processor.process(_thread_message(private=True))
     ctx = mock_processor._run_intelligence_pipeline.call_args[0][0]
     assert ctx.is_dm is True
     mock_processor.bot_state.update_interaction.assert_called_once_with(None)
@@ -177,14 +177,14 @@ async def test_a_private_thread_is_kept_as_a_dm_is(mock_processor):
 
 @pytest.mark.asyncio
 async def test_a_private_thread_still_needs_her_name(mock_processor):
-    await mock_processor._process_internal(_thread_message(private=True, content="lunch at noon?"))
+    await mock_processor.process(_thread_message(private=True, content="lunch at noon?"))
     assert not mock_processor._run_intelligence_pipeline.called
 
 
 @pytest.mark.asyncio
 async def test_a_public_thread_is_an_ordinary_channel(mock_processor):
     msg = _thread_message(private=False)
-    await mock_processor._process_internal(msg)
+    await mock_processor.process(msg)
     ctx = mock_processor._run_intelligence_pipeline.call_args[0][0]
     assert ctx.is_dm is False
     mock_processor.bot_state.update_interaction.assert_called_once_with(msg.channel.id)
@@ -198,8 +198,95 @@ async def test_a_watched_channel_logs_its_public_threads_only(mock_processor, pr
     mock_processor.rag.log_user_interaction_async = AsyncMock()
     mock_processor._reactions = MagicMock()
     mock_processor._reactions.maybe_react = AsyncMock()
-    await mock_processor._process_internal(_thread_message(private=private, parent_name="general"))
+    await mock_processor.process(_thread_message(private=private, parent_name="general"))
     import asyncio
     await asyncio.sleep(0)
     assert mock_processor.rag.log_user_interaction_async.called is logged
     assert not mock_processor._run_intelligence_pipeline.called
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["dm", "private_thread"])
+async def test_private_command_dispatch_runs_under_private_context_and_resets_afterwards(
+    mock_processor, monkeypatch, kind
+):
+    """Commands run before response generation, so privacy must be set before dispatch."""
+    import asyncio
+    from utils.core import message_processor, private_turn
+
+    seen_private_states = []
+
+    async def dispatch(*_args):
+        seen_private_states.append(private_turn.active())
+
+        async def background_child():
+            return private_turn.active()
+
+        child = asyncio.create_task(background_child())
+        seen_private_states.append(await child)
+        return True
+
+    monkeypatch.setattr(message_processor, "resolve_command", lambda _content: object())
+    monkeypatch.setattr(message_processor, "dispatch_command", dispatch)
+
+    if kind == "private_thread":
+        msg = _thread_message(private=True, content="!private-command")
+    else:
+        dm_channel = MagicMock(spec=discord.DMChannel)
+        dm_channel.id = 7654321
+        user = MagicMock(spec=discord.User)
+        user.id = 444444
+        user.name = user.display_name = "Dana"
+        user.bot = False
+        msg = MagicMock(spec=discord.Message)
+        msg.platform = "discord"
+        msg.author = user
+        msg.guild = None
+        msg.channel = dm_channel
+        msg.mentions = []
+        msg.role_mentions = []
+        msg.content = "!private-command"
+
+    assert private_turn.active() is False
+    await mock_processor.process(msg)
+
+    assert seen_private_states == [True, True]
+    assert private_turn.active() is False, "private command context leaked beyond process()"
+
+
+@pytest.mark.asyncio
+async def test_private_command_context_is_restored_when_dispatch_raises(mock_processor, monkeypatch):
+    from utils.core import message_processor, private_turn
+
+    async def dispatch(*_args):
+        assert private_turn.active() is True
+        raise RuntimeError("synthetic dispatch failure")
+
+    monkeypatch.setattr(message_processor, "resolve_command", lambda _content: object())
+    monkeypatch.setattr(message_processor, "dispatch_command", dispatch)
+    msg = _thread_message(private=True, content="!private-command")
+
+    with pytest.raises(RuntimeError, match="synthetic dispatch failure"):
+        await mock_processor.process(msg)
+
+    assert private_turn.active() is False
+
+
+@pytest.mark.asyncio
+async def test_public_command_dispatch_does_not_inherit_private_context(mock_processor, monkeypatch):
+    from utils.core import message_processor, private_turn
+
+    seen_private_states = []
+
+    async def dispatch(*_args):
+        seen_private_states.append(private_turn.active())
+        return True
+
+    monkeypatch.setattr(message_processor, "resolve_command", lambda _content: object())
+    monkeypatch.setattr(message_processor, "dispatch_command", dispatch)
+    msg = _thread_message(private=False, content="!public-command")
+
+    await mock_processor.process(msg)
+
+    assert seen_private_states == [False]
+    assert private_turn.active() is False
