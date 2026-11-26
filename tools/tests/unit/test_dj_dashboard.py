@@ -805,6 +805,9 @@ def test_live_jog_http_control_updates_the_deck_and_releases_to_neutral(session,
         assert post({"slot": 1, "action": "set", "rate": 1.05}) == 204
         assert src.current.bend["active"] is True
         assert src.current.bend["target"] == pytest.approx(1.05)
+        # Dashboard tempo reports the applied sample rate, after the eight-frame ramp.
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+            src.read()
         state = D.snapshot(session)["decks"]["1"]
         assert state["bend"]["active"] is True
         assert state["tempo"] == pytest.approx(126.0)
