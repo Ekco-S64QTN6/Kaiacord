@@ -70,7 +70,7 @@ def test_profile_compiler_schedules_build_pressure_and_drop_reveal_on_counted_ph
     assert build[2][-1] == pytest.approx(1.04, abs=0.01)
 
     drop, drop_label, drop_id, handled = scheduler.render_solo(
-        np.array([9.0, 9.01], dtype=np.float32), slot=1
+        np.array([10.1, 10.11], dtype=np.float32), slot=1
     )
     assert handled and drop_id == "solo_drop_reveal"
     assert "drop candidate" in drop_label
