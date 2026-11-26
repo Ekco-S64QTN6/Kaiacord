@@ -306,6 +306,7 @@ class SkillScheduler:
         self._solo_profile_present = False
         self._solo_profile_aligned = False
         self._solo_duration = 0.0
+        self._solo_fingerprint = 0
         self._solo_actions: tuple[SkillAction, ...] = ()
         self._blend_plan_id: Optional[int] = None
         self._blend_actions: tuple[SkillAction, ...] = ()
@@ -344,42 +345,49 @@ class SkillScheduler:
                         phrase.end - 2.0 * bar_s, phrase.end - bar_s,
                         phrase.end, phrase.end + bar_s,
                     )
-                    actions.extend((
+                    pair = (
                         self._action("solo_build_pressure", "solo.low", start, attack_end,
                                      release_start, end, 0.94,
                                      "holding the low end back into a counted build candidate"),
                         self._action("solo_build_pressure", "solo.high", start, attack_end,
                                      release_start, end, 1.04,
                                      "lifting the upper band into a counted build candidate"),
-                    ))
+                    )
+                    if len(actions) + len(pair) > MAX_PROFILE_ACTIONS:
+                        break
+                    actions.extend(pair)
                 elif phrase.section == "drop_candidate":
                     start, attack_end, release_start, end = (
                         phrase.start, phrase.start + 0.5 * bar_s,
                         phrase.start + bar_s, phrase.start + 2.0 * bar_s,
                     )
-                    actions.extend((
+                    pair = (
                         self._action("solo_drop_reveal", "solo.low", start, attack_end,
                                      release_start, end, 1.05,
                                      "giving the low end a small reveal at a counted drop candidate"),
                         self._action("solo_drop_reveal", "solo.high", start, attack_end,
                                      release_start, end, 0.98,
                                      "making a little room in the upper band at a counted drop candidate"),
-                    ))
+                    )
+                    if len(actions) + len(pair) > MAX_PROFILE_ACTIONS:
+                        break
+                    actions.extend(pair)
                 elif phrase.section == "breakdown_candidate":
+                    if len(actions) >= MAX_PROFILE_ACTIONS:
+                        break
                     actions.append(self._action(
                         "solo_breakdown_breathe", "none", phrase.start,
                         phrase.start, phrase.end, phrase.end, 1.0,
                         "letting the breakdown breathe without an extra EQ move",
                     ))
                 elif phrase.section == "groove_candidate":
+                    if len(actions) >= MAX_PROFILE_ACTIONS:
+                        break
                     actions.append(self._action(
                         "solo_groove_hold", "none", phrase.start,
                         phrase.start, phrase.end, phrase.end, 1.0,
                         "letting a steady groove carry without an unnecessary move",
                     ))
-                if len(actions) >= MAX_PROFILE_ACTIONS:
-                    actions = actions[:MAX_PROFILE_ACTIONS]
-                    break
         _validate_action_set(actions, MAX_PROFILE_ACTIONS)
         self._solo_actions = tuple(actions)
         self._active_skill = None
@@ -490,24 +498,31 @@ class SkillScheduler:
         return tuple(self._manual_fade(slot, lane, np.asarray(factor, dtype=np.float32), times)
                      for lane, factor in zip(lanes, factors))
 
-    def render_solo(self, times: np.ndarray, slot: int) -> tuple[tuple[np.ndarray, ...], str, str, bool]:
-        """Return EQ factors, truthful label, skill id, and whether profile evidence handled this time."""
+    @property
+    def solo_fingerprint(self) -> int:
+        return self._solo_fingerprint
+
+    def render_solo(self, times: np.ndarray, slot: int,
+                    ratio: float = 1.0) -> tuple[tuple[np.ndarray, ...], str, str, bool]:
+        """Return EQ factors; profile windows use source time, manual ramps use playback time."""
         ones = np.ones_like(times, dtype=np.float32)
         identity = (ones.copy(), ones.copy(), ones.copy())
         if not self.enabled:
             return identity, "", "", True
         if not self._solo_profile_present or not self._solo_profile_aligned:
             return identity, "", "", False
-        now = float(times[-1]) if len(times) else 0.0
+        ratio = max(0.01, float(ratio))
+        source_times = np.asarray(times, dtype=np.float32) * ratio
+        now = float(source_times[-1]) if len(source_times) else 0.0
         if now > self._solo_duration:
             return identity, "", "", False
         factors = [ones.copy(), ones.copy(), ones.copy()]
         active: list[SkillAction] = []
         for action in self._solo_actions:
-            if action.lane != "none" and action.start <= now + 0.04 and action.end >= float(times[0]):
+            if action.lane != "none" and action.start <= now + 0.04 * ratio and action.end >= float(source_times[0]):
                 lane = action.lane.split(".", 1)[1]
                 idx = {"low": 0, "mid": 1, "high": 2}[lane]
-                multiplier = _factor(action, times)
+                multiplier = _factor(action, source_times)
                 factors[idx] *= self._manual_fade(slot, lane, multiplier, times)
                 active.append(action)
             elif action.lane == "none" and action.start <= now < action.end:
