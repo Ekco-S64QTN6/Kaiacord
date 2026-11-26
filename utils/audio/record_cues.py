@@ -61,7 +61,12 @@ def _read_store(path: Path, *, preserve_invalid: bool = False) -> dict:
         if preserve_invalid:
             set_aside(path)
         return {"version": VERSION, "records": {}}
-    if not isinstance(payload, dict) or payload.get("version") != VERSION or not isinstance(payload.get("records"), dict):
+    if (
+        not isinstance(payload, dict)
+        or isinstance(payload.get("version"), bool)
+        or payload.get("version") != VERSION
+        or not isinstance(payload.get("records"), dict)
+    ):
         if preserve_invalid:
             set_aside(path)
         return {"version": VERSION, "records": {}}
