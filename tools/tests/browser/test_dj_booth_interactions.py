@@ -1,4 +1,4 @@
-"""Real-browser gesture tests for the DJ booth cue and beat-loop controls."""
+"""Real-browser pointer tests for cue banks, beat loops, slip rolls and live jog recovery."""
 from __future__ import annotations
 
 import io
