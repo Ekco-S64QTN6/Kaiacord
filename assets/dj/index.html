@@ -1105,6 +1105,7 @@ function releaseBend(slot, pointerId = null) {
   if (!state || (pointerId !== null && state.pointerId !== pointerId)) return;
   heldBends.delete(slot);
   clearTimeout(state.timer);
+  clearTimeout(state.timeout);
   state.jog.classList.remove("bending");
   state.queue = state.queue.then(() =>
     post("/bend", { slot, action: "set", rate: state.latest })
@@ -1491,9 +1492,12 @@ function scrubbing(slot) {
       bendHold = { angle: ang, turns: 0 };
       const state = {
         slot, pointerId: e.pointerId, jog, latest: 1.0,
-        timer: 0, queue: Promise.resolve(),
+        timer: 0, timeout: 0, queue: Promise.resolve(),
       };
       heldBends.set(slot, state);
+      // The renderer independently enforces the same 10-second ceiling; this
+      // browser timer also releases the pointer gesture and any queued updates.
+      state.timeout = setTimeout(() => releaseBend(slot, e.pointerId), 10000);
       jog.setPointerCapture(e.pointerId);
       e.preventDefault();
       return;
