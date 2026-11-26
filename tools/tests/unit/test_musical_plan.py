@@ -87,5 +87,6 @@ def test_unaligned_windows_are_used_as_time_local_evidence_without_phrase_claims
     result = musical_plan.assess_transition(current, candidate, {"beats": 64}, out, inc)
     assert result.available
     assert not result.outgoing_aligned and not result.incoming_aligned
-    assert result.outgoing_section == "build_candidate"
-    assert result.incoming_role == "peak"
+    assert result.outgoing_section is None
+    assert result.incoming_section is None
+    assert result.incoming_role == "unknown"
