@@ -384,10 +384,11 @@ class MessageProcessor:
             or isinstance(getattr(msg, 'channel', None), (_discord.DMChannel, _discord.GroupChannel))
             or getattr(getattr(msg, 'channel', None), 'type', None) in (_discord.ChannelType.private, _discord.ChannelType.group)
         )
-        if not is_social and _in_private_thread(msg):
-            is_dm = True
+        is_private_thread = not is_social and _in_private_thread(msg)
         from utils.core import private_turn as _pt_flag
-        _pt_flag.enter(is_dm)
+        # Privacy and triggering are separate: a private thread is private
+        # before command dispatch, but still requires Kaia's name to trigger.
+        _pt_flag.enter(is_dm or is_private_thread)
 
         if not is_social and msg.guild is not None:
             # Resolve the effective channel name.
@@ -521,8 +522,13 @@ class MessageProcessor:
         elif is_dm:
             log_debug(f"Direct message trigger check passed (is_dm=True, is_mention={is_mention})")
 
-        # Privacy was established before command dispatch above. The link
-        # enricher and intelligence pipeline now inherit the correct context.
+        # Only after the normal name/mention gate has passed does a private
+        # thread become DM-like for storage/routing. Its privacy ContextVar was
+        # already set before command dispatch above.
+        if is_private_thread:
+            is_dm = True
+
+        # The link enricher and intelligence pipeline inherit the private context.
 
         # 5. Rate Limiting & Shutdown Guard
         if not self.rate_limiter.is_allowed(msg.author.id):
