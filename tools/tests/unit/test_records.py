@@ -2500,6 +2500,11 @@ def test_live_jog_bend_validation_conflicts_timeout_and_skip_release(loop_source
     assert not src.set_bend(1, 1.04)
     src._planning = False
 
+    # The glide worker can be preparing a splice before _splice is published.
+    src._gliding = True
+    assert not src.set_bend(1, 1.04)
+    src._gliding = False
+
     src.paused.add(1)
     assert not src.set_bend(1, 1.04)
     src.paused.clear()
