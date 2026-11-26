@@ -164,7 +164,8 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `strudel_source.py` | The Discord audio source fed by the capture |
 | `levels.json` | Measured per-part gains, written by `audition_tracks.py --calibrate` |
 | `library.py` | The record crate from `dj_catalog.json` and which record plays next |
-| `records.py` | The current records mixer: decks, technically measured transition planning, band-split mixing, limited phrase-locked Kaia gestures, the free deck worked by hand, LUFS levels and the set session; expert musical judgment and full DJ repertoire are the target, not yet an implemented capability |
+| `records.py` | Records decks/mixer, measured transitions, bounded frame renderer, profile-worker lifecycle, manual lane ownership and set session |
+| `dj_skills.py` | Bounded catalog and phrase action scheduler for currently real mixer operations; no invented loops, jog, scratch or general FX capabilities |
 | `records_intent.py` | Typed, expiring listener direction for future autonomous records picks; feature-proxy scoring only, not vocal/percussion detection or immediate mixer control |
 | `beatgrid.py` | Beat and bar grids (bar one as the first strong beat, bars counted from it), the bassline's entry bar, the last strong beat, the rubberband stretch and key-shift filter |
 | `dj_dashboard.py` | The DJ booth: server, state stream, waveforms, the pop-out window (page in `assets/dj/`) |
