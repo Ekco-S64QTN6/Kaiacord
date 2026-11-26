@@ -174,7 +174,7 @@ def get(path: str) -> Optional[Map]:
         if m is None:
             return None
         # Do not cache analysis of a file that changed while ffmpeg was reading it.
-        if audio_signature(path) != signature:
+        if audio_signature(path, refresh=True) != signature:
             return None
         try:
             cache.parent.mkdir(parents=True, exist_ok=True)
@@ -183,7 +183,7 @@ def get(path: str) -> Optional[Map]:
             os.replace(tmp, cache)
         except OSError:
             pass
-    elif audio_signature(path) != signature:
+    elif audio_signature(path, refresh=True) != signature:
         return None
     with _mem_lock:
         _MEM[path] = (signature, m)
