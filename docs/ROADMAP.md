@@ -84,9 +84,9 @@ whole-gesture cap includes movement through the neutral centre; both the engine 
 paths enforce it. If a browser reload loses the pointer state, a platter tap acknowledges the
 engine's completed release latch without requiring a global mixer reset. The browser acceptance
 tests exercise both the real platter nudge and this recovery path. This is a manual phase/pitch nudge, not a
-permanent pitch slider or an autonomous pitch-ride skill. Remaining #403 work includes permanent
-pitch controls/long-form pitch rides, additional performance effects with independent bounds and
-recovery paths, wider control-interaction coverage and local audio/device audition.
+the persistent pitch fader described above or an autonomous pitch-ride skill. Remaining #403
+work includes additional performance effects with independent bounds and recovery paths, wider
+control-interaction coverage and local audio/device audition.
 
 **#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
 uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove
@@ -106,7 +106,7 @@ scratches, stutters or vocal/percussion recognition. No real-crate audition or b
 |:--|:--|:--|
 | **Expert DJ judgment and set storytelling** | Replace compatibility-first selection as the definition of quality with a musical decision process: understand the records' structure and musical roles, choose the right moment, account for vocals/hooks/density/energy/tension/release, plan the full hour's pacing and contrast, and evaluate what actually sounds. Kaia must sometimes wait, reject a technically valid blend, cut, contrast or choose an unexpected but coherent partner. | Yes — owner-confirmed; [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
 | **Composable expert DJ skill library** | Build real, explainable and safely executable skills: beat/phase work, pitch rides, cues, loops/rolls, cue/beat juggling, genuine scratches, phrase cuts, long/short blends, drop and breakdown swaps, vocal/acapella overlays, call-and-response, mashups, filters, FX, stutters, repeats, backspins, brakes and genre-aware technique. No cosmetic controls or fake tricks. | Yes — part of [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
-| **Professional booth/mixer parity** | Real PFL/cue mix, hot/memory cues, counted beat loops, manual slip rolls, a temporary ±8% live jog bend, configurable crossfader behavior and a manual tempo-synchronised master echo. Permanent pitch rides, additional bounded performance effects and physical audio/device acceptance remain. | Yes — [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) |
+| **Professional booth/mixer parity** | Real PFL/cue mix, hot/memory cues, counted beat loops, manual slip rolls, a temporary ±8% jog bend, a persistent ±8% pitch fader with PFL and tempo-match synchronization, configurable crossfader behavior and a manual tempo-synchronised master echo. Additional bounded performance effects and physical audio/device acceptance remain. | Yes — [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) |
 | **Dashboard test-selection coverage** | Select `test_dj_dashboard.py` for dashboard Python changes, map the booth asset to meaningful browser tests, and test control interactions rather than CSS strings alone. | Yes — [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401) |
 | **Audible musicality acceptance** | Use real local crates and independent/blind human listening to assess full-set pacing, contrast, breakdown timing, vocal overlays, clutter, surprise and purposeful effects. Unit tests and beat-lock metrics alone cannot establish that the mix is good. | Yes — mandatory acceptance for [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
 | **Far-moved blends want ears** | A blend moved 0.18 beat or more now needs 0.8 of the shared-kick bars (and four) behind it, and one at the edge of the search is refused. The thresholds come from one blend heard as rough and the journal's numbers: a few far moves that still pass want listening to. The pair graph is measured again (`METHOD` 5) the next time a set starts. | Watch |

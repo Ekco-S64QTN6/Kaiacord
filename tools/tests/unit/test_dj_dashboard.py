@@ -926,7 +926,7 @@ def test_persistent_pitch_http_control_keeps_program_and_new_pfl_decoder_aligned
             src.read()
             monitor = stream.get_nowait()
             assert monitor is not None and len(monitor) == R.FRAME_BYTES
-        assert deck._source_samples == pytest.approx(head._source_samples, abs=R.FRAME_SAMPLES * 1.1)
+        assert deck.at() == pytest.approx(head.at(), abs=2 / R.RATE)
 
         # A live fader movement updates both program and already-selected PFL.
         assert post("pitch", {"slot": 1, "rate": 1.03}) == 204

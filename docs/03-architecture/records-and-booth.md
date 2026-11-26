@@ -393,12 +393,12 @@ pitch control, not proof of hardware parity or musical quality.
 
 **Live jog / pitch bend** is a separate momentary operator control on the on-air platter.
 Clockwise/counterclockwise movement changes decoder sample consumption between 0.92× and
-1.08×, so tempo and pitch move together; this is a phase nudge, not a beat-matched permanent
-pitch slider. The resampler uses a lazily prepared, fixed-capacity PCM ring and emits the same
+1.08×, so tempo and pitch move together; this is a phase nudge around the persistent
+pitch-fader setting, not a second permanent speed control. The resampler uses a lazily prepared, fixed-capacity PCM ring and emits the same
 960-sample/20 ms frame shape. Ring allocation happens on the booth request thread before
 acquiring the renderer lock. The program and selected PFL decoders receive the same target and
 advance their own source clocks at the actual resampling rate; the dashboard playhead, tempo,
-pitch and remaining-time estimates use that rate too. A platter release ramps back to unity over
+pitch and remaining-time estimates use that rate too. A platter release ramps back to the persistent pitch-fader setting over
 eight rendered frames. The entire hold is capped at 500 rendered frames (10 seconds), including
 time spent crossing the platter centre; an engine timeout and a browser release timer both
 return to unity if pointer-up is lost. Pointer cancel, lost capture, blur, page hide and hidden-tab
