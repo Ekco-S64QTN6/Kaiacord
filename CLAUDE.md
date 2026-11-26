@@ -1018,8 +1018,10 @@ that are easy to break:
   1.08×, keep the source cursor and selected PFL twin in step, and ramp to unity over eight
   rendered frames on release. The complete hold is capped at 500 frames (10 seconds), even
   when the gesture crosses the neutral centre; the browser also releases at that limit and on
-  cancellation, blur or page hide. Allocate its fixed PCM ring on the booth request thread, not
-  under the render lock. Do not use this as a permanent pitch setting, scratch/backspin control
+  cancellation, blur or page hide. If a reload loses the pointer state, a platter tap acknowledges
+  the engine's completed release latch; pause, skip and KAIA MIX/reset are also explicit hand-backs.
+  Allocate its fixed PCM ring on the booth request thread, not under the render lock. Do not use
+  this as a permanent pitch setting, scratch/backspin control
   or autonomous skill. A manual tempo-synchronised master echo is one bounded audio effect;
   it does not imply a general effects bank or autonomous effect skill.
 - **Booth interactions are verified through real browser gestures.** The Playwright suite opens the
