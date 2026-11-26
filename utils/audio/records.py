@@ -2291,13 +2291,21 @@ class RecordsSession:
         candidate_profile = self._listener_profile(candidate)
         if current_profile is None or candidate_profile is None:
             return None
+        # Phrase-profile coordinates are in each source record's own
+        # seconds, not stretched playback seconds. Use the tracked source BPM
+        # (or catalog fallback), never multiply by the deck's live stretch ratio.
         current_bpm = (
-            deck.grid.bpm * deck.ratio if deck.grid is not None
-            else (deck.record.bpm or 120.0) * deck.ratio
+            getattr(current_profile, "grid_bpm", None)
+            or (deck.grid.bpm if deck.grid is not None else None)
+            or deck.record.bpm or 120.0
+        )
+        candidate_bpm = (
+            getattr(candidate_profile, "grid_bpm", None)
+            or candidate.bpm or 120.0
         )
         return records_intent.score_candidate(
             intent, current_profile, candidate_profile,
-            current_bpm, candidate.bpm or 120.0, edge,
+            current_bpm, candidate_bpm, edge,
         )
 
     def _listener_intent_selected(self, nxt: Next) -> None:
@@ -2872,7 +2880,7 @@ class RecordsSession:
             if last.get("status") == "selected":
                 listener_intent = f"{last.get('label')} preference selected {last.get('record')}"
             elif last.get("status") == "expired":
-                listener_intent = f"{last.get('label')} request expired without usable phrase evidence"
+                listener_intent = f"{last.get('label')} request expired unused"
         return {"now": now.name if now else None, "bpm": now.bpm if now else None,
                 "key": now.key if now else None, "genre": now.genre if now else None,
                 "next": nxt, "played": len(self.names), "channel": self.channel_name,
