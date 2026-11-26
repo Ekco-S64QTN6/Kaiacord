@@ -3,6 +3,7 @@ import io
 import json
 import random
 import time
+import types
 
 import numpy as np
 import pytest
