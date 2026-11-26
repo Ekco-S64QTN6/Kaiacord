@@ -693,7 +693,8 @@ class SkillScheduler:
         return tuple(factors), "", ""
 
     def report_legacy(self, label: str, start: float, end: float,
-                      factors: tuple[np.ndarray, ...]) -> None:
+                      factors: tuple[np.ndarray, ...], grid=None,
+                      ratio: float = 1.0) -> None:
         if not label:
             self._active_skill = None
             return
@@ -703,18 +704,32 @@ class SkillScheduler:
             lane: round(float(np.asarray(factor).reshape(-1)[-1]), 3)
             for lane, factor in zip(lanes, factors)
         }
+        phrase = None
+        if grid is not None and getattr(grid, "bar_known", False):
+            bar_s = 4.0 * float(grid.beat) / max(0.01, float(ratio))
+            bar_index = (
+                (float(end) - float(grid.downbeat) / max(0.01, float(ratio))) / bar_s
+                + float(grid.bar0)
+            )
+            phrase_index = math.floor(bar_index / PHRASE_BARS)
+            phrase_start = (
+                float(grid.downbeat) / max(0.01, float(ratio))
+                + (phrase_index * PHRASE_BARS - float(grid.bar0)) * bar_s
+            )
+            phrase = {
+                "kind": "legacy phrase-EQ gesture",
+                "start": round(phrase_start, 3),
+                "end": round(phrase_start + PHRASE_BARS * bar_s, 3),
+                "bars": PHRASE_BARS,
+                "timebase": "playback_seconds",
+            }
         self._active_skill = {
             "id": "solo_legacy_phrase_eq", "name": spec.name,
             "label": label, "reason": spec.purpose, "context": "solo",
             "start": float(start), "end": float(end),
             "parameters": parameters,
             "actions": [],
-            "phrase": {
-                "kind": "legacy phrase-EQ gesture",
-                "start": round(float(start), 3),
-                "end": round(float(end), 3),
-                "timebase": "playback_seconds",
-            },
+            "phrase": phrase or {"kind": "legacy phrase-EQ gesture", "timebase": "playback_seconds"},
         }
 
     def clear_active(self) -> None:
