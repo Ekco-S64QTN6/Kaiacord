@@ -59,6 +59,7 @@ _wave_stats: dict[str, tuple] = {}              # fast change hint; not an ident
 _wave_checked: dict[str, float] = {}            # monotonic time of last full identity check
 _wave_checking: set[str] = set()
 WAVE_ID_RECHECK_S = 300.0                       # detect timestamp-preserving replacements in background
+WAVE_ERROR_RETRY_S = 15.0                        # retry failed reads without polling each frame
 _lock = threading.Lock()
 _mood_cache = {"at": 0.0, "value": {}}
 
@@ -151,7 +152,10 @@ def _want_wave(path: str) -> str:
     with _lock:
         last = _wave_checked.get(tid, 0.0)
         changed_stat = _wave_stats.get(tid) != stat_key
-        due = now - last >= WAVE_ID_RECHECK_S
+        cached_wave = _waves.get(tid)
+        cached_error = isinstance(cached_wave, dict) and bool(cached_wave.get("error"))
+        retry_after = WAVE_ERROR_RETRY_S if cached_error else WAVE_ID_RECHECK_S
+        due = now - last >= retry_after
         if tid in _waves and not changed_stat and not due:
             return tid
         if tid in _wave_checking:
@@ -205,13 +209,14 @@ def _want_wave(path: str) -> str:
                     else:
                         _waves[tid] = None
                         _wave_checked[tid] = 0.0
-                        _wave_stats[tid] = current_stat
+                        # Force the next snapshot to schedule a clean analysis.
+                        _wave_stats.pop(tid, None)
         except Exception as exc:
             log_debug(f"[dj] waveform refresh failed for {path}: {exc}")
             with _lock:
                 if tid in _paths and _paths[tid] == path:
                     _waves[tid] = {"error": "could not read"}
-                    _wave_checked[tid] = 0.0
+                    _wave_checked[tid] = time.monotonic()
         finally:
             with _lock:
                 _wave_checking.discard(tid)
