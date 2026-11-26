@@ -257,12 +257,12 @@ def _record(rec) -> dict:
 def _deck(d, state: str) -> dict:
     g = d.grid
     return {**_record(d.record), "slot": d.slot, "state": state, "ratio": round(d.ratio, 5),
-            "pitch": round((d.ratio - 1.0) * 100, 2), "gain_db": d.gain,
+            "pitch": round((d.ratio * d.bend["rate"] - 1.0) * 100, 2), "gain_db": d.gain,
             "pos": round(d.at() * d.ratio, 4),            # seconds of the record's own time
             "length": round(d.end * d.ratio, 3),
-            "tempo": round(g.bpm * d.ratio, 2) if g else (round(d.record.bpm * d.ratio, 2) if d.record.bpm else None),
+            "tempo": round(g.bpm * d.ratio * d.bend["rate"], 2) if g else (round(d.record.bpm * d.ratio * d.bend["rate"], 2) if d.record.bpm else None),
             "grid": _grid(g), "buffering": not d.ready(5), "key_now": d.key, "semitones": d.semitones,
-            "loop": d.loop, "roll": d.roll}
+            "loop": d.loop, "roll": d.roll, "bend": d.bend}
 
 
 #: How many times the booth has been launched (`open_window`, once per
@@ -698,6 +698,28 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 return self._send(400, b"", "text/plain")
             ok = src.set_loop(slot, beats)
+            return self._send(204 if ok else 409, b"", "text/plain")
+        if self.path == "/bend":
+            raw_slot, action = body.get("slot"), body.get("action")
+            if isinstance(raw_slot, bool):
+                return self._send(400, b"", "text/plain")
+            if raw_slot in (1, 2):
+                slot = raw_slot
+            elif isinstance(raw_slot, str) and raw_slot.strip() in ("1", "2"):
+                slot = int(raw_slot.strip())
+            else:
+                return self._send(400, b"", "text/plain")
+            if action == "release":
+                rate = 1.0
+            elif action == "set":
+                rate = body.get("rate")
+                if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+                    return self._send(400, b"", "text/plain")
+                if not math.isfinite(float(rate)) or not 0.92 <= float(rate) <= 1.08:
+                    return self._send(400, b"", "text/plain")
+            else:
+                return self._send(400, b"", "text/plain")
+            ok = src.set_bend(slot, rate)
             return self._send(204 if ok else 409, b"", "text/plain")
         if self.path == "/roll":
             raw_slot = body.get("slot")
