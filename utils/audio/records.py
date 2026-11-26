@@ -1584,7 +1584,8 @@ class CrossfadeSource(_AudioSource):
                 4.0 * current.grid.beat / max(0.01, current.ratio)
                 if current is not None and current.grid is not None else 2.0
             )
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if (slot in self.controls.channels and name in self.controls.LIMITS
+                    and isinstance(value, (int, float)) and not isinstance(value, bool)):
                 self.skill_scheduler.manual_override(slot, name, at, bar_s, float(value))
             return True
 
