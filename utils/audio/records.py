@@ -381,6 +381,11 @@ class Next:
     #: her own picks ("set", "partner", "search", "pick") may be swapped for a
     #: record that locks when they do not.
     source: str = ""
+    #: A user musical preference; consumed only after the transition planner
+    #: successfully prepares this incoming deck.
+    listener_intent_id: Optional[int] = None
+    listener_intent_score: Optional[float] = None
+    listener_intent_reason: Optional[str] = None
 
 
 @dataclass
@@ -1009,6 +1014,7 @@ class CrossfadeSource(_AudioSource):
         self._mix_beats = mix_beats
         self._grid_at = grid_at or _default_grid_at
         self._verify = verify
+        self._on_picked: Optional[Callable[[Next], None]] = None
         self.say: Optional[Callable[[str, str], None]] = None     # the session's feed (`dj_voice`)
         #: Other records to try, readied, when her pick will not lock with the
         #: record on air (`RecordsSession._alternatives`).
@@ -1593,6 +1599,12 @@ class CrossfadeSource(_AudioSource):
                     self.incoming = incoming
                     self.plan = plan
 
+                if nxt.listener_intent_id is not None and self._on_picked is not None:
+                    try:
+                        self._on_picked(nxt)
+                    except Exception as e:
+                        log_debug(f"[records] listener intent completion: {e}")
+
                 why = ""
                 if plan.kind != "blend":
                     why = ("; the beats don't lock — " + plan.check if plan.fallback == "unlocked" else
@@ -2121,7 +2133,15 @@ class RecordsSession:
         self._closing = False
         self._task: Optional[asyncio.Task] = None
         self._rng = random.Random()
-        self.requests: list[str] = []             # paths asked for at the booth, in order
+        self.requests: list[str] = []             # track paths asked for at the booth, in order
+        # Musical direction is separate from booth track requests and expires
+        # after one successfully prepared autonomous pick or fifteen minutes.
+        self._listener_intent_lock = threading.Lock()
+        self._listener_intent = None
+        self._listener_intent_sequence = 0
+        self._listener_profile_lock = threading.Lock()
+        self._listener_profile_cache: dict[str, object] = {}
+        self.last_listener_intent: Optional[dict] = None
         # What she says about the set, for the booth (`dj_voice`), newest last.
         self.chatter: deque = deque(maxlen=40)
         self._why: dict = {}                      # path -> (edge, in_set) for the record picked next
@@ -2169,6 +2189,123 @@ class RecordsSession:
     @property
     def now(self) -> Optional[library.Record]:
         return self.source.current.record if self.source and self.source.current else None
+
+    INTENT_PROFILE_TRIES = 20
+    INTENT_PROFILE_CACHE = 32
+
+    async def request(self, text: str, who: str = ""):
+        """Queue one bounded musical preference for the next autonomous pick.
+
+        Track selections remain in self.requests; this API never mutates the
+        mixer or another music session. The selected candidate and its
+        explanation become visible after the transition planner prepares it.
+        """
+        from utils.audio import records_intent
+        if self._closing or self.now is None:
+            return records_intent.RecordsRequestResult(
+                False, "There isn't an active records deck to steer right now."
+            )
+        with self._listener_intent_lock:
+            self._listener_intent_sequence += 1
+            request_id = self._listener_intent_sequence
+        intent, reason = records_intent.create_request(text, who, request_id)
+        if intent is None:
+            return records_intent.RecordsRequestResult(False, reason)
+
+        with self._listener_intent_lock:
+            # Latest listener direction wins; it replaces, rather than stacks
+            # with, an older one-shot preference.
+            self._listener_intent = intent
+            self.last_listener_intent = {
+                "status": "pending", "label": intent.label,
+                "requested_by": intent.requested_by, "expires_at": intent.expires_at,
+            }
+        src = self.source
+        queued = bool(src and (
+            src._queued is not None or src._picking or src.incoming is not None
+            or src.plan is not None or src._planning
+        ))
+        reply = (
+            f"Got it — I'll favour {intent.label} in the next records choice, "
+            "using the available relative audio cues."
+        )
+        if queued:
+            reply += " The incoming record is already being prepared, so this will steer the following choice."
+        log_action(f"[records] listener direction from {who or 'someone'}: {intent.label}")
+        return records_intent.RecordsRequestResult(True, reply, queued_after_current=queued)
+
+    def _current_listener_intent(self):
+        with self._listener_intent_lock:
+            intent = self._listener_intent
+            if intent is not None and time.time() >= intent.expires_at:
+                self._listener_intent = None
+                self.last_listener_intent = {
+                    "status": "expired", "label": intent.label, "requested_by": intent.requested_by,
+                }
+                return None
+            return intent
+
+    def _listener_profile(self, record: library.Record):
+        """Read/build a phrase profile on the picker worker, never the audio callback."""
+        with self._listener_profile_lock:
+            cached = self._listener_profile_cache.get(record.path)
+            if cached is not None:
+                return cached
+        try:
+            from utils.audio import songmap
+            profile = songmap.phrase_profile(record.path, record.bpm)
+        except Exception as exc:
+            log_debug(f"[records] no phrase evidence for listener preference on {record.path}: {exc}")
+            return None
+        if profile is None:
+            return None
+        with self._listener_profile_lock:
+            self._listener_profile_cache[record.path] = profile
+            while len(self._listener_profile_cache) > self.INTENT_PROFILE_CACHE:
+                self._listener_profile_cache.pop(next(iter(self._listener_profile_cache)))
+        return profile
+
+    def _listener_candidate_score(self, deck: Deck, candidate: library.Record,
+                                  edge: Optional[dict], intent=None):
+        from utils.audio import records_intent
+        intent = intent or self._current_listener_intent()
+        if intent is None:
+            return None
+        current_profile = self._listener_profile(deck.record)
+        candidate_profile = self._listener_profile(candidate)
+        if current_profile is None or candidate_profile is None:
+            return None
+        current_bpm = (
+            deck.grid.bpm * deck.ratio if deck.grid is not None
+            else (deck.record.bpm or 120.0) * deck.ratio
+        )
+        return records_intent.score_candidate(
+            intent, current_profile, candidate_profile,
+            current_bpm, candidate.bpm or 120.0, edge,
+        )
+
+    def _listener_intent_applied(self, nxt: Next) -> None:
+        """Consume the matching one-shot request only after a prepared plan exists."""
+        request_id = nxt.listener_intent_id
+        if request_id is None:
+            return
+        with self._listener_intent_lock:
+            intent = self._listener_intent
+            if intent is None or intent.request_id != request_id:
+                return
+            self._listener_intent = None
+            self.last_listener_intent = {
+                "status": "applied", "label": intent.label,
+                "requested_by": intent.requested_by,
+                "record": nxt.record.name,
+                "score": nxt.listener_intent_score,
+                "reason": nxt.listener_intent_reason,
+                "applied_at": time.time(),
+            }
+        log_action(
+            f"[records] applied {intent.label} preference to next pick "
+            f"{nxt.record.name} (score {nxt.listener_intent_score})"
+        )
 
     #: How many fitting records are looked at for one that will blend with the
     #: record on air, before settling for one that can only be switched to.
@@ -2714,6 +2851,7 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
                                          mix_beats=int(mix_beats))
         session.source.say = session.say
         session.source.alternatives = session._alternatives
+        session.source._on_picked = session._listener_intent_applied
         try:
             from utils.infrastructure.system.yaml_config import config
             session.source.rides = bool(config.get("music.records_kaia_hands", True))
