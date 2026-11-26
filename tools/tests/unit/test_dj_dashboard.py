@@ -853,12 +853,13 @@ def test_pause_and_kaia_mix_release_an_active_live_jog_bend(session, monkeypatch
         assert post("bend", {"slot": 1, "action": "set", "rate": 1.04}) == 204
         assert src.current.bend_active
         assert post("pause", {"slot": 1}) == 204
-        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
-            src.read()
-        assert not src.current.bend_active
+        assert src.current.bend["target"] == pytest.approx(1.0)
         assert 1 in src.paused
 
         assert post("play", {"slot": 1}) == 204
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+            src.read()
+        assert not src.current.bend_active
         assert post("bend", {"slot": 1, "action": "set", "rate": 0.96}) == 204
         assert src.current.bend_active
         assert post("reset", {}) == 204
