@@ -1997,6 +1997,18 @@ it here.
 
 ---
 
+### Repository review ledger
+
+The tracked-file inventory for the #366 repository audit is
+`docs/audits/repository-review-ledger.csv`. Run
+`python tools/maintenance/check_review_manifest.py` after changing tracked files or recording
+review evidence. Every source review must be tied to the exact Git blob in `blob_sha`; when a
+file changes, reset it to `not_reviewed` until the new blob has been reviewed. A passing ledger
+check proves inventory completeness and metadata consistency only, not code correctness. Never
+mark a file reviewed because it was merely inventoried, opened or included in a passing CI run.
+Keep #366 open until the full file-by-file review and environment-dependent acceptance are
+actually complete.
+
 ## 16. Fine-Tuning
 
 `finetune/` trains a persona LoRA for `gemma3:12b` on her own logs and exports a GGUF for Ollama.
