@@ -182,6 +182,11 @@ def test_booth_asset_routes_phones_through_audio_worklet_not_track_files():
     assert "AudioWorkletNode" in page
     assert 'new Audio("/audio/' not in page
     assert "phonesTick" not in page
+    assert 'data-cue-kind="memory"' in page
+    assert 'data-cue-kind="hot"' in page
+    assert 'post("/cuebank"' in page
+    assert 'e.shiftKey ? "store" : "toggle"' in page
+    assert 'e.preventDefault(); sendCueBank("hot", index, "clear")' in page
 
 
 def test_hot_and_memory_cue_http_controls_store_recall_clear_and_publish_state(session, monkeypatch, tmp_path):
