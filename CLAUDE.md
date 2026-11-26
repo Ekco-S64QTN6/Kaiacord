@@ -1011,6 +1011,10 @@ that are easy to break:
   must warm both program and selected PFL decoders at the loop end, then swap them together at the next
   loop boundary. Hot-cue seeks must not replace a deck while its loop or loop-exit handoff owns it.
   This is not a roll: momentary rolls, live jog/pitch bend and FX are not implemented.
+- **Booth interactions are verified through real browser gestures.** The Playwright suite opens the
+  loopback DJ page in Chromium and uses actual pointer clicks, Shift-clicks and context-menu gestures
+  for cue and loop pads. Do not replace these with direct POSTs or DOM event dispatch: the browser test
+  must exercise the page's real event handlers and verify the resulting engine and persisted state.
 - **One voice at a time, and a record is left where it changes**: the presence band changes hands with
   the mids (`presence`), the outgoing is gone a `tail` after the swap, and an end-of-record blend goes at
   the outro or last breakdown (`songmap`), else near the end, further back only as the last resort.
