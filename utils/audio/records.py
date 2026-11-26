@@ -1344,15 +1344,15 @@ class CrossfadeSource(_AudioSource):
         planned for later (the end of the record) that has not started is
         called off and planned again from here; a skip already planned is kept.
         With a deck playing by hand, Kaia finishes that mix instead."""
+        if self.hand is not None:
+            self.finish()
+            return
         with self._lock:
             loop_slot = (self.current.slot if self.current is not None and self.current.loop_active
                          else None)
         if loop_slot is not None:
             threading.Thread(target=lambda: self.set_loop(loop_slot, None, after_skip=True),
                              daemon=True, name="kaia-records-loop-skip").start()
-            return
-        if self.hand is not None:
-            self.finish()
             return
         with self._lock:
             # A skip already on its way stays on its way. Planned again from now,
