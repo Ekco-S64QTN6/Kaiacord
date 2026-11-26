@@ -73,9 +73,17 @@ TARGET_LUFS = -11.0
 BOOST_HEADROOM_DB = 2.0
 
 
-@functools.lru_cache(maxsize=1024)
 def gain_db(path: str) -> float:
-    """The gain that brings a record to TARGET_LUFS. 0 if it cannot be measured."""
+    """The gain for this exact audio payload, not merely this path."""
+    signature = library.audio_signature(path)
+    if signature is None:
+        return 0.0
+    return _gain_db_cached(path, signature)
+
+
+@functools.lru_cache(maxsize=1024)
+def _gain_db_cached(path: str, identity: str) -> float:
+    """EBU R128/true-peak analysis cached by path and complete audio identity."""
     try:
         out = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-nostats", "-i", path,
                               "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-"],
@@ -84,10 +92,16 @@ def gain_db(path: str) -> float:
         peak = float(re.findall(r"Peak:\s*(-?[\d.]+) dBFS", out)[-1])
     except (OSError, IndexError, ValueError, subprocess.SubprocessError):
         return 0.0
+    if library.audio_signature(path) != identity:
+        return 0.0
     gain = TARGET_LUFS - lufs
     if gain > 0:
         gain = min(gain, max(0.0, -1.0 - peak) + BOOST_HEADROOM_DB)
     return round(max(-12.0, min(gain, 12.0)), 1)
+
+
+gain_db.cache_clear = _gain_db_cached.cache_clear
+gain_db.cache_info = _gain_db_cached.cache_info
 
 
 def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0.0,
