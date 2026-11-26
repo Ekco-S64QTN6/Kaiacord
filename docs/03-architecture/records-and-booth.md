@@ -151,6 +151,61 @@ claim. `profile_from_map()` is pure and suitable for quick downstream queries; t
 path-based `phrase_profile()` may fingerprint, decode and analyse a grid, so it must not
 run on the 20 ms audio-render callback.
 
+### Set-level musical planning (#405)
+
+The graph remains the technical feasibility boundary: a set candidate must be
+an edge already measured to lock by `mixcheck`. `utils/audio/musical_plan.py`
+does not change that verdict or turn a preference score into a safety check.
+During the background `records_graph.py` build, `setlist.build_profiles()`
+loads/builds the cached `songmap.phrase_profile()` evidence; the sets-only
+rebuild uses the same path. Neither runs on the 20 ms renderer.
+
+For each measured edge, the planner estimates the outgoing passage near its
+exit from the record duration, selected earlier phrase (`back`) and blend
+length, and the incoming passage from its cue (`cue`) and blend length. These
+are approximate windows from graph metadata, not a second mix measurement.
+When both selected windows have counted phrase alignment, the planner can use
+their candidate section labels (build, drop, breakdown, groove, intro or outro)
+to describe a possible handoff. Unaligned windows can still contribute raw
+time-local feature levels, but their section labels are omitted from the set
+arc: they are not promoted into counted phrase roles.
+
+The soft assessment looks for complementary section roles and for simultaneous
+prominence in bass, sustained midrange/lead proxy, upper-band and transient
+activity. Those overlap values are coarse relative-feature diagnostics, not
+absolute loudness, vocal detection, stem separation, percussion classification
+or a judgment of what a listener will hear. A technically measured pair can be
+marked `defer_if_alternative` when its profile proxies look crowded; it remains
+eligible as a fallback when the measured graph offers no better route. A
+build-to-drop, breakdown-to-drop or drop-to-breath handoff can receive a
+purpose explanation. Cross-style changes receive only a small preference when
+the available section evidence provides a coherent handoff.
+
+The set arc carries recent coarse roles (settle, groove, lift, peak, breath and
+release). It softly spaces repeated peaks, rewards a breathing space after a
+peak, and allows a peak after a build or breath; it is not a monotonic BPM ramp
+or a fixed warm-up/build/peak template. Candidate ranking first compares this
+profile/context preference, then uses the existing blend/key/style/agreement/
+artist/stretch ranking. All candidates being ranked are still measured graph
+edges. Missing profiles are neutral and preserve the existing ranking.
+
+`graph.json` stores a `set_plans` trace for selected transitions. Each entry
+keeps `technical` facts (measured lock, beat count, cue/back, ratio and
+agreement) separate from `musical` observations (section candidates, proxy
+overlap, purpose, preference and reasons) and the `arc` context. Only selected
+transition explanations are persisted; full phrase arrays are not copied into
+the graph. `SET_METHOD` is bumped independently of `METHOD`, so changing
+playlist preference rebuilds set paths without re-measuring audio edges.
+
+This is the first cached-profile preference layer, not a complete live
+"wait for the next phrase" execution policy. In particular, a defer label only
+reorders available measured choices; when the graph has no alternative, the
+set builder retains the least-bad measured path. There is no vocal separation,
+listener-request arc planner or human-confirmed taste model here. Unit tests
+prove deterministic policy behavior on fixtures, not audible improvement.
+Real-crate full-set listening and independent assessment remain mandatory under
+[#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402).
+
 ### Real-time engineering boundary
 
 Keep the 20 ms Discord audio path bounded. Do not put disk or network I/O, full-track analysis,
@@ -275,16 +330,16 @@ a mix that sounded wrong:
   nowhere goes out on the bar with its last beat (mids and highs) repeating, `ECHO_FEEDBACK` quieter
   each beat, under the incoming's bar one. On 9 Oct, 40 of 71 planned transitions were cuts — 36 of
   them pairs the graph had never measured (skips and hand loads), which nothing tried to rescue.
-- **She picks partners that blend long and stay in a style** (`setlist.transition_rank`). An edge records the
-  longest blend that locked: 31% of locking pairs lock only for 16 beats (~7.5 s at 128 bpm: highs, bass swap
-  and outgoing inside two bars — a swap, not a blend). The rank balances blend length with key and family fit.
-  Ties prefer the same exact genre, a higher share of agreeing bars, fewer artist repeats and less tempo
-  correction. Set construction, measured live partners and alternative ordering use the same ranking policy.
-  Artist variety is a soft preference, never a ban. `SET_METHOD` versions playlist ranking separately from
-  `METHOD`: ranking changes rebuild set paths without re-measuring the audio graph. A rhythmic lock is only
-  a mechanical result, not proof that a transition sounds good: it says nothing about emotional fit, musical
-  interest, vocal clarity or whether the arrangement is overcrowded. That judgment is a separate product
-  requirement tracked in [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402).
+- **She picks partners with a musical purpose, within the measured graph** (`musical_plan`,
+  `setlist.make_sets`). The existing blend/key/style/agreement rank remains the technical-choice
+  tie-breaker; cached phrase-profile evidence adds a soft local complement/clutter preference and a
+  recent-role arc adjustment. Build→drop, breakdown→drop and peak→breath can explain a handoff; repeated
+  peaks are spaced and a breathing space after a peak is preferred. A crowded pair is deferred when another
+  measured edge exists, not deleted from the graph. Missing profiles are neutral. The `set_plans` record
+  separates measured lock facts from musical proxy observations and contextual reasons. This is not yet a
+  live phrase-wait policy, vocal detector or proof of taste; [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402)
+  still requires real-crate listening and independent assessment. `SET_METHOD` versions these preference
+  changes separately from `METHOD`, so set paths rebuild without re-measuring audio edges.
 - **She picks partners that lock** (`setlist`). `memory/records/graph.json` holds every tempo-compatible
   pair measured with `find_blend` at the outgoing's end; it is extended, never rebuilt — a new or changed
   record costs its own pairs (a file only retagged keeps them: `library.audio_signature` hashes the
