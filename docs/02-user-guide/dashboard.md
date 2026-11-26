@@ -90,8 +90,16 @@ drag to cue it, hear it in the window's PHONES, ▶ to start it synced, and mix 
 
 The booth's lock, meters and timeline report technical synchronization and the mixer's actual
 state; they do **not** grade whether a transition is musically good. The deck surface now has
-memory/hot cues and counted beat loops, plus a separate **AUDIO FX** row for the real master echo.
+memory/hot cues, counted beat loops and momentary **SLIP** roll pads, plus a separate **AUDIO FX**
+row for the real master echo.
 The header **FX** pill still controls visual booth effects only; it is not an audio effect.
+
+To perform a slip roll, press and hold one of the **SLIP** pads (1, 2, 4 or 8) on the
+on-air deck. The repeated, counted phrase plays while the underlying record keeps advancing;
+release the pad to blend straight back to the live playhead. The selected PFL deck follows the
+same roll. The roll arms for the next counted bar, so it is not an instantaneous scratch or a
+persistent loop. Its hold is capped at 12 seconds as a safeguard if the browser loses the release
+event. Slip rolls are manual performance controls, not yet a technique Kaia schedules herself.
 
 To use the master echo, choose a TIME subdivision (½, 1, 2 or 4 beats), set FB (feedback, capped
 at 0.65) and WET (effect level, capped at 0.50), then click **ECHO OFF** to turn it on. The delay
@@ -103,8 +111,7 @@ The effect is on the program/master path: the headphone MASTER leg hears it, whi
 independent PFL CUE leg remains dry.
 
 This is one human-operated echo effect, not a full effects bank or an autonomous Kaia skill.
-Momentary/slip rolls, live jog/pitch bend, further performance effects and physical
-headphone/device acceptance remain open in [#403](https://github.com/Ekco-S64QTN6/Kaiacord).
+Live jog/pitch bend, further performance effects and physical headphone/device acceptance remain open in [#403](https://github.com/Ekco-S64QTN6/Kaiacord).
 The browser gesture coverage is separate from Kaia's musical decision-making in
 [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402); technical tests still do not
 prove that a transition sounds good.
