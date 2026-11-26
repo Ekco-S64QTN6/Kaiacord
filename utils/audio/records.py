@@ -10,7 +10,12 @@ eight bars. All of it is ffmpeg and NumPy on the CPU: no model, no VRAM.
 The free deck can also be worked by hand from the DJ booth: a record loaded
 onto it (`load`), its cue point moved (`set_cue`), played synced and on the
 beat (`play_hand`) while the faders do the mix, taking over once the record on
-air has gone quiet — or finished by Kaia (`finish`).
+air has gone quiet — or finished by Kaia (`finish`). The on-air jog platter
+also offers a momentary live pitch/phase nudge: decoded PCM is resampled at a
+bounded rate up to ±8%, the source clock advances at the actual consumed sample
+rate, and release returns to the base rate over eight rendered frames. Its
+selected PFL twin follows the same rate; this is a manual nudge, not a permanent
+pitch setting or an autonomous DJ skill.
 
 The mixer renders complete 20 ms PCM frames on a worker. A bounded
 `BufferedRecordsSource` queue sits between it and discord.py, so the voice
