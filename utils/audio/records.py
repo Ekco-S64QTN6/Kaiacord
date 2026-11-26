@@ -1820,7 +1820,7 @@ class CrossfadeSource(_AudioSource):
                 else:
                     plan_now = False
                     head_old = (self._headphones_deck
-                                if self._headphones_slot == slot and self._headphone_streams else None)
+                                if self._headphones_slot == slot else None)
                     preview_source = (deck, loop, deck.end * deck.ratio, deck.ratio,
                                       deck.gain, deck.semitones, deck.grid, head_old)
             if preview_source is None:
@@ -1994,7 +1994,7 @@ class CrossfadeSource(_AudioSource):
                     return True  # pointer-up after a failed/too-early arm is harmless
                 deck.stop_roll()
                 head = (self._headphones_deck
-                        if self._headphones_slot == slot and self._headphone_streams else None)
+                        if self._headphones_slot == slot else None)
                 if head is not None:
                     head.stop_roll()
             return True
@@ -2071,7 +2071,7 @@ class CrossfadeSource(_AudioSource):
             head_stale = (
                 head_old is not None
                 and (self._headphones_deck is not head_old or self._headphones_slot != slot
-                     or not self._headphone_streams or head_old.roll_active or head_old.loop_active)
+                     or head_old.roll_active or head_old.loop_active)
             )
             if (not stale and not head_stale and frames_until >= 2 and enough_live_audio
                     and (head_frames_until is None or head_frames_until >= 2)):
