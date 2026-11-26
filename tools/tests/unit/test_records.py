@@ -2493,7 +2493,7 @@ def test_live_jog_bend_validation_conflicts_timeout_and_skip_release(loop_source
     deck = src.current
     assert deck is not None
 
-    for bad in (True, False, float("nan"), float("inf"), 0.91, 1.09, "1.02", None):
+    for bad in (True, False, float("nan"), float("inf"), 10 ** 1000, 0.91, 1.09, "1.02", None):
         assert not src.set_bend(1, bad)
 
     src._planning = True
