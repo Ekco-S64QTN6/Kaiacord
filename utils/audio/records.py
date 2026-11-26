@@ -2831,9 +2831,21 @@ class RecordsSession:
         q = self.source._queued if self.source else None
         nxt = q.record.name if q else (self.source.incoming.record.name if self.source and self.source.incoming else None)
         now = self.now
+        intent = self._current_listener_intent()
+        listener_intent = None
+        if intent is not None:
+            from utils.audio import records_intent
+            listener_intent = records_intent.pending_label(intent)
+        elif self.last_listener_intent:
+            last = self.last_listener_intent
+            if last.get("status") == "applied":
+                listener_intent = f"{last.get('label')} applied to {last.get('record')}"
+            elif last.get("status") == "expired":
+                listener_intent = f"{last.get('label')} request expired without usable phrase evidence"
         return {"now": now.name if now else None, "bpm": now.bpm if now else None,
                 "key": now.key if now else None, "genre": now.genre if now else None,
                 "next": nxt, "played": len(self.names), "channel": self.channel_name,
+                "listener_intent": listener_intent,
                 "uptime_min": round((time.time() - self.started_at) / 60), "listeners": len(self._humans())}
 
 
