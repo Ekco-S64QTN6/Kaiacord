@@ -29,6 +29,8 @@ def _bare_session():
     session.requests = ["/music/booth-picked.mp3"]
     session._listener_intent_lock = threading.Lock()
     session._listener_intent_sequence = 0
+    session._listener_pick_generation = 0
+    session._listener_intent_min_pick_generation = 1
     session._listener_intent = None
     session.last_listener_intent = None
     session._listener_profile_lock = threading.Lock()
@@ -73,12 +75,29 @@ def test_only_the_matching_successfully_prepared_pick_consumes_the_intent():
     nxt.listener_intent_score = 0.75
     nxt.listener_intent_reason = "relative low-end feature level changes in requested direction"
 
-    session._listener_intent_applied(nxt)
+    session._listener_intent_selected(nxt)
 
     assert session._listener_intent is None
-    assert session.last_listener_intent["status"] == "applied"
+    assert session.last_listener_intent["status"] == "selected"
     assert session.last_listener_intent["record"] == "Next"
     assert session.last_listener_intent["score"] == 0.75
+
+
+
+
+
+def test_request_during_an_in_progress_pick_applies_to_the_following_pick():
+    session, _ = _bare_session()
+    session.source._picking = True
+    result = asyncio.run(session.request("more bass", "listener"))
+
+    assert result.understood and result.queued_after_current
+    # The pick worker enters _choose after _picking is set. Its generation is
+    # skipped even if the command arrived just before that worker started.
+    session._listener_pick_started()
+    assert session._current_listener_intent() is None
+    session._listener_pick_started()
+    assert session._current_listener_intent() is session._listener_intent
 
 
 def test_an_old_pick_cannot_consume_a_newer_listener_request():
@@ -90,7 +109,7 @@ def test_an_old_pick_cannot_consume_a_newer_listener_request():
 
     old_pick = R.Next(library.Record("/music/old.mp3", "Artist", "Old", 120, "8A"), 120)
     old_pick.listener_intent_id = old_id
-    session._listener_intent_applied(old_pick)
+    session._listener_intent_selected(old_pick)
 
     assert session._listener_intent.request_id == new_id
     assert session._listener_intent.kind == "brighter"
@@ -118,6 +137,8 @@ def test_measured_partner_frontier_is_reordered_by_the_requested_feature(monkeyp
         strong.path: _profile(-2.0),
         weak.path: _profile(-22.0),
     }
+    session._listener_pick_generation = 1
+    session._listener_intent_min_pick_generation = 1
     session._listener_intent = records_intent.ListenerIntent(
         request_id=9, kind="more_bass", label="more bass",
         requested_by="listener", created_at=time.time(),
