@@ -2488,6 +2488,42 @@ def test_live_jog_bend_keeps_program_and_pfl_decoders_in_lockstep(loop_source):
         src.set_headphones(None)
 
 
+def test_live_jog_start_guard_reserves_fastest_rate_timeout_and_release_headroom(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    original = deck._source_samples
+    try:
+        # At base speed 540 output frames appear to exceed the old 518-frame
+        # guard, but a +8% hold can consume those samples before its 500-frame
+        # timeout and eight-frame return ramp have completed.
+        with src._lock:
+            deck._source_samples = (
+                deck.total_frames * FRAME_SAMPLES - 540 * FRAME_SAMPLES
+            )
+        assert deck.remaining == 540
+        assert not src.set_bend(1, 1.08)
+
+        # Once the same hold has started with sufficient headroom, subsequent
+        # platter updates are not re-rejected as its remaining time decreases.
+        with src._lock:
+            deck._source_samples = (
+                deck.total_frames * FRAME_SAMPLES
+                - (R.PITCH_BEND_START_HEADROOM_FRAMES + 1) * FRAME_SAMPLES
+            )
+        assert src.set_bend(1, 1.08)
+        with src._lock:
+            deck._source_samples = (
+                deck.total_frames * FRAME_SAMPLES - 540 * FRAME_SAMPLES
+            )
+        assert src.set_bend(1, 1.04)
+        assert deck.bend["target"] == pytest.approx(1.04)
+        assert src.set_bend(1, 1.0, release=True)
+    finally:
+        with src._lock:
+            deck._source_samples = original
+
+
 def test_live_jog_bend_validation_conflicts_timeout_and_skip_release(loop_source):
     src = loop_source
     deck = src.current
