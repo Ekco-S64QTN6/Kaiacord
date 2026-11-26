@@ -1970,11 +1970,20 @@ class CrossfadeSource(_AudioSource):
             return stream
 
     def detach_headphone_stream(self, stream: queue.Queue[bytes]) -> None:
+        old = None
         with self._lock:
             try:
                 self._headphone_streams.remove(stream)
             except ValueError:
                 pass
+            # Atomically retire PFL when the final browser leaves. A concurrent
+            # new listener cannot be stranded with its decoder cleared afterward.
+            if not self._headphone_streams and self._headphones_deck is not None:
+                self._headphones_generation += 1
+                old, self._headphones_deck = self._headphones_deck, None
+                self._headphones_slot = None
+        if old is not None:
+            old.close()
 
     def read(self) -> bytes:
         """Render one program frame and publish its independent headphone mix."""
