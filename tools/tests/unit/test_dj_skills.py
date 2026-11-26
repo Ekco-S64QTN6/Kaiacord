@@ -170,6 +170,18 @@ def test_blend_compiler_retains_headroom_exchange_and_outgoing_air_skills():
     assert factors[0][-1] == pytest.approx(S.STAGE_MULTIPLIER, abs=0.01)
     assert factors[2][-1] > factors[5][-1]
     assert factors[2][-1] == pytest.approx(S.STAGE_MULTIPLIER * 1.108, abs=0.02)
+    active = scheduler.snapshot()["active"]
+    assert active["parameters"] == {
+        "out.gain": S.STAGE_MULTIPLIER,
+        "in.gain": S.STAGE_MULTIPLIER,
+        "upper_exchange_depth": pytest.approx(0.108, abs=0.001),
+        "upper_exchange_period_s": 16.0,
+    }
+    assert active["phrase"] == {
+        "kind": "measured blend", "start": 30.0, "end": 100.0,
+        "bars": 32.0, "timebase": "playback_seconds",
+    }
+    assert len(active["actions"]) == 3
 
 
 def test_blend_manual_override_eases_owned_lane_and_explicit_handback_restores_skill():
@@ -225,6 +237,9 @@ def test_cancelled_blend_actions_are_discarded_and_echo_label_uses_existing_echo
         echo, np.array([40.0, 40.02], dtype=np.float32), out_slot=1, in_slot=2
     )
     assert skill_id == "echo_out" and "bounded echo-out" in label
+    echo_state = scheduler.snapshot()["active"]
+    assert echo_state["parameters"] == {"tail_seconds": 70.0}
+    assert echo_state["phrase"]["kind"] == "measured echo-out transition"
     assert all(np.allclose(f, 1.0) for f in factors)
 
 
@@ -302,6 +317,27 @@ def test_skill_scheduler_replays_the_same_phrase_actions_deterministically():
     assert out_a[1:] == out_b[1:]
     for a, b in zip(out_a[0], out_b[0]):
         assert np.array_equal(a, b)
+
+
+
+
+def test_legacy_phrase_eq_reports_the_actual_four_bar_grid_window_and_targets():
+    scheduler = S.SkillScheduler()
+    factors = (
+        np.array([0.94, 0.95], dtype=np.float32),
+        np.array([1.0, 1.0], dtype=np.float32),
+        np.array([1.04, 1.03], dtype=np.float32),
+    )
+    grid = SimpleNamespace(bar_known=True, beat=0.5, downbeat=0.0, bar0=0.0)
+    scheduler.report_legacy("lifting the air into the phrase", 64.0, 64.02, factors, grid, 1.0)
+    active = scheduler.snapshot()["active"]
+    assert active["parameters"] == {
+        "solo.low": 0.95, "solo.mid": 1.0, "solo.high": 1.03,
+    }
+    assert active["phrase"] == {
+        "kind": "legacy phrase-EQ gesture", "start": 64.0, "end": 96.0,
+        "bars": S.SKILL_PHRASE_BARS, "timebase": "playback_seconds",
+    }
 
 
 def test_profile_missing_falls_back_without_claiming_structure():
