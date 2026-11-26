@@ -2695,6 +2695,10 @@ class CrossfadeSource(_AudioSource):
             pending_exit = self._pending_loop_exit
             if pending_exit is not None and pending_exit.old.slot == slot:
                 return False
+            if self.current is not None and self.current.slot == slot and self.current.roll_active:
+                # The PFL decoder must be armed with the same roll buffer and
+                # live source cursor; refuse a mid-roll replacement.
+                return False
             desc = self._headphone_descriptor_locked(slot)
             if desc is None:
                 return False
