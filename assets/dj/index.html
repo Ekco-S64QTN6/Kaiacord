@@ -74,7 +74,7 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .fx .row, .fx .count, .fx .why, .blendsel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #skip, #auto { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.turning, body.turning * { cursor: ns-resize !important; user-select: none; }
-.deck { --accent: var(--dc); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; gap: clamp(4px, 0.7vh, 8px); padding: 10px 14px 10px; min-height: 0; overflow: hidden; }
+.deck { --accent: var(--dc); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; gap: clamp(3px, 0.55vh, 6px); padding: 10px 14px 10px; min-height: 0; overflow: hidden; }
 .deck[data-slot="1"] { --dc: var(--d1); --dcg: rgba(0,240,255,.55); }
 .deck[data-slot="2"] { --dc: var(--d2); --dcg: rgba(255,47,209,.55); }
 .dtop { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
@@ -113,6 +113,12 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .ov { width: 100%; height: clamp(34px, 5vh, 54px); display: block; border: 1px solid var(--line); border-radius: 3px; background: rgba(0,0,0,.4); }
 .phase { width: 0; min-width: 0; height: 14px; display: block; }
 .transport { display: flex; gap: 8px; align-items: center; }
+.cuebank { display: grid; grid-template-columns: 1.25fr repeat(8, minmax(0, 1fr)); gap: 4px; min-width: 0; }
+.cuepad { min-width: 0; padding: 4px 0; border: 1px solid var(--faint); border-radius: 3px; background: rgba(0,0,0,.45); color: var(--dim); font: 700 10px var(--mono); cursor: pointer; }
+.cuepad.filled { color: var(--dc); border-color: var(--dc); background: color-mix(in srgb, var(--dc) 10%, transparent); box-shadow: inset 0 0 8px color-mix(in srgb, var(--dc) 20%, transparent); }
+.cuepad.memory { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 65%, var(--faint)); }
+.cuepad.memory.filled { background: rgba(255,228,92,.1); box-shadow: inset 0 0 8px rgba(255,228,92,.22); }
+.cuepad:disabled { opacity: .25; cursor: default; }
 .btn { font-family: var(--disp); font-size: 12px; letter-spacing: 2px; color: var(--dim); background: rgba(0,0,0,.4);
   border: 1px solid var(--faint); border-radius: 50px; padding: 8px 16px; min-width: 70px; text-align: center; user-select: none; }
 .btn.lit { color: #031; border-color: var(--green); background: var(--green); box-shadow: 0 0 14px rgba(61,255,138,.7); }
@@ -668,7 +674,11 @@ function buildDeck(slot) {
     <canvas class="ov" data-c="ov"></canvas>
     <div class="transport"><div class="btn cue" data-f="cue" title="free deck: hold to hear from the cue point in the headphones; while playing, back to the cue">CUE</div><div class="btn play" data-f="play" title="play / pause — the free deck starts on the beat, synced">▶ ❙❙</div><div class="btn ph" data-f="ph" title="headphones: hear this deck in this window, not on air">PHONES</div>
       <canvas class="phase" data-c="phase" style="flex:1"></canvas>
-      <div class="meta" data-f="meta"></div></div>`;
+      <div class="meta" data-f="meta"></div></div>
+    <div class="cuebank" aria-label="memory and hot cues">
+      <button class="cuepad memory" data-cue-kind="memory" type="button" title="memory cue: click to store or jump; Shift-click to overwrite; right-click to clear">MEM</button>
+      ${Array.from({ length: 8 }, (_, index) => '<button class="cuepad" data-cue-kind="hot" data-cue-index="' + index + '" type="button">' + (index + 1) + '</button>').join("")}
+    </div>`;
 }
 function buildStrip(slot) {
   const col = DECK[slot];
@@ -919,6 +929,23 @@ function updateDeck(slot) {
   cue.classList.toggle("lit", !!(free && (d.state !== "playing" || byHand)));
   cue.classList.toggle("blink", !!(d && d.state === "cued")); cue.classList.toggle("off", !free);
   q(slot, '[data-f="ph"]').classList.toggle("lit", !!phonesOn[slot]);
+  const bank = d && d.cue_bank ? d.cue_bank : {};
+  const memoryPad = q(slot, '[data-cue-kind="memory"]');
+  const memoryAt = Number.isFinite(bank.memory) ? bank.memory : null;
+  memoryPad.disabled = !d;
+  memoryPad.classList.toggle("filled", memoryAt !== null);
+  memoryPad.title = memoryAt === null
+    ? "memory cue: click to store; Shift-click to overwrite; right-click to clear"
+    : `memory cue at ${fmt(memoryAt)} — click to jump; Shift-click to overwrite; right-click to clear`;
+  for (const pad of q(slot, ".cuebank").querySelectorAll('[data-cue-kind="hot"]')) {
+    const index = Number(pad.dataset.cueIndex);
+    const at = Array.isArray(bank.hot) && Number.isFinite(bank.hot[index]) ? bank.hot[index] : null;
+    pad.disabled = !d;
+    pad.classList.toggle("filled", at !== null);
+    pad.title = at === null
+      ? `hot cue ${index + 1}: click to store; Shift-click to overwrite; right-click to clear`
+      : `hot cue ${index + 1} at ${fmt(at)} — click to jump; Shift-click to overwrite; right-click to clear`;
+  }
   q(slot, '[data-f="play"]').classList.toggle("off", !d || (free && blendOn()));
   q(slot, '[data-c="ov"]').classList.toggle("scrub", canScrub(slot));
   q(slot, '[data-c="jog"]').classList.toggle("scrub", canScrub(slot));
@@ -1069,6 +1096,27 @@ function slider(el, slot, name, axis, reset) {
     syncPhones();
     toast(phonesOn[slot] ? `headphones: deck ${slot} (PFL, this window only)` : "headphones off");
   });
+  const sendCueBank = async (kind, index, action) => {
+    const response = await post("/cuebank", { slot, kind, ...(index == null ? {} : { index }), action });
+    if (!response) { toast("cue could not be saved or recalled"); return; }
+    let result = null;
+    try { result = await response.json(); } catch (_) {}
+    const label = kind === "memory" ? "memory cue" : `hot cue ${index + 1}`;
+    const verbs = { stored: "stored", jumped: "jumped to", cleared: "cleared" };
+    toast(`${label} ${verbs[result && result.action] || "updated"}`);
+    if (phonesOn[slot] || cueHeld[slot]) syncPhones(true);
+  };
+  q(slot, '[data-cue-kind="memory"]').addEventListener("click", (e) => {
+    sendCueBank("memory", null, e.shiftKey ? "store" : "toggle");
+  });
+  q(slot, '[data-cue-kind="memory"]').addEventListener("contextmenu", (e) => {
+    e.preventDefault(); sendCueBank("memory", null, "clear");
+  });
+  for (const pad of q(slot, ".cuebank").querySelectorAll('[data-cue-kind="hot"]')) {
+    const index = Number(pad.dataset.cueIndex);
+    pad.addEventListener("click", (e) => sendCueBank("hot", index, e.shiftKey ? "store" : "toggle"));
+    pad.addEventListener("contextmenu", (e) => { e.preventDefault(); sendCueBank("hot", index, "clear"); });
+  }
   scrubbing(slot);
 });
 slider($("xf"), 0, "xfader", "x", null);
