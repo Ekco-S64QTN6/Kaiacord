@@ -293,7 +293,7 @@ def test_skill_scheduler_replays_the_same_phrase_actions_deterministically():
         _phrase(0, 8, "build_candidate", strength=0.8),
         _phrase(8, 16, "drop_candidate", strength=0.9),
     )
-    times = np.linspace(6.0, 6.2, num=FRAME_COUNT := 12, dtype=np.float32)
+    times = np.linspace(6.0, 6.2, num=12, dtype=np.float32)
     first, second = S.SkillScheduler(), S.SkillScheduler()
     first.set_solo_profile(profile, fingerprint=55)
     second.set_solo_profile(profile, fingerprint=55)
