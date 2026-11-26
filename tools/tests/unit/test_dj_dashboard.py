@@ -187,6 +187,10 @@ def test_booth_asset_routes_phones_through_audio_worklet_not_track_files():
     assert 'post("/cuebank"' in page
     assert 'e.shiftKey ? "store" : "toggle"' in page
     assert 'e.preventDefault(); sendCueBank("hot", index, "clear")' in page
+    assert 'data-loop-beats="1"' in page
+    assert 'data-loop-beats="8"' in page
+    assert 'post("/loop"' in page
+    assert 'data-loop-exit' in page
 
 
 def test_hot_and_memory_cue_http_controls_store_recall_clear_and_publish_state(session, monkeypatch, tmp_path):
@@ -232,6 +236,48 @@ def test_hot_and_memory_cue_http_controls_store_recall_clear_and_publish_state(s
         assert cleared["cue_bank"]["hot"][0] is None
     finally:
         D.record_cues.clear_cache()
+        server, D._server = D._server, None
+        if server:
+            server.shutdown()
+
+def test_loop_http_route_validates_lengths_and_delegates_to_the_renderer(session, monkeypatch):
+    monkeypatch.setattr(D, "_cfg", lambda k, d: 0 if k == "dj_dashboard_port" else d)
+    calls = []
+    monkeypatch.setattr(session.source, "set_loop", lambda slot, beats: calls.append((slot, beats)) or True)
+    base = D.serve()
+
+    def request(payload):
+        req = urllib.request.Request(
+            base + "loop",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        return urllib.request.urlopen(req, timeout=5)
+
+    try:
+        with request({"slot": 1, "action": "set", "beats": 4}) as response:
+            assert response.status == 204
+        with request({"slot": "2", "action": "exit"}) as response:
+            assert response.status == 204
+        assert calls == [(1, 4), (2, None)]
+        for invalid in (
+            {"slot": 1, "action": "set", "beats": 16},
+            {"slot": True, "action": "set", "beats": 2},
+            {"slot": 1, "action": "set", "beats": True},
+            {"slot": 1, "action": "other"},
+        ):
+            with pytest.raises(urllib.error.HTTPError) as error:
+                request(invalid)
+            assert error.value.code == 400
+        with pytest.raises(urllib.error.HTTPError) as error:
+            req = urllib.request.Request(
+                base + "loop", data=json.dumps({"slot": 1, "action": "set", "beats": 2}).encode(),
+                headers={"Content-Type": "application/json"}, method="POST")
+            monkeypatch.setattr(session.source, "set_loop", lambda *_args: False)
+            urllib.request.urlopen(req, timeout=5)
+        assert error.value.code == 409
+    finally:
         server, D._server = D._server, None
         if server:
             server.shutdown()
