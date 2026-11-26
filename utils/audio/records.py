@@ -1229,6 +1229,8 @@ class CrossfadeSource(_AudioSource):
         self._headphones_generation = 0
         self._headphone_streams: list[queue.Queue[bytes]] = []
         self._headphone_history: deque[bytes] = deque(maxlen=50)
+        # A warmed post-loop decoder is committed at the next loop boundary.
+        self._pending_loop_exit: Optional[tuple[str, Deck, Deck, int, bool]] = None
         self.paused: set = set()                  # deck slots someone paused at the booth
         # The free deck at the booth: a record loaded by hand (`by_hand`), its
         # cue point (seconds of its own time; None: Kaia's choice), and a deck
@@ -1453,6 +1455,151 @@ class CrossfadeSource(_AudioSource):
             self.play_hand()
         elif replan:
             self._begin_planning(replan)
+        return True
+
+    def _loop_bounds(self, grid, own: float, beats: int) -> Optional[tuple[float, float]]:
+        """Choose a two-bar-ahead phrase start and a beat-counted end."""
+        lead = own + 8 * grid.beat
+        if grid.tracked:
+            start = grid.tick_bar(lead, every=2)
+            if start is None:
+                return None
+            index = int(np.searchsorted(grid.ticks, start - 1e-6))
+            if index >= len(grid.ticks) or abs(float(grid.ticks[index]) - start) > 0.025:
+                return None
+            end_index = index + beats
+            if end_index >= len(grid.ticks):
+                return None
+            end = float(grid.ticks[end_index])
+        else:
+            start = grid.next_bar(lead, 1.0, every=2)
+            end = start + beats * grid.beat
+        return (float(start), float(end)) if end > start else None
+
+    def set_loop(self, slot: int, beats: Optional[int], *, after_skip: bool = False) -> bool:
+        """Set a beat-quantized loop, or exit it at its next wrap boundary.
+
+        Loop audio is decoded into a bounded PCM tuple on this request thread.
+        The renderer only indexes that tuple; it never seeks, reads disk, or
+        allocates the loop buffer. Its monotonic frame counter remains separate
+        from the source-time playhead exposed by Deck.at().
+        """
+        if isinstance(slot, bool) or slot not in (1, 2):
+            return False
+        if beats is not None and (isinstance(beats, bool) or beats not in (1, 2, 4, 8)):
+            return False
+
+        if beats is None:
+            with self._lock:
+                deck = self.current if self.current is not None and self.current.slot == slot else None
+                loop = deck._loop if deck is not None else None
+                if deck is None or loop is None:
+                    return False
+                pending = self._pending_loop_exit
+                if pending is not None and pending[1] is deck:
+                    if after_skip and not pending[4]:
+                        self._pending_loop_exit = (*pending[:4], True)
+                    return True
+                if deck.played < loop.start_played:
+                    deck._loop = None
+                    plan_now = after_skip
+                    preview_source = None
+                else:
+                    plan_now = False
+                    preview_source = (deck, loop, deck.end * deck.ratio, deck.ratio,
+                                      deck.gain, deck.semitones, deck.grid)
+            if preview_source is None:
+                if plan_now:
+                    self._begin_planning("skip")
+                return True
+            old, loop, total_own, ratio, gain, semitones, grid = preview_source
+            if loop.end_own >= total_own - 0.04:
+                return False
+            preview = None
+            try:
+                preview = Deck(old.record, ratio, total_own, self._factory, gain=gain,
+                               offset=loop.end_own, semitones=semitones)
+                if not _wait_deck(preview, 5, 2.0):
+                    preview.close()
+                    return False
+            except Exception as exc:
+                if preview is not None:
+                    preview.close()
+                log_warning(f"[records] loop exit decoder could not start: {exc}")
+                return False
+            with self._lock:
+                stale = (self.current is not old or old._loop is not loop
+                         or self.plan is not None or self.incoming is not None)
+                if not stale:
+                    count = len(loop.frames)
+                    elapsed = max(0, old.played - loop.start_played)
+                    cycles = (elapsed + count - 1) // count
+                    boundary = loop.start_played + cycles * count
+                    if boundary < old.played:
+                        boundary += count
+                    if slot in self.paused:
+                        boundary = old.played
+                    self._pending_loop_exit = ("current", old, preview, boundary, after_skip)
+            if stale:
+                preview.close()
+                return False
+            return True
+
+        with self._lock:
+            deck = self.current if self.current is not None and self.current.slot == slot else None
+            if (deck is None or deck.loop_active or deck.grid is None or not deck.grid.bar_known
+                    or self.plan is not None or self.incoming is not None or self.hand is not None
+                    or self._pending_loop_exit is not None or slot in self.paused):
+                return False
+            grid = deck.grid
+            own = max(0.0, deck.at() * deck.ratio)
+            bounds = self._loop_bounds(grid, own, beats)
+            if bounds is None:
+                return False
+            start_own, end_own = bounds
+            total_own = deck.end * deck.ratio
+            if start_own < own or end_own >= total_own - 0.04:
+                return False
+            old = deck
+            ratio, gain, semitones = deck.ratio, deck.gain, deck.semitones
+
+        loop_frames = int(round((end_own - start_own) / ratio * FRAMES_PER_S))
+        if not 1 <= loop_frames <= 500:
+            return False
+        preview = None
+        pcm: list[bytes] = []
+        try:
+            preview = Deck(old.record, ratio, end_own, self._factory,
+                           buffer_frames=max(150, loop_frames + 5), gain=gain,
+                           offset=start_own, semitones=semitones)
+            deadline = time.monotonic() + 20.0
+            while len(pcm) < loop_frames and time.monotonic() < deadline:
+                if preview.ready(1):
+                    frame = preview.frame()
+                    if frame is None:
+                        break
+                    pcm.append(frame)
+                else:
+                    time.sleep(0.005)
+            if len(pcm) != loop_frames:
+                return False
+        except Exception as exc:
+            log_warning(f"[records] loop buffer could not be prepared: {exc}")
+            return False
+        finally:
+            if preview is not None:
+                preview.close()
+
+        with self._lock:
+            stale = (self.current is not old or old.loop_active or self.plan is not None
+                     or self.incoming is not None or self.hand is not None or slot in self.paused)
+            frames_until = int(round((start_own / ratio - old.at()) * FRAMES_PER_S))
+            if not stale and frames_until >= 2:
+                old._loop = DeckLoop(tuple(pcm), old.played + frames_until,
+                                     start_own, end_own, beats)
+        if stale or frames_until < 2:
+            return False
+        log_info(f"[records] deck {slot} armed a {beats}-beat loop at {start_own:.3f}s")
         return True
 
     def jump_to_cue(self, slot: int, position: float, expected_path: Optional[str] = None) -> bool:
