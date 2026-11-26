@@ -2,12 +2,14 @@
 
 import json
 import os
+import time
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from utils.audio import audio_identity, beatgrid, dj_dashboard, library, mixcheck
+from utils.audio import audio_identity, beatgrid, library, mixcheck
+from utils.audio import dj_dashboard as D
 
 
 def _same_stat_replacement(path):
