@@ -337,10 +337,16 @@ The #403 slices now provide crossfader laws/assignments, a real PFL/cue-monitor 
 persistent one-memory/eight-hot cue banks with frame-safe decoder replacement. PFL uses a separate
 decoder, preserves EQ/trim while bypassing channel and crossfader gains, and blends against the rendered
 master locally. Hot/memory cues are persisted by stable audio identity and are not catalog metadata.
-This is still not professional parity: loops/rolls, live jog/pitch bend, and a bounded FX bus remain
-unimplemented. They must each have real engine signal paths and browser interaction tests before they
-are exposed as capabilities. Browser-driven gesture coverage for the cue-pad UI itself also remains
-pending; the present tests stop at the actual HTTP/API boundary.
+A real beat-loop path is now implemented for 1/2/4/8 beats on a counted, bar-known on-air deck.
+The loop segment is decoded ahead of time into a fixed-size PCM tuple on the booth request thread;
+the renderer only indexes that bounded buffer. The loop arms at a two-bar phrase boundary, keeps
+`Deck.played` monotonic for renderer scheduling, and reports wrapped source position through `Deck.at()`.
+Automatic end planning and tempo glide are suspended while the loop owns the deck. Exit warms a normal
+decoder at the loop end and commits it at the next wrap boundary; the selected PFL decoder shares the
+same loop frames and exits on that same boundary. This is beat looping, not momentary roll behavior.
+Momentary rolls, live jog/pitch bend, and a bounded FX bus remain unimplemented and need real engine
+signal paths before they are exposed. Browser-driven gesture coverage for the cue pads and loop controls
+also remains pending; current tests exercise the engine and HTTP boundary.
 
 ### Real-time engineering boundary
 
@@ -353,7 +359,10 @@ on the booth request thread; `CrossfadeSource.read()` only consumes one already-
 publishes a fixed-size headphone frame into bounded per-client queues. Hot-cue recall also warms its
 replacement decoder on the request thread, commits only after frame-boundary identity checks, and
 reaps the old decoder after releasing the lock. Cue-bank disk reads/writes stay in dashboard threads.
-HTTP streaming and browser playback run on their own threads/processes. Keep the engine's audible
+Beat-loop audio is also prepared on the request thread, capped at 500 fixed-size frames, then attached
+to a deck with a separate loop source clock; `CrossfadeSource.read()` does not seek or decode it. Loop exit
+warms the post-loop program and PFL decoders before scheduling a boundary swap. HTTP streaming and
+browser playback run on their own threads/processes. Keep the engine's audible
 capabilities honest: a planner can only select a skill the mixer can actually execute.
 
 **`!music records` mixes the local library** (`utils/audio/library.py`, `records.py`,
