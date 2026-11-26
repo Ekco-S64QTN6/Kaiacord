@@ -1770,7 +1770,7 @@ class CrossfadeSource(_AudioSource):
         hands_now = (1.0,) * 6
         if plan is None and self.rides and out is not None and cur.grid is not None:
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
-            fac, label, skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot)
+            fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot)
             if not handled:
                 # Preserve the old small phrase gesture only when no aligned
                 # structural profile action can speak to this section. A stable
@@ -1800,7 +1800,7 @@ class CrossfadeSource(_AudioSource):
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             g = gains(plan, times)
             if self.rides:
-                fac, self.gesture, skill_id = self.skill_scheduler.render_blend(
+                fac, self.gesture, _skill_id = self.skill_scheduler.render_blend(
                     plan, times, cur.slot, incoming.slot
                 )
                 g = tuple(a * b for a, b in zip(g, fac))
