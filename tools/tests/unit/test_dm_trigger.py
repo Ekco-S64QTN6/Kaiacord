@@ -203,3 +203,65 @@ async def test_a_watched_channel_logs_its_public_threads_only(mock_processor, pr
     await asyncio.sleep(0)
     assert mock_processor.rag.log_user_interaction_async.called is logged
     assert not mock_processor._run_intelligence_pipeline.called
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["dm", "private_thread"])
+async def test_private_command_dispatch_runs_under_private_context_and_resets_afterwards(
+    mock_processor, monkeypatch, kind
+):
+    """Commands run before response generation, so privacy must be set before dispatch."""
+    from utils.core import message_processor, private_turn
+
+    seen_private_states = []
+
+    async def dispatch(*_args):
+        seen_private_states.append(private_turn.active())
+        return True
+
+    monkeypatch.setattr(message_processor, "resolve_command", lambda _content: object())
+    monkeypatch.setattr(message_processor, "dispatch_command", dispatch)
+
+    if kind == "private_thread":
+        msg = _thread_message(private=True, content="!private-command")
+    else:
+        dm_channel = MagicMock(spec=discord.DMChannel)
+        dm_channel.id = 7654321
+        user = MagicMock(spec=discord.User)
+        user.id = 444444
+        user.name = user.display_name = "Dana"
+        user.bot = False
+        msg = MagicMock(spec=discord.Message)
+        msg.platform = "discord"
+        msg.author = user
+        msg.guild = None
+        msg.channel = dm_channel
+        msg.mentions = []
+        msg.role_mentions = []
+        msg.content = "!private-command"
+
+    assert private_turn.active() is False
+    await mock_processor.process(msg)
+
+    assert seen_private_states == [True]
+    assert private_turn.active() is False, "private command context leaked beyond process()"
+
+
+@pytest.mark.asyncio
+async def test_public_command_dispatch_does_not_inherit_private_context(mock_processor, monkeypatch):
+    from utils.core import message_processor, private_turn
+
+    seen_private_states = []
+
+    async def dispatch(*_args):
+        seen_private_states.append(private_turn.active())
+        return True
+
+    monkeypatch.setattr(message_processor, "resolve_command", lambda _content: object())
+    monkeypatch.setattr(message_processor, "dispatch_command", dispatch)
+    msg = _thread_message(private=False, content="!public-command")
+
+    await mock_processor.process(msg)
+
+    assert seen_private_states == [False]
+    assert private_turn.active() is False
