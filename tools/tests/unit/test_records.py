@@ -2508,10 +2508,13 @@ def test_live_jog_timeout_covers_the_whole_hold_across_the_neutral_crossing(loop
     for _ in range(R.PITCH_BEND_RAMP_FRAMES + 2):
         src.read()
     assert deck.bend_active is False
-    assert deck._bend_expired is False
+    assert deck._bend_expired is True
     assert src.plan is None
+    assert src.set_bend(1, 1.06) is False
 
-    # A fresh pointer gesture is allowed after the timed-out hold has ended.
+    # The expired hold stays latched until an explicit release arrives.
+    assert src.set_bend(1, 1.0, release=True)
+    assert deck._bend_expired is False
     assert src.set_bend(1, 1.04)
     assert src.set_bend(1, 1.0, release=True)
 
