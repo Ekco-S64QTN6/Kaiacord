@@ -632,11 +632,15 @@ class _Handler(BaseHTTPRequestHandler):
         body, src = self._body(), s.source
         if self.path == "/phones":
             raw_slot = body.get("slot")
-            if isinstance(raw_slot, bool):
+            if raw_slot is None or raw_slot == "":
+                slot = None
+            elif isinstance(raw_slot, bool):
                 return self._send(400, b"", "text/plain")
-            try:
-                slot = None if raw_slot in (None, "") else int(raw_slot)
-            except (TypeError, ValueError, OverflowError):
+            elif isinstance(raw_slot, int):
+                slot = raw_slot
+            elif isinstance(raw_slot, str) and raw_slot.strip() in ("1", "2"):
+                slot = int(raw_slot.strip())
+            else:
                 return self._send(400, b"", "text/plain")
             if slot not in (None, 1, 2):
                 return self._send(400, b"", "text/plain")
