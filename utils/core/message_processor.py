@@ -343,10 +343,17 @@ class MessageProcessor:
         """Main entry point for message processing with context isolation."""
         channel_id = str(msg.channel.id) if hasattr(msg, 'channel') and hasattr(msg.channel, 'id') else "global"
         token = current_channel_id_var.set(channel_id)
+        from utils.core import private_turn
+        private_token = private_turn.enter(False)
         try:
             return await self._process_internal(msg)
         finally:
-            current_channel_id_var.reset(token)
+            # _process_internal sets the actual DM/private-thread state before
+            # dispatch. Restore the caller's context after every return path.
+            try:
+                private_turn.leave(private_token)
+            finally:
+                current_channel_id_var.reset(token)
 
     async def _process_internal(self, msg):
         """Main entry point for message processing."""
@@ -368,7 +375,20 @@ class MessageProcessor:
             return
 
         import discord as _discord
-        
+
+        # Establish privacy before command dispatch or any other handler that
+        # may log, persist or send diagnostics. Private threads are guild
+        # threads, so they must be classified separately from DMChannel.
+        is_dm = not is_social and (
+            msg.guild is None
+            or isinstance(getattr(msg, 'channel', None), (_discord.DMChannel, _discord.GroupChannel))
+            or getattr(getattr(msg, 'channel', None), 'type', None) in (_discord.ChannelType.private, _discord.ChannelType.group)
+        )
+        if not is_social and _in_private_thread(msg):
+            is_dm = True
+        from utils.core import private_turn as _pt_flag
+        _pt_flag.enter(is_dm)
+
         if not is_social and msg.guild is not None:
             # Resolve the effective channel name.
             # Forum threads: msg.channel is a Thread, parent is the forum channel.
@@ -471,11 +491,6 @@ class MessageProcessor:
 
         # 4. Trigger Logic
         bot_name = self.bot.user.display_name.lower() if (self.bot and self.bot.user) else "kaia"
-        is_dm = not is_social and (
-            msg.guild is None
-            or isinstance(getattr(msg, 'channel', None), (_discord.DMChannel, _discord.GroupChannel))
-            or getattr(getattr(msg, 'channel', None), 'type', None) in (_discord.ChannelType.private, _discord.ChannelType.group)
-        )
         is_mention = (
             not is_social and (
                 (self.bot and self.bot.user and self.bot.user in msg.mentions)  # proper <@ID> mention (autocomplete)
@@ -506,15 +521,8 @@ class MessageProcessor:
         elif is_dm:
             log_debug(f"Direct message trigger check passed (is_dm=True, is_mention={is_mention})")
 
-        # An invitation-only thread is kept as a DM is: its turns stay out of the
-        # shared logs, and out of everything else a DM is kept out of.
-        if not is_social and _in_private_thread(msg):
-            is_dm = True
-        # From here the loggers know whether this turn is private: the link
-        # enricher runs before the intelligence pipeline sets it again.
-        # Set for every message, so a private turn can't carry into the next.
-        from utils.core import private_turn as _pt_flag
-        _pt_flag.enter(is_dm)
+        # Privacy was established before command dispatch above. The link
+        # enricher and intelligence pipeline now inherit the correct context.
 
         # 5. Rate Limiting & Shutdown Guard
         if not self.rate_limiter.is_allowed(msg.author.id):
