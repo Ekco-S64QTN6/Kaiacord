@@ -543,19 +543,19 @@ class _Handler(BaseHTTPRequestHandler):
                 try:
                     frame = stream.get(timeout=0.02)
                 except queue.Empty:
-                    frame = b"\\x00" * 3840
+                    frame = b"\x00" * 3840
                 if len(frame) != 3840:
-                    frame = b"\\x00" * 3840
-                self.wfile.write(f"{len(frame):X}\\r\\n".encode("ascii"))
+                    frame = b"\x00" * 3840
+                self.wfile.write(f"{len(frame):X}\r\n".encode("ascii"))
                 self.wfile.write(frame)
-                self.wfile.write(b"\\r\\n")
+                self.wfile.write(b"\r\n")
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
             source.detach_headphone_stream(stream)
             try:
-                self.wfile.write(b"0\\r\\n\\r\\n")
+                self.wfile.write(b"0\r\n\r\n")
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
