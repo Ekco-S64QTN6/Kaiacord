@@ -11,6 +11,7 @@ on:
       - "utils/audio/mixcheck.py"
       - "utils/audio/beatgrid.py"
       - "utils/audio/setlist.py"
+      - "utils/audio/musical_plan.py"
       - "utils/audio/dj_dashboard.py"
       - "tools/maintenance/beat_ticks.py"
       - "tools/tests/unit/test_audio_identity.py"
@@ -19,6 +20,7 @@ on:
       - "tools/tests/unit/test_dj_dashboard.py"
       - "tools/tests/unit/test_records.py"
       - "tools/tests/unit/test_setlist.py"
+      - "tools/tests/unit/test_musical_plan.py"
       - "tools/tests/unit/test_mixcheck.py"
       - "config/default_config.yaml"
       - ".github/scripts/run_ci_tests.py"
@@ -33,6 +35,7 @@ on:
       - "utils/audio/mixcheck.py"
       - "utils/audio/beatgrid.py"
       - "utils/audio/setlist.py"
+      - "utils/audio/musical_plan.py"
       - "utils/audio/dj_dashboard.py"
       - "tools/maintenance/beat_ticks.py"
       - "tools/tests/unit/test_audio_identity.py"
@@ -41,6 +44,7 @@ on:
       - "tools/tests/unit/test_dj_dashboard.py"
       - "tools/tests/unit/test_records.py"
       - "tools/tests/unit/test_setlist.py"
+      - "tools/tests/unit/test_musical_plan.py"
       - "tools/tests/unit/test_mixcheck.py"
       - "config/default_config.yaml"
       - ".github/scripts/run_ci_tests.py"
@@ -78,5 +82,6 @@ jobs:
           tools/tests/unit/test_songmap.py
           tools/tests/unit/test_records.py
           tools/tests/unit/test_setlist.py
+          tools/tests/unit/test_musical_plan.py
           tools/tests/unit/test_mixcheck.py
           -q
