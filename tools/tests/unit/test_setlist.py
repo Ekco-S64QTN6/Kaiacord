@@ -7,6 +7,8 @@ preferred the long ones: on 31 Oct a third of the hour sets' transitions were
 import random
 from types import SimpleNamespace
 
+import pytest
+
 from utils.audio import mixcheck, setlist
 from utils.audio.library import Record
 
