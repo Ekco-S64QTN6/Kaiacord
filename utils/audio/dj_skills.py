@@ -331,9 +331,12 @@ class SkillScheduler:
         self._solo_profile_present = profile is not None
         self._solo_profile_aligned = bool(profile is not None and profile.aligned)
         self._solo_duration = float(profile.duration) if profile is not None else 0.0
-        if profile is not None and profile.aligned:
+        if profile is not None and profile.aligned and profile.phrase_bars == 4:
             for phrase in profile.phrases:
-                if not phrase.aligned or not phrase.bars or phrase.bars < 1:
+                # The first catalog's structural preconditions are explicitly
+                # four-bar phrases. A counted one/eight-bar window is not the
+                # same action boundary and must remain on the legacy fallback.
+                if not phrase.aligned or phrase.bars != 4:
                     continue
                 minimum_strength = {
                     "build_candidate": 0.55,
