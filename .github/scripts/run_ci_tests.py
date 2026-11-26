@@ -145,6 +145,11 @@ RELATED_TESTS = {
         "tools/tests/unit/test_dj_dashboard.py",
         "tools/tests/unit/test_records.py",
         "tools/tests/unit/test_records_session_listener_intent.py",
+        "tools/tests/unit/test_dj_skills.py",
+    ),
+    "utils/audio/dj_skills.py": (
+        "tools/tests/unit/test_dj_skills.py",
+        "tools/tests/unit/test_records.py",
     ),
     "utils/audio/records_intent.py": (
         "tools/tests/unit/test_records_intent.py",
@@ -176,11 +181,13 @@ RELATED_TESTS = {
     "utils/audio/dj_dashboard.py": (
         "tools/tests/unit/test_dj_dashboard.py",
         "tools/tests/unit/test_records.py",
+        "tools/tests/unit/test_dj_skills.py",
     ),
     "tools/maintenance/beat_ticks.py": ("tools/tests/unit/test_audio_cache_identity.py",),
     "utils/commands/music_handler.py": (
         "tools/tests/unit/test_records_startup_cleanup.py",
         "tools/tests/unit/test_music_handler_records_requests.py",
+        "tools/tests/unit/test_dj_skills.py",
     ),
     "utils/social/agent_board_verify.py": ("tools/tests/unit/test_agent_boards.py",),
     "utils/core/kaia_dream.py": ("tools/tests/unit/test_memory_anchors.py", "tools/tests/unit/test_beliefs_store.py",
