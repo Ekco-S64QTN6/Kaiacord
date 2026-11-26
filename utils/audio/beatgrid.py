@@ -377,9 +377,6 @@ def grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional
     return result if _audio_identity(path) == identity else None
 
 
-grid_for.cache_clear = _grid_for_cached.cache_clear       # the onset grid underneath is cached
-grid_for.cache_info = _grid_for_cached.cache_info
-
 
 def _grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float = 40.0,
              anchor: Optional[Grid] = None) -> Optional[Grid]:
@@ -448,6 +445,9 @@ def _grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optiona
 
 
 _grid_for.cache_clear = _grid_for_cached.cache_clear
+_grid_for.cache_info = _grid_for_cached.cache_info
+grid_for.cache_clear = _grid_for_cached.cache_clear
+grid_for.cache_info = _grid_for_cached.cache_info
 
 
 @functools.lru_cache(maxsize=256)
