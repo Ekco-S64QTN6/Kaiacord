@@ -927,6 +927,28 @@ def mix_frames(out_parts, in_parts, g, uo=IDENTITY, ui=IDENTITY, master: float =
     return np.clip(np.rint(_soft_limit(y)), -32768, 32767).astype(np.int16).tobytes()
 
 
+def headphone_frame(cue: Optional[bytes], master: bytes, mix: float, volume: float) -> bytes:
+    """Mix the pre-fader cue and post-master program for the booth's headphones.
+
+    `mix` is 0 (CUE) to 1 (MASTER); with no cue deck, the master remains audible
+    regardless of the blend control. The final limiter protects the local output
+    when two full-level signals meet in the centre of the blend.
+    """
+    program = master if len(master) == FRAME_BYTES else SILENCE
+    m = np.frombuffer(program, dtype=np.int16).astype(np.float32).reshape(-1, 2)
+    if cue is None:
+        y = m
+    else:
+        c = np.frombuffer(cue if len(cue) == FRAME_BYTES else SILENCE,
+                          dtype=np.int16).astype(np.float32).reshape(-1, 2)
+        x = min(1.0, max(0.0, float(mix)))
+        y = c * math.cos(x * math.pi / 2.0) + m * math.sin(x * math.pi / 2.0)
+    gain = min(1.0, max(0.0, float(volume)))
+    if gain != 1.0:
+        y = y * gain
+    return np.clip(np.rint(_soft_limit(y)), -32768, 32767).astype(np.int16).tobytes()
+
+
 #: Above this level the sum is bent smoothly toward full scale rather than
 #: clipped: two full records playing together run hot.
 LIMIT_FROM = 0.80 * 32767
@@ -970,6 +992,10 @@ class Controls:
         self._xfader_gains = {1: 1.0, 2: 1.0}
         self._xfader_ramp: Optional[tuple[dict[int, float], dict[int, float], int]] = None
         self.master = 1.0
+        # Browser headphones are a separate monitor bus: output level and
+        # CUE↔MASTER balance never alter the program sent to Discord.
+        self.phones = 0.8
+        self.phones_mix = 0.0
 
     @staticmethod
     def _flat() -> dict:
@@ -1058,6 +1084,15 @@ class Controls:
                 self.xfader_assignments[slot] = assignment
                 self._start_xfader_config_ramp()
             return True
+        if name in ("phones", "phones_mix"):
+            if slot is not None:
+                return False
+            number = self._number(value)
+            if number is None:
+                return False
+            attr = "phones" if name == "phones" else "phones_mix"
+            setattr(self, attr, min(1.0, max(0.0, number)))
+            return True
         if name == "master":
             number = self._number(value)
             if number is None:
@@ -1081,6 +1116,11 @@ class Controls:
             gain *= self._xfader_gains.get(slot, 1.0)
         return (c["low"], c["mid"], c["high"], gain)
 
+    def channel_pre_fader(self, slot: int) -> tuple:
+        """PFL path: channel EQ and trim, deliberately before fader/crossfader."""
+        c = self.channels.get(slot) or self._flat()
+        return (c["low"], c["mid"], c["high"], 10 ** (c["trim"] / 20))
+
     def flat(self) -> bool:
         return (self.xfader is None and self.master == 1.0
                 and all(c == self._flat() for c in self.channels.values()))
@@ -1092,6 +1132,8 @@ class Controls:
             "xfader_curve": self.xfader_curve,
             "xfader_assignments": {str(k): v for k, v in self.xfader_assignments.items()},
             "master": self.master,
+            "phones": self.phones,
+            "phones_mix": self.phones_mix,
         }
 
 
@@ -1144,6 +1186,13 @@ class CrossfadeSource(_AudioSource):
         self.history: list[dict] = []
         self.planning_mode: Optional[str] = None
         self.controls = Controls()
+        # A private decoder feeds PFL without advancing, splitting or stealing
+        # frames from either program deck. Stream clients receive bounded PCM.
+        self._headphones_deck: Optional[Deck] = None
+        self._headphones_slot: Optional[int] = None
+        self._headphones_generation = 0
+        self._headphone_streams: list[queue.Queue[bytes]] = []
+        self._headphone_history: deque[bytes] = deque(maxlen=50)
         self.paused: set = set()                  # deck slots someone paused at the booth
         # The free deck at the booth: a record loaded by hand (`by_hand`), its
         # cue point (seconds of its own time; None: Kaia's choice), and a deck
@@ -1813,10 +1862,174 @@ class CrossfadeSource(_AudioSource):
                       + ("" if abs(shift) <= MAX_FINE_S else " (too far to trust; kept the grid's alignment)"))
         return shift
 
-    def read(self) -> bytes:
-        """Render one complete frame from a single committed mixer state."""
+    def _headphone_descriptor_locked(self, slot: int):
+        """Resolve a booth slot to an authoritative decoder description."""
+        for deck in (self.current, self.incoming, self.hand):
+            if deck is not None and deck.slot == slot:
+                return (deck.record, deck.ratio, max(deck.end * deck.ratio, deck.at() * deck.ratio + 0.02),
+                        deck.gain, max(0.0, deck.at() * deck.ratio), deck.semitones)
+        queued = self._queued if self.free_slot() == slot else None
+        if queued is None or self.current is None:
+            return None
+        from utils.audio import library
+        current = self.current
+        master_bpm = current.grid.bpm * current.ratio if current.grid else (current.record.bpm or 0) * current.ratio
+        bpm = queued.grid.bpm if queued.grid else queued.record.bpm
+        ratio = library.tempo_ratio(master_bpm, bpm) or 1.0
+        offset = self.cue if self.cue is not None else self.default_cue(queued)
+        return (queued.record, ratio, queued.seconds, queued.gain, max(0.0, offset), 0)
+
+    def set_headphones(self, slot: Optional[int], force: bool = False) -> bool:
+        """Select a deck's independent PFL decoder, or turn CUE off.
+
+        Decoder creation and warm-up happen on the HTTP request thread, never in
+        the render worker. A generation token prevents a slow obsolete request
+        from replacing a newer selection. Force rebuilds after a cue seek.
+        """
+        if slot is None:
+            with self._lock:
+                self._headphones_generation += 1
+                old, self._headphones_deck = self._headphones_deck, None
+                self._headphones_slot = None
+            if old is not None:
+                old.close()
+            return True
+        if isinstance(slot, bool) or slot not in (1, 2):
+            return False
         with self._lock:
-            return self._read_locked()
+            desc = self._headphone_descriptor_locked(slot)
+            if desc is None:
+                return False
+            if (not force and self._headphones_deck is not None and self._headphones_slot == slot
+                    and self._headphones_deck.record.path == desc[0].path):
+                return True
+            self._headphones_generation += 1
+            generation = self._headphones_generation
+        record, ratio, seconds, gain, offset, semitones = desc
+        preview = None
+        try:
+            preview = Deck(record, ratio, seconds, self._factory, gain=gain,
+                           offset=offset, semitones=semitones)
+            if not _wait_deck(preview, 5, 1.0):
+                preview.close()
+                return False
+        except Exception as exc:
+            if preview is not None:
+                preview.close()
+            log_warning(f"[records] headphone decoder could not start: {exc}")
+            return False
+        with self._lock:
+            current = self._headphone_descriptor_locked(slot)
+            stale = (generation != self._headphones_generation or current is None
+                     or current[0].path != record.path
+                     or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6))
+            target_at = max(0.0, current[4] / current[1]) if not stale else 0.0
+            delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S))
+            if delta_frames < -1 or delta_frames > 145:
+                stale = True
+            skip_frames = max(0, delta_frames)
+        # Waiting for enough decoded source frames happens on the HTTP thread,
+        # with no mixer lock held. Never use Deck.frame() to seek: an empty
+        # preview buffer would count as a program decoder starvation event.
+        if not stale and skip_frames and not _wait_deck(preview, skip_frames + 5, 1.0):
+            preview.close()
+            return False
+        with self._lock:
+            current = self._headphone_descriptor_locked(slot)
+            stale = (generation != self._headphones_generation or current is None
+                     or current[0].path != record.path
+                     or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6))
+            if not stale:
+                target_at = max(0.0, current[4] / current[1])
+                delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S))
+                if delta_frames < -1 or delta_frames > 145:
+                    stale = True
+                    skip_frames = 0
+                else:
+                    skip_frames = max(0, delta_frames)
+                with preview._lock:
+                    if stale:
+                        pass
+                    elif len(preview._frames) < skip_frames + 5:
+                        stale = True
+                    else:
+                        for _ in range(skip_frames):
+                            preview._frames.popleft()
+                            preview.played += 1
+                            preview._room.release()
+            if not stale:
+                old, self._headphones_deck = self._headphones_deck, preview
+                self._headphones_slot = slot
+        if stale:
+            preview.close()
+            return False
+        if old is not None:
+            old.close()
+        return True
+
+    def attach_headphone_stream(self, buffered_frames: int = 0) -> Optional[queue.Queue[bytes]]:
+        """Attach one local PCM consumer, seeded to the same voice-buffer edge."""
+        with self._lock:
+            if len(self._headphone_streams) >= 2:
+                return None
+            stream: queue.Queue[bytes] = queue.Queue(maxsize=50)
+            count = min(50, max(0, int(buffered_frames)))
+            for frame in list(self._headphone_history)[-count:] if count else ():
+                stream.put_nowait(frame)
+            self._headphone_streams.append(stream)
+            return stream
+
+    def detach_headphone_stream(self, stream: queue.Queue[bytes]) -> None:
+        old = None
+        with self._lock:
+            try:
+                self._headphone_streams.remove(stream)
+            except ValueError:
+                pass
+            # Atomically retire PFL when the final browser leaves. A concurrent
+            # new listener cannot be stranded with its decoder cleared afterward.
+            if not self._headphone_streams:
+                # Also invalidate a preview still warming on the request thread.
+                self._headphones_generation += 1
+                old, self._headphones_deck = self._headphones_deck, None
+                self._headphones_slot = None
+        if old is not None:
+            old.close()
+
+    def read(self) -> bytes:
+        """Render one program frame and publish its independent headphone mix."""
+        retired = None
+        with self._lock:
+            frame = self._read_locked()
+            cue = None
+            if self._headphone_streams and self._headphones_deck is not None:
+                deck = self._headphones_deck
+                raw = deck.frame()
+                if raw is None:
+                    retired, self._headphones_deck = deck, None
+                    self._headphones_slot = None
+                else:
+                    slot = self._headphones_slot
+                    if slot in (1, 2):
+                        cue = mix_frames(deck.split(raw), None, SOLO,
+                                         self.controls.channel_pre_fader(slot), IDENTITY, 1.0)
+            phones = headphone_frame(cue, frame, self.controls.phones_mix, self.controls.phones)
+            self._headphone_history.append(phones)
+            for stream in tuple(self._headphone_streams):
+                if stream.full():
+                    try:
+                        stream.get_nowait()
+                    except queue.Empty:
+                        pass
+                try:
+                    stream.put_nowait(phones)
+                except queue.Full:
+                    pass
+        # Reap an EOF preview off the locked render path; close() can join its
+        # decoder pump and must never hold the mixer lock while doing so.
+        if retired is not None:
+            retired.close()
+        return frame
 
     def _read_locked(self) -> bytes:
         cur = self.current
@@ -2108,10 +2321,13 @@ class CrossfadeSource(_AudioSource):
             self._cancel_splice()
             self.skill_scheduler.cancel_blend()
             self.skill_scheduler.clear_active()
-            for deck in (self.current, self.incoming, self.hand):
+            for deck in (self.current, self.incoming, self.hand, self._headphones_deck):
                 if deck:
                     deck.close()
             self.current = self.incoming = self.hand = None
+            self._headphones_deck = None
+            self._headphones_slot = None
+            self._headphone_streams.clear()
 
 
 class BufferedRecordsSource(_AudioSource):

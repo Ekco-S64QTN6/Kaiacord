@@ -8,10 +8,11 @@ the mix moved it.
 
 A small HTTP server on 127.0.0.1 serves `assets/dj/index.html`, a state
 stream (`/events`, server-sent events, 20 a second), each record's three-band
-waveform (`/wave/<id>`), the record files themselves for the page's
-headphones (`/audio/<id>`, with byte ranges; heard in the window, never on
-air), and the controls: the mixer (`/control`, `/reset`, `/blend`), the decks
-(`/play`, `/cue`, `/load`) and `/skip`, the same skip `!music skip` makes.
+waveform (`/wave/<id>`), the engine's local PFL/master headphone PCM stream
+(`/phones/stream`, fixed 20 ms frames), a legacy local record-file range endpoint
+(`/audio/<id>`, not used for PHONES), and the controls: mixer (`/control`,
+`/reset`, `/blend`), decks (`/play`, `/cue`, `/load`), headphone selection
+(`/phones`) and `/skip`, the same skip `!music skip` makes.
 When a set starts the page is opened as an app window in an installed
 browser, and closed when the set ends.
 """
@@ -21,6 +22,7 @@ import base64
 import hashlib
 import json
 import os
+import queue
 import shutil
 import subprocess
 import tempfile
@@ -344,8 +346,11 @@ def _snapshot_locked(session, src, mood: Optional[dict] = None) -> dict:
         late = getattr(src, "late", ())
         late_count = len(late)
         worst_late = max(late, default=0.0)
+    headphone_deck = getattr(src, "_headphones_deck", None)
     return {
         "live": True, "t": time.time(), "channel": session.channel_name, "by": session.requested_by,
+        "headphones": {"slot": getattr(src, "_headphones_slot", None),
+                       "id": track_id(headphone_deck.record.path) if headphone_deck is not None else None},
         "started": session.started_at, "played": len(session.names), "listeners": session._humans(),
         "launch": _launch,
         "decks": decks, "channels": channels, "master": src.levels["master"], "mix": mix,
@@ -426,6 +431,7 @@ def _session():
 
 class _Handler(BaseHTTPRequestHandler):
     server_version = "KaiaBooth/1"
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, *a, **k):          # every request would land in the bot's stderr
         pass
@@ -462,6 +468,8 @@ class _Handler(BaseHTTPRequestHandler):
                     self._send(404, b"", "text/plain")
                 else:
                     self._send(200, hit[0].read_bytes(), hit[1])
+            elif path == "/phones/stream":
+                self._phones_stream()
             elif path.startswith("/audio/"):
                 self._audio(path.rsplit("/", 1)[-1])
             elif path.startswith("/wave/"):
@@ -505,9 +513,56 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception as e:
             log_debug(f"[dj] {path}: {e}")
 
+    def _phones_stream(self) -> None:
+        """Stream bounded 48 kHz stereo PCM frames to the local booth only.
+
+        The renderer publishes the monitor bus into a per-client bounded queue;
+        the HTTP thread never reads a deck or blocks the Discord audio callback.
+        """
+        session = _session()
+        if session is None or session.source is None or getattr(session, "_closing", False):
+            return self._send(409, b"", "text/plain")
+        source = session.source
+        voice = getattr(session, "voice_source", None)
+        try:
+            buffered = int(voice._frames.qsize()) if voice is not None else 0
+        except Exception:
+            buffered = 0
+        stream = source.attach_headphone_stream(buffered)
+        if stream is None:
+            return self._send(503, b"headphone listener limit reached", "text/plain")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Kaia-PCM", "s16le;rate=48000;channels=2;frame_ms=20")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+        try:
+            while _server is not None and not getattr(session, "_closing", False):
+                try:
+                    frame = stream.get(timeout=0.02)
+                except queue.Empty:
+                    frame = b"\x00" * 3840
+                if len(frame) != 3840:
+                    frame = b"\x00" * 3840
+                self.wfile.write(f"{len(frame):X}\r\n".encode("ascii"))
+                self.wfile.write(frame)
+                self.wfile.write(b"\r\n")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            source.detach_headphone_stream(stream)
+            try:
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+
     def _audio(self, tid: str) -> None:
-        """A record's file, for the booth's headphones (CUE), with byte ranges
-        so the page can seek in it."""
+        """Legacy local range endpoint; PHONES now uses the engine's PFL PCM bus."""
         s = _session()
         rec = next((r for r in (s.crate if s else []) if track_id(r.path) == tid), None)
         path = rec.path if rec else _paths.get(tid)
@@ -575,6 +630,22 @@ class _Handler(BaseHTTPRequestHandler):
         if s is None or s.source is None:
             return self._send(409, b"", "text/plain")
         body, src = self._body(), s.source
+        if self.path == "/phones":
+            raw_slot = body.get("slot")
+            if raw_slot is None or raw_slot == "":
+                slot = None
+            elif isinstance(raw_slot, bool):
+                return self._send(400, b"", "text/plain")
+            elif isinstance(raw_slot, int):
+                slot = raw_slot
+            elif isinstance(raw_slot, str) and raw_slot.strip() in ("1", "2"):
+                slot = int(raw_slot.strip())
+            else:
+                return self._send(400, b"", "text/plain")
+            if slot not in (None, 1, 2):
+                return self._send(400, b"", "text/plain")
+            ok = src.set_headphones(slot, force=body.get("force") is True)
+            return self._send(204 if ok else 400, b"", "text/plain")
         # Keep booth mutations at an audio-frame boundary. RecordsSession.load()
         # follows the same mixer -> load lock order to avoid a lock cycle.
         with src._lock:

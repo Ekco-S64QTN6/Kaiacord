@@ -520,6 +520,82 @@ def test_a_deck_started_part_way_keeps_its_clock():
 
 
 
+def test_pfl_channel_gain_keeps_eq_and_trim_but_bypasses_fader_and_crossfader():
+    controls = R.Controls()
+    assert controls.set(1, "trim", 6.0)
+    assert controls.set(1, "low", 0.5)
+    assert controls.set(1, "fader", 0.0)
+    assert controls.set(None, "xfader", 1.0)
+    low, mid, high, gain = controls.channel_pre_fader(1)
+    assert low == pytest.approx(0.5) and mid == high == pytest.approx(1.0)
+    assert gain == pytest.approx(10 ** (6.0 / 20))
+    assert controls.channel(1)[3] == 0.0  # the program channel is still silent
+
+
+def test_headphone_bus_blends_cue_and_post_master_at_equal_power():
+    cue = np.full((R.FRAME_SAMPLES, 2), 2000, dtype=np.int16).tobytes()
+    master = np.full((R.FRAME_SAMPLES, 2), 4000, dtype=np.int16).tobytes()
+
+    def peak(frame):
+        return int(np.abs(np.frombuffer(frame, dtype=np.int16)).max())
+
+    assert peak(R.headphone_frame(cue, master, 0.0, 1.0)) == 2000
+    assert peak(R.headphone_frame(cue, master, 1.0, 1.0)) == 4000
+    midpoint = peak(R.headphone_frame(cue, master, 0.5, 1.0))
+    assert midpoint == pytest.approx(round((2000 + 4000) / np.sqrt(2)), abs=1)
+    assert peak(R.headphone_frame(cue, master, 0.5, 0.5)) == pytest.approx(round(midpoint / 2), abs=1)
+    assert peak(R.headphone_frame(None, master, 0.0, 1.0)) == 4000
+
+
+@pytest.fixture
+def headphone_source():
+    first = Deck(rec("monitor", 120, "8A"), 1.0, 300.0, tone(1000, 20.0))
+    first.grid = STEADY
+    src = CrossfadeSource(first, lambda _deck: None, stream_factory=tone(-1000, 20.0),
+                          grid_at=lambda *_args: STEADY)
+    src._fine = lambda _deck, _plan: None
+    wait_for(first, 50)
+    yield src
+    src.cleanup()
+
+
+def test_pfl_uses_a_separate_decoder_without_advancing_the_program_deck(headphone_source):
+    src = headphone_source
+    assert src.set_headphones(1)
+    stream = src.attach_headphone_stream()
+    assert stream is not None
+    try:
+        src.controls.set(1, "fader", 0.0)
+        src.controls.set(None, "xfader", 1.0)
+        before = src.current.played
+        program = src.read()
+        preview = src._headphones_deck
+        monitor = stream.get_nowait()
+        assert src.current.played == before + 1
+        assert preview is not None and preview.played == 1
+        assert np.count_nonzero(np.frombuffer(program, dtype=np.int16)) == 0
+        assert np.max(np.abs(np.frombuffer(monitor, dtype=np.int16))) > 0
+    finally:
+        src.detach_headphone_stream(stream)
+        assert src.set_headphones(None)
+
+
+def test_headphone_stream_queues_are_bounded_and_drop_oldest(headphone_source):
+    src = headphone_source
+    stream = src.attach_headphone_stream()
+    second = src.attach_headphone_stream()
+    assert stream is not None and second is not None
+    assert src.attach_headphone_stream() is None
+    try:
+        for _ in range(60):
+            src.read()
+        assert stream.qsize() == 50 and second.qsize() == 50
+        assert stream.get_nowait() == list(src._headphone_history)[-50]
+    finally:
+        src.detach_headphone_stream(stream)
+        src.detach_headphone_stream(second)
+
+
 def test_a_blend_comes_in_from_the_top_and_hands_the_vocals_over_at_the_swap():
     """The DJ's EQ blend: the incoming's highs first with its mids held low,
     the outgoing playing on whole — vocal and all — until the bar halfway,

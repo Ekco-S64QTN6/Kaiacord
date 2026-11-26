@@ -55,12 +55,15 @@ audible effect. A request received during an in-flight pick is deferred to the f
 Unit tests cover routing, request lifecycle and preference ranking, not audible DJ quality.
 Real-crate listening and independent assessment remain under `#402`.
 
-**#403 implementation boundary (first slice merged in PR #416):** the first mixer slice adds
-backward-compatible `standard`, equal-power `constant_power` and midpoint `cut` crossfader
-laws, plus per-deck A/B/THRU assignments. Curve and assignment changes ramp over eight
-20 ms rendered frames; direct fader movement follows the hand immediately. The booth
-exposes and tests those controls. This does not close #403: PFL/cue-master routing,
-hot/memory cues, loops/rolls, jog/pitch bend and an actual bounded FX bus remain unimplemented.
+**#403 implementation boundary (crossfader slice merged in PR #416; PFL monitor slice implemented in PR #418):**
+the mixer provides backward-compatible `standard`, equal-power `constant_power` and midpoint `cut`
+crossfader laws, plus per-deck A/B/THRU assignments. Curve and assignment changes ramp over eight
+20 ms rendered frames; direct crossfader movement follows the hand immediately. The booth now also
+has a real PFL path: a separate deck decoder taps EQ/trim before channel and crossfader gains, then
+feeds a bounded local PCM headphone stream with an equal-power CUE↔MASTER blend and monitor level.
+The PFL decoder does not consume program-deck frames; the renderer publishes to bounded per-client
+queues and the browser plays them through an AudioWorklet. This does not close #403: hot/memory cues,
+loops/rolls, jog/pitch bend and a bounded FX bus remain unimplemented.
 
 **#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
 uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove

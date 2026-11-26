@@ -137,8 +137,10 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .fadebox { display: flex; gap: 8px; align-items: stretch; justify-content: center; height: 100%; min-height: 0; }
 .vu, .fader { width: 14px; height: 100%; display: block; }
 .fader { width: 26px; }
-.mastercol { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; justify-items: center; gap: 4px; min-height: 0; }
+.mastercol { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; justify-items: center; gap: 4px; min-height: 0; }
 .mk { display: flex; gap: 4px; }
+.phonesmix { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; color: var(--dim); font-size: 6px; letter-spacing: .8px; line-height: 1; }
+.phonesmix input { width: 54px; height: 7px; margin: 0; accent-color: var(--cyan); cursor: pointer; }
 .mastercol .lbl { font-size: 9px; letter-spacing: 2px; color: var(--dim); }
 .mvu { display: flex; gap: 4px; height: 100%; min-height: 0; }
 #xf { width: 100%; height: 28px; display: block; }
@@ -439,7 +441,7 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
       <div class="ptitle">MIXER · DJM <span id="mdelay" title="sync — the meters and playheads follow the frame being sent to Discord; add what Discord takes to play it, until they match what you hear">SYNC +0 ms</span></div>
       <div class="strips">
         <div class="strip" id="strip1"></div>
-        <div class="mastercol"><div class="lbl">MASTER</div><div class="mvu"><canvas class="vu" id="mvuL"></canvas><canvas class="vu" id="mvuR"></canvas></div><div class="mk"><div class="knob"><canvas id="mknob" title="master volume — drag, double-click to reset"></canvas>MST</div><div class="knob"><canvas id="phknob" title="headphones (CUE) volume — this window only"></canvas>PH</div></div></div>
+        <div class="mastercol"><div class="lbl">MASTER</div><div class="mvu"><canvas class="vu" id="mvuL"></canvas><canvas class="vu" id="mvuR"></canvas></div><div class="mk"><div class="knob"><canvas id="mknob" title="master volume — drag, double-click to reset"></canvas>MST</div><div class="knob"><canvas id="phknob" title="headphones monitor level — this window only"></canvas>PH</div></div><label class="phonesmix"><span>CUE</span><input id="phmix" aria-label="headphone cue to master blend" type="range" min="0" max="100" step="1" value="0"><span>MASTER</span></label></div>
         <div class="strip" id="strip2"></div>
       </div>
       <div class="xfsection">
@@ -960,7 +962,7 @@ function drawFader(cv, v, color) {
 function smooth(a, b, k) { return a + (b - a) * k; }
 // ── hands on the mixer ───────────────────────────────────────────
 const FLAT = { trim: 0, high: 1, mid: 1, low: 1, fader: 1 };
-const RANGE = { phones: [0, 1], trim: [-12, 12], high: [0, 1.5], mid: [0, 1.5], low: [0, 1.5], fader: [0, 1], master: [0, 1.5], xfader: [0, 1] };
+const RANGE = { phones: [0, 1], phones_mix: [0, 1], trim: [-12, 12], high: [0, 1.5], mid: [0, 1.5], low: [0, 1.5], fader: [0, 1], master: [0, 1.5], xfader: [0, 1] };
 const local = {};            // "slot:name" -> {v, until}: what a hand just set, until the stream echoes it
 function post(path, body) {
   return fetch(path, {
@@ -977,9 +979,10 @@ function post(path, body) {
 }
 function ctl(slot, name) {
   const key = `${slot}:${name}`, l = local[key];
-  if (name === "phones") return phonesVol;
   if (l && performance.now() < l.until) return l.v;
   const c = S && S.controls;
+  if (name === "phones") return c ? (c.phones ?? 0.8) : 0.8;
+  if (name === "phones_mix") return c ? (c.phones_mix ?? 0) : 0;
   if (!c) return name === "xfader" ? null : (name === "master" ? 1 : FLAT[name]);
   if (name === "xfader") return c.xfader;
   if (name === "master") return c.master;
@@ -989,7 +992,6 @@ let sendTimer = {};
 function setCtl(slot, name, v) {
   const [lo, hi] = RANGE[name];
   if (v !== null) v = Math.max(lo, Math.min(hi, v));
-  if (name === "phones") { phonesVol = v; return; }
   local[`${slot}:${name}`] = { v, until: performance.now() + 1500 };
   clearTimeout(sendTimer[`${slot}:${name}`]);
   sendTimer[`${slot}:${name}`] = setTimeout(() => post("/control", { slot: slot || null, name, value: v }), 40);
@@ -1057,14 +1059,15 @@ function slider(el, slot, name, axis, reset) {
     if (!isFree(slot)) { toast("CUE works on the free deck — the one not on air"); return; }
     const d = S.decks[slot];
     if (d.hand && (d.state === "playing" || d.state === "cued") && !S.mix) { post("/cue", { slot }); toast(`deck ${slot} back to its cue`); return; }
-    cueHeld[slot] = true; cue.setPointerCapture(e.pointerId);
+    cueHeld[slot] = true; cue.setPointerCapture(e.pointerId); phonesStart(); syncPhones();
   });
-  const letGo = () => { cueHeld[slot] = false; };
+  const letGo = () => { cueHeld[slot] = false; syncPhones(); };
   cue.addEventListener("pointerup", letGo); cue.addEventListener("pointercancel", letGo);
   q(slot, '[data-f="ph"]').addEventListener("click", () => {
     phonesOn[slot] = !phonesOn[slot];
-    if (phonesOn[slot]) phonesOn[3 - slot] = false;           // one deck in the headphones at a time
-    toast(phonesOn[slot] ? `headphones: deck ${slot} (this window only, not on air)` : "headphones off");
+    if (phonesOn[slot]) { phonesOn[3 - slot] = false; phonesStart(); }  // one deck in the headphones at a time
+    syncPhones();
+    toast(phonesOn[slot] ? `headphones: deck ${slot} (PFL, this window only)` : "headphones off");
   });
   scrubbing(slot);
 });
@@ -1082,6 +1085,7 @@ slider($("xf"), 0, "xfader", "x", null);
 });
 knob($("mknob"), 0, "master", 1);
 knob($("phknob"), 0, "phones", 0.8);
+$("phmix").addEventListener("input", () => setCtl(0, "phones_mix", Number($("phmix").value) / 100));
 $("blendsel").addEventListener("click", (e) => {
   const b = e.target.closest("[data-beats]"); if (!b) return;
   post("/blend", { beats: +b.dataset.beats });
@@ -1100,31 +1104,109 @@ $("auto").onclick = () => {
 let toastT = 0;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), Math.max(2200, msg.length * 45)); }
 
-// ── headphones: a deck heard in this window, never on air ─────────
-// The booth plays the record's own file here, at the deck's tempo and from
-// where the deck is (or its cue, for a deck not playing), so a record can be
-// found and cued while the room hears only what is on air.
-const phones = {}, phonesOn = { 1: false, 2: false }, cueHeld = { 1: false, 2: false };
-let phonesVol = 0.8;
-function phonesTick(slot) {
-  const d = S && S.decks && S.decks[slot], a = phones[slot];
-  const live = d && d.state === "playing" && !(S.paused || []).includes(slot);
-  const want = d && (phonesOn[slot] || cueHeld[slot]);
-  if (!want) { if (a && !a.paused) a.pause(); if (a) a._from = null; return; }
-  let el = a;
-  if (!el || el._id !== d.id) {
-    if (el) el.pause();
-    el = new Audio("/audio/" + d.id); el._id = d.id; el.preservesPitch = true; el._from = null; el._seekAt = 0; phones[slot] = el;
+// ── the booth's real headphone monitor bus ────────────────────────
+// CUE uses an independent decoder in records.CrossfadeSource; the browser
+// receives that PFL mix and the rendered master as bounded 20 ms PCM frames.
+// Nothing in this path reads /audio/<id> or advances the program deck.
+const phonesOn = { 1: false, 2: false }, cueHeld = { 1: false, 2: false };
+let phonesContext = null, phonesNode = null, phonesAbort = null;
+let phonesConnecting = false, phonesDesired = false, phonesPending = false, phonesForcePending = false;
+let phonesRequested = { slot: undefined, id: null, ratio: null, semitones: null, gain: null };
+async function phonesStart() {
+  phonesDesired = true;
+  if (phonesAbort || phonesConnecting) return;
+  phonesConnecting = true;
+  try {
+    if (!phonesContext) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx || typeof AudioWorkletNode === "undefined") throw new Error("this browser has no AudioWorklet support");
+      phonesContext = new AudioCtx({ sampleRate: 48000 });
+      if (phonesContext.sampleRate !== 48000 || !phonesContext.audioWorklet) throw new Error("48 kHz AudioWorklet is unavailable");
+      const source = [
+        'class KaiaPhonesProcessor extends AudioWorkletProcessor {',
+        '  constructor() {',
+        '    super(); this.frames = []; this.current = null; this.sample = 0;',
+        '    this.port.onmessage = (event) => {',
+        '      const data = event.data || {};',
+        '      if (data.type === "clear") { this.frames.length = 0; this.current = null; this.sample = 0; return; }',
+        '      if (data.type !== "frame" || !data.buffer) return;',
+        '      const frame = new Int16Array(data.buffer); if (frame.length !== 1920) return;',
+        '      if (this.frames.length >= 30) this.frames.shift(); this.frames.push(frame);',
+        '    };',
+        '  }',
+        '  process(_inputs, outputs) {',
+        '    const out = outputs[0], left = out[0], right = out[1]; if (!right) return true;',
+        '    for (let i = 0; i < left.length; i++) {',
+        '      if (!this.current || this.sample >= 960) { this.current = this.frames.shift() || null; this.sample = 0; }',
+        '      if (!this.current) { left[i] = 0; right[i] = 0; }',
+        '      else { left[i] = this.current[this.sample * 2] / 32768; right[i] = this.current[this.sample * 2 + 1] / 32768; this.sample++; }',
+        '    }',
+        '    return true;',
+        '  }',
+        '}',
+        'registerProcessor("kaia-phones", KaiaPhonesProcessor);'
+      ].join("\n");
+      const moduleUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+      try { await phonesContext.audioWorklet.addModule(moduleUrl); } finally { URL.revokeObjectURL(moduleUrl); }
+      phonesNode = new AudioWorkletNode(phonesContext, "kaia-phones", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+      phonesNode.connect(phonesContext.destination);
+    }
+    await phonesContext.resume();
+    if (!phonesDesired) return;
+    const controller = new AbortController(); phonesAbort = controller;
+    const response = await fetch("/phones/stream", { signal: controller.signal });
+    if (!response.ok || !response.body || response.headers.get("X-Kaia-PCM") !== "s16le;rate=48000;channels=2;frame_ms=20") throw new Error("the headphone PCM stream could not be opened");
+    const reader = response.body.getReader();
+    let pending = new Uint8Array(0);
+    while (phonesDesired && !controller.signal.aborted) {
+      const part = await reader.read();
+      if (part.done) break;
+      const merged = new Uint8Array(pending.length + part.value.length);
+      merged.set(pending); merged.set(part.value, pending.length);
+      let offset = 0;
+      while (merged.length - offset >= 3840) {
+        const frame = merged.slice(offset, offset + 3840);
+        phonesNode.port.postMessage({ type: "frame", buffer: frame.buffer }, [frame.buffer]);
+        offset += 3840;
+      }
+      pending = merged.slice(offset);
+    }
+    if (phonesDesired && !controller.signal.aborted) throw new Error("the headphone PCM stream ended");
+  } catch (error) {
+    if (phonesDesired && error.name !== "AbortError") toast("headphones unavailable: " + error.message);
+  } finally {
+    phonesAbort = null; phonesConnecting = false;
+    if (phonesNode) phonesNode.port.postMessage({ type: "clear" });
   }
-  el.volume = phonesVol; el.playbackRate = d.ratio || 1;
-  const t = posOf(d), at = performance.now();
-  if (live && dragged(slot) === null && !cueHeld[slot]) {
-    if (Math.abs(el.currentTime - t) > 0.25 && at - el._seekAt > 400) { el.currentTime = t; el._seekAt = at; }
-  } else if (el._from === null || (Math.abs(el._from - t) > 0.04 && at - el._seekAt > 90)) {
-    el.currentTime = t; el._from = t; el._seekAt = at;     // a deck not playing: heard from its cue
-  }
-  if (el.paused) el.play().catch(() => {});
 }
+function phonesStop() {
+  phonesDesired = false;
+  if (phonesAbort) { const controller = phonesAbort; phonesAbort = null; controller.abort(); }
+  if (phonesNode) phonesNode.port.postMessage({ type: "clear" });
+  if (phonesContext && phonesContext.state === "running") phonesContext.suspend().catch(() => {});
+}
+function syncPhones(force = false) {
+  if (force) phonesForcePending = true;
+  const slot = cueHeld[1] ? 1 : cueHeld[2] ? 2 : phonesOn[1] ? 1 : phonesOn[2] ? 2 : null;
+  const deck = slot && S && S.decks ? S.decks[slot] : null;
+  const wantedSlot = deck ? slot : null, id = deck ? deck.id : null;
+  const ratio = deck ? (deck.ratio || 1) : null;
+  const semitones = deck ? (deck.semitones || 0) : null;
+  const gain = deck ? (deck.gain_db || 0) : null;
+  if (wantedSlot === null) phonesStop();
+  const sameDeck = phonesRequested.slot === wantedSlot && phonesRequested.id === id;
+  const paramsChanged = sameDeck && (phonesRequested.ratio !== ratio ||
+    phonesRequested.semitones !== semitones || phonesRequested.gain !== gain);
+  const rebuild = phonesForcePending || paramsChanged;
+  if (phonesPending || (!rebuild && sameDeck)) return;
+  phonesPending = true; phonesForcePending = false;
+  post("/phones", { slot: wantedSlot, force: rebuild }).then((response) => {
+    phonesPending = false;
+    phonesRequested = { slot: wantedSlot, id, ratio, semitones, gain };
+    if (!response) toast("headphone cue selection failed");
+  });
+}
+window.addEventListener("pagehide", phonesStop);
 // ── cueing the free deck: drag its overview, its jog, or its lane ──
 function moveCue(slot, pos) {
   const d = S.decks[slot]; dragCue[slot] = Math.max(0, Math.min(d.length - 8, pos)); dragUntil[slot] = Infinity;
@@ -1132,7 +1214,9 @@ function moveCue(slot, pos) {
 function commitCue(slot) {
   if (dragCue[slot] == null) return;
   dragUntil[slot] = performance.now() + 1500;
-  post("/cue", { slot, pos: dragCue[slot] });
+  post("/cue", { slot, pos: dragCue[slot] }).then((response) => {
+    if (response && (phonesOn[slot] || cueHeld[slot])) syncPhones(true);
+  });
 }
 function scrubbing(slot) {
   const ov = q(slot, '[data-c="ov"]'), jog = q(slot, '[data-c="jog"]');
@@ -1258,7 +1342,9 @@ function updateMixer() {
   syncChoice("xfassign2", assignments["2"] || "B");
   const mv = ctl(0, "master");
   drawKnobV($("mknob"), mv / 1.5, mv !== 1 ? COL.yellow : COL.green, 2 / 3, null);
-  drawKnobV($("phknob"), phonesVol, COL.cyan, 0, null);
+  drawKnobV($("phknob"), ctl(0, "phones"), COL.cyan, 0, null);
+  const phmix = $("phmix");
+  if (phmix && document.activeElement !== phmix) phmix.value = String(Math.round(ctl(0, "phones_mix") * 100));
   // crossfader: the hand's position if it has one, else where the automix sits
   const hand = ctl(0, "xfader");
   const g1 = Math.max(shown[1].low, shown[1].high), g2 = Math.max(shown[2].low, shown[2].high);
@@ -1728,8 +1814,8 @@ function frame(ts) {
   lastFrame = ts;
   try {
     updateHeader();
-    if (S && S.live) { updateDeck(1); updateDeck(2); updateMixer(); updateBottom(); renderCrate(); loadNews(); phonesTick(1); phonesTick(2); }
-    else { phonesTick(1); phonesTick(2); }
+    if (S && S.live) { updateDeck(1); updateDeck(2); updateMixer(); updateBottom(); renderCrate(); loadNews(); syncPhones(); }
+    else { phonesStop(); }
   } catch (e) { console.error(e); }
   requestAnimationFrame(frame);
 }

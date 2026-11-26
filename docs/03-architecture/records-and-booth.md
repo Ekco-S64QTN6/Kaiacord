@@ -333,10 +333,11 @@ the cut law deliberately performs a hard A/B handoff at the midpoint.
 Non-finite values and unknown curve/assignment names are rejected. Reset returns
 the curve and assignments to standard/A/B and clears the direct crossfader position.
 
-This is the first bounded #403 mixer slice, not professional parity: it does not
-add PFL/cue-master routing, hot/memory cues, loops/rolls, jog/pitch bend, or an FX
-bus. Those remain separate #403 work and must be backed by real signal paths and
-browser interaction tests before they are exposed as capabilities.
+The first #403 slices now provide the crossfader laws/assignments and a real PFL/cue-monitor
+signal path. PFL uses a separate decoder, preserves EQ/trim while bypassing channel and crossfader gains,
+and blends against the rendered master locally. This is still not professional parity: hot/memory cues,
+loops/rolls, jog/pitch bend, and a bounded FX bus remain unimplemented. They must each have real engine
+signal paths and browser interaction tests before they are exposed as capabilities.
 
 ### Real-time engineering boundary
 
@@ -344,8 +345,11 @@ Keep the 20 ms Discord audio path bounded. Do not put disk or network I/O, full-
 unbounded DSP, blocking model inference or expensive planning in the voice callback. Perform
 analysis and set planning off the callback using cached/background work; schedule bounded,
 sample/phrase-aware operations at safe boundaries, ramp parameters, preserve the mixer's frame
-and lock invariants, and always provide manual override and hand-back. Keep the engine's audible
-capabilities honest: a planner can only select a skill the mixer can actually execute.
+and lock invariants, and always provide manual override and hand-back. The PFL decoder is warmed
+on the booth request thread; `CrossfadeSource.read()` only consumes one already-buffered frame and
+publishes a fixed-size headphone frame into bounded per-client queues. HTTP streaming and browser
+playback run on their own threads/processes. Keep the engine's audible capabilities honest: a
+planner can only select a skill the mixer can actually execute.
 
 **`!music records` mixes the local library** (`utils/audio/library.py`, `records.py`,
 `beatgrid.py`). The crate is a `dj_catalog.json` of BPM, Camelot key and genre written *outside* the
@@ -551,7 +555,13 @@ its cue (snapped to a bar); ▶ starts it at the on-air tempo with its cue on th
 (`play_hand`); the faders mix, and it takes over after `HANDOVER_S` of the on-air record silent.
 NEXT with a deck playing by hand is Kaia finishing the mix (`finish`, a plan of kind `out`). The button has
 one name; the line under it (`#skiphint`) says what pressing it does now — five rotating labels did not. PHONES
-plays a deck's file in the booth window only (`/audio/<id>`), never on air. Kaia raises a hand-loaded
+selects a separate decoder for the chosen deck; its PFL tap applies channel EQ and trim before the channel
+fader, crossfader and program master. It never consumes the program deck's decoder frames. The browser hears
+that cue and the rendered program through a local 48 kHz stereo PCM stream (`/phones/stream`), with an
+equal-power CUE-to-MASTER blend and an independent monitor level. A browser AudioWorklet consumes the
+bounded 20 ms frames; per-client queues are capped at 50 frames and drop the oldest frame under backpressure.
+The monitor is local to the booth and is never sent back to Discord. The older `/audio/<id>` file endpoint is
+not used for PHONES. The deck CUE button temporarily selects PFL while held. Kaia raises a hand-loaded
 fader when *her* blend into it starts, not when she plans it — a planned blend is called off by ▶.
 A cue set on the record already in her plan (she plans a record's end minutes ahead) calls that plan
 off and replans from the cue; it used to be refused, and the jog snapped back to the start. A knob's

@@ -990,6 +990,12 @@ that are easy to break:
   worker; discord.py reads `BufferedRecordsSource`, which only dequeues finished 20 ms frames and never
   waits, logs or touches disk. The pair graph is measured in a niced separate process
   (`tools/maintenance/records_graph.py`), never in the bot.
+- **PFL/headphones use an independent local signal path.** The selected deck has its own `Deck` decoder;
+  the PFL tap applies channel EQ and trim before channel fader, crossfader and program master, and must
+  never consume the program deck's frames. `CrossfadeSource.read()` only dequeues one buffered preview
+  frame and publishes fixed 20 ms PCM to bounded per-client queues. `/phones/stream` is served by an
+  HTTP thread; the booth uses an AudioWorklet at 48 kHz. The equal-power CUE/MASTER blend and monitor
+  level are separate from program controls and must never route browser audio back to Discord.
 - **One voice at a time, and a record is left where it changes**: the presence band changes hands with
   the mids (`presence`), the outgoing is gone a `tail` after the swap, and an end-of-record blend goes at
   the outro or last breakdown (`songmap`), else near the end, further back only as the last resort.

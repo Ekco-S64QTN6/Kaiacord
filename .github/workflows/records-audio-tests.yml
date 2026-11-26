@@ -93,6 +93,7 @@ jobs:
           tools/tests/unit/test_audio_cache_identity.py
           tools/tests/unit/test_songmap.py
           tools/tests/unit/test_records.py
+          tools/tests/unit/test_dj_dashboard.py
           tools/tests/unit/test_dj_skills.py
           tools/tests/unit/test_records_intent.py
           tools/tests/unit/test_records_session_listener_intent.py

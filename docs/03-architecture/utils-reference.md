@@ -164,11 +164,11 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `strudel_source.py` | The Discord audio source fed by the capture |
 | `levels.json` | Measured per-part gains, written by `audition_tracks.py --calibrate` |
 | `library.py` | The record crate from `dj_catalog.json` and which record plays next |
-| `records.py` | Records decks/mixer, measured transitions, frame renderer, manual lane ownership, standard/equal-power/cut crossfader curves and A/B/THRU channel assignment |
+| `records.py` | Records decks/mixer, measured transitions, frame renderer, manual lane ownership, crossfader curves/assignments, independent pre-fader PFL decoder and headphone bus |
 | `dj_skills.py` | Bounded catalog and phrase action scheduler for currently real mixer operations; no invented loops, jog, scratch or general FX capabilities |
 | `records_intent.py` | Typed, expiring listener direction for future autonomous records picks; feature-proxy scoring only, not vocal/percussion detection or immediate mixer control |
 | `beatgrid.py` | Beat and bar grids (bar one as the first strong beat, bars counted from it), the bassline's entry bar, the last strong beat, the rubberband stretch and key-shift filter |
-| `dj_dashboard.py` | The DJ booth: server, state stream, waveforms, the pop-out window (page in `assets/dj/`) |
+| `dj_dashboard.py` | The DJ booth: state and waveform server, bounded local PFL PCM stream, pop-out window (page in `assets/dj/`) |
 | `setlist.py`, `mixcheck.py` | Which records lock with which, measured ahead of time, and the sets that follow; whether a planned blend locks, measured on the two records |
 | `dj_voice.py` | What she says about her DJing in the booth's feed, built from what the mixer actually did |
 | `voice_busy.py` | Whether she is playing in voice now; work that can wait (`wait_until_quiet`) holds off |
