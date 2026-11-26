@@ -1522,6 +1522,9 @@ class CrossfadeSource(_AudioSource):
                     if after_skip and not pending.after_skip:
                         self._pending_loop_exit = replace(pending, after_skip=True)
                     return True
+                if (self.plan is not None or self.incoming is not None or self._planning
+                        or self._pending_planning_mode is not None):
+                    return False
                 if deck.played < loop.start_played:
                     deck._loop = None
                     plan_now = after_skip
@@ -1569,7 +1572,8 @@ class CrossfadeSource(_AudioSource):
             assert preview is not None
             with self._lock:
                 stale = (self.current is not old or old._loop is not loop
-                         or self.plan is not None or self.incoming is not None)
+                         or self.plan is not None or self.incoming is not None
+                         or self._planning or self._pending_planning_mode is not None)
                 if not stale:
                     count = len(loop.frames)
                     elapsed = max(0, old.played - loop.start_played)
@@ -1637,7 +1641,9 @@ class CrossfadeSource(_AudioSource):
 
         with self._lock:
             stale = (self.current is not old or old.loop_active or self.plan is not None
-                     or self.incoming is not None or self.hand is not None or slot in self.paused)
+                     or self.incoming is not None or self.hand is not None
+                     or self._planning or self._pending_planning_mode is not None
+                     or slot in self.paused)
             frames_until = int(round((start_own / ratio - old.at()) * FRAMES_PER_S))
             if not stale and frames_until >= 2:
                 loop_frames_pcm = tuple(pcm)
