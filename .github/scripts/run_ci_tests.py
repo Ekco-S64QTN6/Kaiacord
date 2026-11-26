@@ -178,6 +178,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_mixcheck.py",
         "tools/tests/unit/test_audio_cache_identity.py",
     ),
+    "assets/dj/index.html": ("tools/tests/unit/test_dj_dashboard.py",),
     "utils/audio/dj_dashboard.py": (
         "tools/tests/unit/test_dj_dashboard.py",
         "tools/tests/unit/test_records.py",
