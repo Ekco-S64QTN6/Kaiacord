@@ -1001,6 +1001,13 @@ that are easy to break:
 - **Check a mix change on click tracks through the real `CrossfadeSource`**, and a booth change by driving
   it headless (Playwright) against a real session — not by reading the HTML.
 - **The booth shows only the mixer's own state.** If the mix did not do it, the screen does not show it.
+- **Phrase profiles are evidence, not truth.** Reuse `songmap`'s cached curves and
+  `phrase_profile()` for time-local overall/bass/lead-proxy/upper/transient evidence. The
+  lead curve is not a vocal detector; upper-band energy is limited by its sample rate; spectral
+  flux is not a drum classifier. Treat section labels as candidates with heuristic strength,
+  keep raw time coordinates, and never claim phrase alignment when `bar_known` is false.
+  Path-based profile construction belongs on a background worker, never the audio callback.
+  See [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404).
 - **Musical outcome outranks mechanical perfection.** A beat/key/phrase lock or a high compatibility
   score is a technical prerequisite, never proof of a good DJ transition. A locked pair can still
   be boring, crowded or emotionally wrong. Judge the musical moment — vocals/hooks, bass, percussion,

@@ -120,6 +120,37 @@ Background analyses recheck identity before publishing their result. This is [#4
 a prerequisite for [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404). Full hashing and
 refresh must stay off the 20 ms voice callback.
 
+### Phrase-level musical-state profiles (#404)
+
+`utils/audio/songmap.py` extends the existing normalized STFT map; it does not build a
+second analyser. Version 3 maps contain:
+
+- `full`: all-frequency mid-channel energy relative to the record's usual level.
+- `bass`: energy below 180 Hz, relative to the record's usual level.
+- `lead`: sustained 300–3400 Hz centre energy after hit suppression. It is a lead/midrange
+  proxy, **not** vocal detection or stem separation.
+- `upper`: 3500–5200 Hz energy at the analyser's 11.025 kHz sample rate. It is an upper-band
+  proxy, not a full-spectrum air detector.
+- `transient`: positive spectral flux, useful as an activity/change proxy but not a drum
+  classifier or onset-truth label.
+
+`phrase_profile(path, bpm)` retrieves the identity-keyed cached map and beatgrid on a
+background worker, then rechecks the source identity before combining them. Where a counted
+bar one is known, windows align to the requested phrase length (four bars by default); a
+pre-beat intro remains a separate unaligned window. If the grid cannot count bar one, the
+API returns fixed-time windows with `aligned=False` and `bars=None`, while retaining
+any raw tracker BPM/contrast as uncalibrated metadata. Raw `start`/`end` seconds are
+always retained.
+
+Each window exposes normalized feature levels, local full-energy change, and optional
+`intro_candidate`, `groove_candidate`, `build_candidate`, `breakdown_candidate`,
+`drop_candidate` or `outro_candidate` labels with heuristic evidence strength. These
+labels are candidates for later policy, not ground-truth arrangement annotations and not
+a musical-quality score. Missing/unreliable grid alignment is never promoted to a phrase
+claim. `profile_from_map()` is pure and suitable for quick downstream queries; the
+path-based `phrase_profile()` may fingerprint, decode and analyse a grid, so it must not
+run on the 20 ms audio-render callback.
+
 ### Real-time engineering boundary
 
 Keep the 20 ms Discord audio path bounded. Do not put disk or network I/O, full-track analysis,
