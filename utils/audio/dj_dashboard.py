@@ -10,9 +10,10 @@ A small HTTP server on 127.0.0.1 serves `assets/dj/index.html`, a state
 stream (`/events`, server-sent events, 20 a second), each record's three-band
 waveform (`/wave/<id>`), the engine's local PFL/master headphone PCM stream
 (`/phones/stream`, fixed 20 ms frames), a legacy local record-file range endpoint
-(`/audio/<id>`, not used for PHONES), and the controls: mixer (`/control`,
-`/reset`, `/blend`), decks (`/play`, `/cue`, `/load`), headphone selection
-(`/phones`) and `/skip`, the same skip `!music skip` makes.
+(`/audio/<id>`, not used for PHONES), and the controls: mixer (`/control`, `/reset`, `/blend`), decks
+(`/play`, `/cue`, `/load`), headphone selection (`/phones`), momentary
+performance controls (`/bend`, `/roll`) and `/skip`, the same skip
+`!music skip` makes.
 When a set starts the page is opened as an app window in an installed
 browser, and closed when the set ends.
 """
