@@ -335,7 +335,13 @@ class SkillScheduler:
             for phrase in profile.phrases:
                 if not phrase.aligned or not phrase.bars or phrase.bars < 1:
                     continue
-                if phrase.section_strength < 0.55:
+                minimum_strength = {
+                    "build_candidate": 0.55,
+                    "drop_candidate": 0.60,
+                    "breakdown_candidate": 0.55,
+                    "groove_candidate": 0.50,
+                }.get(phrase.section)
+                if minimum_strength is None or phrase.section_strength < minimum_strength:
                     continue
                 bar_s = (phrase.end - phrase.start) / max(1, int(phrase.bars))
                 if bar_s <= 0:
