@@ -382,3 +382,53 @@ def test_real_browser_jog_platter_bends_live_playback_and_returns_to_neutral(boo
             page.mouse.up()
             page.close()
             browser.close()
+
+
+def test_real_browser_can_acknowledge_an_expired_jog_hold_from_the_platter(booth):
+    _session, source, _record, base = booth
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1600, "height": 1100})
+        page.add_init_script("localStorage.setItem('kaia.fx', '0')")
+        try:
+            response = page.goto(base, wait_until="domcontentloaded", timeout=15000)
+            assert response is not None and response.ok
+            _wait_for_ui_state(page, "#deck1 [data-f=state]", "ON AIR")
+
+            deck = source.current
+            assert deck is not None
+            # Model the engine's 10-second safety return after the originating
+            # tab/pointer state was lost. The samples are already at unity;
+            # only the explicit acknowledgement latch remains.
+            with source._lock:
+                deck._bend_target = 1.0
+                deck._bend_rate = 1.0
+                deck._bend_ramp_remaining = 0
+                deck._bend_hold_active = False
+                deck._bend_expired = True
+
+            page.wait_for_function(
+                "() => { const e = document.querySelector('#deck1 [data-f=meta]'); return !!e && e.textContent.includes('JOG RELEASE'); }",
+                timeout=5000,
+            )
+            jog = page.locator('#deck1 [data-c="jog"]')
+            assert "acknowledge" in (jog.get_attribute("title") or "")
+            box = jog.bounding_box()
+            assert box is not None
+
+            with page.expect_response(
+                lambda result: result.url.endswith("/bend")
+                and result.request.method == "POST"
+                and json.loads(result.request.post_data or "{}").get("action") == "release"
+            ) as release_response:
+                page.mouse.click(box["x"] + box["width"] / 2,
+                                 box["y"] + box["height"] / 2)
+            assert release_response.value.status == 204
+            assert deck.bend["expired"] is False
+            page.wait_for_function(
+                "() => { const e = document.querySelector('#deck1 [data-f=meta]'); return !!e && e.textContent.includes('JOG READY'); }",
+                timeout=5000,
+            )
+        finally:
+            page.close()
+            browser.close()
