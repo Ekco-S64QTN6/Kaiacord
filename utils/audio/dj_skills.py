@@ -199,6 +199,37 @@ def validate_catalog() -> None:
                 raise ValueError(f"composition must be reciprocal: {skill_id} and {other}")
 
 
+def _action_parameters(actions: list[SkillAction]) -> dict[str, float]:
+    parameters: dict[str, float] = {}
+    for action in actions:
+        if action.lane == "none":
+            continue
+        if action.mode == "upper_exchange":
+            parameters["upper_exchange_depth"] = round(action.target, 3)
+            parameters["upper_exchange_period_s"] = round(action.cycle_s, 3)
+        elif action.mode == "air_handoff":
+            parameters["outgoing_high_reduction"] = round(action.target, 3)
+        else:
+            parameters[action.lane] = round(action.target, 3)
+    return parameters
+
+
+def _action_reports(actions: list[SkillAction]) -> list[dict]:
+    reports = []
+    for action in actions:
+        spec = SKILL_CATALOG[action.skill_id]
+        reports.append({
+            "id": action.skill_id,
+            "name": spec.name,
+            "lane": action.lane,
+            "target": round(action.target, 3),
+            "mode": action.mode,
+            "start": round(action.start, 3),
+            "end": round(action.end, 3),
+        })
+    return reports
+
+
 def _ease(value: np.ndarray) -> np.ndarray:
     return (0.5 - 0.5 * np.cos(np.pi * np.clip(value, 0.0, 1.0))).astype(np.float32)
 
@@ -443,6 +474,14 @@ class SkillScheduler:
                     "reason": SKILL_CATALOG["echo_out"].purpose,
                     "context": "transition", "start": float(plan.drop),
                     "end": float(plan.done),
+                    "parameters": {"tail_seconds": round(float(plan.done - plan.drop), 3)},
+                    "actions": [],
+                    "phrase": {
+                        "kind": "measured echo-out transition",
+                        "start": round(float(plan.drop), 3),
+                        "end": round(float(plan.done), 3),
+                        "timebase": "playback_seconds",
+                    },
                 }
             return
         beat = max(0.001, float(plan.beat))
@@ -573,6 +612,15 @@ class SkillScheduler:
                 "id": chosen.skill_id, "name": spec.name, "label": label,
                 "reason": spec.purpose, "context": "solo",
                 "start": chosen.start, "end": chosen.end,
+                "parameters": _action_parameters(active),
+                "actions": _action_reports(active),
+                "phrase": ({
+                    "kind": chosen.skill_id.removeprefix("solo_"),
+                    "start": chosen.phrase_start,
+                    "end": chosen.phrase_end,
+                    "bars": chosen.phrase_bars,
+                    "timebase": "source_record_seconds",
+                } if chosen.phrase_start is not None else None),
             }
             return tuple(factors), label, chosen.skill_id, True
         self._active_skill = None
@@ -621,6 +669,15 @@ class SkillScheduler:
                 "id": chosen.skill_id, "name": spec.name,
                 "label": chosen.reason, "reason": spec.purpose,
                 "context": "blend", "start": chosen.start, "end": chosen.end,
+                "parameters": _action_parameters(active),
+                "actions": _action_reports(active),
+                "phrase": {
+                    "kind": "measured blend",
+                    "start": round(float(plan.drop), 3),
+                    "end": round(float(plan.done), 3),
+                    "bars": round(float(plan.length) / max(0.001, 4.0 * float(plan.beat)), 1),
+                    "timebase": "playback_seconds",
+                },
             }
             label = " · ".join(dict.fromkeys(action.reason for action in active))
             return tuple(factors), label, chosen.skill_id
