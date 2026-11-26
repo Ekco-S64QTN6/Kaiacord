@@ -92,7 +92,7 @@ def _gain_db_cached(path: str, identity: str) -> float:
         peak = float(re.findall(r"Peak:\s*(-?[\d.]+) dBFS", out)[-1])
     except (OSError, IndexError, ValueError, subprocess.SubprocessError):
         return 0.0
-    if library.audio_signature(path) != identity:
+    if library.audio_signature(path, refresh=True) != identity:
         return 0.0
     gain = TARGET_LUFS - lufs
     if gain > 0:
