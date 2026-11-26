@@ -36,7 +36,7 @@ HOP_S = _STEP * _DECIMATE / RATE
 _LEAD_IN_S = _NPERSEG / 2 / RATE
 MAP_DIR = Path(__file__).resolve().parents[2] / "memory" / "records" / "maps"
 #: Bumped when the curves are computed differently: older caches are remade.
-VERSION = 1
+VERSION = 2
 
 #: A section is thin when its `lead` is this far under the record's usual level…
 THIN_DB = -4.0
@@ -141,23 +141,29 @@ _mem_lock = threading.Lock()
 
 
 def get(path: str) -> Optional[Map]:
-    """The record's map, from the cache or computed now (a second or two).
-    None when the file cannot be read."""
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
+    """The record's map, keyed by the complete audio payload identity.
+
+    Fingerprinting and any decode happen on the caller's background worker;
+    this function must never be called from the 20 ms audio-render callback.
+    """
+    from utils.audio.library import audio_signature
+
+    signature = audio_signature(path)
+    if signature is None:
         return None
     with _mem_lock:
         held = _MEM.pop(path, None)
-        if held is not None and held[0] == mtime:
+        if held is not None and held[0] == signature:
             _MEM[path] = held
             return held[1]
     cache = _cache_path(path)
     m = None
     try:
-        if cache.exists() and cache.stat().st_mtime >= mtime:
+        if cache.exists():
             with np.load(cache) as z:
-                m = Map(z["full"].astype(np.float32), z["bass"].astype(np.float32), z["lead"].astype(np.float32))
+                cached_signature = str(z["signature"].item())
+                if cached_signature == signature:
+                    m = Map(z["full"].astype(np.float32), z["bass"].astype(np.float32), z["lead"].astype(np.float32))
     except (OSError, ValueError, KeyError):
         m = None
     if m is None:
@@ -167,15 +173,20 @@ def get(path: str) -> Optional[Map]:
             return None
         if m is None:
             return None
+        # Do not cache analysis of a file that changed while ffmpeg was reading it.
+        if audio_signature(path, refresh=True) != signature:
+            return None
         try:
             cache.parent.mkdir(parents=True, exist_ok=True)
             tmp = cache.with_name(f".{cache.stem}.{os.getpid()}.{threading.get_ident()}.tmp.npz")
-            np.savez(tmp, full=m.full, bass=m.bass, lead=m.lead)
+            np.savez(tmp, full=m.full, bass=m.bass, lead=m.lead, signature=np.asarray(signature))
             os.replace(tmp, cache)
         except OSError:
             pass
+    elif audio_signature(path, refresh=True) != signature:
+        return None
     with _mem_lock:
-        _MEM[path] = (mtime, m)
+        _MEM[path] = (signature, m)
         while len(_MEM) > _MEM_RECORDS:
             _MEM.pop(next(iter(_MEM)))
     return m

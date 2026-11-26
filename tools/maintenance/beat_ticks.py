@@ -12,8 +12,10 @@ Run by the system Python, which has Essentia (the bot's venv does not):
     /usr/bin/python3 tools/maintenance/beat_ticks.py PATH [PATH…]        # these records
     /usr/bin/python3 tools/maintenance/beat_ticks.py --catalog FILE       # a whole dj_catalog.json
 
-Each record's ticks go to <cache>/<sha1 of path>.json: {"bpm", "confidence",
-"ticks"}. A tracker that lands on half or double the catalog's tempo is folded
+Each record's ticks go to <cache>/<sha1 of path>.json with BPM, confidence,
+ticks and the complete audio signature that produced them. Existing entries
+are retained only while that signature still matches. A tracker that lands on
+half or double the catalog's tempo is folded
 back to it (half-time ticks get the beats between them). Existing entries are
 kept unless --force. Prints one line per record; exits non-zero if any failed.
 
@@ -31,8 +33,14 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from utils.audio.audio_identity import audio_signature
+
 CACHE = ROOT / "memory" / "records" / "ticks"
 
 
@@ -69,17 +77,22 @@ def fold(bpm: float, ticks, want):
     return bpm, ticks
 
 
-def analyse(path: str, want_bpm=None) -> dict:
+def analyse(path: str, want_bpm=None, identity: Optional[str] = None) -> dict:
     import essentia
     essentia.log.infoActive = False
     import essentia.standard as es
+    identity = identity or audio_signature(path)
+    if identity is None:
+        raise ValueError("could not identify record audio")
     x = _decode(path)
     if len(x) < 44100 * 10:
         raise ValueError("under ten seconds of audio")
     bpm, ticks, conf, _, _ = es.RhythmExtractor2013(method="multifeature")(x)
     bpm, ticks = fold(float(bpm), ticks, want_bpm)
+    if audio_signature(path, refresh=True) != identity:
+        raise RuntimeError("record audio changed while beat ticks were being analysed")
     return {"bpm": round(float(bpm), 3), "confidence": round(float(conf), 3),
-            "ticks": [round(float(t), 4) for t in ticks]}
+            "audio_signature": identity, "ticks": [round(float(t), 4) for t in ticks]}
 
 
 def _write(dest: Path, data: dict) -> None:
@@ -107,10 +120,18 @@ def main() -> int:
     failed = 0
     for path, bpm in jobs:
         dest = cache_path(path, cache)
-        if dest.exists() and not a.force:
-            continue
         try:
-            data = analyse(path, bpm)
+            identity = audio_signature(path)
+            if identity is None:
+                raise ValueError("could not identify record audio")
+            if dest.exists() and not a.force:
+                try:
+                    cached = json.loads(dest.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    cached = {}
+                if cached.get("audio_signature") == identity:
+                    continue
+            data = analyse(path, bpm, identity=identity)
             _write(dest, data)
             print(f"ok   {data['bpm']:7.2f} bpm  conf {data['confidence']:.2f}  {len(data['ticks'])} beats  {os.path.basename(path)}")
         except Exception as e:

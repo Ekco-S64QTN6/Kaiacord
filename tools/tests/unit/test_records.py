@@ -3,6 +3,7 @@ import io
 import json
 import random
 import time
+import types
 
 import numpy as np
 import pytest
@@ -1671,3 +1672,43 @@ def test_measured_alternatives_use_normalized_lock_quality_and_artist_variety(mo
     ordered = session._candidates(deck)
 
     assert [r.path for r in ordered[:3]] == [good.path, same_artist.path, lower_confidence.path]
+
+
+def test_loudness_gain_cache_is_keyed_by_audio_identity(monkeypatch):
+    identity = {"value": "audio-one"}
+    calls = []
+    monkeypatch.setattr(R.library, "audio_signature", lambda _path, **_kwargs: identity["value"])
+
+    def fake_run(*_args, **_kwargs):
+        calls.append(identity["value"])
+        return types.SimpleNamespace(stderr="I: -15.0 LUFS\nPeak: -2.0 dBFS\n")
+
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    R.gain_db.cache_clear()
+    first = R.gain_db("/same/path.mp3")
+    identity["value"] = "audio-two"
+    second = R.gain_db("/same/path.mp3")
+
+    assert first == second
+    assert calls == ["audio-one", "audio-two"]
+    R.gain_db.cache_clear()
+
+
+def test_records_session_checks_audio_graph_identity_off_event_loop(monkeypatch):
+    import threading
+
+    from utils.audio import setlist
+
+    checked = threading.Event()
+    thread_names = []
+    monkeypatch.setattr(setlist, "needs_build",
+                        lambda *_args: thread_names.append(threading.current_thread().name) or checked.set() or False)
+
+    vc = types.SimpleNamespace(
+        guild=types.SimpleNamespace(id=1),
+        channel=types.SimpleNamespace(name="General", members=[]),
+    )
+    session = R.RecordsSession(vc, [], "Ekco")
+    assert checked.wait(2.0)
+    assert thread_names == ["kaia-records-graph-check"]
+    assert session.graph is not None

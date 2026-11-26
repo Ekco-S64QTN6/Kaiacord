@@ -303,18 +303,25 @@ def building() -> bool:
 
 
 def _changed(entry: Optional[dict], path: str) -> bool:
-    """The file's audio is not what the graph measured: new, or a different
-    signature (`library.audio_signature`). A file only retagged is unchanged."""
+    """Whether the complete audio payload differs from the graph's identity."""
     from utils.audio import library
     if not entry:
         return True
-    try:
-        if entry.get("mtime") == os.path.getmtime(path):
-            return False
-    except OSError:
-        return False
-    sig = entry.get("sig")
-    return sig is None or sig != library.audio_signature(path)
+    current = library.audio_signature(path)
+    # Missing/legacy identity is not evidence that the old measurements are safe.
+    return current is None or entry.get("sig") != current
+
+
+def _forget_record(g: dict, path: str) -> None:
+    """Drop every measured edge and checked marker involving one changed file."""
+    g.get("records", {}).pop(path, None)
+    g.get("edges", {}).pop(path, None)
+    g.get("checked", {}).pop(path, None)
+    for edges in g.get("edges", {}).values():
+        edges.pop(path, None)
+    for checked in g.get("checked", {}).values():
+        if path in checked:
+            checked.remove(path)
 
 
 def needs_build(g: dict, crate: list) -> bool:
@@ -345,21 +352,30 @@ def pending(g: dict, crate: list) -> dict:
 
 
 _W_LIVE: dict = {}
+_W_IDENTITIES: dict[str, str] = {}
 _W_SIDES: dict = {}
 
 
 def _side(path: str) -> Optional[_Side]:
-    """A worker's _Side for `path`, read once."""
-    if path not in _W_SIDES:
+    """A worker's analysis for this exact audio payload, read once."""
+    identity = _W_IDENTITIES.get(path)
+    if not identity:
+        return None
+    key = (path, identity)
+    if key not in _W_SIDES:
         try:
-            _W_SIDES[path] = _Side(_W_LIVE[path])
+            side: Optional[_Side] = _Side(_W_LIVE[path])
+            from utils.audio import library
+            if library.audio_signature(path, refresh=True) != identity:
+                side = None
+            _W_SIDES[key] = side
         except Exception as e:
             log_debug(f"[sets] {path} not readable: {e}")
-            _W_SIDES[path] = None
+            _W_SIDES[key] = None
         if len(_W_SIDES) > 400:
             _W_SIDES.pop(next(iter(_W_SIDES)))
-    s = _W_SIDES[path]
-    return s if s is not None and s.ok else None
+    side = _W_SIDES[key]
+    return side if side is not None and side.ok else None
 
 
 def _worker_init() -> None:
@@ -420,35 +436,37 @@ def build(crate: list, budget_s: Optional[float] = None,
             try:
                 m = os.path.getmtime(p)
             except OSError:
+                _forget_record(g, p)
                 continue
+            signature = library.audio_signature(p)
             entry = g["records"].get(p)
-            if entry and entry.get("mtime") != m and not _changed(entry, p):
-                entry["mtime"] = m                          # retagged, same audio: kept
-            elif not entry or entry.get("mtime") != m:      # new or changed: measure it again
-                g["records"][p] = {"mtime": m, "sig": library.audio_signature(p)}
-                g["edges"].pop(p, None)
-                g["checked"].pop(p, None)
-                for e in g["edges"].values():
-                    e.pop(p, None)
-                for c in g["checked"].values():
-                    if p in c:
-                        c.remove(p)
-            if not g["records"][p].get("sig"):
-                g["records"][p]["sig"] = library.audio_signature(p)
+            if signature is None:
+                _forget_record(g, p)
+                continue
+            if entry and entry.get("sig") == signature:
+                # A tag-only retag changes the stat, not the audio identity.
+                entry["mtime"] = m
+            else:
+                _forget_record(g, p)
+                g["records"][p] = {"mtime": m, "sig": signature}
             if not g["records"][p].get("seconds"):
                 from utils.audio import records as R
                 g["records"][p]["seconds"] = R.probe_seconds(p)
+        valid = {p for p in live if g["records"].get(p, {}).get("sig")}
         rows = []
         for a_path, a_rec in live.items():
+            if a_path not in valid:
+                continue
             checked = set(g["checked"].get(a_path, []))
-            cands = [b.path for b in live.values() if b.path != a_path and b.path not in checked
-                     and library.tempo_ratio(a_rec.bpm, b.bpm)]
+            cands = [b.path for b in live.values() if b.path in valid and b.path != a_path
+                     and b.path not in checked and library.tempo_ratio(a_rec.bpm, b.bpm)]
             if cands:
                 rows.append((a_path, cands))
         measured = locked = 0
         jobs = max(1, min(jobs, len(rows)))
-        global _W_LIVE
+        global _W_LIVE, _W_IDENTITIES
         _W_LIVE = live
+        _W_IDENTITIES = {p: g["records"][p]["sig"] for p in valid}
         if jobs > 1:
             import multiprocessing
             pool = multiprocessing.get_context("fork").Pool(jobs, initializer=_worker_init)

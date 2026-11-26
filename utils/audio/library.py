@@ -78,35 +78,16 @@ _VERSION = re.compile(r"\s+-\s+.*\b(?:remix|mix|edit|version|rework|remaster(?:e
 _ARTIST_FILLER = {"feat", "ft", "vs", "and", "the", "with", "official", "music", "x", "various", "artists", "unknown"}
 
 
-def audio_signature(path: str) -> Optional[str]:
-    """A fingerprint of the file's audio, not its tags: the ID3v2 block in front
-    (tags, embedded cover art) and an ID3v1 tag at the end are skipped, and the
-    first and last 256 KB of what is left hashed with its length. Retagging a
-    library leaves it unchanged, so nothing measured from the audio is redone."""
-    import hashlib
-    try:
-        with open(path, "rb") as f:
-            head = f.read(10)
-            start = 0
-            if len(head) == 10 and head[:3] == b"ID3":
-                size = ((head[6] & 0x7F) << 21) | ((head[7] & 0x7F) << 14) | ((head[8] & 0x7F) << 7) | (head[9] & 0x7F)
-                start = 10 + size + (10 if head[5] & 0x10 else 0)
-            f.seek(0, 2)
-            end = f.tell()
-            if end - 128 >= start:
-                f.seek(end - 128)
-                if f.read(3) == b"TAG":
-                    end -= 128
-            if end <= start:
-                return None
-            span = 262144
-            f.seek(start)
-            a = f.read(min(span, end - start))
-            f.seek(max(start, end - span))
-            b = f.read(end - max(start, end - span))
-    except OSError:
-        return None
-    return hashlib.sha1(a + b + str(end - start).encode()).hexdigest()[:20]
+def audio_signature(path: str, *, refresh: bool = False) -> Optional[str]:
+    """The versioned complete audio-payload identity used by record caches.
+
+    ID3v2/ID3v1 tags are excluded so an MP3 metadata-only retag does not force
+    analysis again. The complete payload is streamed through BLAKE2; inode and
+    ctime changes invalidate the stat cache immediately, with periodic full
+    revalidation for unusual filesystems. Call only off the audio callback.
+    """
+    from utils.audio.audio_identity import audio_signature as identify
+    return identify(path, refresh=refresh)
 
 
 @functools.lru_cache(maxsize=4096)

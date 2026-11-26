@@ -4,24 +4,48 @@ on:
   push:
     branches: ["**"]
     paths:
+      - "utils/audio/audio_identity.py"
       - "utils/audio/records.py"
       - "utils/audio/library.py"
+      - "utils/audio/songmap.py"
+      - "utils/audio/mixcheck.py"
+      - "utils/audio/beatgrid.py"
       - "utils/audio/setlist.py"
+      - "utils/audio/dj_dashboard.py"
+      - "tools/maintenance/beat_ticks.py"
+      - "tools/tests/unit/test_audio_identity.py"
+      - "tools/tests/unit/test_audio_cache_identity.py"
+      - "tools/tests/unit/test_songmap.py"
+      - "tools/tests/unit/test_dj_dashboard.py"
       - "tools/tests/unit/test_records.py"
       - "tools/tests/unit/test_setlist.py"
       - "tools/tests/unit/test_mixcheck.py"
       - "config/default_config.yaml"
+      - ".github/scripts/run_ci_tests.py"
       - ".github/workflows/records-audio-tests.yml"
+      - "tools/tests/unit/test_ci_test_selection.py"
   pull_request:
     paths:
+      - "utils/audio/audio_identity.py"
       - "utils/audio/records.py"
       - "utils/audio/library.py"
+      - "utils/audio/songmap.py"
+      - "utils/audio/mixcheck.py"
+      - "utils/audio/beatgrid.py"
       - "utils/audio/setlist.py"
+      - "utils/audio/dj_dashboard.py"
+      - "tools/maintenance/beat_ticks.py"
+      - "tools/tests/unit/test_audio_identity.py"
+      - "tools/tests/unit/test_audio_cache_identity.py"
+      - "tools/tests/unit/test_songmap.py"
+      - "tools/tests/unit/test_dj_dashboard.py"
       - "tools/tests/unit/test_records.py"
       - "tools/tests/unit/test_setlist.py"
       - "tools/tests/unit/test_mixcheck.py"
       - "config/default_config.yaml"
+      - ".github/scripts/run_ci_tests.py"
       - ".github/workflows/records-audio-tests.yml"
+      - "tools/tests/unit/test_ci_test_selection.py"
 
 permissions:
   contents: read
@@ -45,10 +69,13 @@ jobs:
           echo "$RUNNER_TEMP/ffmpeg-bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/ffmpeg-bin/ffmpeg" -version
           python -m pip install --no-input --disable-pip-version-check --upgrade pip
-          python -m pip install --no-input --disable-pip-version-check pytest pytest-asyncio numpy scipy PyYAML
-      - name: Test records, set ranking and measured blends
+          python -m pip install --no-input --disable-pip-version-check pytest pytest-asyncio numpy scipy PyYAML aiohttp python-dotenv
+      - name: Test record identity, analysis caches, set ranking and mixer
         run: >-
           python -m pytest
+          tools/tests/unit/test_audio_identity.py
+          tools/tests/unit/test_audio_cache_identity.py
+          tools/tests/unit/test_songmap.py
           tools/tests/unit/test_records.py
           tools/tests/unit/test_setlist.py
           tools/tests/unit/test_mixcheck.py

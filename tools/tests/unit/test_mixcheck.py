@@ -79,9 +79,16 @@ def test_an_off_beat_hit_is_never_chosen():
 
 def test_verify_moves_a_blend_by_the_measured_amount(monkeypatch):
     from types import SimpleNamespace
-    from utils.audio import setlist
+    from utils.audio import library, setlist
     inc = clicks(BPM, 120, offset=0.5)
-    monkeypatch.setattr(M, "envelope", lambda p: OUT if p == "out" else inc)
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
+    def fake_envelope(path, band="kick"):
+        env = OUT if path == "out" else inc
+        M._MEM[(path, band)] = (path, env)
+        return env
+    monkeypatch.setattr(M, "envelope", fake_envelope)
+    M._MEM.clear()
+    M._levels.clear()
     plan = SimpleNamespace(ratio=1.0, start=16 * BEAT + 0.054 - 0.5, offset=0.0, drop=16 * BEAT,
                            length=32 * BEAT, beat=BEAT)
     v, shift = setlist.verify("out", 1.0, "in", plan)
@@ -95,9 +102,16 @@ def _plan(off_s):
 
 
 def test_a_far_move_every_bar_agrees_on_is_still_made(monkeypatch):
-    from utils.audio import setlist
+    from utils.audio import library, setlist
     inc = clicks(BPM, 120, offset=0.5)
-    monkeypatch.setattr(M, "envelope", lambda p: OUT if p == "out" else inc)
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
+    def fake_envelope(path, band="kick"):
+        env = OUT if path == "out" else inc
+        M._MEM[(path, band)] = (path, env)
+        return env
+    monkeypatch.setattr(M, "envelope", fake_envelope)
+    M._MEM.clear()
+    M._levels.clear()
     off = 0.2 * BEAT                                   # past FAR_MOVE, inside the edge
     assert M.FAR_MOVE <= 0.2 < M.EDGE * M.REACH
     v, shift = setlist.verify("out", 1.0, "in", _plan(off))
@@ -108,9 +122,16 @@ def test_a_far_move_every_bar_agrees_on_is_still_made(monkeypatch):
 def test_a_lag_at_the_edge_of_the_search_moves_nothing(monkeypatch):
     """The search reaches a quarter beat; a lag found there may be the near
     side of a larger one, so the blend is refused where it stands."""
-    from utils.audio import setlist
+    from utils.audio import library, setlist
     inc = clicks(BPM, 120, offset=0.5)
-    monkeypatch.setattr(M, "envelope", lambda p: OUT if p == "out" else inc)
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
+    def fake_envelope(path, band="kick"):
+        env = OUT if path == "out" else inc
+        M._MEM[(path, band)] = (path, env)
+        return env
+    monkeypatch.setattr(M, "envelope", fake_envelope)
+    M._MEM.clear()
+    M._levels.clear()
     v, shift = setlist.verify("out", 1.0, "in", _plan(0.24 * BEAT))
     assert not v.locked and shift == 0.0 and "edge" in v.why
 
@@ -178,7 +199,14 @@ def test_bars_where_only_one_record_has_a_kick_cannot_clash(monkeypatch):
     inc = clicks(BPM, 120, offset=0.5, pattern=(1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1), jitter=0.09, seed=3)
     envs = {("out-pads", "kick"): out, ("out-pads", "hits"): quiet, ("in-loose", "kick"): inc,
             ("in-loose", "hits"): inc}
-    monkeypatch.setattr(M, "envelope", lambda p, band="kick": envs[(p, band)])
+    from utils.audio import library
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
+    def fake_envelope(path, band="kick"):
+        env = envs[(path, band)]
+        M._MEM[(path, band)] = (path, env)
+        return env
+    monkeypatch.setattr(M, "envelope", fake_envelope)
+    M._MEM.clear()
     M._levels.clear()
     in_pads = M.check("out-pads", 1.0, "in-loose", 1.0, 64.0 - 0.5, 0.0, 64.0, 32 * BEAT, BEAT)
     on_kicks = M.check("out-pads", 1.0, "in-loose", 1.0, 16 * BEAT - 0.5, 0.0, 16 * BEAT, 32 * BEAT, BEAT)
@@ -194,7 +222,14 @@ def test_no_shared_kick_is_not_enough_when_the_claps_clash(monkeypatch):
     claps_in = clicks(BPM, 120, offset=0.56)                 # 60 ms off the outgoing's
     inc = clicks(BPM, 120, offset=0.5)
     envs = {("out", "kick"): out, ("out", "hits"): claps_out, ("in", "kick"): inc, ("in", "hits"): claps_in}
-    monkeypatch.setattr(M, "envelope", lambda p, band="kick": envs[(p, band)])
+    from utils.audio import library
+    monkeypatch.setattr(library, "audio_signature", lambda path, **_kwargs: path)
+    def fake_envelope(path, band="kick"):
+        env = envs[(path, band)]
+        M._MEM[(path, band)] = (path, env)
+        return env
+    monkeypatch.setattr(M, "envelope", fake_envelope)
+    M._MEM.clear()
     M._levels.clear()
     v = M.check("out", 1.0, "in", 1.0, 64.0 - 0.5, 0.0, 64.0, 32 * BEAT, BEAT)
     assert not v.locked and "clash" in v.why

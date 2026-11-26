@@ -136,20 +136,43 @@ RELATED_TESTS = {
         "tools/tests/unit/test_strudel_music.py",
         "tools/tests/unit/test_strudel_session_lifecycle.py",
     ),
+    "utils/audio/audio_identity.py": (
+        "tools/tests/unit/test_audio_identity.py",
+        "tools/tests/unit/test_audio_cache_identity.py",
+    ),
     "utils/audio/records.py": (
         "tools/tests/unit/test_records_startup_cleanup.py",
         "tools/tests/unit/test_dj_dashboard.py",
         "tools/tests/unit/test_records.py",
     ),
     "utils/audio/library.py": (
+        "tools/tests/unit/test_audio_identity.py",
+        "tools/tests/unit/test_audio_cache_identity.py",
         "tools/tests/unit/test_records.py",
         "tools/tests/unit/test_setlist.py",
+    ),
+    "utils/audio/songmap.py": (
+        "tools/tests/unit/test_songmap.py",
+        "tools/tests/unit/test_audio_cache_identity.py",
+    ),
+    "utils/audio/mixcheck.py": (
+        "tools/tests/unit/test_mixcheck.py",
+        "tools/tests/unit/test_audio_cache_identity.py",
+    ),
+    "utils/audio/beatgrid.py": (
+        "tools/tests/unit/test_records.py",
+        "tools/tests/unit/test_audio_cache_identity.py",
     ),
     "utils/audio/setlist.py": (
         "tools/tests/unit/test_setlist.py",
         "tools/tests/unit/test_mixcheck.py",
+        "tools/tests/unit/test_audio_cache_identity.py",
     ),
-    "utils/audio/dj_dashboard.py": ("tools/tests/unit/test_records.py",),
+    "utils/audio/dj_dashboard.py": (
+        "tools/tests/unit/test_dj_dashboard.py",
+        "tools/tests/unit/test_records.py",
+    ),
+    "tools/maintenance/beat_ticks.py": ("tools/tests/unit/test_audio_cache_identity.py",),
     "utils/commands/music_handler.py": ("tools/tests/unit/test_records_startup_cleanup.py",),
     "utils/social/agent_board_verify.py": ("tools/tests/unit/test_agent_boards.py",),
     "utils/core/kaia_dream.py": ("tools/tests/unit/test_memory_anchors.py", "tools/tests/unit/test_beliefs_store.py",

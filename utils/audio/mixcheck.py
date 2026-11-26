@@ -91,7 +91,10 @@ HITS_DIR = ENV_DIR.parent / "env_hits"
 
 
 def _cache_path(path: str, band: str = "kick") -> Path:
-    return (ENV_DIR if band == "kick" else HITS_DIR) / (hashlib.sha1(path.encode("utf-8")).hexdigest()[:20] + ".npy")
+    # The array and its source identity live in one atomic NPZ. A separate
+    # signature sidecar could be mismatched with the array if two background
+    # workers replace the cache concurrently.
+    return (ENV_DIR if band == "kick" else HITS_DIR) / (hashlib.sha1(path.encode("utf-8")).hexdigest()[:20] + ".v2.npz")
 
 
 def _decode(path: str) -> np.ndarray:
@@ -134,73 +137,88 @@ MEM_RECORDS = 48
 
 
 def envelope(path: str, band: str = "kick") -> Optional[np.ndarray]:
-    """The record's onset envelope at ENV_RATE — "kick" (low band) or "hits"
-    (2–5 kHz) — cached beside the ticks. One decode makes both."""
-    cache = _cache_path(path, band)
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
+    """The record's onset envelope, cached against its complete audio identity.
+
+    Identity checks are streamed on the planner/maintenance worker. No file
+    hashing, decoding or disk access belongs in the audio-render callback.
+    """
+    from utils.audio.library import audio_signature
+
+    signature = audio_signature(path)
+    if signature is None:
         return None
+    cache = _cache_path(path, band)
     held = _MEM.pop((path, band), None)
-    if held is not None and held[0] == mtime:
+    if held is not None and held[0] == signature:
         _MEM[(path, band)] = held
         return held[1]
     try:
-        if cache.exists() and cache.stat().st_mtime < mtime:
-            # Older than the file: still good if only its tags changed.
-            from utils.audio.library import audio_signature
-            sig = cache.with_suffix(".sig")
-            if sig.exists() and sig.read_text().strip() == (audio_signature(path) or "-"):
-                os.utime(cache)
-        if cache.exists() and cache.stat().st_mtime >= mtime:
-            env = np.load(cache).astype(np.float32)
-            _MEM[(path, band)] = (mtime, env)
-            while len(_MEM) > MEM_RECORDS:
-                _MEM.pop(next(iter(_MEM)))
-            return env
-    except (OSError, ValueError):
+        if cache.exists():
+            with np.load(cache) as saved:
+                if str(saved["signature"].item()) == signature:
+                    env = saved["env"].astype(np.float32)
+                    if audio_signature(path, refresh=True) != signature:
+                        return None
+                    _MEM[(path, band)] = (signature, env)
+                    while len(_MEM) > MEM_RECORDS:
+                        _MEM.pop(next(iter(_MEM)))
+                    return env
+    except (OSError, ValueError, KeyError):
         pass
     try:
         samples = _decode(path)
         envs = {"kick": kick_envelope(samples), "hits": hits_envelope(samples)}
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    if len(envs["kick"]) < ENV_RATE * 10:
+    if len(envs["kick"]) < ENV_RATE * 10 or audio_signature(path, refresh=True) != signature:
         return None
-    from utils.audio.library import audio_signature
-    sig = audio_signature(path) or ""
     for b, env in envs.items():
         c = _cache_path(path, b)
         try:
             c.parent.mkdir(parents=True, exist_ok=True)
-            tmp = c.with_name(f".{c.name}.{os.getpid()}.{threading.get_ident()}.tmp.npy")
-            np.save(tmp, env.astype(np.float16))
+            tmp = c.with_name(f".{c.stem}.{os.getpid()}.{threading.get_ident()}.tmp.npz")
+            np.savez(tmp, env=env.astype(np.float16), signature=np.asarray(signature))
             os.replace(tmp, c)
-            c.with_suffix(".sig").write_text(sig)
         except OSError:
             pass
-    return envs[band].astype(np.float32)
-
+    result = envs[band].astype(np.float32)
+    _MEM[(path, band)] = (signature, result)
+    while len(_MEM) > MEM_RECORDS:
+        _MEM.pop(next(iter(_MEM)))
+    return result
 
 _levels: dict = {}
 
 
 def kick_level(path: str, env: Optional[np.ndarray] = None, band: str = "kick") -> Optional[float]:
-    """The record's onset energy per second in `band` where it plays: the 75th
-    percentile over one-second windows, so breakdowns and a long intro do not
-    pull it down."""
-    if (path, band) in _levels:
-        return _levels[(path, band)]
-    env = envelope(path, band) if env is None else env
+    """The record's onset energy per second in `band`, keyed by audio identity."""
+    from utils.audio.library import audio_signature
+
+    signature = audio_signature(path)
+    if signature is None:
+        return None
+    key = (path, band, signature)
+    if key in _levels:
+        return _levels[key]
+    held = _MEM.get((path, band))
+    # An envelope passed by the caller is reusable only if it is the exact
+    # object validated and cached for this identity. Otherwise fetch the
+    # current one again rather than calculating a new level from stale bytes.
+    if env is None or held is None or held[0] != signature or held[1] is not env:
+        env = envelope(path, band)
     if env is None:
         return None
+    for old_key in [old for old in _levels if old[0] == path and old[1] == band and old != key]:
+        _levels.pop(old_key, None)
     w = int(ENV_RATE)
     n = len(env) // w
     if n < 10:
         return None
+    if audio_signature(path, refresh=True) != signature:
+        return None
     lvl = float(np.percentile(env[:n * w].reshape(n, w).sum(axis=1), 75))
-    _levels[(path, band)] = lvl if lvl > 0 else None
-    return _levels[(path, band)]
+    _levels[key] = lvl if lvl > 0 else None
+    return _levels[key]
 
 
 def kick_bars(env: np.ndarray, level: Optional[float], own_times: list, bar_s: float) -> list:

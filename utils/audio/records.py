@@ -73,9 +73,17 @@ TARGET_LUFS = -11.0
 BOOST_HEADROOM_DB = 2.0
 
 
-@functools.lru_cache(maxsize=1024)
 def gain_db(path: str) -> float:
-    """The gain that brings a record to TARGET_LUFS. 0 if it cannot be measured."""
+    """The gain for this exact audio payload, not merely this path."""
+    signature = library.audio_signature(path)
+    if signature is None:
+        return 0.0
+    return _gain_db_cached(path, signature)
+
+
+@functools.lru_cache(maxsize=1024)
+def _gain_db_cached(path: str, identity: str) -> float:
+    """EBU R128/true-peak analysis cached by path and complete audio identity."""
     try:
         out = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-nostats", "-i", path,
                               "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-"],
@@ -84,10 +92,16 @@ def gain_db(path: str) -> float:
         peak = float(re.findall(r"Peak:\s*(-?[\d.]+) dBFS", out)[-1])
     except (OSError, IndexError, ValueError, subprocess.SubprocessError):
         return 0.0
+    if library.audio_signature(path, refresh=True) != identity:
+        return 0.0
     gain = TARGET_LUFS - lufs
     if gain > 0:
         gain = min(gain, max(0.0, -1.0 - peak) + BOOST_HEADROOM_DB)
     return round(max(-12.0, min(gain, 12.0)), 1)
+
+
+setattr(gain_db, "cache_clear", _gain_db_cached.cache_clear)
+setattr(gain_db, "cache_info", _gain_db_cached.cache_info)
 
 
 def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0.0,
@@ -2117,15 +2131,26 @@ class RecordsSession:
         self._by_path = {r.path: r for r in crate}
         self.graph = setlist.load()
         self.set_list: Optional[list] = None
-        if setlist.needs_build(self.graph, crate):
-            pending = setlist.pending(self.graph, crate)
-            sets_only = (
-                self.graph.get("method", 2) >= setlist.METHOD
-                and self.graph.get("sets_method", 1) < setlist.SET_METHOD
-                and pending["records"] == 0
-                and pending["pairs"] == 0
-            )
-            setlist.build_in_background(crate, on_done=self._graph_built, sets_only=sets_only)
+
+        def check_graph():
+            # Audio identity can require hashing each file in the crate. Keep
+            # that disk work off Discord's event loop as well as the audio
+            # callback; the measuring subprocess is already separate.
+            try:
+                if not setlist.needs_build(self.graph, crate):
+                    return
+                pending = setlist.pending(self.graph, crate)
+                sets_only = (
+                    self.graph.get("method", 2) >= setlist.METHOD
+                    and self.graph.get("sets_method", 1) < setlist.SET_METHOD
+                    and pending["records"] == 0
+                    and pending["pairs"] == 0
+                )
+                setlist.build_in_background(crate, on_done=self._graph_built, sets_only=sets_only)
+            except Exception as e:
+                log_warning(f"[records] graph freshness check failed: {e}")
+
+        threading.Thread(target=check_graph, daemon=True, name="kaia-records-graph-check").start()
         self.loading: Optional[str] = None        # the newest record being readied for the free deck
         # Loads are prepared off-thread. A generation token makes a newer
         # booth choice supersede an older preparation that finishes later.

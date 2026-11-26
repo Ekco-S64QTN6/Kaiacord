@@ -54,6 +54,12 @@ _served_at = 0.0
 _profile_dir: Optional[str] = None
 _waves: dict[str, Optional[dict]] = {}          # id -> waveform, None while computing
 _paths: dict[str, str] = {}                     # id -> file
+_wave_identity: dict[str, str] = {}             # id -> complete source-audio identity
+_wave_stats: dict[str, tuple[int, int, int, int] | None] = {}  # fast change hint; not an identity
+_wave_checked: dict[str, float] = {}            # monotonic time of last full identity check
+_wave_checking: set[str] = set()
+WAVE_ID_RECHECK_S = 300.0                       # detect timestamp-preserving replacements in background
+WAVE_ERROR_RETRY_S = 15.0                        # retry failed reads without polling each frame
 _lock = threading.Lock()
 _mood_cache = {"at": 0.0, "value": {}}
 
@@ -130,23 +136,91 @@ def waveform(path: str) -> Optional[dict]:
 
 
 def _want_wave(path: str) -> str:
-    """Start computing a record's waveform if nobody has; returns its id."""
+    """Return the track's waveform id and refresh it off-thread when audio changes.
+
+    The booth asks for state frequently. It only stats the path on that hot
+    dashboard path; full hashing and waveform decoding happen in this worker.
+    The periodic identity check detects replacements that preserve size/mtime.
+    """
     tid = track_id(path)
+    try:
+        st = os.stat(path)
+        stat_key = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+    except OSError:
+        stat_key = None
+    now = time.monotonic()
     with _lock:
-        if tid in _waves:
+        last = _wave_checked.get(tid, 0.0)
+        changed_stat = _wave_stats.get(tid) != stat_key
+        cached_wave = _waves.get(tid)
+        cached_error = isinstance(cached_wave, dict) and bool(cached_wave.get("error"))
+        retry_after = WAVE_ERROR_RETRY_S if cached_error else WAVE_ID_RECHECK_S
+        due = now - last >= retry_after
+        if tid in _waves and not changed_stat and not due:
             return tid
-        _waves[tid] = None
+        if tid in _wave_checking:
+            return tid
+        _wave_checking.add(tid)
         _paths[tid] = path
+        _wave_stats[tid] = stat_key
+        _waves.setdefault(tid, None)
         while len(_waves) > 24:                  # a set's worth; the oldest go
             old = next(iter(_waves))
             _waves.pop(old, None)
             _paths.pop(old, None)
+            _wave_identity.pop(old, None)
+            _wave_stats.pop(old, None)
+            _wave_checked.pop(old, None)
+            _wave_checking.discard(old)
 
     def run():
-        w = waveform(path)
-        with _lock:
-            if tid in _paths:
-                _waves[tid] = w or {"error": "could not read"}
+        from utils.audio.library import audio_signature
+
+        try:
+            signature = audio_signature(path, refresh=True)
+            with _lock:
+                previous = _wave_identity.get(tid)
+                if not signature:
+                    if tid in _paths:
+                        _waves[tid] = {"error": "could not read"}
+                    _wave_checked[tid] = time.monotonic()
+                    return
+                cached_wave = _waves.get(tid)
+                if (previous == signature and cached_wave is not None
+                        and not (isinstance(cached_wave, dict) and cached_wave.get("error"))):
+                    _wave_checked[tid] = time.monotonic()
+                    return
+                _wave_identity[tid] = signature
+                _waves[tid] = None
+
+            w = waveform(path)
+            still_same = audio_signature(path, refresh=True) == signature
+            try:
+                current = os.stat(path)
+                current_stat = (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
+            except OSError:
+                current_stat = None
+            with _lock:
+                if tid in _paths and _paths[tid] == path:
+                    if still_same:
+                        _waves[tid] = w or {"error": "could not read"}
+                        _wave_checked[tid] = time.monotonic()
+                        _wave_stats[tid] = current_stat
+                    else:
+                        _waves[tid] = None
+                        _wave_checked[tid] = 0.0
+                        # Force the next snapshot to schedule a clean analysis.
+                        _wave_stats.pop(tid, None)
+        except Exception as exc:
+            log_debug(f"[dj] waveform refresh failed for {path}: {exc}")
+            with _lock:
+                if tid in _paths and _paths[tid] == path:
+                    _waves[tid] = {"error": "could not read"}
+                    _wave_checked[tid] = time.monotonic()
+        finally:
+            with _lock:
+                _wave_checking.discard(tid)
+
     threading.Thread(target=run, daemon=True, name="kaia-dj-wave").start()
     return tid
 
