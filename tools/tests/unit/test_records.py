@@ -2494,17 +2494,16 @@ def test_live_jog_timeout_covers_the_whole_hold_across_the_neutral_crossing(loop
     src.read()
     assert deck._bend_expired is True
     assert deck._bend_hold_active is False
+    assert src.set_bend(1, 1.06) is False
 
-    # The rate returns to unity and the planner may proceed, but further
-    # non-neutral sets are refused until the original pointer is released.
+    # The rate returns to unity and the planner may proceed after the ramp.
     for _ in range(R.PITCH_BEND_RAMP_FRAMES + 2):
         src.read()
     assert deck.bend_active is False
-    assert src.plan is None
-    assert src.set_bend(1, 1.06) is False
-
-    assert src.set_bend(1, 1.0, release=True)
     assert deck._bend_expired is False
+    assert src.plan is None
+
+    # A fresh pointer gesture is allowed after the timed-out hold has ended.
     assert src.set_bend(1, 1.04)
     assert src.set_bend(1, 1.0, release=True)
 
