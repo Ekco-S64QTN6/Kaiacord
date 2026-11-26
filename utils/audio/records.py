@@ -1780,7 +1780,9 @@ class CrossfadeSource(_AudioSource):
                     seed=self.skill_scheduler.solo_fingerprint & 0xFFFF,
                 )
                 fac = self.skill_scheduler.mask_solo_fallback(fac, times, cur.slot)
-                self.skill_scheduler.report_legacy(label, float(times[0]), float(times[-1]), fac)
+                self.skill_scheduler.report_legacy(
+                    label, float(times[0]), float(times[-1]), fac, cur.grid, cur.ratio,
+                )
             self.gesture = label
             rendered_hands = tuple(round(float(np.asarray(x).reshape(-1)[-1]), 3) for x in fac)
             # Solo skills return only the on-air deck's three EQ lanes; the
