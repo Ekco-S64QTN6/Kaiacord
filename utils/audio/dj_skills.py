@@ -538,7 +538,9 @@ class SkillScheduler:
             }
             return tuple(factors), label, chosen.skill_id, True
         self._active_skill = None
-        return tuple(factors), "", "", True
+        # An aligned profile with no active structural/no-op action cannot
+        # speak to this window; allow the existing phrase-EQ fallback to run.
+        return identity, "", "", False
 
     def render_blend(self, plan, times: np.ndarray, out_slot: int,
                      in_slot: int) -> tuple[tuple[np.ndarray, ...], str, str]:
