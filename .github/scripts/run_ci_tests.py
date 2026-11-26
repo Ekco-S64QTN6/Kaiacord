@@ -269,14 +269,15 @@ def select_tests(paths: list[str]) -> list[Path]:
         if rel in available:
             selected.add(available[rel])
             continue
-        if not rel.endswith(".py") or rel.startswith("tools/tests/"):
-            continue
 
-        # Apply explicit behavior mappings before the TTRPG broad-suite
-        # shortcut; otherwise the early continue below silently drops them.
+        # Explicit behavior mappings also cover non-Python assets such as the
+        # DJ booth page. Apply them before the Python-only import discovery.
         for test_rel in RELATED_TESTS.get(rel, ()):
             if test_rel in available:
                 selected.add(available[test_rel])
+
+        if not rel.endswith(".py") or rel.startswith("tools/tests/"):
+            continue
 
         # A handler is reached through the registry, which is what the
         # acceptance matrix imports: a change to any of them runs it.
