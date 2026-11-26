@@ -364,7 +364,7 @@ def _side(path: str) -> Optional[_Side]:
     key = (path, identity)
     if key not in _W_SIDES:
         try:
-            side = _Side(_W_LIVE[path])
+            side: Optional[_Side] = _Side(_W_LIVE[path])
             from utils.audio import library
             if library.audio_signature(path, refresh=True) != identity:
                 side = None
