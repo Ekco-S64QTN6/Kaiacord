@@ -730,3 +730,51 @@ def test_track_change_clears_previous_phrase_actions_before_new_profile_finishes
     # The new profile request is queued, but the outgoing record's timeline is
     # already gone before the worker can read or compile the incoming record.
     assert session._skill_profile_queue.qsize() == 1
+
+
+def test_master_echo_http_control_changes_real_pcm_and_releases_its_tail(session, monkeypatch):
+    monkeypatch.setattr(D, "_cfg", lambda k, d: 0 if k == "dj_dashboard_port" else d)
+    src = session.source
+    src.rides = False
+    base = D.serve()
+
+    def post(payload):
+        request = urllib.request.Request(
+            base + "fx/echo",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status
+
+    try:
+        assert post({
+            "action": "on", "beats": 1, "feedback": 0.5, "wet": 0.30,
+        }) == 204
+        state = D.snapshot(session)
+        assert state["fx"]["echo"]["enabled"] is True
+        assert state["fx"]["echo"]["bpm"] == pytest.approx(120.0)
+        assert state["fx"]["echo"]["delay_s"] == pytest.approx(0.5)
+
+        # This fixture is a constant 1000-count signal. At 120 BPM a one-beat
+        # repeat lands on rendered frame 25: dry 1000 + wet (1000 * .30) = 1300.
+        frames = [src.read() for _ in range(26)]
+        assert np.frombuffer(frames[0], np.int16).max() == pytest.approx(1000, abs=2)
+        assert np.frombuffer(frames[25], np.int16).max() == pytest.approx(1300, abs=3)
+
+        assert post({"action": "off"}) == 204
+        tail = D.snapshot(session)["fx"]["echo"]
+        assert tail["enabled"] is False and tail["tail"] is True
+        assert post({"action": "on", "beats": 16, "feedback": 0.5, "wet": 0.3}) == 409
+
+        # Hand-back is an explicit abort path: no wet state survives reset.
+        request = urllib.request.Request(base + "reset", method="POST")
+        with urllib.request.urlopen(request, timeout=5) as response:
+            assert response.status == 204
+        reset = D.snapshot(session)["fx"]["echo"]
+        assert reset["enabled"] is False and reset["tail"] is False
+    finally:
+        server, D._server = D._server, None
+        if server:
+            server.shutdown()
