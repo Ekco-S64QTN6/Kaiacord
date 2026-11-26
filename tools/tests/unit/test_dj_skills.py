@@ -33,6 +33,9 @@ def test_catalog_defines_only_real_engine_capabilities_and_complete_contracts():
     for spec in S.SKILL_CATALOG.values():
         assert spec.purpose and spec.preconditions and spec.capabilities
         assert set(spec.capabilities).issubset(S.ENGINE_CAPABILITIES)
+    # The manual master echo is real, but is not yet an autonomous DJ skill.
+    assert "fx.echo" in S.ENGINE_CAPABILITIES
+    assert not any("fx.echo" in spec.capabilities for spec in S.SKILL_CATALOG.values())
         assert spec.timing and spec.cancel_release and spec.fallback
         assert spec.explanation and spec.renderer
 
