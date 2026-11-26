@@ -1866,7 +1866,7 @@ class CrossfadeSource(_AudioSource):
             self.set_roll(rolling_slot, 1, pressed=False)
         with self._lock:
             bending_slot = (
-                self.current.slot if self.current is not None and self.current.bend_active else None
+                self.current.slot if self.current is not None and self.current.bend["active"] else None
             )
         if bending_slot is not None:
             self.set_bend(bending_slot, 1.0, release=True)
@@ -2222,7 +2222,7 @@ class CrossfadeSource(_AudioSource):
 
         with self._lock:
             deck = self.current if self.current is not None and self.current.slot == slot else None
-            if (deck is None or deck.loop_active or deck.roll_active or deck.grid is None
+            if (deck is None or deck.loop_active or deck.roll_active or deck.bend["active"] or deck.grid is None
                     or not deck.grid.bar_known or self.plan is not None or self.incoming is not None
                     or self.hand is not None or self._planning or self._pending_planning_mode is not None
                     or self._pending_loop_exit is not None or slot in self.paused):
@@ -2353,8 +2353,8 @@ class CrossfadeSource(_AudioSource):
                 return True
             if deck is None:
                 return False
-            if (deck.loop_active or deck.roll_active or (self._pending_loop_exit is not None
-                                  and self._pending_loop_exit.old is deck)):
+            if (deck.loop_active or deck.roll_active or deck.bend["active"]
+                    or (self._pending_loop_exit is not None and self._pending_loop_exit.old is deck)):
                 return False
             if expected_path is not None and deck.record.path != expected_path:
                 return False
@@ -2969,7 +2969,7 @@ class CrossfadeSource(_AudioSource):
             if pending_exit is not None and pending_exit.old.slot == slot:
                 return False
             if self.current is not None and self.current.slot == slot and (
-                self.current.roll_active or self.current.bend_active
+                self.current.roll_active or self.current.bend["active"]
             ):
                 # A new PFL decoder could not inherit the live roll/bend cursor.
                 return False
