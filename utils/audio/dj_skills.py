@@ -25,7 +25,7 @@ STAGE_MULTIPLIER = 0.84
 ENGINE_CAPABILITIES = frozenset({
     "eq.low", "eq.mid", "eq.high", "channel_gain",
     "transition.mix", "transition.echo_tail", "transition.measured_fallback",
-    "phrase_profile.aligned", "beat_grid.bar_known",
+    "phrase_profile.aligned", "beat_grid.bar_known", "fx.echo",
 })
 TRADE_BARS = 8
 
