@@ -9,6 +9,69 @@ import runpy
 ROOT = Path(__file__).resolve().parents[3]
 SELECTOR = ROOT / ".github" / "scripts" / "run_ci_tests.py"
 
+# This list is deliberately independent of RELATED_TESTS. These are
+# behavior-only or high-fan-in contracts whose focused coverage must not
+# disappear merely because someone deletes the production mapping.
+REQUIRED_RELATED_TESTS = {
+    ".github/scripts/run_ci_tests.py": (
+        "tools/tests/unit/test_ci_test_selection.py",
+    ),
+    "utils/core/kaia_rag_query.py": (
+        "tools/tests/unit/test_rag_index_hygiene.py",
+        "tools/tests/unit/test_rag_identity_scoping.py",
+        "tools/tests/unit/test_rag_retrieval_metadata.py",
+        "tools/tests/unit/test_rag_persistence_concurrency.py",
+    ),
+    "utils/core/kaia_rag_indexer.py": (
+        "tools/tests/unit/test_rag_index_hygiene.py",
+        "tools/tests/unit/test_rag_persistence_concurrency.py",
+    ),
+    "utils/core/message_processor.py": (
+        "tools/tests/unit/test_dm_privacy.py",
+        "tools/tests/unit/test_vision_fetch_security.py",
+        "tools/tests/unit/test_channel_memory_lifecycle.py",
+    ),
+    "utils/infrastructure/system/shutdown_fixed.py": (
+        "tools/tests/unit/test_async_task_registry.py",
+        "tools/tests/unit/test_shutdown_prelude.py",
+    ),
+    "utils/ttrpg/session_manager.py": (
+        "tools/tests/unit/test_async_lock_metrics.py",
+        "tools/tests/unit/ttrpg/test_rpg_serialization.py",
+    ),
+    "utils/audio/records.py": (
+        "tools/tests/unit/test_records.py",
+        "tools/tests/unit/test_dj_dashboard.py",
+        "tools/tests/unit/test_records_session_listener_intent.py",
+    ),
+    "utils/audio/dj_dashboard.py": (
+        "tools/tests/unit/test_dj_dashboard.py",
+        "tools/tests/unit/test_records.py",
+    ),
+    "utils/audio/record_cues.py": (
+        "tools/tests/unit/test_record_cues.py",
+    ),
+    "assets/dj/index.html": (
+        "tools/tests/unit/test_dj_dashboard.py",
+    ),
+}
+
+
+def _missing_required_related_tests(mapping):
+    """Return independently required module/test mappings absent from mapping."""
+    missing = []
+    for module, required_tests in REQUIRED_RELATED_TESTS.items():
+        actual_tests = mapping.get(module)
+        if actual_tests is None:
+            missing.append(f"{module}: missing required module mapping")
+            continue
+        missing.extend(
+            f"{module} -> {test_path}"
+            for test_path in required_tests
+            if test_path not in actual_tests
+        )
+    return missing
+
 
 def _literal_related_test_map():
     tree = ast.parse(SELECTOR.read_text(encoding="utf-8"))
@@ -76,3 +139,51 @@ def test_every_related_mapping_is_selected():
         selected = {p.relative_to(ROOT).as_posix() for p in selector["select_tests"]([module])}
         missed += [f"{module} -> {t}" for t in tests if t not in selected]
     assert not missed, missed
+
+
+def test_required_behavior_mappings_remain_present_and_select_their_tests():
+    """A deleted key or test path fails even if production and generic tests agree."""
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    mapping = selector["RELATED_TESTS"]
+    assert _missing_required_related_tests(mapping) == []
+
+    available = {
+        p.relative_to(ROOT).as_posix()
+        for sub in ("unit", "integration")
+        for p in (ROOT / "tools" / "tests" / sub).rglob("test_*.py")
+    }
+    for module, required_tests in REQUIRED_RELATED_TESTS.items():
+        selected = {
+            path.relative_to(ROOT).as_posix()
+            for path in selector["select_tests"]([module])
+        }
+        for test_path in required_tests:
+            assert test_path in available, test_path
+            assert test_path in selected, f"{module} did not select {test_path}"
+
+
+def test_required_mapping_guard_detects_a_deleted_production_entry():
+    """Prove a missing required key is caught independently of RELATED_TESTS."""
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    mapping = dict(selector["RELATED_TESTS"])
+    removed_module = "utils/audio/records.py"
+    del mapping[removed_module]
+
+    assert _missing_required_related_tests(mapping) == [
+        f"{removed_module}: missing required module mapping"
+    ]
+
+
+def test_required_mapping_guard_detects_a_deleted_behavior_test():
+    """A surviving module key cannot silently lose one of its required tests."""
+    selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
+    mapping = dict(selector["RELATED_TESTS"])
+    module = "utils/audio/records.py"
+    mapping[module] = tuple(
+        path for path in mapping[module]
+        if path != "tools/tests/unit/test_records.py"
+    )
+
+    assert _missing_required_related_tests(mapping) == [
+        f"{module} -> tools/tests/unit/test_records.py"
+    ]
