@@ -1723,6 +1723,44 @@ def test_records_session_checks_audio_graph_identity_off_event_loop(monkeypatch)
     assert session.graph is not None
 
 
+
+
+def test_crossfader_rejects_non_finite_values_without_poisoning_mixer_state():
+    controls = R.Controls()
+    for value in (float("nan"), float("inf"), float("-inf")):
+        assert not controls.set(None, "xfader", value)
+        assert not controls.set(None, "master", value)
+        assert not controls.set(1, "fader", value)
+    assert controls.xfader is None
+    assert controls.master == 1.0
+    assert controls.channels[1]["fader"] == 1.0
+
+
+def test_source_advances_configuration_ramp_once_per_rendered_frame():
+    deck = Deck(rec("crossfade-ramp", 120, "8A"), 1.0, 600.0, tone(1000, 600.0))
+    src = CrossfadeSource(deck, pick=lambda _deck: None, stream_factory=tone(-1000, 600.0), mix_beats=16)
+    src.rides = False
+    wait_for(deck, 12)
+    try:
+        assert src.controls.set(None, "xfader", 0.25)
+        start = (src.controls.channel(1)[3], src.controls.channel(2)[3])
+        assert start == pytest.approx((1.0, 0.5))
+        assert src.controls.set(None, "xfader_curve", "constant_power")
+
+        src.read()
+        after_one = (src.controls.channel(1)[3], src.controls.channel(2)[3])
+        assert after_one[0] < start[0] and after_one[0] > 0.9238795
+        assert after_one[1] < start[1] and after_one[1] > 0.3826834
+
+        for _ in range(src.controls.XFADER_RAMP_FRAMES - 1):
+            src.read()
+        finished = (src.controls.channel(1)[3], src.controls.channel(2)[3])
+        assert finished == pytest.approx((0.9238795325, 0.3826834324), abs=1e-8)
+        assert src.controls._xfader_ramp is None
+    finally:
+        src.cleanup()
+
+
 def test_crossfader_default_curve_preserves_the_existing_overlap_law():
     controls = R.Controls()
     assert controls.xfader is None
