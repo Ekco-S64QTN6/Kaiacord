@@ -277,6 +277,7 @@ class Deck:
         self._bend_buffer_active = False
         self._bend_capacity = PITCH_BEND_BUFFER_FRAMES * FRAME_SAMPLES + FRAME_SAMPLES * 2
         self._bend_ring: Optional[np.ndarray] = None
+        self._bend_setup_lock = threading.Lock()
         self._bend_read_pos = 0.0
         self._bend_write_pos = 0
         self._loop: Optional[DeckLoop] = None
@@ -335,6 +336,20 @@ class Deck:
         DECKS_STARVED += 1
         return SILENCE
 
+    def prepare_bend(self) -> bool:
+        """Allocate the fixed resampler ring off the renderer's frame lock."""
+        if self._bend_ring is not None:
+            return True
+        with self._bend_setup_lock:
+            if self._bend_ring is not None:
+                return True
+            try:
+                ring = np.zeros((self._bend_capacity, 2), dtype=np.float32)
+            except MemoryError:
+                return False
+            self._bend_ring = ring
+        return True
+
     def set_bend(self, rate: float, *, release: bool = False) -> bool:
         """Set a temporary playback-rate multiplier; 1.0 is the neutral jog position."""
         if isinstance(rate, bool):
@@ -348,9 +363,7 @@ class Deck:
         if target != 1.0 and (self._bend_expired or self._loop is not None or self._roll is not None):
             return False
         if target != 1.0 and not self._bend_buffer_active:
-            try:
-                self._bend_ring = np.zeros((self._bend_capacity, 2), dtype=np.float32)
-            except MemoryError:
+            if not self.prepare_bend():
                 return False
             self._bend_buffer_active = True
         if target != 1.0 and not self._bend_hold_active:
@@ -2593,6 +2606,15 @@ class CrossfadeSource(_AudioSource):
             if deck is None:
                 return False
             head = self._headphones_deck if self._headphones_slot == slot else None
+        if not math.isclose(target, 1.0, abs_tol=1e-5):
+            # Allocate bounded DSP memory on the HTTP thread, not while holding
+            # the frame-boundary lock needed by the audio renderer.
+            if not deck.prepare_bend() or (head is not None and not head.prepare_bend()):
+                return False
+        with self._lock:
+            current_head = self._headphones_deck if self._headphones_slot == slot else None
+            if self.current is not deck or current_head is not head:
+                return False
             if math.isclose(target, 1.0, abs_tol=1e-5):
                 ok = deck.set_bend(1.0, release=release)
                 if head is not None:
