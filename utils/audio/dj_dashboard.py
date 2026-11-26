@@ -704,7 +704,7 @@ class _Handler(BaseHTTPRequestHandler):
                       else record_cues.set_hot(record, index, current_position))
                 action = "stored"
             elif action in ("toggle", "jump"):
-                ok = src.jump_to_cue(slot, cue)
+                ok = src.jump_to_cue(slot, cue, expected_path=record.path)
                 action = "jumped"
             else:
                 return self._send(400, b"", "text/plain")
