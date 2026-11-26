@@ -164,7 +164,7 @@ def test_phrase_profile_aligns_to_counted_bars_and_keeps_raw_time():
     assert first_phrase.start == pytest.approx(2.0)
     assert first_phrase.end == pytest.approx(10.0)
     assert first_phrase.aligned and first_phrase.bars == 4
-    assert first_phrase.full_db > -2.0
+    assert -10.0 < first_phrase.full_db < -2.0
     assert first_phrase.lead_db < -2.0  # the lead proxy remains a separate feature
     assert all(p.start < p.end for p in profile.phrases)
 
