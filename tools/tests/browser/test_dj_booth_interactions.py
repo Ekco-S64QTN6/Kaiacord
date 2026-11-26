@@ -256,3 +256,65 @@ def test_real_browser_controls_the_tempo_synced_master_echo(booth):
         finally:
             page.close()
             browser.close()
+
+
+def test_real_browser_holds_and_releases_a_slip_roll_on_the_live_deck(booth):
+    _session, source, _record, base = booth
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1600, "height": 1100})
+        page.add_init_script("localStorage.setItem('kaia.fx', '0')")
+        try:
+            response = page.goto(base, wait_until="domcontentloaded", timeout=15000)
+            assert response is not None and response.ok
+            _wait_for_ui_state(page, "#deck1 [data-f=state]", "ON AIR")
+
+            roll = page.locator('#deck1 [data-roll-beats="1"]')
+            assert roll.is_enabled()
+            box = roll.bounding_box()
+            assert box is not None
+            x = box["x"] + box["width"] / 2
+            y = box["y"] + box["height"] / 2
+            page.mouse.move(x, y)
+            with page.expect_response(
+                lambda result: result.url.endswith("/roll")
+                and result.request.method == "POST"
+            ) as hold_response:
+                page.mouse.down()
+            assert hold_response.value.status == 204
+
+            deck = source.current
+            assert deck is not None and deck._roll is not None
+            armed = deck._roll
+            while deck.played < armed.start_played:
+                source.read()
+            _wait_for_ui_state(page, "#deck1 [data-loop-status]", "SLIP 1")
+
+            first_cycle = [source.read() for _ in range(len(armed.frames))]
+            second_cycle = [source.read() for _ in range(len(armed.frames))]
+            assert first_cycle == second_cycle
+            assert deck._roll is not None
+            assert deck.played >= armed.start_played + 2 * len(armed.frames)
+            live_after_hold = (
+                deck.played * R.FRAME_SAMPLES - deck.pad
+            ) / R.RATE + deck.offset / deck.ratio
+            assert live_after_hold > armed.end_own / deck.ratio
+
+            with page.expect_response(
+                lambda result: result.url.endswith("/roll")
+                and result.request.method == "POST"
+            ) as release_response:
+                page.mouse.up()
+            assert release_response.value.status == 204
+            assert deck._roll is not None and deck._roll.release_played is not None
+            for _ in range(R.SLIP_ROLL_RELEASE_FRAMES):
+                source.read()
+            assert deck._roll is None
+            assert deck.at() == pytest.approx(
+                (deck.played * R.FRAME_SAMPLES - deck.pad) / R.RATE + deck.offset / deck.ratio
+            )
+            _wait_for_ui_state(page, "#deck1 [data-loop-status]", "OFF")
+        finally:
+            page.mouse.up()
+            page.close()
+            browser.close()

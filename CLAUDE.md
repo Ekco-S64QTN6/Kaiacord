@@ -1010,9 +1010,12 @@ that are easy to break:
   loop's source position. Suppress end planning and tempo glide while the loop is armed/active. Exit
   must warm both program and selected PFL decoders at the loop end, then swap them together at the next
   loop boundary. Hot-cue seeks must not replace a deck while its loop or loop-exit handoff owns it.
-  This is not a roll: momentary/slip rolls and live jog/pitch bend remain unimplemented. A manual
-  tempo-synchronised master echo is implemented as one bounded audio effect; it does not imply
-  a general effects bank or autonomous effect skill.
+  A separate manual slip-roll control now predecodes a counted 1/2/4/8-beat segment off-renderer,
+  repeats it while the live program and selected PFL decoder clocks advance, and crossfades back
+  to the live position over four 20 ms frames. A 600-frame hard cap releases a lost pointer hold.
+  It is not a persistent loop, an autonomous DJ skill, or the full beat-juggling repertoire.
+  Live jog/pitch bend remains unimplemented. A manual tempo-synchronised master echo is one
+  bounded audio effect; it does not imply a general effects bank or autonomous effect skill.
 - **Booth interactions are verified through real browser gestures.** The Playwright suite opens the
   loopback DJ page in Chromium and uses actual pointer clicks, Shift-clicks and context-menu gestures
   for cue and loop pads. Do not replace these with direct POSTs or DOM event dispatch: the browser test
@@ -1076,8 +1079,8 @@ that are easy to break:
   remains immediate. Reject non-finite values and unknown names. Reset must restore standard/A/B.
   The booth selectors must reflect the server snapshot and their actual values must affect the
   rendered channel gain. Keep the records-audio path filter watching `assets/dj/index.html` and
-  test the transfer functions and HTTP/UI control routes. PFL, cue banks, beat loops and the manual
-  tempo echo now have real paths; do not claim momentary rolls, live jog/pitch bend, further FX,
+  test the transfer functions and HTTP/UI control routes. PFL, cue banks, beat loops, manual
+  slip rolls and the master echo now have real paths; do not claim live jog/pitch bend, further FX,
   physical headphone/device acceptance or complete #403 parity without those separate paths/evidence.
 
 - **Treat DJ skills as real musical operations, not labels or UI promises.** Every skill needs a
@@ -1092,11 +1095,11 @@ that are easy to break:
   explicit KAIA MIX hand-back; automation must ease out and never fight the user. The booth's
   active skill state must show target parameters, action/phrase bounds and their timebase, plus
   manual lane ownership, directly from the scheduler; labels alone are not evidence of execution.
-  Momentary/slip rolls, live jog/pitch bend, scratches, filters, stutters, effects beyond the
-  manual master echo, vocal/percussion separation and other absent mixer capabilities require real
-  #403 primitives; never fake them or expose cosmetic controls. The master echo is a human-operated
-  capability only: do not add it to the autonomous skill catalog until a phrase-aware action contract,
-  composition rules, manual ownership and safe release/hand-back are implemented. Until #403 adds
+  The manual slip-roll primitive and master echo are human-operated capabilities only; neither
+  is an autonomous skill yet. Do not add them to the skill catalog until phrase-aware action contracts,
+  composition rules, manual ownership and safe release/hand-back are implemented. Live jog/pitch bend,
+  scratches, filters, stutters, further FX, vocal/percussion separation and other absent capabilities
+  still require real #403 primitives; never fake them or expose cosmetic controls. Until #403 adds
   the shared runtime capability registry, the catalog must validate against its conservative
   current-engine allowlist and must state that this is a bridge,
   not a dynamic #403 capability model. No implementation or unit test proves musical taste: #402

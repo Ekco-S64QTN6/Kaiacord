@@ -2236,3 +2236,131 @@ def test_crossfader_direct_fader_movement_is_immediate_during_config_ramp():
     assert controls._xfader_ramp is None
     assert controls.channel(1)[3] == 1.0
     assert controls.channel(2)[3] == 0.0
+
+
+def _slip_live_position(deck):
+    """The source clock that keeps moving underneath a slip roll."""
+    return (deck.played * FRAME_SAMPLES - deck.pad) / RATE + deck.offset / deck.ratio
+
+
+def test_slip_roll_repeats_predecoded_pcm_while_the_live_deck_clock_advances(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+
+    assert src.set_roll(1, 1, pressed=True)
+    roll = deck._roll
+    assert roll is not None and roll.beats == 1
+    assert len(roll.frames) == 25
+    assert roll.release_played is None
+
+    while deck.played < roll.start_played:
+        deck.frame()
+    first_cycle = [deck.frame() for _ in range(len(roll.frames))]
+    second_cycle = [deck.frame() for _ in range(len(roll.frames))]
+    assert first_cycle == second_cycle
+    assert deck.played == roll.start_played + 2 * len(roll.frames)
+
+    # Deck.at() reports the repeated roll cursor; the independent live clock
+    # has continued beyond the segment and will be restored on release.
+    assert deck.at() == pytest.approx(roll.start_own / deck.ratio)
+    live_before_release = _slip_live_position(deck)
+    assert live_before_release > roll.end_own / deck.ratio
+
+    assert src.set_roll(1, 1, pressed=False)
+    assert deck._roll is not None and deck._roll.release_played == deck.played
+    released = [deck.frame() for _ in range(R.SLIP_ROLL_RELEASE_FRAMES)]
+    assert len(released) == R.SLIP_ROLL_RELEASE_FRAMES
+    assert deck._roll is None
+    assert deck.at() == pytest.approx(_slip_live_position(deck))
+    assert deck.at() > roll.end_own / deck.ratio
+
+
+def test_slip_roll_keeps_program_and_pfl_on_the_same_repeating_and_live_frames(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    src.controls.set(None, "phones", 1.0)
+    src.controls.set(None, "phones_mix", 0.0)
+    assert src.set_headphones(1)
+    stream = src.attach_headphone_stream()
+    assert stream is not None
+
+    try:
+        assert src.set_roll(1, 2, pressed=True)
+        roll = deck._roll
+        head = src._headphones_deck
+        assert roll is not None and head is not None and head._roll is not None
+        while deck.played < roll.start_played:
+            program = src.read()
+            monitor = stream.get_nowait()
+            assert np.allclose(np.frombuffer(program, np.int16),
+                               np.frombuffer(monitor, np.int16), atol=1)
+
+        # The program and isolated PFL repeat exactly the same phrase.
+        for _ in range(len(roll.frames) * 2):
+            program = src.read()
+            monitor = stream.get_nowait()
+            assert np.allclose(np.frombuffer(program, np.int16),
+                               np.frombuffer(monitor, np.int16), atol=1)
+
+        assert deck.played > roll.start_played + len(roll.frames)
+        assert deck.at() == pytest.approx(roll.start_own / deck.ratio)
+        assert _slip_live_position(deck) > roll.end_own / deck.ratio
+
+        assert src.set_roll(1, 2, pressed=False)
+        assert deck._roll is not None and head._roll is not None
+        for _ in range(R.SLIP_ROLL_RELEASE_FRAMES):
+            program = src.read()
+            monitor = stream.get_nowait()
+            assert np.allclose(np.frombuffer(program, np.int16),
+                               np.frombuffer(monitor, np.int16), atol=1)
+        assert deck._roll is None and head._roll is None
+        assert deck.at() == pytest.approx(_slip_live_position(deck))
+    finally:
+        src.detach_headphone_stream(stream)
+        src.set_headphones(None)
+
+
+def test_slip_roll_times_out_and_crossfades_back_when_pointer_release_is_lost(loop_source):
+    from dataclasses import replace
+
+    deck = loop_source.current
+    assert deck is not None
+    src = loop_source
+    assert src.set_roll(1, 1, pressed=True)
+    roll = deck._roll
+    assert roll is not None
+    deck._roll = replace(roll, max_frames=3)
+
+    while deck.played < roll.start_played:
+        deck.frame()
+    for _ in range(3 + R.SLIP_ROLL_RELEASE_FRAMES + 1):
+        deck.frame()
+    assert deck._roll is None
+    assert deck.at() == pytest.approx(_slip_live_position(deck))
+
+
+def test_slip_roll_rejects_conflicting_loop_transition_pause_and_unusable_grids(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+
+    src._planning = True
+    assert not src.set_roll(1, 1, pressed=True)
+    src._planning = False
+
+    src._pending_planning_mode = "skip"
+    assert not src.set_roll(1, 1, pressed=True)
+    src._pending_planning_mode = None
+
+    src.paused.add(1)
+    assert not src.set_roll(1, 1, pressed=True)
+    src.paused.clear()
+
+    deck.grid = Grid(bpm=120.0, downbeat=0.0, contrast=8.0, bar_known=False)
+    assert not src.set_roll(1, 1, pressed=True)
+    deck.grid = STEADY
+
+    assert src.set_loop(1, 2)
+    assert not src.set_roll(1, 1, pressed=True)
