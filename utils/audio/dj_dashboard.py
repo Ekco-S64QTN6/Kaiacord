@@ -259,10 +259,11 @@ def _record(rec) -> dict:
 def _deck(d, state: str) -> dict:
     g = d.grid
     return {**_record(d.record), "slot": d.slot, "state": state, "ratio": round(d.ratio, 5),
-            "pitch": round((d.ratio * d.bend["rate"] - 1.0) * 100, 2), "gain_db": d.gain,
+            "pitch": round((d.ratio * d.playback_rate - 1.0) * 100, 2),
+            "playback_rate": round(d.playback_rate, 5), "pitch_control": d.pitch_control, "gain_db": d.gain,
             "pos": round(d.at() * d.ratio, 4),            # seconds of the record's own time
             "length": round(d.end * d.ratio, 3),
-            "tempo": round(g.bpm * d.ratio * d.bend["rate"], 2) if g else (round(d.record.bpm * d.ratio * d.bend["rate"], 2) if d.record.bpm else None),
+            "tempo": round(g.bpm * d.ratio * d.playback_rate, 2) if g else (round(d.record.bpm * d.ratio * d.playback_rate, 2) if d.record.bpm else None),
             "grid": _grid(g), "buffering": not d.ready(5), "key_now": d.key, "semitones": d.semitones,
             "loop": d.loop, "roll": d.roll, "bend": d.bend}
 
@@ -700,6 +701,21 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 return self._send(400, b"", "text/plain")
             ok = src.set_loop(slot, beats)
+            return self._send(204 if ok else 409, b"", "text/plain")
+        if self.path == "/pitch":
+            raw_slot, raw_rate = body.get("slot"), body.get("rate")
+            if isinstance(raw_slot, bool) or raw_slot not in (1, 2, "1", "2"):
+                return self._send(400, b"", "text/plain")
+            slot = int(raw_slot)
+            if isinstance(raw_rate, bool) or not isinstance(raw_rate, (int, float)):
+                return self._send(400, b"", "text/plain")
+            try:
+                rate = float(raw_rate)
+            except (TypeError, ValueError, OverflowError):
+                return self._send(400, b"", "text/plain")
+            if not math.isfinite(rate) or not 0.92 <= rate <= 1.08:
+                return self._send(400, b"", "text/plain")
+            ok = src.set_pitch(slot, rate)
             return self._send(204 if ok else 409, b"", "text/plain")
         if self.path == "/bend":
             raw_slot, action = body.get("slot"), body.get("action")

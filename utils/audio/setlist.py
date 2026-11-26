@@ -150,7 +150,8 @@ HAND_CUES = (None, 0, 8)
 
 def find_blend(now: float, out_path: str, out_ratio: float, out_grid, music_end: float, nxt, mode: str,
                mix_beats: int, lead: float = 2.0, verify_fn: Optional[Callable] = None,
-               budget_s: Optional[float] = None, lengths: Optional[list] = None, swaps=()):
+               budget_s: Optional[float] = None, lengths: Optional[list] = None, swaps=(),
+               out_rate: float = 1.0):
     """The first place a blend into `nxt` locks, searched the way a DJ looks for
     one: with the bass swap where the outgoing changes (`swaps`: seconds as
     played and what is there — its outro, its last breakdown; a real blend
@@ -175,10 +176,10 @@ def find_blend(now: float, out_path: str, out_ratio: float, out_grid, music_end:
         if key in seen:
             return None
         seen.add(key)
-        v, shift = verify_fn(out_path, out_ratio, nxt.record.path, plan)
+        v, shift = verify_fn(out_path, out_ratio * out_rate, nxt.record.path, plan)
         if not v.locked:
             return None
-        plan.start += shift
+        plan.start += shift * out_rate
         plan.check = v.summary() + (f"; moved {shift * 1000:+.0f} ms" if shift else "")
         return plan, v, shift, how
 
@@ -189,7 +190,7 @@ def find_blend(now: float, out_path: str, out_ratio: float, out_grid, music_end:
                     if budget_s and time.time() - started > budget_s / 2:
                         break
                     plan = R.plan_transition(now, out_ratio, out_grid, music_end, nxt, mode, beats, lead=lead,
-                                             in_bars=cue, swap_at=at)
+                                             in_bars=cue, swap_at=at, playback_rate=out_rate)
                     if plan.kind != "blend":
                         if plan.fallback == "tempo":
                             return None
@@ -219,7 +220,7 @@ def find_blend(now: float, out_path: str, out_ratio: float, out_grid, music_end:
                     if budget_s and time.time() - started > budget_s:
                         return "out of time"
                     plan = R.plan_transition(at, out_ratio, out_grid, end, nxt, mode, beats, lead=lead, in_bars=cue,
-                                             not_before=floor)
+                                             not_before=floor, playback_rate=out_rate)
                     if plan.kind != "blend":
                         if plan.fallback == "tempo":
                             return "no tempo"
@@ -258,16 +259,18 @@ def verify(out_path: str, out_ratio: float, in_path: str, plan):
     args = (out_path, out_ratio, in_path, plan.ratio)
     # Measured for as long as both are heard: to the outgoing gone, not the
     # blend's nominal length.
-    heard = getattr(plan, "done", plan.drop + plan.length) - plan.drop
-    v = mixcheck.check(*args, plan.start, plan.offset, plan.drop, heard, plan.beat)
+    rate = max(0.01, float(getattr(plan, "playback_rate", 1.0)))
+    heard = (getattr(plan, "done", plan.drop + plan.length) - plan.drop) / rate
+    start, drop, beat = plan.start / rate, plan.drop / rate, plan.beat / rate
+    v = mixcheck.check(*args, start, plan.offset, drop, heard, beat)
     if v.locked or v.correction_ms is None:
         return v, 0.0
-    refused = mixcheck.move_refused(v, plan.beat)
+    refused = mixcheck.move_refused(v, beat)
     if refused:
         v.why = refused
         return v, 0.0
     shift = -v.correction_ms / 1000.0
-    v2 = mixcheck.check(*args, plan.start + shift, plan.offset, plan.drop, heard, plan.beat)
+    v2 = mixcheck.check(*args, start + shift, plan.offset, drop, heard, beat)
     return (v2, shift) if v2.locked else (v, 0.0)
 
 

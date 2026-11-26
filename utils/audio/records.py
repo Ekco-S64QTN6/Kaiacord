@@ -226,6 +226,7 @@ SLIP_ROLL_RELEASE_FRAMES = 4
 
 #: Temporary live jog bend: +/-8%, 10-second fail-safe hold, smooth 8-frame release.
 PITCH_BEND_LIMIT = 0.08
+PITCH_CONTROL_LIMIT = 0.08
 PITCH_BEND_MAX_FRAMES = 500
 PITCH_BEND_RAMP_FRAMES = 8
 PITCH_BEND_BUFFER_FRAMES = 4
@@ -281,6 +282,10 @@ class Deck:
         self._bend_target = 1.0
         self._bend_rate = 1.0
         self._bend_ramp_remaining = 0
+        # Persistent pitch-fader rate composes with the temporary jog multiplier.
+        self._pitch_target = 1.0
+        self._pitch_rate = 1.0
+        self._pitch_ramp_remaining = 0
         self._bend_frames = 0
         self._bend_hold_active = False
         self._bend_expired = False
@@ -393,6 +398,32 @@ class Deck:
             self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
         return True
 
+    def set_pitch(self, rate: float, *, immediate: bool = False) -> bool:
+        """Set the persistent CDJ pitch-fader multiplier, independent of jog."""
+        if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+            return False
+        try:
+            target = float(rate)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not math.isfinite(target) or not 1.0 - PITCH_CONTROL_LIMIT <= target <= 1.0 + PITCH_CONTROL_LIMIT:
+            return False
+        if self._bend_hold_active or self._bend_expired or self._loop is not None or self._roll is not None:
+            return False
+        if not math.isclose(target, 1.0, abs_tol=1e-5) and not self._bend_buffer_active:
+            if not self.prepare_bend():
+                return False
+            self._bend_buffer_active = True
+        self._pitch_target = target
+        if immediate:
+            self._pitch_rate = target
+            self._pitch_ramp_remaining = 0
+        elif not math.isclose(target, self._pitch_rate, abs_tol=1e-5):
+            self._pitch_ramp_remaining = PITCH_BEND_RAMP_FRAMES
+        else:
+            self._pitch_ramp_remaining = 0
+        return True
+
     def _bend_ensure(self, through: int) -> Optional[bool]:
         """Append only the source samples required by the next output frame.
 
@@ -459,7 +490,14 @@ class Deck:
             if self._bend_ramp_remaining == 0:
                 self._bend_rate = self._bend_target
 
-        rate = self._bend_rate
+        if self._pitch_ramp_remaining:
+            remaining = self._pitch_ramp_remaining
+            self._pitch_rate += (self._pitch_target - self._pitch_rate) / remaining
+            self._pitch_ramp_remaining -= 1
+            if self._pitch_ramp_remaining == 0:
+                self._pitch_rate = self._pitch_target
+
+        rate = self.playback_rate
         positions = self._bend_read_pos + _FRAME_SAMPLE_OFFSETS * rate
         indices = np.floor(positions).astype(np.int64)
         needed = int(indices[-1]) + 1
@@ -557,10 +595,21 @@ class Deck:
         if frames is None or n == self.played:
             samples = self._source_samples
         elif self._bend_buffer_active:
-            samples = self._source_samples + (n - self.played) * FRAME_SAMPLES * self._bend_rate
+            samples = self._source_samples + (n - self.played) * FRAME_SAMPLES * self.playback_rate
         else:
             samples = n * FRAME_SAMPLES
         return (samples - self.pad) / RATE + self.offset / self.ratio
+
+    def frame_at(self, position: float) -> tuple[int, int]:
+        """Map a decoded-source timestamp to the output frame and in-frame pad."""
+        target = (float(position) - self.offset / self.ratio) * RATE + self.pad
+        ahead = max(0.0, target - self._source_samples) / (FRAME_SAMPLES * self.playback_rate)
+        whole = int(math.floor(ahead + 1e-9))
+        pad = int(round((ahead - whole) * FRAME_SAMPLES))
+        if pad >= FRAME_SAMPLES:
+            whole += 1
+            pad = 0
+        return self.played + whole, pad
 
     @property
     def key(self) -> Optional[str]:
@@ -573,7 +622,7 @@ class Deck:
         if loop is not None:
             return max(0, int(round((self.end - loop.end_own / self.ratio) * FRAMES_PER_S)))
         samples_left = max(0.0, self.total_frames * FRAME_SAMPLES - self._source_samples)
-        return int(samples_left // FRAME_SAMPLES)
+        return int(samples_left // (FRAME_SAMPLES * self.playback_rate))
 
     @property
     def loop(self) -> Optional[dict]:
@@ -640,6 +689,35 @@ class Deck:
             or not math.isclose(self._bend_target, 1.0, abs_tol=1e-5)
             or not math.isclose(self._bend_rate, 1.0, abs_tol=1e-5)
         )
+
+    @property
+    def pitch_rate(self) -> float:
+        return self._pitch_rate
+
+    @property
+    def playback_rate(self) -> float:
+        """Decoded-source samples consumed per output sample: pitch × jog."""
+        return self._pitch_rate * self._bend_rate
+
+    @property
+    def pitch_ramping(self) -> bool:
+        return self._pitch_ramp_remaining > 0
+
+    @property
+    def pitch_control_active(self) -> bool:
+        return (self.pitch_ramping
+                or not math.isclose(self._pitch_target, 1.0, abs_tol=1e-5)
+                or not math.isclose(self._pitch_rate, 1.0, abs_tol=1e-5))
+
+    @property
+    def pitch_control(self) -> dict:
+        return {
+            "rate": round(self._pitch_rate, 4),
+            "target": round(self._pitch_target, 4),
+            "percent": round((self._pitch_target - 1.0) * 100.0, 2),
+            "ramping": self.pitch_ramping,
+            "active": self.pitch_control_active,
+        }
 
     @property
     def end(self) -> float:
@@ -763,6 +841,8 @@ class Plan:
     #: outro starts), "break" (as it falls into its last breakdown), or ""
     #: (the last phrase the blend fits before its music ends).
     where: str = ""
+    #: Outgoing source-clock multiplier; mixcheck converts plan times to wall time.
+    playback_rate: float = 1.0
 
     @property
     def done(self) -> float:
@@ -774,7 +854,8 @@ class Plan:
 def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt: Next,
                     mode: str = "skip", mix_beats: int = MIX_BEATS, lead: float = 0.4,
                     allow_blend: bool = True, in_bars: Optional[int] = None,
-                    swap_at: Optional[float] = None, not_before: float = 0.0) -> Plan:
+                    swap_at: Optional[float] = None, not_before: float = 0.0,
+                    playback_rate: float = 1.0) -> Plan:
     """Plan the next transition from where the outgoing record is (`now`).
     `in_bars` cues the incoming that many bars past its bar one instead of where
     its bassline and steady beat put it (the search in `transition` tries several).
@@ -787,7 +868,8 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
     A blend needs both beats clear (BLEND_CONTRAST) and a common tempo within
     stretching range; otherwise it is a cut, which never overlaps two grooves."""
     in_grid = nxt.grid
-    playing_bpm = out_grid.bpm * out_ratio if out_grid else None
+    playback_rate = max(0.01, float(playback_rate))
+    playing_bpm = out_grid.bpm * out_ratio * playback_rate if out_grid else None
     # Steady, and with both bars known: kicks on kicks is not enough, the
     # incoming's bar one has to fall on a bar one, or its claps land on the
     # outgoing's kicks and its phrases start mid-bar.
@@ -820,7 +902,9 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
     ratio = library.tempo_ratio(playing_bpm, in_grid.bpm) if steady else None
     drifts = no_phrase = False
     if ratio is not None:
-        beat = 60.0 / playing_bpm
+        # Beat-grid locations remain in decoded-source time; the fader changes
+        # how quickly that source clock advances in wall time.
+        beat = 60.0 / (out_grid.bpm * out_ratio)
         length = mix_beats * beat
         # How long the outgoing is in it: to the swap, and its way out after.
         span = length / 2 + _tail(length, beat)
@@ -839,8 +923,8 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
         else:
             bar_in = in_grid.counted(in_grid.downbeat + late * 4 * in_grid.beat)
         offset = max(0.0, bar_in - PREROLL_S)
-        lead_in = (bar_in - offset) / ratio                  # incoming: start to the bar it drops on
-        earliest = now + lead_in + lead
+        lead_in = (bar_in - offset) / ratio * playback_rate
+        earliest = now + lead_in + lead * playback_rate
         bar = 4 * beat
 
         def out_ok(d: float) -> bool:
@@ -905,16 +989,16 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
         # their beats were tracked: a whole-record figure let a record whose
         # tempo moves a little slide off the other's kick over a long ride.
         if out_grid.ticks is not None and in_grid.ticks is not None:
-            out_beat = out_grid.local_beat(drop * out_ratio, mix_beats) / out_ratio
+            out_beat = out_grid.local_beat(drop * out_ratio, mix_beats) / (out_ratio * playback_rate)
             local = library.tempo_ratio(60.0 / out_beat, 60.0 / in_grid.local_beat(bar_in, mix_beats))
             if local is not None and abs(local / ratio - 1.0) < 0.02:
                 ratio = local
-                lead_in = (bar_in - offset) / ratio
+                lead_in = (bar_in - offset) / ratio * playback_rate
         # Decided before it starts: where both records' beats are tracked, the
         # two beats may not drift further apart than MAX_DRIFT_S over the whole
         # blend, or it is not a blend.
         if out_grid.ticks is not None and in_grid.ticks is not None:
-            out_beat = out_grid.local_beat(drop * out_ratio, mix_beats) / out_ratio
+            out_beat = out_grid.local_beat(drop * out_ratio, mix_beats) / (out_ratio * playback_rate)
             in_beat = in_grid.local_beat(bar_in, mix_beats) / ratio
             in_beat *= min((0.5, 1.0, 2.0), key=lambda k: abs(out_beat - in_beat * k))   # half/double time
             drifts = abs(out_beat - in_beat) * mix_beats > MAX_DRIFT_S
@@ -922,32 +1006,33 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
         # incoming with IN_LEFT_S still to play once it is the record on air.
         if (not drifts and drop != float("inf") and drop + span <= out_end + 0.01
                 and length <= (nxt.seconds - offset) / ratio - IN_LEFT_S):
-            return Plan("blend", drop - lead_in, drop, length, beat, ratio, nxt, offset)
+            return Plan("blend", drop - lead_in, drop, length, beat, ratio, nxt, offset,
+                        playback_rate=playback_rate)
     # Not beat-matched: a clean switch, never two grooves at once. The
     # outgoing fades over its last beat into a bar line and the incoming's first
     # beat lands exactly on it — at the playing tempo where it can be stretched
     # to it, so the pulse carries straight on.
     fallback = ("unlocked" if not allow_blend else "beat" if not steady or no_phrase else
                 ("tempo" if ratio is None else ("drift" if drifts else "room")))
-    beat = 60.0 / playing_bpm if playing_bpm else 0.5
+    beat = 60.0 / (out_grid.bpm * out_ratio) if out_grid else 0.5
     sw_ratio = (library.tempo_ratio(playing_bpm, in_grid.bpm) if out_grid and in_grid else None) or 1.0
     if mode == "end" and out_grid:
         drop = None
         for every in (8, 4, 1):
             d = out_grid.next_bar(out_end - beat - every * 4 * beat, out_ratio, every)
-            if now + lead <= d <= out_end - 0.05:
+            if now + lead * playback_rate <= d <= out_end - 0.05:
                 drop = d
                 break
-        drop = drop if drop is not None else max(now + lead, out_end - 0.05)
+        drop = drop if drop is not None else max(now + lead * playback_rate, out_end - 0.05)
     elif out_grid:
-        drop = out_grid.next_bar(now + lead, out_ratio)
+        drop = out_grid.next_bar(now + lead * playback_rate, out_ratio)
         if drop > out_end - 0.05:
-            drop = max(now + lead, out_end - 0.05)
+            drop = max(now + lead * playback_rate, out_end - 0.05)
     else:
         drop = min(now + lead, max(now, out_end - 0.05))
     if out_grid:
         counted = out_grid.counted(drop * out_ratio) / out_ratio
-        if abs(counted - drop) < beat / 2 and now + lead / 2 <= counted <= out_end:
+        if abs(counted - drop) < beat / 2 and now + lead * playback_rate / 2 <= counted <= out_end:
             drop = counted
     # The incoming from its first beat (its bar one where counted), else its first sound.
     offset = nxt.lead
@@ -958,7 +1043,8 @@ def plan_transition(now: float, out_ratio: float, out_grid, out_end: float, nxt:
             if k < len(in_grid.ticks):
                 first = float(in_grid.ticks[k])
         offset = max(0.0, first)
-    return Plan("cut", drop, drop, min(max(beat, 0.25), 0.8), beat, sw_ratio, nxt, offset, fallback=fallback)
+    return Plan("cut", drop, drop, min(max(beat, 0.25), 0.8), beat, sw_ratio, nxt, offset,
+                fallback=fallback, playback_rate=playback_rate)
 
 
 def _ease(x):
@@ -1810,7 +1896,7 @@ class CrossfadeSource(_AudioSource):
     def _plan_ahead(self, cur: Deck) -> float:
         """Seconds before the end of `cur` its way out is planned: room for the
         blend and the search, and for leaving at its outro or last breakdown."""
-        return self._mix_beats * 0.6 + 90 + getattr(cur, "out_lead", 0.0) / cur.ratio
+        return self._mix_beats * 0.6 + 90 + getattr(cur, "out_lead", 0.0) / (cur.ratio * cur.pitch_rate)
 
     def _swaps(self, deck: Deck) -> list:
         """Where the bass swap out of `deck` is tried before the end of its
@@ -2109,7 +2195,7 @@ class CrossfadeSource(_AudioSource):
 
         with self._lock:
             deck = self.current if self.current is not None and self.current.slot == slot else None
-            if (deck is None or deck.loop_active or deck.roll_active or deck.bend["active"] or deck.grid is None or not deck.grid.bar_known
+            if (deck is None or deck.loop_active or deck.roll_active or deck.bend["active"] or deck.pitch_control_active or deck.grid is None or not deck.grid.bar_known
                     or self.plan is not None or self.incoming is not None or self.hand is not None
                     or self._planning or self._pending_planning_mode is not None
                     or self._pending_loop_exit is not None or slot in self.paused):
@@ -2227,7 +2313,7 @@ class CrossfadeSource(_AudioSource):
 
         with self._lock:
             deck = self.current if self.current is not None and self.current.slot == slot else None
-            if (deck is None or deck.loop_active or deck.roll_active or deck.bend["active"] or deck.grid is None
+            if (deck is None or deck.loop_active or deck.roll_active or deck.bend["active"] or deck.pitch_control_active or deck.grid is None
                     or not deck.grid.bar_known or self.plan is not None or self.incoming is not None
                     or self.hand is not None or self._planning or self._pending_planning_mode is not None
                     or self._pending_loop_exit is not None or slot in self.paused):
@@ -2476,7 +2562,7 @@ class CrossfadeSource(_AudioSource):
             _SOS = _bands()
         in_g = self._grid_at(nxt.record, max(0.0, cue - 4.0), 30.0) or nxt.grid
         out_g = self._grid_at(cur.record, max(0.0, cur.at() * cur.ratio - 8.0), 30.0) or cur.grid
-        master_bpm = out_g.bpm * cur.ratio if out_g else None
+        master_bpm = out_g.bpm * cur.ratio * cur.pitch_rate if out_g else None
         ratio = library.tempo_ratio(master_bpm, in_g.bpm if in_g else nxt.record.bpm)
         synced = ratio is not None and in_g is not None and out_g is not None
         ratio = ratio or 1.0
@@ -2489,15 +2575,13 @@ class CrossfadeSource(_AudioSource):
             lead = 0.8 + 0.5 * attempt
             if synced and cur.slot not in self.paused:
                 bm, first = out_g.beat / cur.ratio, out_g.downbeat / cur.ratio
-                j = int(np.ceil((cur.at() + lead - first) / bm))
+                j = int(np.ceil((cur.at() + lead * cur.pitch_rate - first) / bm))
                 while phase is not None and j % 4 != phase:
                     j += 1
                 when = first + j * bm
             else:
-                when = cur.at() + lead
-            at = (when - cur.offset / cur.ratio) * RATE + cur.pad
-            k = int(np.floor(at / FRAME_SAMPLES))
-            pad = int(round(at - k * FRAME_SAMPLES))
+                when = cur.at() + lead * cur.pitch_rate
+            k, pad = cur.frame_at(when)
             deck = Deck(nxt.record, ratio, nxt.seconds, self._factory, gain=nxt.gain, pad=max(0, pad), offset=c,
                         semitones=self._semitones(cur, nxt) if synced else 0)
             deadline = time.time() + 1.0
@@ -2556,10 +2640,11 @@ class CrossfadeSource(_AudioSource):
                 return False
             g = cur.grid
             beat = g.beat / cur.ratio if g else 0.5
-            drop = g.next_bar(cur.at() + 0.3, cur.ratio) if g else cur.at() + 0.3
+            drop = g.next_bar(cur.at() + 0.3 * cur.pitch_rate, cur.ratio) if g else cur.at() + 0.3 * cur.pitch_rate
             length = max(beat, min(FINISH_BARS * 4 * beat, cur.end - drop - 0.05))
             nxt = self.hand_next or Next(hand.record, hand.total_frames / FRAMES_PER_S, source="hand")
-            plan = Plan("out", drop, drop, length, beat, hand.ratio, nxt, mode="skip", why="finishing the mix by hand")
+            plan = Plan("out", drop, drop, length, beat, hand.ratio, nxt, mode="skip",
+                        why="finishing the mix by hand", playback_rate=cur.pitch_rate)
             self.incoming, self.plan = hand, plan
             self._start_frame = 0 if self._hand_on else self._hand_k
             self.hand, self.hand_next, self._hand_k, self._hand_on = None, None, None, False
@@ -2696,6 +2781,44 @@ class CrossfadeSource(_AudioSource):
                 return False
             return True
 
+    def set_pitch(self, slot: int, rate: float) -> bool:
+        """Set a persistent ±8% pitch ride on the on-air deck and its selected PFL twin."""
+        if isinstance(slot, bool) or slot not in (1, 2):
+            return False
+        if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+            return False
+        try:
+            target = float(rate)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not math.isfinite(target) or not 1.0 - PITCH_CONTROL_LIMIT <= target <= 1.0 + PITCH_CONTROL_LIMIT:
+            return False
+        with self._lock:
+            deck = self.current if self.current is not None and self.current.slot == slot else None
+            if deck is None:
+                return False
+            head = self._headphones_deck if self._headphones_slot == slot else None
+        if not math.isclose(target, 1.0, abs_tol=1e-5):
+            if not deck.prepare_bend() or (head is not None and not head.prepare_bend()):
+                return False
+        with self._lock:
+            current_head = self._headphones_deck if self._headphones_slot == slot else None
+            if self.current is not deck or current_head is not head:
+                return False
+            if (deck.loop_active or deck.roll_active or deck.bend_active
+                    or self.plan is not None or self.incoming is not None or self.hand is not None
+                    or self._planning or self._pending_planning_mode is not None or self._gliding
+                    or self._pending_loop_exit is not None or slot in self.paused or self._splice is not None):
+                return False
+            if head is not None and (head.loop_active or head.roll_active or head.bend_active):
+                return False
+            if not deck.set_pitch(target):
+                return False
+            if head is not None and not head.set_pitch(target):
+                deck.set_pitch(1.0)
+                return False
+            return True
+
     def set_echo(self, enabled: bool, beats: float = 1.0,
                  feedback: float = 0.35, wet: float = 0.30) -> bool:
         """Control the real master echo using the current on-air playback tempo."""
@@ -2705,7 +2828,7 @@ class CrossfadeSource(_AudioSource):
             current = self.current
             if current is None:
                 return False
-            playback_rate = current.ratio * current.bend["rate"]
+            playback_rate = current.ratio * current.playback_rate
             bpm = (
                 current.grid.bpm * playback_rate
                 if current.grid is not None
@@ -2736,7 +2859,8 @@ class CrossfadeSource(_AudioSource):
                 elif self.plan is None and self._pending_planning_mode is None:
                     self._pending_planning_mode = mode
                 return
-            if self.plan or self.current is None or self.hand is not None or self._hand_starting:
+            if (self.plan or self.current is None or self.hand is not None or self._hand_starting
+                    or self.current.pitch_ramping):
                 return
             self._planning = True
             self.planning_mode = mode
@@ -2783,7 +2907,8 @@ class CrossfadeSource(_AudioSource):
                                                music_end, nxt, mode, self._mix_beats, lead=lead,
                                                verify_fn=verify, budget_s=SEARCH_S.get(mode, 3.0),
                                                lengths=blend_lengths(self._mix_beats, deck.key, incoming_key(nxt)),
-                                               swaps=self._swaps(deck) if mode == "end" else ())
+                                               swaps=self._swaps(deck) if mode == "end" else (),
+                                               out_rate=deck.pitch_rate)
                     if found is None and attempt == 0 and nxt.source not in ("hand", "request") and self.alternatives:
                         # Her own pick does not lock anywhere: another record that does.
                         until = time.time() + ALTERNATIVE_S.get(mode, 6.0)
@@ -2795,7 +2920,8 @@ class CrossfadeSource(_AudioSource):
                                                        alt, mode, self._mix_beats, lead=lead, verify_fn=verify,
                                                        budget_s=max(0.5, until - time.time()),
                                                        lengths=blend_lengths(self._mix_beats, deck.key, incoming_key(alt)),
-                                                       swaps=self._swaps(deck) if mode == "end" else ())
+                                                       swaps=self._swaps(deck) if mode == "end" else (),
+                                               out_rate=deck.pitch_rate)
                                 if f is not None:
                                     swapped_from, nxt, found = nxt, alt, f
                                     break
@@ -2807,7 +2933,8 @@ class CrossfadeSource(_AudioSource):
                         # Nothing locks: an echo-out on the bar, never two grooves
                         # laid over each other and never a bare cut.
                         plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode,
-                                               self._mix_beats, lead=lead)
+                                               self._mix_beats, lead=lead,
+                                               playback_rate=deck.pitch_rate)
                         if plan.kind == "blend":             # it fits, but locks nowhere
                             plan = plan_transition(deck.at(), deck.ratio, out_grid, music_end, nxt, mode,
                                                    self._mix_beats, lead=lead, allow_blend=False)
@@ -2816,12 +2943,9 @@ class CrossfadeSource(_AudioSource):
                     # A stretch that moves onsets early is started that much
                     # later (only the atempo fallback does; rubberband does not).
                     from utils.audio.beatgrid import stretch_latency
-                    plan.start += stretch_latency(plan.ratio) - stretch_latency(deck.ratio)
-                    # It starts part-way into its first frame, so its downbeat
-                    # lands on the outgoing bar to the sample.
-                    at = (plan.start - deck.offset / deck.ratio) * RATE + deck.pad   # outgoing samples
-                    k = int(np.floor(at / FRAME_SAMPLES))
-                    pad = int(round(at - k * FRAME_SAMPLES))
+                    plan.start += (stretch_latency(plan.ratio) - stretch_latency(deck.ratio)) * deck.pitch_rate
+                    # A rate-controlled source cursor can cross a decoded frame boundary early.
+                    k, pad = deck.frame_at(plan.start)
                     incoming = Deck(nxt.record, plan.ratio, nxt.seconds, self._factory,
                                     gain=nxt.gain, pad=max(0, pad), offset=plan.offset,
                                     semitones=self._semitones(deck, nxt))
@@ -2944,17 +3068,17 @@ class CrossfadeSource(_AudioSource):
         for deck in (self.current, self.incoming, self.hand):
             if deck is not None and deck.slot == slot:
                 return (deck.record, deck.ratio, max(deck.end * deck.ratio, deck.at() * deck.ratio + 0.02),
-                        deck.gain, max(0.0, deck.at() * deck.ratio), deck.semitones)
+                        deck.gain, max(0.0, deck.at() * deck.ratio), deck.semitones, deck.pitch_rate)
         queued = self._queued if self.free_slot() == slot else None
         if queued is None or self.current is None:
             return None
         from utils.audio import library
         current = self.current
-        master_bpm = current.grid.bpm * current.ratio if current.grid else (current.record.bpm or 0) * current.ratio
+        master_bpm = current.grid.bpm * current.ratio * current.pitch_rate if current.grid else (current.record.bpm or 0) * current.ratio * current.pitch_rate
         bpm = queued.grid.bpm if queued.grid else queued.record.bpm
         ratio = library.tempo_ratio(master_bpm, bpm) or 1.0
         offset = self.cue if self.cue is not None else self.default_cue(queued)
-        return (queued.record, ratio, queued.seconds, queued.gain, max(0.0, offset), 0)
+        return (queued.record, ratio, queued.seconds, queued.gain, max(0.0, offset), 0, 1.0)
 
     def set_headphones(self, slot: Optional[int], force: bool = False) -> bool:
         """Select a deck's independent PFL decoder, or turn CUE off.
@@ -2978,9 +3102,9 @@ class CrossfadeSource(_AudioSource):
             if pending_exit is not None and pending_exit.old.slot == slot:
                 return False
             if self.current is not None and self.current.slot == slot and (
-                self.current.roll_active or self.current.bend["active"]
+                self.current.roll_active or self.current.bend["active"] or self.current.pitch_ramping
             ):
-                # A new PFL decoder could not inherit the live roll/bend cursor.
+                # A new PFL decoder cannot inherit a live roll/jog cursor or a changing pitch ramp.
                 return False
             desc = self._headphone_descriptor_locked(slot)
             if desc is None:
@@ -2990,11 +3114,14 @@ class CrossfadeSource(_AudioSource):
                 return True
             self._headphones_generation += 1
             generation = self._headphones_generation
-        record, ratio, seconds, gain, offset, semitones = desc
+        record, ratio, seconds, gain, offset, semitones, pitch_rate = desc
         preview = None
         try:
             preview = Deck(record, ratio, seconds, self._factory, gain=gain,
                            offset=offset, semitones=semitones)
+            if not preview.set_pitch(pitch_rate, immediate=True):
+                preview.close()
+                return False
             if not _wait_deck(preview, 5, 1.0):
                 preview.close()
                 return False
@@ -3007,9 +3134,10 @@ class CrossfadeSource(_AudioSource):
             current = self._headphone_descriptor_locked(slot)
             stale = (generation != self._headphones_generation or current is None
                      or current[0].path != record.path
-                     or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6))
+                     or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6)
+                     or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6))
             target_at = max(0.0, current[4] / current[1]) if not stale else 0.0
-            delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S))
+            delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S / preview.playback_rate))
             if delta_frames < -1 or delta_frames > 145:
                 stale = True
             skip_frames = max(0, delta_frames)
@@ -3023,10 +3151,11 @@ class CrossfadeSource(_AudioSource):
             current = self._headphone_descriptor_locked(slot)
             stale = (generation != self._headphones_generation or current is None
                      or current[0].path != record.path
-                     or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6))
+                     or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6)
+                     or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6))
             if not stale:
                 target_at = max(0.0, current[4] / current[1])
-                delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S))
+                delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S / preview.playback_rate))
                 if delta_frames < -1 or delta_frames > 145:
                     stale = True
                     skip_frames = 0
@@ -3041,7 +3170,7 @@ class CrossfadeSource(_AudioSource):
                         for _ in range(skip_frames):
                             preview._frames.popleft()
                             preview.played += 1
-                            preview._source_samples += FRAME_SAMPLES
+                            preview._source_samples += FRAME_SAMPLES * preview.playback_rate
                             preview._room.release()
             if not stale:
                 program = self.current if self.current is not None and self.current.slot == slot else None
@@ -3188,7 +3317,7 @@ class CrossfadeSource(_AudioSource):
         # itself on the last phrase that leaves room, however soon it is made.
         if (plan is None and self.hand is None and not getattr(cur, "loop_active", False)
                 and not getattr(cur, "roll_active", False)
-                and not getattr(cur, "bend_active", False) and not self._planning
+                and not getattr(cur, "bend_active", False) and not cur.pitch_ramping and not self._planning
                 and cur.remaining <= int(self._plan_ahead(cur) * FRAMES_PER_S)):
             self._begin_planning("end")
         if self.hand is not None and plan is None:
@@ -3206,7 +3335,7 @@ class CrossfadeSource(_AudioSource):
             t0 = cur.at(cur.played - 1)
         elif (plan is None and not getattr(cur, "loop_active", False)
               and not getattr(cur, "roll_active", False)
-              and not getattr(cur, "bend_active", False)
+              and not getattr(cur, "bend_active", False) and not cur.pitch_control_active
               and self.tempo_glide and not self._gliding and not self._planning
               and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
               and cur.grid is not None and cur.grid.bar_known
@@ -3234,7 +3363,7 @@ class CrossfadeSource(_AudioSource):
         if (plan is None and not getattr(cur, "loop_active", False)
                 and not getattr(cur, "bend_active", False)
                 and self.rides and out is not None and cur.grid is not None):
-            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
+            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) * cur.playback_rate / RATE
             fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot, cur.ratio)
             if not handled:
                 # Preserve the old small phrase gesture only when no aligned
@@ -3270,7 +3399,7 @@ class CrossfadeSource(_AudioSource):
             # A published transition always owns a prepared incoming deck.
             # Narrow the optional reference for the renderer and type checker.
             assert incoming is not None
-            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
+            times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) * cur.playback_rate / RATE
             g = gains(plan, times)
             if self.rides:
                 fac, self.gesture, _skill_id = self.skill_scheduler.render_blend(
@@ -3287,7 +3416,7 @@ class CrossfadeSource(_AudioSource):
             self.applied = tuple(round(float(x[-1]), 3) for x in g)
             self.hands_now = hands_now
             self.levels["b"] = self._db(inc)
-            if out is None or t0 + FRAME_MS / 1000 >= plan.done:
+            if out is None or t0 + FRAME_MS / 1000 * cur.playback_rate >= plan.done
                 with self._lock:
                     if self.incoming is incoming and self.plan is plan:
                         self._advance()
@@ -3315,7 +3444,7 @@ class CrossfadeSource(_AudioSource):
             if keep.any():
                 self._echo_cap.append((sum(out_parts[1:]) * level)[keep])
         if self._echo_cap and float(times[-1]) >= plan.drop and self._echo_tail is None:
-            tail = echo_tail(np.concatenate(self._echo_cap), plan.beat)
+            tail = echo_tail(np.concatenate(self._echo_cap), plan.beat / plan.playback_rate)
             self._echo_cap = []
             first = int(np.searchsorted(times, plan.drop))
             # Index 0 of the tail is the drop: in this frame, `first` samples in.
