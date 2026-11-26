@@ -1784,6 +1784,8 @@ def test_crossfader_constant_power_curve_ramps_to_equal_power_targets():
     assert before == pytest.approx((1.0, 0.5))
 
     assert controls.set(None, "xfader_curve", "constant_power")
+    # Configuration is staged until the next committed PCM frame.
+    controls.advance_frame()
     first = (controls.channel(1)[3], controls.channel(2)[3])
     assert first[0] < before[0] and first[0] > 0.9238795
     assert first[1] < before[1] and first[1] > 0.3826834
