@@ -1107,6 +1107,7 @@ function releaseBend(slot, pointerId = null) {
   clearTimeout(state.timer);
   clearTimeout(state.timeout);
   state.jog.classList.remove("bending");
+  if (state.onRelease) state.onRelease();
   state.queue = state.queue.then(() =>
     post("/bend", { slot, action: "set", rate: state.latest })
   ).then(() => post("/bend", { slot, action: "release" }));
@@ -1493,6 +1494,7 @@ function scrubbing(slot) {
       const state = {
         slot, pointerId: e.pointerId, jog, latest: 1.0,
         timer: 0, timeout: 0, queue: Promise.resolve(),
+        onRelease: () => { if (held === "bend") held = null; bendHold = null; },
       };
       heldBends.set(slot, state);
       // The renderer independently enforces the same 10-second ceiling; this
