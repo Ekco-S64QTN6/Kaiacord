@@ -2282,16 +2282,17 @@ class CrossfadeSource(_AudioSource):
                             preview._room.release()
             if not stale:
                 program = self.current if self.current is not None and self.current.slot == slot else None
-                loop = program._loop if program is not None else None
-                if loop is not None:
-                    if program.played >= loop.start_played:
-                        loop_index = (program.played - loop.start_played) % len(loop.frames)
-                        loop_start_frame = preview.played
-                    else:
-                        loop_index = 0
-                        loop_start_frame = preview.played + loop.start_played - program.played
-                    preview._loop = DeckLoop(loop.frames, loop_start_frame, loop.start_own,
-                                             loop.end_own, loop.beats, loop_index)
+                if program is not None:
+                    loop = program._loop
+                    if loop is not None:
+                        if program.played >= loop.start_played:
+                            loop_index = (program.played - loop.start_played) % len(loop.frames)
+                            loop_start_frame = preview.played
+                        else:
+                            loop_index = 0
+                            loop_start_frame = preview.played + loop.start_played - program.played
+                        preview._loop = DeckLoop(loop.frames, loop_start_frame, loop.start_own,
+                                                 loop.end_own, loop.beats, loop_index)
                 old, self._headphones_deck = self._headphones_deck, preview
                 self._headphones_slot = slot
         if stale:
@@ -2341,7 +2342,7 @@ class CrossfadeSource(_AudioSource):
             pending = self._pending_loop_exit
             if pending is not None:
                 owner, old, preview, boundary, after_skip, head_old, head_preview = pending
-                if owner == "current" and self.current is old and old.played >= boundary:
+                if old is not None and preview is not None and owner == "current" and self.current is old and old.played >= boundary:
                     preview._zi = old._zi
                     preview.grid, preview.slot = old.grid, old.slot
                     preview.outs, preview.out_lead = old.outs, old.out_lead
@@ -2350,18 +2351,20 @@ class CrossfadeSource(_AudioSource):
                     self._pending_loop_exit = None
                     retired_loop = old
                     if head_preview is not None:
-                        if (head_old is not None and self._headphones_deck is head_old
-                                and self._headphones_slot == old.slot):
-                            head_preview._zi = head_old._zi
-                            head_preview.grid, head_preview.slot = old.grid, old.slot
-                            head_preview.outs, head_preview.out_lead = old.outs, old.out_lead
-                            self._headphones_deck = head_preview
-                            retired_head_loop = head_old
+                        if head_old is not None:
+                            if self._headphones_deck is head_old and self._headphones_slot == old.slot:
+                                head_preview._zi = head_old._zi
+                                head_preview.grid, head_preview.slot = old.grid, old.slot
+                                head_preview.outs, head_preview.out_lead = old.outs, old.out_lead
+                                self._headphones_deck = head_preview
+                                retired_head_loop = head_old
+                            else:
+                                abandoned_head_loop_preview = head_preview
                         else:
                             abandoned_head_loop_preview = head_preview
                     if after_skip:
                         self._begin_planning("skip")
-                elif self.current is not old:
+                elif old is not None and preview is not None and self.current is not old:
                     self._pending_loop_exit = None
                     abandoned_loop_preview = preview
                     abandoned_head_loop_preview = head_preview
