@@ -816,6 +816,7 @@ def test_live_jog_http_control_updates_the_deck_and_releases_to_neutral(session,
         assert post({"slot": 1, "action": "set", "rate": 1.081}) == 400
         assert post({"slot": 1, "action": "set", "rate": True}) == 400
         assert post({"slot": 1, "action": "set", "rate": float("nan")}) == 400
+        assert post({"slot": 1, "action": "set", "rate": 10 ** 1000}) == 400
 
         for _ in range(R.PITCH_BEND_RAMP_FRAMES + 5):
             src.read()
