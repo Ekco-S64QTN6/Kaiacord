@@ -2215,20 +2215,12 @@ class RecordsSession:
         if intent is None:
             return records_intent.RecordsRequestResult(False, reason)
 
-        with self._listener_intent_lock:
-            # Latest listener direction wins; it replaces, rather than stacks
-            # with, an older one-shot preference.
-            self._listener_intent = intent
-            self.last_listener_intent = {
-                "status": "pending", "label": intent.label,
-                "requested_by": intent.requested_by, "expires_at": intent.expires_at,
-            }
         src = self.source
         picking = False
         queued = False
         if src is not None:
-            # Read the planner's handoff state atomically so a command cannot
-            # slip between clearing _picking and publishing the chosen _queued.
+            # Commit the intent while holding the planner lock: a picker cannot
+            # start between our busy-state snapshot and the eligibility choice.
             source_lock = getattr(src, "_lock", None)
             if source_lock is not None:
                 with source_lock:
@@ -2237,21 +2229,41 @@ class RecordsSession:
                         src._queued is not None or src.incoming is not None
                         or src.plan is not None or src._planning
                     )
+                    with self._listener_intent_lock:
+                        self._listener_intent = intent
+                        self.last_listener_intent = {
+                            "status": "pending", "label": intent.label,
+                            "requested_by": intent.requested_by, "expires_at": intent.expires_at,
+                        }
+                        defer_current_pick = picking and self._listener_pick_active_generation is None
+                        self._listener_intent_min_pick_generation = (
+                            self._listener_pick_generation + (2 if defer_current_pick else 1)
+                        )
             else:
                 picking = bool(src._picking)
                 queued = bool(
                     src._queued is not None or src.incoming is not None
                     or src.plan is not None or src._planning
                 )
+                with self._listener_intent_lock:
+                    self._listener_intent = intent
+                    self.last_listener_intent = {
+                        "status": "pending", "label": intent.label,
+                        "requested_by": intent.requested_by, "expires_at": intent.expires_at,
+                    }
+                    defer_current_pick = picking and self._listener_pick_active_generation is None
+                    self._listener_intent_min_pick_generation = (
+                        self._listener_pick_generation + (2 if defer_current_pick else 1)
+                    )
+        else:
+            with self._listener_intent_lock:
+                self._listener_intent = intent
+                self.last_listener_intent = {
+                    "status": "pending", "label": intent.label,
+                    "requested_by": intent.requested_by, "expires_at": intent.expires_at,
+                }
+                self._listener_intent_min_pick_generation = self._listener_pick_generation + 1
         queued = queued or picking
-        with self._listener_intent_lock:
-            # A pick already in progress is not retroactively changed. Skip its
-            # generation, including the tiny window after _picking is set but
-            # before the worker enters _choose().
-            defer_current_pick = picking and self._listener_pick_active_generation is None
-            self._listener_intent_min_pick_generation = (
-                self._listener_pick_generation + (2 if defer_current_pick else 1)
-            )
         reply = (
             f"Got it — I'll favour {intent.label} in the next records choice, "
             "where cached phrase evidence is available; it is a preference, not a guarantee."
