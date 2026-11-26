@@ -548,8 +548,8 @@ class SkillScheduler:
         if not self.enabled or self._blend_plan_id != id(plan):
             return identity, "", ""
         if getattr(plan, "kind", "") == "echo":
-            active = self._active_skill or {}
-            return identity, str(active.get("label", "")), "echo_out"
+            active_skill = self._active_skill or {}
+            return identity, str(active_skill.get("label", "")), "echo_out"
         if getattr(plan, "kind", "") != "blend":
             return identity, "", ""
         factors = [ones.copy() for _ in range(6)]
