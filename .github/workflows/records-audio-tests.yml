@@ -6,6 +6,7 @@ on:
     paths:
       - "utils/audio/audio_identity.py"
       - "utils/audio/records.py"
+      - "utils/audio/record_cues.py"
       - "utils/audio/dj_skills.py"
       - "utils/audio/records_intent.py"
       - "utils/audio/library.py"
@@ -22,6 +23,7 @@ on:
       - "tools/tests/unit/test_songmap.py"
       - "tools/tests/unit/test_dj_dashboard.py"
       - "tools/tests/unit/test_records.py"
+      - "tools/tests/unit/test_record_cues.py"
       - "tools/tests/unit/test_dj_skills.py"
       - "tools/tests/unit/test_records_intent.py"
       - "tools/tests/unit/test_records_session_listener_intent.py"
@@ -36,6 +38,7 @@ on:
     paths:
       - "utils/audio/audio_identity.py"
       - "utils/audio/records.py"
+      - "utils/audio/record_cues.py"
       - "utils/audio/dj_skills.py"
       - "utils/audio/records_intent.py"
       - "utils/audio/library.py"
@@ -52,6 +55,7 @@ on:
       - "tools/tests/unit/test_songmap.py"
       - "tools/tests/unit/test_dj_dashboard.py"
       - "tools/tests/unit/test_records.py"
+      - "tools/tests/unit/test_record_cues.py"
       - "tools/tests/unit/test_dj_skills.py"
       - "tools/tests/unit/test_records_intent.py"
       - "tools/tests/unit/test_records_session_listener_intent.py"
@@ -93,6 +97,7 @@ jobs:
           tools/tests/unit/test_audio_cache_identity.py
           tools/tests/unit/test_songmap.py
           tools/tests/unit/test_records.py
+          tools/tests/unit/test_record_cues.py
           tools/tests/unit/test_dj_dashboard.py
           tools/tests/unit/test_dj_skills.py
           tools/tests/unit/test_records_intent.py
