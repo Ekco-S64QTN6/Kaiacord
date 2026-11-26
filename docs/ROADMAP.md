@@ -1,6 +1,6 @@
 # Roadmap
 
-What is open, and the call on each. Updated 25 November 2026.
+What is open, and the call on each. Updated 26 November 2026.
 
 Each item carries a decision: **Yes** (to build), **Watch** (measure before building), **Owner's
 call**, or **No** (researched and declined, with the reason). Closed work is in `git log`.
@@ -55,10 +55,10 @@ audible effect. A request received during an in-flight pick is deferred to the f
 Unit tests cover routing, request lifecycle and preference ranking, not audible DJ quality.
 Real-crate listening and independent assessment remain under `#402`.
 
-**#403 implementation boundary (branch in progress):** the first mixer slice adds
+**#403 implementation boundary (first slice merged in PR #416):** the first mixer slice adds
 backward-compatible `standard`, equal-power `constant_power` and midpoint `cut` crossfader
 laws, plus per-deck A/B/THRU assignments. Curve and assignment changes ramp over eight
-20 ms rendered frames; direct crossfader movement follows the hand immediately. The booth
+20 ms rendered frames; direct fader movement follows the hand immediately. The booth
 exposes and tests those controls. This does not close #403: PFL/cue-master routing,
 hot/memory cues, loops/rolls, jog/pitch bend and an actual bounded FX bus remain unimplemented.
 
