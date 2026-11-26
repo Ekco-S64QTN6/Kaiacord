@@ -2227,7 +2227,7 @@ class RecordsSession:
         ))
         reply = (
             f"Got it — I'll favour {intent.label} in the next records choice, "
-            "using the available relative audio cues."
+            "where cached phrase evidence is available; it is a preference, not a guarantee."
         )
         if queued:
             reply += " The incoming record is already being prepared, so this will steer the following choice."
