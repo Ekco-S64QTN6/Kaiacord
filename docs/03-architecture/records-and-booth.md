@@ -343,7 +343,9 @@ the renderer only indexes that bounded buffer. The loop arms at a two-bar phrase
 `Deck.played` monotonic for renderer scheduling, and reports wrapped source position through `Deck.at()`.
 Automatic end planning and tempo glide are suspended while the loop owns the deck. Exit warms a normal
 decoder at the loop end and commits it at the next wrap boundary; the selected PFL decoder shares the
-same loop frames and exits on that same boundary. This is beat looping, not momentary roll behavior.
+same loop frames and exits on that same boundary. Hot/memory cue seeks are refused while a loop or
+its boundary exit owns the deck, rather than silently replacing the loop clock. This is beat looping,
+not momentary roll behavior.
 Momentary rolls, live jog/pitch bend, and a bounded FX bus remain unimplemented and need real engine
 signal paths before they are exposed. Browser-driven gesture coverage for the cue pads and loop controls
 also remains pending; current tests exercise the engine and HTTP boundary.
