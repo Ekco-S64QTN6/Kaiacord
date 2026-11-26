@@ -2345,7 +2345,8 @@ class CrossfadeSource(_AudioSource):
             pending = self._pending_loop_exit
             if pending is not None:
                 owner, old, preview, boundary, after_skip, head_old, head_preview = pending
-                if old is not None and preview is not None and owner == "current" and self.current is old and old.played >= boundary:
+                assert old is not None and preview is not None
+                if owner == "current" and self.current is old and old.played >= boundary:
                     preview._zi = old._zi
                     preview.grid, preview.slot = old.grid, old.slot
                     preview.outs, preview.out_lead = old.outs, old.out_lead
@@ -2355,6 +2356,7 @@ class CrossfadeSource(_AudioSource):
                     retired_loop = old
                     if head_preview is not None:
                         if head_old is not None:
+                            assert head_old is not None
                             if self._headphones_deck is head_old and self._headphones_slot == old.slot:
                                 head_preview._zi = head_old._zi
                                 head_preview.grid, head_preview.slot = old.grid, old.slot
