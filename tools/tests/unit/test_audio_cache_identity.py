@@ -150,11 +150,15 @@ def test_tick_maintenance_replaces_cache_when_signature_changes(tmp_path, monkey
     namespace = runpy.run_path(str(script), run_name="beat_ticks_test")
     path = tmp_path / "record.mp3"
     path.write_bytes(b"A" * 4096)
-    signature = library.audio_signature(str(path))
+    old_signature = library.audio_signature(str(path))
+    assert old_signature
     cache_dir = tmp_path / "ticks"
     dest = namespace["cache_path"](str(path), cache_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(json.dumps({"audio_signature": "old-signature", "ticks": []}), encoding="utf-8")
+    dest.write_text(json.dumps({"audio_signature": old_signature, "ticks": []}), encoding="utf-8")
+    _same_stat_replacement(path)
+    signature = library.audio_signature(str(path))
+    assert signature and signature != old_signature
 
     analysed = []
 
