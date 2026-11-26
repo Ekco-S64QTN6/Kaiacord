@@ -1050,7 +1050,10 @@ that are easy to break:
   use source-time coordinates; compensate for deck stretch rather than comparing against playback
   seconds directly. Compile on the profile/planner workers, cap action count, and let the 20 ms
   renderer evaluate only fixed bounded ramps. Manual booth control owns the touched lane until the
-  explicit KAIA MIX hand-back; automation must ease out and never fight the user. Loops, rolls,
+  explicit KAIA MIX hand-back; automation must ease out and never fight the user. The booth's
+  active skill state must show target parameters, action/phrase bounds and their timebase, plus
+  manual lane ownership, directly from the scheduler; labels alone are not evidence of execution.
+  Loops, rolls,
   hot cues, jog/pitch bend, scratches, filters, stutters, general FX, vocal/percussion separation
   and other absent mixer capabilities require real #403 primitives; never fake them or expose
   cosmetic controls. No implementation or unit test proves musical taste: #402 still requires
