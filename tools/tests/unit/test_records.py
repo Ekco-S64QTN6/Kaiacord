@@ -1721,3 +1721,127 @@ def test_records_session_checks_audio_graph_identity_off_event_loop(monkeypatch)
     assert checked.wait(2.0)
     assert thread_names == ["kaia-records-graph-check"]
     assert session.graph is not None
+
+
+
+
+def test_crossfader_rejects_non_finite_values_without_poisoning_mixer_state():
+    controls = R.Controls()
+    for value in (float("nan"), float("inf"), float("-inf")):
+        assert not controls.set(None, "xfader", value)
+        assert not controls.set(None, "master", value)
+        assert not controls.set(1, "fader", value)
+    assert controls.xfader is None
+    assert controls.master == 1.0
+    assert controls.channels[1]["fader"] == 1.0
+
+
+def test_source_advances_configuration_ramp_once_per_rendered_frame():
+    deck = Deck(rec("crossfade-ramp", 120, "8A"), 1.0, 600.0, tone(1000, 600.0))
+    src = CrossfadeSource(deck, pick=lambda _deck: None, stream_factory=tone(-1000, 600.0), mix_beats=16)
+    src.rides = False
+    wait_for(deck, 12)
+    try:
+        assert src.controls.set(None, "xfader", 0.25)
+        start = (src.controls.channel(1)[3], src.controls.channel(2)[3])
+        assert start == pytest.approx((1.0, 0.5))
+        assert src.controls.set(None, "xfader_curve", "constant_power")
+
+        src.read()
+        after_one = (src.controls.channel(1)[3], src.controls.channel(2)[3])
+        assert after_one[0] < start[0] and after_one[0] > 0.9238795
+        assert after_one[1] < start[1] and after_one[1] > 0.3826834
+
+        for _ in range(src.controls.XFADER_RAMP_FRAMES - 1):
+            src.read()
+        finished = (src.controls.channel(1)[3], src.controls.channel(2)[3])
+        assert finished == pytest.approx((0.9238795325, 0.3826834324), abs=1e-8)
+        assert src.controls._xfader_ramp is None
+    finally:
+        src.cleanup()
+
+
+def test_crossfader_default_curve_preserves_the_existing_overlap_law():
+    controls = R.Controls()
+    assert controls.xfader is None
+    assert controls.xfader_curve == "standard"
+    assert controls.xfader_assignments == {1: "A", 2: "B"}
+
+    controls.set(None, "xfader", 0.25)
+    # The old law holds A full for the first half of travel and B full for
+    # the second half, with both decks full at the centre.
+    assert controls.channel(1)[3] == pytest.approx(1.0)
+    assert controls.channel(2)[3] == pytest.approx(0.5)
+    controls.set(None, "xfader", 0.5)
+    assert controls.channel(1)[3] == pytest.approx(1.0)
+    assert controls.channel(2)[3] == pytest.approx(1.0)
+
+
+def test_crossfader_constant_power_curve_ramps_to_equal_power_targets():
+    controls = R.Controls()
+    controls.set(None, "xfader", 0.25)
+    before = (controls.channel(1)[3], controls.channel(2)[3])
+    assert before == pytest.approx((1.0, 0.5))
+
+    assert controls.set(None, "xfader_curve", "constant_power")
+    # Configuration is staged until the next committed PCM frame.
+    controls.advance_frame()
+    first = (controls.channel(1)[3], controls.channel(2)[3])
+    assert first[0] < before[0] and first[0] > 0.9238795
+    assert first[1] < before[1] and first[1] > 0.3826834
+
+    for _ in range(controls.XFADER_RAMP_FRAMES - 1):
+        controls.advance_frame()
+    final = (controls.channel(1)[3], controls.channel(2)[3])
+    assert final == pytest.approx((0.9238795325, 0.3826834324), abs=1e-8)
+    assert final[0] ** 2 + final[1] ** 2 == pytest.approx(1.0, abs=1e-8)
+
+
+def test_crossfader_cut_curve_switches_at_a_defined_midpoint():
+    controls = R.Controls()
+    controls.set(None, "xfader_curve", "cut")
+    controls.set(None, "xfader", 0.499)
+    assert controls.channel(1)[3] == 1.0
+    assert controls.channel(2)[3] == 0.0
+    controls.set(None, "xfader", 0.5)
+    assert controls.channel(1)[3] == 0.0
+    assert controls.channel(2)[3] == 1.0
+
+
+def test_crossfader_assignment_can_route_a_deck_to_either_side_or_thru():
+    controls = R.Controls()
+    controls.set(None, "xfader", 0.25)
+
+    assert controls.set(1, "xfader_assignment", "B")
+    for _ in range(controls.XFADER_RAMP_FRAMES):
+        controls.advance_frame()
+    assert controls.channel(1)[3] == pytest.approx(0.5)
+    assert controls.channel(2)[3] == pytest.approx(0.5)
+
+    assert controls.set(2, "xfader_assignment", "THRU")
+    for _ in range(controls.XFADER_RAMP_FRAMES):
+        controls.advance_frame()
+    assert controls.channel(2)[3] == pytest.approx(1.0)
+    assert controls.state()["xfader_assignments"] == {"1": "B", "2": "THRU"}
+
+
+def test_crossfader_curve_and_assignment_validation_rejects_unknown_values():
+    controls = R.Controls()
+    assert not controls.set(None, "xfader_curve", "exponential")
+    assert not controls.set(1, "xfader_assignment", "C")
+    assert not controls.set(3, "xfader_assignment", "A")
+    assert controls.xfader_curve == "standard"
+    assert controls.xfader_assignments == {1: "A", 2: "B"}
+
+
+def test_crossfader_direct_fader_movement_is_immediate_during_config_ramp():
+    controls = R.Controls()
+    controls.set(None, "xfader", 0.5)
+    controls.set(None, "xfader_curve", "cut")
+    controls.advance_frame()
+    assert controls._xfader_ramp is not None
+
+    controls.set(None, "xfader", 0.25)
+    assert controls._xfader_ramp is None
+    assert controls.channel(1)[3] == 1.0
+    assert controls.channel(2)[3] == 0.0

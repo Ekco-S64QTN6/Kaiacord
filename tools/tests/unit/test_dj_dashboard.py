@@ -464,6 +464,16 @@ def test_snapshot_exposes_skill_catalog_and_manual_lane_ownership(session):
     assert handed_back["enabled"] is True
 
 
+def test_booth_asset_exposes_crossfader_curve_and_assignment_controls():
+    page = D.PAGE.read_text(encoding="utf-8")
+    assert 'id="xfcurve"' in page
+    assert 'id="xfassign1"' in page
+    assert 'id="xfassign2"' in page
+    assert 'value="constant_power"' in page
+    assert 'value="cut"' in page
+    assert 'post("/control", { slot, name, value: $(id).value })' in page
+
+
 def test_booth_asset_displays_skill_name_and_explanation():
     page = D.PAGE.read_text(encoding="utf-8")
     assert "S.skills && S.skills.active" in page
@@ -504,6 +514,18 @@ def test_booth_control_rides_and_reset_routes_transfer_skill_ownership(session, 
         assert ("1", "high") in [tuple(item) for item in state["manual_overrides"]]
         assert state["active"]["parameters"] == {"high": 0.65}
 
+        # String-valued mixer configuration must pass through set_control
+        # without being misread as an EQ/fader value for manual ownership.
+        manual_before = list(src.skill_scheduler.snapshot()["manual_overrides"])
+        post("/control", {"slot": None, "name": "xfader_curve", "value": "constant_power"})
+        post("/control", {"slot": 2, "name": "xfader_assignment", "value": "THRU"})
+        post("/control", {"slot": None, "name": "xfader", "value": 0.15})
+        controls = D.snapshot(session)["controls"]
+        assert controls["xfader_curve"] == "constant_power"
+        assert controls["xfader_assignments"] == {"1": "A", "2": "THRU"}
+        assert controls["xfader"] == pytest.approx(0.15)
+        assert src.skill_scheduler.snapshot()["manual_overrides"] == manual_before
+
         # HANDS off pauses skills; turning it back on resumes Kaia automation.
         post("/rides")
         assert src.rides is False and src.skill_scheduler.enabled is False
@@ -518,6 +540,9 @@ def test_booth_control_rides_and_reset_routes_transfer_skill_ownership(session, 
         assert src.rides is True and src.skill_scheduler.enabled is True
         assert src.skill_scheduler.snapshot()["manual_overrides"] == []
         assert src.controls.channels[1]["high"] == pytest.approx(1.0)
+        assert src.controls.state()["xfader_curve"] == "standard"
+        assert src.controls.state()["xfader_assignments"] == {"1": "A", "2": "B"}
+        assert src.controls.state()["xfader"] is None
     finally:
         server, D._server = D._server, None
         if server:
