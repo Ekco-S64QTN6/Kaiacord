@@ -1021,11 +1021,14 @@ function updateDeck(slot) {
   q(slot, '[data-c="ov"]').classList.toggle("scrub", canScrub(slot));
   const jog = q(slot, '[data-c="jog"]');
   jog.classList.toggle("scrub", canScrub(slot));
-  jog.classList.toggle("bendable", canBend(slot));
-  jog.classList.toggle("bending", !!bend.active);
-  jog.title = canBend(slot)
-    ? "live jog: drag around the platter to bend tempo ±8%; release returns smoothly to the set tempo"
-    : canScrub(slot) ? "free deck: rotate the jog to move the cue point" : "jog unavailable while a transition, loop or roll owns the deck";
+  const acknowledgeBend = !!(d && d.on_air && bend.expired);
+  jog.classList.toggle("bendable", canBend(slot) || acknowledgeBend);
+  jog.classList.toggle("bending", !!bend.active && !bend.expired);
+  jog.title = acknowledgeBend
+    ? "jog safety release is latched — tap the platter to acknowledge and re-arm"
+    : canBend(slot)
+      ? "live jog: drag around the platter to bend tempo ±8%; release returns smoothly to the set tempo"
+      : canScrub(slot) ? "free deck: rotate the jog to move the cue point" : "jog unavailable while a transition, loop or roll owns the deck";
   const bendText = bend.expired
     ? "JOG <b>RELEASE</b>"
     : bend.active
@@ -1496,6 +1499,17 @@ function scrubbing(slot) {
     }
   };
   jog.addEventListener("pointerdown", (e) => {
+    const deck = S && S.decks && S.decks[slot];
+    if (deck && deck.on_air && deck.bend && deck.bend.expired) {
+      // A page reload can outlive the original pointer state. Let the operator
+      // acknowledge the engine's completed safety return locally, without
+      // requiring a global KAIA MIX reset or a new non-neutral gesture.
+      e.preventDefault();
+      post("/bend", { slot, action: "release" }).then((response) => {
+        if (!response) toast("jog release acknowledgement failed");
+      });
+      return;
+    }
     if (canBend(slot) && !heldBends.has(slot)) {
       held = "bend";
       ang = angle(e);
