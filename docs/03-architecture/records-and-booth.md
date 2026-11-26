@@ -19,6 +19,13 @@ Tracking: [#402 — Kaia's musical judgment and DJ skills](https://github.com/Ek
 [#403 — professional booth controls](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403), and
 [#401 — independent DJ dashboard test selection](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401).
 
+The implementation is split into reviewable layers: [#404 — cached musical-state profiles](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404),
+[#405 — set-level musical planning](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405),
+[#403 — real booth/mixer capabilities](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403),
+[#406 — composable skill/action execution](https://github.com/Ekco-S64QTN6/Kaiacord/issues/406), and
+[#407 — records-mode listener requests](https://github.com/Ekco-S64QTN6/Kaiacord/issues/407).
+The order and dependencies are maintained in the roadmap.
+
 ### The quality hierarchy
 
 **Technical correctness is a gate and a safety constraint, never the artistic score.** Beat-grid,
