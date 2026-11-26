@@ -281,6 +281,12 @@ def test_loop_is_rejected_without_a_counted_grid_or_during_a_transition(loop_sou
     deck.grid = Grid(bpm=120.0, downbeat=0.0, contrast=8.0, bar_known=False)
     assert not src.set_loop(1, 2)
     deck.grid = STEADY
+    src._planning = True
+    assert not src.set_loop(1, 2)
+    src._planning = False
+    src._pending_planning_mode = "skip"
+    assert not src.set_loop(1, 2)
+    src._pending_planning_mode = None
     plan = types.SimpleNamespace(kind="out", mode="end")
     src.plan = plan
     assert not src.set_loop(1, 2)
