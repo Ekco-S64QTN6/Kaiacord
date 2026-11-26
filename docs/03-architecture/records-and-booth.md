@@ -107,6 +107,17 @@ choose from a small set of predetermined gestures; the existing booth is not yet
 CDJ/mixer parity. Richer musical reasoning, the composable skill library, a full set-level arc,
 and audible evidence that the choices are good are still work to build.
 
+**Cache identity is a prerequisite for musical intelligence.** The current path/mtime-based caches
+can reuse previous audio analysis or transition evidence when media is replaced at the same path.
+This affects the song maps, kick/hit envelopes, measured transition graph, beat-tick JSON and
+path-keyed beatgrid calculations. The existing `audio_signature()` samples the file's ends; it is
+not a full content identity for a same-length file whose middle changes. Before expanding musical
+profiles, make every audio-derived cache validate one robust, versioned identity, distinguish
+metadata-only retagging from audio changes, and invalidate its related in-memory/disk results
+together. This is [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408), a prerequisite
+for [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404). Perform expensive hashing and
+refresh off the 20 ms voice callback.
+
 ### Real-time engineering boundary
 
 Keep the 20 ms Discord audio path bounded. Do not put disk or network I/O, full-track analysis,
