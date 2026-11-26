@@ -590,6 +590,7 @@ class Deck:
             "active": self._bend_hold_active or self._bend_expired
                       or not math.isclose(self._bend_target, 1.0, abs_tol=1e-5)
                       or not math.isclose(self._bend_rate, 1.0, abs_tol=1e-5),
+            "expired": self._bend_expired,
             "rate": round(self._bend_rate, 4),
             "target": round(self._bend_target, 4),
             "percent": round((self._bend_rate - 1.0) * 100.0, 2),
@@ -598,7 +599,13 @@ class Deck:
 
     @property
     def bend_active(self) -> bool:
-        return bool(self.bend["active"])
+        # An expired hold still needs a physical/UI release, but once its
+        # sample rate has returned to unity it no longer owns the transport.
+        return (
+            self._bend_hold_active
+            or not math.isclose(self._bend_target, 1.0, abs_tol=1e-5)
+            or not math.isclose(self._bend_rate, 1.0, abs_tol=1e-5)
+        )
 
     @property
     def end(self) -> float:
