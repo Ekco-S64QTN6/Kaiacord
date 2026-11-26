@@ -2,6 +2,7 @@
 import io
 import json
 import time
+import threading
 import types
 import urllib.request
 
@@ -128,6 +129,59 @@ def test_the_booth_serves_state_and_skips(session, monkeypatch):
     finally:
         srv, D._server = D._server, None
         srv.shutdown()
+
+
+def test_headphone_route_serves_pfl_pcm_and_reports_selected_deck(session, monkeypatch):
+    monkeypatch.setattr(D, "_cfg", lambda k, d: 0 if k == "dj_dashboard_port" else d)
+    src = session.source
+    base = D.serve()
+    response = None
+    worker = None
+    try:
+        request = urllib.request.Request(
+            base + "phones",
+            data=json.dumps({"slot": 1}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as result:
+            assert result.status == 204
+        assert src._headphones_slot == 1
+        assert D.snapshot(session)["headphones"] == {"slot": 1, "id": D.track_id(src._headphones_deck.record.path)}
+
+        response = urllib.request.urlopen(base + "phones/stream", timeout=5)
+        assert response.status == 200
+        assert response.headers.get("X-Kaia-PCM") == "s16le;rate=48000;channels=2;frame_ms=20"
+        assert response.headers.get("Transfer-Encoding") == "chunked"
+
+        def render():
+            for _ in range(20):
+                src.read()
+
+        worker = threading.Thread(target=render, daemon=True)
+        worker.start()
+        frame = response.read(R.FRAME_BYTES)
+        assert len(frame) == R.FRAME_BYTES
+        assert np.max(np.abs(np.frombuffer(frame, dtype=np.int16))) > 0
+    finally:
+        if response is not None:
+            response.close()
+        if worker is not None:
+            worker.join(timeout=2)
+        src.set_headphones(None)
+        server, D._server = D._server, None
+        if server:
+            server.shutdown()
+
+
+def test_booth_asset_routes_phones_through_audio_worklet_not_track_files():
+    page = D.PAGE.read_text(encoding="utf-8")
+    assert 'id="phmix"' in page
+    assert 'phones_mix' in page
+    assert '"/phones/stream"' in page
+    assert "AudioWorkletNode" in page
+    assert 'new Audio("/audio/' not in page
+    assert "phonesTick" not in page
 
 
 def test_decks_alternate_like_a_pair_of_cdjs(session):
