@@ -152,11 +152,17 @@ def assess_transition(current, candidate, edge: Optional[dict],
         ("breakdown_candidate", "groove_candidate"): (0.12, "the incoming groove can refill a sparse moment"),
         ("groove_candidate", "build_candidate"): (0.12, "the incoming build can add tension without forcing an immediate peak"),
     }
-    out_section, in_section = out.section, inc.section
+    # A section label from an unaligned time window is not a counted
+    # phrase role. Keep its raw feature evidence, but do not use it to tell
+    # the set's story or assert a build/drop handoff.
+    out_section = out.section if out.aligned else None
+    in_section = inc.section if inc.aligned else None
     reward, reason = section_pairs.get((out_section, in_section), (0.0, ""))
     score += reward
     if reason:
         reasons.append(reason)
+    if not (out.aligned and inc.aligned):
+        reasons.append("one or both windows are unaligned; section-role claims are omitted")
 
     out_full, in_full = _level(out.full_db), _level(inc.full_db)
     if out_full >= 0.78 and in_full >= 0.78:
