@@ -284,19 +284,44 @@ def profile_from_map(m: Map, grid=None, *, phrase_bars: int = 4,
     first = 0.0
     if aligned:
         phrase_s = 4.0 * float(grid.beat) * phrase_bars
-        first = float(grid.tick_bar(0.0, every=phrase_bars) if grid.tracked else grid.downbeat)
-        if first < 0 or first >= duration:
-            first = float(grid.downbeat)
-        first = max(0.0, first)
-        if first > HOP_S:
-            spans.append((0.0, min(first, duration), False, None))
-        t = first
-        while t < duration - HOP_S:
-            end = min(duration, t + phrase_s)
-            complete = end - t >= phrase_s * 0.9
-            spans.append((t, end, True, phrase_bars if complete else None))
-            t += phrase_s
-    else:
+        first_boundary = grid.tick_bar(0.0, every=phrase_bars) if grid.tracked else grid.downbeat
+        if first_boundary is None:
+            # A nominally counted grid without a usable first phrase tick is
+            # not enough evidence to label any window as phrase-aligned.
+            aligned = False
+        else:
+            first = float(first_boundary)
+            if first < 0 or first >= duration:
+                first = float(grid.downbeat)
+            first = max(0.0, first)
+            if first > HOP_S:
+                spans.append((0.0, min(first, duration), False, None))
+            t = first
+            while t < duration - HOP_S:
+                # Follow every tracked phrase boundary. A single average BPM
+                # interval slowly drifts on records whose tempo changes.
+                next_boundary = (
+                    grid.tick_bar(t + HOP_S, every=phrase_bars)
+                    if grid.tracked else t + phrase_s
+                )
+                if next_boundary is None or next_boundary <= t + HOP_S:
+                    # The tracker has no further trustworthy phrase boundary.
+                    # Keep the remainder useful as time-local evidence, but
+                    # do not invent bar counts or claim alignment.
+                    fallback_start = t
+                    while fallback_start < duration - HOP_S:
+                        end = min(duration, fallback_start + fallback_window_s)
+                        spans.append((fallback_start, end, False, None))
+                        fallback_start = end
+                    break
+                next_boundary = float(next_boundary)
+                end = min(duration, next_boundary)
+                complete = next_boundary <= duration + 0.001
+                spans.append((t, end, complete, phrase_bars if complete else None))
+                if not complete:
+                    break
+                t = next_boundary
+    if not aligned:
         t = 0.0
         while t < duration - HOP_S:
             end = min(duration, t + fallback_window_s)
