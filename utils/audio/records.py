@@ -1483,7 +1483,7 @@ class CrossfadeSource(_AudioSource):
                 4.0 * current.grid.beat / max(0.01, current.ratio)
                 if current is not None and current.grid is not None else 2.0
             )
-            self.skill_scheduler.manual_override(slot, name, at, bar_s)
+            self.skill_scheduler.manual_override(slot, name, at, bar_s, float(value))
             return True
 
     @staticmethod
@@ -1780,7 +1780,7 @@ class CrossfadeSource(_AudioSource):
                     seed=self.skill_scheduler.solo_fingerprint & 0xFFFF,
                 )
                 fac = self.skill_scheduler.mask_solo_fallback(fac, times, cur.slot)
-                self.skill_scheduler.report_legacy(label, float(times[0]), float(times[-1]))
+                self.skill_scheduler.report_legacy(label, float(times[0]), float(times[-1]), fac)
             self.gesture = label
             rendered_hands = tuple(round(float(np.asarray(x).reshape(-1)[-1]), 3) for x in fac)
             # Solo skills return only the on-air deck's three EQ lanes; the
