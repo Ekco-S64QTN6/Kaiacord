@@ -146,6 +146,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_records.py",
         "tools/tests/unit/test_records_session_listener_intent.py",
         "tools/tests/unit/test_dj_skills.py",
+        "tools/tests/unit/test_dj_fx.py",
     ),
     "utils/audio/record_cues.py": (
         "tools/tests/unit/test_record_cues.py",
