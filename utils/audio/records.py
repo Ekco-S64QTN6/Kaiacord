@@ -1445,8 +1445,9 @@ class CrossfadeSource(_AudioSource):
             self._gen += 1
             generation = self._gen
 
-            deck = (self.current if self.current is not None and self.current.slot == slot
-                    else self.hand if self.hand is not None and self.hand.slot == slot else None)
+            owner = ("current" if self.current is not None and self.current.slot == slot
+                     else "hand" if self.hand is not None and self.hand.slot == slot else None)
+            deck = self.current if owner == "current" else self.hand if owner == "hand" else None
             if deck is None:
                 # A record loaded on the free deck has no decoder to seek yet;
                 # remember the exact source position for its next PLAY.
@@ -1459,8 +1460,10 @@ class CrossfadeSource(_AudioSource):
                 self.gesture = ""
                 return True
 
-            seconds = max(deck.end * deck.ratio, target + 0.04)
-            target = min(target, max(0.0, seconds - 0.04))
+            seconds = max(0.0, deck.end * deck.ratio)
+            if seconds <= 0.04:
+                return False
+            target = min(target, seconds - 0.04)
             record, ratio, gain, semitones = deck.record, deck.ratio, deck.gain, deck.semitones
             old_deck = deck
             if self._splice is not None:
@@ -1482,8 +1485,7 @@ class CrossfadeSource(_AudioSource):
             return False
 
         with self._lock:
-            active = (self.current is old_deck if old_deck is self.current
-                      else self.hand is old_deck)
+            active = (self.current is old_deck) if owner == "current" else (self.hand is old_deck)
             stale = (generation != self._gen or not active or self.blend_started()
                      or self._splice is not None)
             if not stale:
