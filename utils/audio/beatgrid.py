@@ -292,7 +292,7 @@ def _audio_identity(path: str) -> Optional[str]:
 
 
 @functools.lru_cache(maxsize=512)
-def _read_ticks(cache: str, identity: str) -> Optional[np.ndarray]:
+def _read_ticks(cache: str, identity: str, cache_mtime_ns: int) -> Optional[np.ndarray]:
     try:
         data = json.loads(Path(cache).read_text(encoding="utf-8"))
         if data.get("audio_signature") != identity:
@@ -308,7 +308,12 @@ def ticks_for(path: str) -> Optional[np.ndarray]:
     identity = _audio_identity(path)
     if identity is None:
         return None
-    return _read_ticks(str(_ticks_path(path)), identity)
+    cache = _ticks_path(path)
+    try:
+        cache_mtime_ns = cache.stat().st_mtime_ns
+    except OSError:
+        return None
+    return _read_ticks(str(cache), identity, cache_mtime_ns)
 
 
 def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
