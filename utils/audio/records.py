@@ -2239,7 +2239,7 @@ class RecordsSession:
             "where cached phrase evidence is available; it is a preference, not a guarantee."
         )
         if queued:
-            reply += " The incoming record is already being prepared, so this will steer the following choice."
+            reply += " The current next-record choice is already in progress, so this will steer the following choice."
         log_action(f"[records] listener direction from {who or 'someone'}: {intent.label}")
         return records_intent.RecordsRequestResult(True, reply, queued_after_current=queued)
 
@@ -2858,6 +2858,11 @@ class RecordsSession:
         nxt = q.record.name if q else (self.source.incoming.record.name if self.source and self.source.incoming else None)
         now = self.now
         intent = self._current_listener_intent()
+        if intent is None:
+            # A pending request deferred behind the current pick is still
+            # visible in the booth even though that in-flight worker cannot use it.
+            with self._listener_intent_lock:
+                intent = self._listener_intent
         listener_intent = None
         if intent is not None:
             from utils.audio import records_intent
