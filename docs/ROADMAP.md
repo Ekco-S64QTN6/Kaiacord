@@ -81,8 +81,9 @@ The dedicated Chromium test drives the actual pointer hold/release route. A manu
 nudge now also exists: the platter resamples the live decoder between 0.92× and 1.08×, updates the
 source clock and selected PFL twin together, and ramps back to unity over eight frames. A 10-second
 whole-gesture cap includes movement through the neutral centre; both the engine and browser release
-paths enforce it. The browser acceptance test moves the real platter with pointer input and checks
-the rendered source-clock change and neutral return. This is a manual phase/pitch nudge, not a
+paths enforce it. If a browser reload loses the pointer state, a platter tap acknowledges the
+engine's completed release latch without requiring a global mixer reset. The browser acceptance
+tests exercise both the real platter nudge and this recovery path. This is a manual phase/pitch nudge, not a
 permanent pitch slider or an autonomous pitch-ride skill. Remaining #403 work includes permanent
 pitch controls/long-form pitch rides, additional performance effects with independent bounds and
 recovery paths, wider control-interaction coverage and local audio/device audition.
