@@ -1527,6 +1527,10 @@ class CrossfadeSource(_AudioSource):
                     return False
                 if deck.played < loop.start_played:
                     deck._loop = None
+                    head = self._headphones_deck
+                    if (head is not None and self._headphones_slot == slot
+                            and head._loop is not None and head._loop.frames is loop.frames):
+                        head._loop = None
                     plan_now = after_skip
                     preview_source = None
                 else:
@@ -2242,6 +2246,9 @@ class CrossfadeSource(_AudioSource):
         if isinstance(slot, bool) or slot not in (1, 2):
             return False
         with self._lock:
+            pending_exit = self._pending_loop_exit
+            if pending_exit is not None and pending_exit.old.slot == slot:
+                return False
             desc = self._headphone_descriptor_locked(slot)
             if desc is None:
                 return False
