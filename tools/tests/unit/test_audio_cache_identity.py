@@ -99,3 +99,43 @@ def test_mixcheck_envelope_and_level_are_recomputed_for_replaced_audio(tmp_path,
     mixcheck._MEM.clear()
     mixcheck._levels.clear()
     audio_identity.clear_audio_signature_cache()
+
+
+def test_transition_graph_identity_detects_same_mtime_audio_replacement(tmp_path):
+    from utils.audio import setlist
+
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    audio_identity.clear_audio_signature_cache()
+    record = library.Record(str(path), "Artist", "Record", 124.0, "8A", "House")
+    graph = {
+        "method": setlist.METHOD,
+        "sets_method": setlist.SET_METHOD,
+        "records": {str(path): {
+            "mtime": path.stat().st_mtime,
+            "sig": library.audio_signature(str(path)),
+        }},
+        "edges": {},
+        "checked": {},
+    }
+    assert not setlist.needs_build(graph, [record])
+
+    _same_stat_replacement(path)
+    assert setlist.needs_build(graph, [record])
+    audio_identity.clear_audio_signature_cache()
+
+
+def test_forgetting_changed_record_removes_inbound_and_outbound_graph_evidence():
+    from utils.audio import setlist
+
+    graph = {
+        "records": {"a": {"sig": "old"}, "b": {"sig": "b"}},
+        "edges": {"a": {"b": {"beats": 64}}, "b": {"a": {"beats": 32}}},
+        "checked": {"a": ["b"], "b": ["a"]},
+    }
+    setlist._forget_record(graph, "a")
+    assert "a" not in graph["records"]
+    assert "a" not in graph["edges"]
+    assert graph["edges"]["b"] == {}
+    assert graph["checked"]["b"] == []
+    assert "a" not in graph["checked"]
