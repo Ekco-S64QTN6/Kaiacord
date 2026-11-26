@@ -647,9 +647,11 @@ const blendOn = () => !!(S && S.mix && S.mix.started);
 const canScrub = (slot) => isFree(slot) && !blendOn();
 const canPitch = (slot) => {
   const d = S && S.decks && S.decks[slot];
+  const echo = S && S.fx && S.fx.echo;
   return !!(d && d.on_air && d.state === "playing" && !S.mix
     && !(S.paused || []).includes(slot) && !d.loop && !d.roll
-    && !(d.bend && d.bend.active));
+    && !(d.bend && d.bend.active)
+    && !(echo && (echo.enabled || echo.tail)));
 };
 const canBend = (slot) => {
   const d = S && S.decks && S.decks[slot];
@@ -976,9 +978,12 @@ function updateDeck(slot) {
   if (document.activeElement !== pitchSlider) pitchSlider.value = String(pitchTarget * 100);
   pitchValue.textContent = `${(pitchTarget - 1) >= 0 ? "+" : "−"}${Math.abs((pitchTarget - 1) * 100).toFixed(1)}%`;
   pitchSlider.disabled = !canPitch(slot);
+  const echo = S && S.fx && S.fx.echo;
   pitchSlider.title = canPitch(slot)
     ? "Persistent pitch fader: ±8%; the platter jog temporarily bends around this setting"
-    : "Pitch fader is available on the playing on-air deck when no transition, loop, roll, jog or pause owns it";
+    : (echo && (echo.enabled || echo.tail)
+      ? "Pitch fader is locked while the tempo-synced echo or its tail is active"
+      : "Pitch fader is available on the playing on-air deck when no transition, loop, roll, jog or pause owns it");
   const effectiveRate = ratio * (d && d.playback_rate ? d.playback_rate : (d && d.bend && d.bend.rate ? d.bend.rate : 1));
   q(slot, '[data-f="el"]').textContent = d ? fmt(pos / effectiveRate) : "--:--";
   const rem = d ? (d.length - pos) / effectiveRate : NaN;
