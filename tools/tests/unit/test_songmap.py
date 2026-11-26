@@ -169,6 +169,40 @@ def test_phrase_profile_aligns_to_counted_bars_and_keeps_raw_time():
     assert all(p.start < p.end for p in profile.phrases)
 
 
+def test_tracked_profile_uses_each_actual_phrase_boundary():
+    m = S.compute(_record((8, True, False), (40, True, True), (16, True, False)))
+    assert m is not None
+
+    # The first 8 bars hold at 120 BPM; the next bars slow slightly. A fixed
+    # average-BPM step would put the second phrase end at 16.0 s, not 16.16 s.
+    beat_intervals = np.full(257, 0.5, dtype=np.float64)
+    beat_intervals[16:] = 0.51
+    ticks = np.concatenate(([0.0], np.cumsum(beat_intervals)))
+    grid = Grid(120.0, 0.0, 8.0, bar_known=True, ticks=ticks, bar_tick=0)
+
+    profile = S.profile_from_map(m, grid, phrase_bars=4)
+    assert profile.aligned
+    assert profile.phrases[0].start == 0.0
+    assert profile.phrases[0].end == pytest.approx(8.0)
+    assert profile.phrases[1].start == pytest.approx(8.0)
+    assert profile.phrases[1].end == pytest.approx(16.16)
+    assert profile.phrases[1].aligned and profile.phrases[1].bars == 4
+
+
+def test_tracked_profile_does_not_invent_alignment_after_ticks_end():
+    m = S.compute(_record((8, True, False), (40, True, True), (16, True, False)))
+    assert m is not None
+    # There is enough tracking for one complete four-bar phrase, but not for
+    # the rest of this record. Later windows must retain time coordinates only.
+    ticks = np.arange(32, dtype=np.float64) * 0.5
+    grid = Grid(120.0, 0.0, 8.0, bar_known=True, ticks=ticks, bar_tick=0)
+
+    profile = S.profile_from_map(m, grid, phrase_bars=4)
+    assert profile.phrases[0].aligned and profile.phrases[0].bars == 4
+    assert profile.phrases[1].start == pytest.approx(8.0)
+    assert not profile.phrases[1].aligned and profile.phrases[1].bars is None
+
+
 def test_profile_without_a_counted_bar_uses_unaligned_time_windows():
     m = S.compute(_record((8, True, False), (40, True, True), (16, True, False)))
     assert m is not None
