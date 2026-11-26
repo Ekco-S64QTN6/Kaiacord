@@ -200,9 +200,16 @@ def kick_level(path: str, env: Optional[np.ndarray] = None, band: str = "kick") 
     key = (path, band, signature)
     if key in _levels:
         return _levels[key]
-    env = envelope(path, band) if env is None else env
+    held = _MEM.get((path, band))
+    # An envelope passed by the caller is reusable only if it is the exact
+    # object validated and cached for this identity. Otherwise fetch the
+    # current one again rather than calculating a new level from stale bytes.
+    if env is None or held is None or held[0] != signature or held[1] is not env:
+        env = envelope(path, band)
     if env is None:
         return None
+    for old_key in [old for old in _levels if old[0] == path and old[1] == band and old != key]:
+        _levels.pop(old_key, None)
     w = int(ENV_RATE)
     n = len(env) // w
     if n < 10:
