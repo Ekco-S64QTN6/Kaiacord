@@ -20,7 +20,7 @@ Allowed states:
 
 - `not_reviewed`: no complete file-level review has been recorded.
 - `reviewed`: a reviewer completed the file review; set `reviewed_blob_sha` to the exact `blob_sha` and record concise supporting evidence.
-- `not_applicable`: the file was examined and a code-quality review is not applicable; explain why in `evidence`.
+- `not_applicable`: the file was examined and a code-quality review is not applicable; set `reviewed_blob_sha` to the exact `blob_sha` and explain why in `evidence`.
 
 When a tracked file changes, update its `blob_sha` and reset its review status to `not_reviewed` unless the new blob has itself been reviewed. A review must not carry forward across a blob change.
 
