@@ -829,3 +829,45 @@ def test_live_jog_http_control_updates_the_deck_and_releases_to_neutral(session,
         if server:
             server.shutdown()
             server.server_close()
+
+
+def test_pause_and_kaia_mix_release_an_active_live_jog_bend(session, monkeypatch):
+    monkeypatch.setattr(D, "_cfg", lambda k, d: 0 if k == "dj_dashboard_port" else d)
+    src = session.source
+    base = D.serve()
+
+    def post(path, payload):
+        request = urllib.request.Request(
+            base + path,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
+
+    try:
+        assert post("bend", {"slot": 1, "action": "set", "rate": 1.04}) == 204
+        assert src.current.bend_active
+        assert post("pause", {"slot": 1}) == 204
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+            src.read()
+        assert not src.current.bend_active
+        assert 1 in src.paused
+
+        assert post("play", {"slot": 1}) == 204
+        assert post("bend", {"slot": 1, "action": "set", "rate": 0.96}) == 204
+        assert src.current.bend_active
+        assert post("reset", {}) == 204
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+            src.read()
+        assert not src.current.bend_active
+        assert not src.paused
+    finally:
+        server, D._server = D._server, None
+        if server:
+            server.shutdown()
+            server.server_close()
