@@ -491,7 +491,7 @@ def build(crate: list, budget_s: Optional[float] = None,
         finally:
             if pool is not None:
                 pool.terminate()
-        profiles = build_profiles(live)
+        profiles = build_profiles(live, g)
         g["sets"] = make_sets(g, live, profiles=profiles)
         g["built"] = time.time()
         with _lock:
@@ -514,13 +514,18 @@ def family(rec) -> str:
 
 
 
-def build_profiles(live: dict) -> dict:
+def build_profiles(live: dict, graph: Optional[dict] = None) -> dict:
     """Build/read phrase profiles off the voice callback for set planning.
 
     songmap owns cache identity and background-only analysis. Missing or failed
     profiles are omitted; the musical policy treats them as neutral evidence.
     """
     from utils.audio import songmap
+    if graph is not None:
+        endpoints = set(graph.get("edges", {}))
+        for destinations in graph.get("edges", {}).values():
+            endpoints.update(destinations)
+        live = {path: record for path, record in live.items() if path in endpoints}
     profiles = {}
     for path, record in live.items():
         if not os.path.isfile(path):
