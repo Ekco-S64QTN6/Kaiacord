@@ -980,9 +980,10 @@ class Controls:
         if value is None or isinstance(value, bool):
             return None
         try:
-            return float(value)
+            number = float(value)
         except (TypeError, ValueError, OverflowError):
             return None
+        return number if math.isfinite(number) else None
 
     def _xfader_target(self, slot: int) -> float:
         if self.xfader is None:
@@ -1051,7 +1052,7 @@ class Controls:
             return True
         if name == "xfader_assignment":
             assignment = value.upper() if isinstance(value, str) else ""
-            if slot not in self.channels or assignment not in self.XFADER_ASSIGNMENTS:
+            if slot is None or slot not in (1, 2) or assignment not in self.XFADER_ASSIGNMENTS:
                 return False
             if assignment != self.xfader_assignments[slot]:
                 self.xfader_assignments[slot] = assignment
@@ -1063,7 +1064,7 @@ class Controls:
                 return False
             self.master = min(1.5, max(0.0, number))
             return True
-        if slot in self.channels and name in self.LIMITS:
+        if slot is not None and slot in self.channels and name in self.LIMITS:
             number = self._number(value)
             if number is None:
                 return False
