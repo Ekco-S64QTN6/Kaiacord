@@ -635,7 +635,8 @@ function dragged(slot) { return dragCue[slot] != null && performance.now() < (dr
 function posOf(d) {
   const dc = dragged(d.slot); if (dc !== null) return dc;
   // as heard: the mixer is ahead of the sound by its buffer and Discord's delay
-  return d.state === "playing" && !(S.paused || []).includes(d.slot) ? Math.max(0, Math.min(d.length, d.pos + (since() - syncLag()) * d.ratio)) : d.pos;
+  const rate = (d.ratio || 1) * (d.bend && d.bend.rate ? d.bend.rate : 1);
+  return d.state === "playing" && !(S.paused || []).includes(d.slot) ? Math.max(0, Math.min(d.length, d.pos + (since() - syncLag()) * rate)) : d.pos;
 }
 const isFree = (slot) => !!(S && S.free === slot && S.decks && S.decks[slot]);
 const blendOn = () => !!(S && S.mix && S.mix.started);
@@ -762,7 +763,7 @@ function drawLanes() {
     g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(0, y0 + 2, W, laneH - 4);
     g.strokeStyle = COL.line; g.lineWidth = 1; g.beginPath(); g.moveTo(0, mid); g.lineTo(W, mid); g.stroke();
     if (!d) { g.fillStyle = COL.faint; g.font = "600 12px JetBrains Mono"; g.fillText(`DECK ${slot} · EMPTY`, 14, mid + 4); return; }
-    const w = waves[d.id], pos = posOf(d), ratio = d.ratio || 1, [r, gg, b] = RGB[slot];
+    const w = waves[d.id], pos = posOf(d), ratio = (d.ratio || 1) * (d.bend && d.bend.rate ? d.bend.rate : 1), [r, gg, b] = RGB[slot];
     // where this deck sits on the shared timeline: the outgoing deck's played clock
     const xOf = (t) => cx + (t - pos) / ratio * pps;
     // transition shading on both lanes
@@ -958,7 +959,7 @@ function updateDeck(slot) {
   const p = d ? d.pitch : 0;
   q(slot, '[data-f="pitch"]').innerHTML = `${p >= 0 ? "+" : "−"}${Math.abs(p).toFixed(2)}<small>%</small>`;
   q(slot, '[data-f="el"]').textContent = d ? fmt(pos / ratio) : "--:--";
-  const rem = d ? (d.length - pos) / ratio : NaN;
+  const rem = d ? (d.length - pos) / (ratio * (d.bend && d.bend.rate ? d.bend.rate : 1)) : NaN;
   q(slot, '[data-f="rem"]').textContent = d ? "−" + fmt(rem) : "--:--";
   q(slot, '[data-r="remain"]').classList.toggle("warn", !!(d && d.state === "playing" && rem < 30));
   const bt = d ? beatAt(d, pos) : null;
