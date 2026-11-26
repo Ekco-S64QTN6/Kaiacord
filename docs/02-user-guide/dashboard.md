@@ -87,3 +87,11 @@ Separate from the terminal dashboard: while `!music records` plays, a browser wi
 decks and the mixer live, and both are playable: load a record on the free deck from the crate,
 drag to cue it, hear it in the window's PHONES, ▶ to start it synced, and mix with the faders. See
 [commands](commands.md#music) and `music.dj_dashboard`.
+
+The booth's lock, meters and timeline report technical synchronization and the mixer's actual
+state; they do **not** grade whether a transition is musically good. The current control surface
+also does not yet represent the full professional DJ toolbox. Real cue/loop/jog/FX parity and
+browser interaction coverage are tracked separately from Kaia's musical decision-making in
+[#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) and
+[#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401); the musical quality target is
+[#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402).
