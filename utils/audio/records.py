@@ -214,6 +214,23 @@ class DeckLoop:
     start_index: int = 0
 
 
+#: A momentary slip roll cannot pin a source decoder or manual hold indefinitely.
+SLIP_ROLL_MAX_FRAMES = 600
+SLIP_ROLL_RELEASE_FRAMES = 4
+
+
+@dataclass(frozen=True)
+class DeckRoll:
+    """A predecoded momentary roll while the underlying track clock keeps moving."""
+    frames: tuple[bytes, ...]
+    start_played: int
+    start_own: float
+    end_own: float
+    beats: int
+    max_frames: int = SLIP_ROLL_MAX_FRAMES
+    release_played: Optional[int] = None
+
+
 class Deck:
     """One record being decoded: frames pumped from a byte stream into a buffer.
 
@@ -240,8 +257,9 @@ class Deck:
         self.pad = max(0, int(pad))
         self.offset = max(0.0, offset)                      # seconds of the record skipped, own time
         self.total_frames = int(((seconds - self.offset) / ratio * RATE + self.pad) / FRAME_SAMPLES)
-        self.played = 0                         # monotonic render-frame clock, even through loops
+        self.played = 0                         # monotonic render-frame clock, even through loops and slip rolls
         self._loop: Optional[DeckLoop] = None
+        self._roll: Optional[DeckRoll] = None
         extra = {**({"gain": gain} if gain else {}), **({"offset": self.offset} if self.offset else {}),
                  **({"semitones": self.semitones} if self.semitones else {})}
         self._proc = stream_factory(record.path, ratio, **extra)
@@ -284,7 +302,42 @@ class Deck:
             return len(self._frames) >= frames or self._eof
 
     def frame(self) -> Optional[bytes]:
-        """The next frame; loop playback never consumes the underlying track decoder."""
+        """The next PCM frame, including a slip roll that advances the live decoder."""
+        roll = self._roll
+        if roll is not None and self.played >= roll.start_played:
+            if roll.release_played is None and self.played - roll.start_played >= roll.max_frames:
+                # Lost pointer-up / tab switch: release itself is bounded.
+                roll = replace(roll, release_played=self.played)
+                self._roll = roll
+            index = (self.played - roll.start_played) % len(roll.frames)
+            # A slip roll repeats the prepared phrase but consumes the matching
+            # live decoder frame. On release, the live playhead is therefore
+            # exactly where it would have been without the roll.
+            with self._lock:
+                if self._frames:
+                    live = self._frames.popleft()
+                    self._room.release()
+                elif self._eof:
+                    self._roll = None
+                    return None
+                else:
+                    live = SILENCE
+                    global DECKS_STARVED
+                    DECKS_STARVED += 1
+            self.played += 1
+            repeated = roll.frames[index]
+            if roll.release_played is None:
+                return repeated
+            fade_frame = self.played - roll.release_played
+            weight = min(1.0, max(0.0, fade_frame / SLIP_ROLL_RELEASE_FRAMES))
+            if weight >= 1.0:
+                self._roll = None
+                return live
+            repeated_samples = np.frombuffer(repeated, dtype=np.int16).astype(np.float32)
+            live_samples = np.frombuffer(live, dtype=np.int16).astype(np.float32)
+            mixed = repeated_samples * (1.0 - weight) + live_samples * weight
+            return np.clip(np.rint(mixed), -32768, 32767).astype(np.int16).tobytes()
+
         loop = self._loop
         if loop is not None and self.played >= loop.start_played:
             index = (loop.start_index + self.played - loop.start_played) % len(loop.frames)
@@ -308,6 +361,10 @@ class Deck:
         if loop is not None and n >= loop.start_played:
             index = (loop.start_index + n - loop.start_played) % len(loop.frames)
             return loop.start_own / self.ratio + index / FRAMES_PER_S
+        roll = self._roll
+        if roll is not None and n >= roll.start_played:
+            index = (n - roll.start_played) % len(roll.frames)
+            return roll.start_own / self.ratio + index / FRAMES_PER_S
         return (n * FRAME_SAMPLES - self.pad) / RATE + self.offset / self.ratio
 
     @property
@@ -333,6 +390,37 @@ class Deck:
     @property
     def loop_active(self) -> bool:
         return self._loop is not None
+
+    @property
+    def roll(self) -> Optional[dict]:
+        roll = self._roll
+        if roll is None:
+            return None
+        armed = self.played < roll.start_played
+        releasing = roll.release_played is not None
+        return {
+            "beats": roll.beats,
+            "active": not armed and not releasing,
+            "armed": armed,
+            "releasing": releasing,
+            "start": roll.start_own,
+            "end": roll.end_own,
+        }
+
+    @property
+    def roll_active(self) -> bool:
+        return self._roll is not None
+
+    def stop_roll(self) -> bool:
+        """Release a slip roll at the next PCM boundary, or cancel an unstarted arm."""
+        roll = self._roll
+        if roll is None:
+            return False
+        if self.played < roll.start_played:
+            self._roll = None
+        elif roll.release_played is None:
+            self._roll = replace(roll, release_played=self.played)
+        return True
 
     @property
     def end(self) -> float:
