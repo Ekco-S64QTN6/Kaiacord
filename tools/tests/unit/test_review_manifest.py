@@ -54,10 +54,11 @@ def test_inventory_rejects_untracked_paths_and_duplicate_rows():
     rows = [
         _row(),
         _row(path="deleted/old_file.py", sha="gone"),
+        _row(),
     ]
     errors = validate_inventory(tracked, rows)
-    assert any("duplicate path" not in error for error in errors)
     assert "stale manifest path: deleted/old_file.py" in errors
+    assert any("duplicate path" in error for error in errors)
 
 
 def test_inventory_rejects_a_blob_change_instead_of_inheriting_review_state():
