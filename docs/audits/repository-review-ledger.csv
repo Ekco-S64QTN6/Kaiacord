@@ -359,7 +359,7 @@ tools/tests/unit/test_reply_recipient.py,334fc34c89c01ad99f78d800d76b45543bbd24b
 tools/tests/unit/test_response_filters.py,512658a64184d4390fe24f4901881b70ca568d31,70756,test,medium,not_reviewed,,,
 tools/tests/unit/test_restatement_guard.py,cc320f4eaca7a2523d37e58461a3d592d09fca7c,3888,test,medium,not_reviewed,,,
 tools/tests/unit/test_review_flags.py,3d4cb5d134e43dfda8d5d653ee1d0f100e06ae67,3376,test,medium,not_reviewed,,,
-tools/tests/unit/test_review_manifest.py,0d9ae329749a00919a53cec7f1a6811d6bfa4ae1,6573,test,medium,not_reviewed,,,
+tools/tests/unit/test_review_manifest.py,dcf17e7dd6964989b1886998b1244a005f472dce,7938,test,medium,not_reviewed,,,
 tools/tests/unit/test_rpg_hardening.py,3edd2f0c1a886c528c6247dfa854dbcc6a324cb9,3189,test,medium,not_reviewed,,,
 tools/tests/unit/test_rx_dashboard.py,4ad01e50daa63df4c3737bc03e6556340300a3be,10144,test,medium,not_reviewed,,,
 tools/tests/unit/test_rx_receiver.py,afb2655553091152b5ef0d1807c040b9953712c2,25465,test,medium,not_reviewed,,,
