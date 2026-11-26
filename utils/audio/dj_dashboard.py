@@ -172,7 +172,7 @@ def _want_wave(path: str) -> str:
     def run():
         from utils.audio.library import audio_signature
 
-        signature = audio_signature(path)
+        signature = audio_signature(path, refresh=True)
         with _lock:
             previous = _wave_identity.get(tid)
             if not signature:
@@ -180,7 +180,9 @@ def _want_wave(path: str) -> str:
                 _wave_checked[tid] = time.monotonic()
                 _wave_checking.discard(tid)
                 return
-            if previous == signature and _waves.get(tid) is not None:
+            cached_wave = _waves.get(tid)
+            if (previous == signature and cached_wave is not None
+                    and not (isinstance(cached_wave, dict) and cached_wave.get("error"))):
                 _wave_checked[tid] = time.monotonic()
                 _wave_checking.discard(tid)
                 return
