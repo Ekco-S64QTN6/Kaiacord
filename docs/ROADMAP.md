@@ -55,6 +55,17 @@ audible effect. A request received during an in-flight pick is deferred to the f
 Unit tests cover routing, request lifecycle and preference ranking, not audible DJ quality.
 Real-crate listening and independent assessment remain under `#402`.
 
+**#406 implementation boundary (branch in progress):** the first bounded skill catalog now
+uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove
+choices, the legacy phrase-EQ fallback, the existing blend headroom/upper-band/air actions, and
+the planner's existing finite echo-out. Solo actions compile from cached phrase profiles on a
+latest-track-wins worker and use source-time coordinates even when a deck is stretched; blend
+actions compile before plan publication. The renderer evaluates only a bounded action list and
+ramps. Manual lane changes claim ownership and ease Kaia's action out; KAIA MIX hands back.
+This does not implement #403's missing PFL, loops, jog/pitch bend or general FX, and does not
+claim scratches, stutters or vocal/percussion recognition. No real-crate audition or blind
+listening evaluation has been performed here; #402 remains the acceptance parent.
+
 | Item | What | Call |
 |:--|:--|:--|
 | **Expert DJ judgment and set storytelling** | Replace compatibility-first selection as the definition of quality with a musical decision process: understand the records' structure and musical roles, choose the right moment, account for vocals/hooks/density/energy/tension/release, plan the full hour's pacing and contrast, and evaluate what actually sounds. Kaia must sometimes wait, reject a technically valid blend, cut, contrast or choose an unexpected but coherent partner. | Yes — owner-confirmed; [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |

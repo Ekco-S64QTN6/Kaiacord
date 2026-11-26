@@ -145,6 +145,11 @@ RELATED_TESTS = {
         "tools/tests/unit/test_dj_dashboard.py",
         "tools/tests/unit/test_records.py",
         "tools/tests/unit/test_records_session_listener_intent.py",
+        "tools/tests/unit/test_dj_skills.py",
+    ),
+    "utils/audio/dj_skills.py": (
+        "tools/tests/unit/test_dj_skills.py",
+        "tools/tests/unit/test_records.py",
     ),
     "utils/audio/records_intent.py": (
         "tools/tests/unit/test_records_intent.py",
@@ -173,14 +178,17 @@ RELATED_TESTS = {
         "tools/tests/unit/test_mixcheck.py",
         "tools/tests/unit/test_audio_cache_identity.py",
     ),
+    "assets/dj/index.html": ("tools/tests/unit/test_dj_dashboard.py",),
     "utils/audio/dj_dashboard.py": (
         "tools/tests/unit/test_dj_dashboard.py",
         "tools/tests/unit/test_records.py",
+        "tools/tests/unit/test_dj_skills.py",
     ),
     "tools/maintenance/beat_ticks.py": ("tools/tests/unit/test_audio_cache_identity.py",),
     "utils/commands/music_handler.py": (
         "tools/tests/unit/test_records_startup_cleanup.py",
         "tools/tests/unit/test_music_handler_records_requests.py",
+        "tools/tests/unit/test_dj_skills.py",
     ),
     "utils/social/agent_board_verify.py": ("tools/tests/unit/test_agent_boards.py",),
     "utils/core/kaia_dream.py": ("tools/tests/unit/test_memory_anchors.py", "tools/tests/unit/test_beliefs_store.py",
@@ -261,14 +269,15 @@ def select_tests(paths: list[str]) -> list[Path]:
         if rel in available:
             selected.add(available[rel])
             continue
-        if not rel.endswith(".py") or rel.startswith("tools/tests/"):
-            continue
 
-        # Apply explicit behavior mappings before the TTRPG broad-suite
-        # shortcut; otherwise the early continue below silently drops them.
+        # Explicit behavior mappings also cover non-Python assets such as the
+        # DJ booth page. Apply them before the Python-only import discovery.
         for test_rel in RELATED_TESTS.get(rel, ()):
             if test_rel in available:
                 selected.add(available[test_rel])
+
+        if not rel.endswith(".py") or rel.startswith("tools/tests/"):
+            continue
 
         # A handler is reached through the registry, which is what the
         # acceptance matrix imports: a change to any of them runs it.

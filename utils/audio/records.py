@@ -1078,6 +1078,8 @@ class CrossfadeSource(_AudioSource):
         self._echo_cap: list = []
         self._echo_tail: Optional[np.ndarray] = None
         self._echo_pos = 0
+        from utils.audio.dj_skills import SkillScheduler
+        self.skill_scheduler = SkillScheduler()
         self._lock = threading.RLock()
         self._prefetch()
 
@@ -1188,6 +1190,7 @@ class CrossfadeSource(_AudioSource):
             return False
         incoming, self.incoming = self.incoming, None
         self.plan, self._start_frame = None, None
+        self.skill_scheduler.cancel_blend()
         if incoming:
             incoming.close()
         self._queued = self._queued or plan.nxt
@@ -1296,6 +1299,7 @@ class CrossfadeSource(_AudioSource):
             if nxt is None or cur is None:
                 return "nothing"
             self._hand_starting = True
+            self.skill_scheduler.clear_active()
             gen = self._gen
             cue = self.cue if self.cue is not None else self.default_cue(nxt)
 
@@ -1467,6 +1471,21 @@ class CrossfadeSource(_AudioSource):
             self._begin_planning(replan)
         return True
 
+    def set_control(self, slot: Optional[int], name: str, value) -> bool:
+        """Apply a booth control and transfer that lane's automation ownership to the user."""
+        with self._lock:
+            ok = self.controls.set(slot, name, value)
+            if not ok:
+                return False
+            current = self.current
+            at = current.at() if current is not None else 0.0
+            bar_s = (
+                4.0 * current.grid.beat / max(0.01, current.ratio)
+                if current is not None and current.grid is not None else 2.0
+            )
+            self.skill_scheduler.manual_override(slot, name, at, bar_s, float(value))
+            return True
+
     @staticmethod
     def _db(frame: Optional[bytes]) -> float:
         if not frame:
@@ -1598,6 +1617,7 @@ class CrossfadeSource(_AudioSource):
                     self._start_frame = k
                     self.incoming = incoming
                     self.plan = plan
+                    self.skill_scheduler.plan_blend(plan, self.energy, ramp(plan), tail(plan))
 
                 if nxt.listener_intent_id is not None and self._on_picked is not None:
                     try:
@@ -1750,9 +1770,24 @@ class CrossfadeSource(_AudioSource):
         hands_now = (1.0,) * 6
         if plan is None and self.rides and out is not None and cur.grid is not None:
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
-            fac, self.gesture = kaia_hands(None, times, self.energy, cur.grid, cur.ratio,
-                                           seed=hash(cur.record.path) & 0xFFFF)
-            hands_now = tuple(round(float(np.asarray(x).reshape(-1)[-1]), 3) for x in fac)
+            fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot, cur.ratio)
+            if not handled:
+                # Preserve the old small phrase gesture only when no aligned
+                # structural profile action can speak to this section. A stable
+                # CRC fingerprint survives Python process restarts.
+                fac, label = kaia_hands(
+                    None, times, self.energy, cur.grid, cur.ratio,
+                    seed=self.skill_scheduler.solo_fingerprint & 0xFFFF,
+                )
+                fac = self.skill_scheduler.mask_solo_fallback(fac, times, cur.slot)
+                self.skill_scheduler.report_legacy(
+                    label, float(times[0]), float(times[-1]), fac, cur.grid, cur.ratio,
+                )
+            self.gesture = label
+            rendered_hands = tuple(round(float(np.asarray(x).reshape(-1)[-1]), 3) for x in fac)
+            # Solo skills return only the on-air deck's three EQ lanes; the
+            # dashboard contract always carries both decks' six lane values.
+            hands_now = rendered_hands + (1.0, 1.0, 1.0) if len(rendered_hands) == 3 else rendered_hands
             if any(float(np.abs(x - 1).max()) > 1e-4 for x in fac[:3]):
                 solo = tuple(fac[:3]) + (0.0, 0.0, 0.0)
         if plan is None and hands.flat() and solo is SOLO:
@@ -1767,10 +1802,15 @@ class CrossfadeSource(_AudioSource):
             self.hands_now = hands_now
             self.levels["b"] = -90.0
         else:
+            # A published transition always owns a prepared incoming deck.
+            # Narrow the optional reference for the renderer and type checker.
+            assert incoming is not None
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             g = gains(plan, times)
             if self.rides:
-                fac, self.gesture = kaia_hands(plan, times, self.energy)
+                fac, self.gesture, _skill_id = self.skill_scheduler.render_blend(
+                    plan, times, cur.slot, incoming.slot
+                )
                 g = tuple(a * b for a, b in zip(g, fac))
                 hands_now = tuple(round(float(np.asarray(x).reshape(-1)[-1]), 3) for x in fac)
             out_parts = cur.split(out) if out is not None else None
@@ -1947,6 +1987,8 @@ class CrossfadeSource(_AudioSource):
         self.plan, self._start_frame = None, None
         self.cue, self.by_hand = None, False
         self.gesture = ""
+        self.skill_scheduler.cancel_blend()
+        self.skill_scheduler.clear_active()
         if old:
             old.close()
         if self.current and self._on_change:
@@ -1960,6 +2002,8 @@ class CrossfadeSource(_AudioSource):
         """Retire decks only at a frame boundary."""
         with self._lock:
             self._cancel_splice()
+            self.skill_scheduler.cancel_blend()
+            self.skill_scheduler.clear_active()
             for deck in (self.current, self.incoming, self.hand):
                 if deck:
                     deck.close()
@@ -2145,6 +2189,13 @@ class RecordsSession:
         self._listener_intent_min_pick_generation = 1
         self._listener_profile_lock = threading.Lock()
         self._listener_profile_cache: dict[str, object] = {}
+        # One bounded worker compiles per-record skill timelines from cached
+        # phrase profiles. A newer deck supersedes any queued older request.
+        self._skill_profile_queue: queue.Queue[tuple[int, library.Record]] = queue.Queue(maxsize=1)
+        self._skill_profile_stop = threading.Event()
+        self._skill_profile_thread: Optional[threading.Thread] = None
+        self._skill_profile_generation = 0
+        self._skill_profile_queue_lock = threading.Lock()
         self.last_listener_intent: Optional[dict] = None
         # What she says about the set, for the booth (`dj_voice`), newest last.
         self.chatter: deque = deque(maxlen=40)
@@ -2345,6 +2396,99 @@ class RecordsSession:
             intent, current_profile, candidate_profile,
             current_bpm, candidate_bpm, edge,
         )
+
+    def start_skill_profile_worker(self, record: library.Record) -> None:
+        """Start the bounded profile worker after playback successfully registers."""
+        if self._skill_profile_thread is not None and self._skill_profile_thread.is_alive():
+            self._queue_skill_profile(record)
+            return
+        self._skill_profile_stop.clear()
+        self._skill_profile_thread = threading.Thread(
+            target=self._run_skill_profile_worker,
+            daemon=True,
+            name=f"kaia-records-skills-{self.guild_id}",
+        )
+        self._skill_profile_thread.start()
+        self._queue_skill_profile(record)
+
+    def _queue_skill_profile(self, record: library.Record) -> None:
+        """Clear stale actions and enqueue a latest-deck-wins profile compilation."""
+        if self._closing or self._skill_profile_stop.is_set():
+            return
+        src = self.source
+        if src is not None:
+            scheduler = getattr(src, "skill_scheduler", None)
+            source_lock = getattr(src, "_lock", None)
+            if scheduler is not None and source_lock is not None:
+                # The callback can run under src._lock (RLock). Clear the
+                # previous track's timeline before this frame can render.
+                with source_lock:
+                    if src.current is not None and src.current.record.path == record.path:
+                        import zlib
+                        fingerprint = zlib.crc32(record.path.encode("utf-8")) & 0xFFFFFFFF
+                        scheduler.set_solo_profile(None, fingerprint)
+        with self._skill_profile_queue_lock:
+            self._skill_profile_generation += 1
+            item = (self._skill_profile_generation, record)
+            try:
+                self._skill_profile_queue.put_nowait(item)
+            except queue.Full:
+                try:
+                    self._skill_profile_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self._skill_profile_queue.put_nowait(item)
+                except queue.Full:
+                    # A racing worker already filled the one slot with a newer
+                    # request; its generation check prevents stale installation.
+                    return
+
+    def _run_skill_profile_worker(self) -> None:
+        """Build and compile profile actions away from the PCM renderer."""
+        import zlib
+        while not self._skill_profile_stop.is_set():
+            try:
+                generation, record = self._skill_profile_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            profile = self._listener_profile(record)
+            if self._skill_profile_stop.is_set() or self._closing:
+                continue
+            src = self.source
+            if src is None:
+                continue
+            scheduler = getattr(src, "skill_scheduler", None)
+            source_lock = getattr(src, "_lock", None)
+            if scheduler is None or source_lock is None:
+                continue
+            fingerprint = zlib.crc32(record.path.encode("utf-8")) & 0xFFFFFFFF
+            with source_lock:
+                with self._skill_profile_queue_lock:
+                    current_generation = generation == self._skill_profile_generation
+                if (not current_generation or self._closing or src.current is None
+                        or src.current.record.path != record.path):
+                    continue
+                try:
+                    scheduler.set_solo_profile(profile, fingerprint)
+                    if profile is not None:
+                        action_count = scheduler.snapshot()["solo_actions"]
+                        log_debug(f"[records] compiled {action_count} phrase-skill actions for {record.name}")
+                    else:
+                        log_debug(f"[records] phrase profile unavailable for {record.name}; legacy fallback remains")
+                except Exception as exc:
+                    log_warning(f"[records] phrase-skill compilation failed for {record.name}: {exc}")
+                    scheduler.set_solo_profile(None, fingerprint)
+
+    def stop_skill_profile_worker(self) -> None:
+        stop_event = getattr(self, "_skill_profile_stop", None)
+        if stop_event is not None:
+            stop_event.set()
+        thread = getattr(self, "_skill_profile_thread", None)
+        if thread is not None and thread.is_alive() and threading.current_thread() is not thread:
+            thread.join(timeout=0.25)
+        if hasattr(self, "_skill_profile_thread"):
+            self._skill_profile_thread = None
 
     def _listener_intent_selected(self, nxt: Next) -> None:
         """Consume the matching one-shot request only after a prepared plan exists."""
@@ -2775,6 +2919,7 @@ class RecordsSession:
         except Exception as e:
             log_debug(f"[records] chatter: {e}")
         log_action(f"[records] now playing {record.name} ({record.bpm or '?'} bpm, {record.key or '?'})")
+        self._queue_skill_profile(record)
 
     def _humans(self) -> list[str]:
         return [m.display_name for m in getattr(self.vc.channel, "members", []) if not m.bot]
@@ -2851,6 +2996,7 @@ class RecordsSession:
                 self.vc.stop()
         except Exception as e:
             log_debug(f"[records] stop playback: {e}")
+        await asyncio.to_thread(self.stop_skill_profile_worker)
         if self.voice_source:
             self.voice_source.cleanup()
         if self.source:
@@ -3016,6 +3162,10 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
             session.source.tempo_glide = bool(config.get("music.records_tempo_glide", True))
         except Exception as e:
             log_debug(f"[records] records_kaia_hands not read: {e}")
+        scheduler = getattr(session.source, "skill_scheduler", None)
+        if scheduler is not None:
+            scheduler.set_enabled(session.source.rides)
+        session._queue_skill_profile(first)  # clear timeline and seed fallback before first PCM frame
         # The first record's decoder has to be ahead before the voice thread
         # starts asking: a set started while it was still spinning up (rubberband,
         # a busy machine) opened on frames of silence.
@@ -3058,6 +3208,7 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
             log_debug(f"[records] startup voice disconnect failed: {cleanup_exc}")
         raise
     _sessions[guild.id] = session
+    session.start_skill_profile_worker(first)
     try:
         from utils.audio import dj_dashboard
         await asyncio.to_thread(dj_dashboard.serve)

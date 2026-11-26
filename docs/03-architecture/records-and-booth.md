@@ -256,6 +256,61 @@ still requires real-crate listening and independent assessment.
 
 
 
+### DJ skill catalog and phrase action runner (#406)
+
+`utils/audio/dj_skills.py` is a decision/action layer over controls the records
+mixer already renders. Its catalog declares purpose, context, preconditions,
+capabilities, phrase timing, parameter bounds, owned lanes, composition,
+release/cancellation, fallback and a truthful booth explanation. The first
+catalog contains only:
+
+- Counted-section solo moves: build pressure (small low hold-back and upper lift),
+  drop reveal (small low emphasis and slight upper reduction), plus explicit
+  no-op decisions to let a breakdown breathe or a stable groove ride.
+- The existing legacy phrase-EQ gesture as a fallback when no aligned structural
+  profile can speak to the current window. Its record-path CRC32 seed is stable
+  across process restarts; the profile compiler's fingerprint is installed before
+  the first frame and refreshed when a new record takes over.
+- The existing blend headroom stage, eight-bar upper-band exchange and outgoing
+  air ease. The upper bands trade in opposite directions; no vocal/midrange
+  classification or new EQ/DSP bands are inferred.
+- The existing finite, measured echo-out fallback. This is not a general echo,
+  delay, reverb or FX bus.
+
+The records profile worker builds/reads the cached phrase profile and compiles at
+most 64 solo actions. Its queue has one pending slot and latest-track-wins
+generation checks; when a new track becomes current, the prior track's action
+timeline is cleared immediately under the source lock before the new profile
+can finish. Profile phrase coordinates are source-record seconds. Solo rendering
+converts `Deck.at()` stretched-playback seconds back to source time using the
+current deck ratio; manual-release ramps stay on the live playback clock.
+
+The transition planner compiles at most four blend actions after the incoming
+deck is ready and before its plan is published. In the 20 ms renderer the
+scheduler evaluates only these bounded action tuples and NumPy ramps. It does
+not open files, fingerprint audio, decode, call models, create threads or run
+an unbounded search. It owns no controls the mixer does not expose.
+
+Booth control writes use `CrossfadeSource.set_control()` at the source frame
+lock and give the human ownership of the touched EQ/gain lane. Kaia's move on
+that lane eases to neutral over one bar and does not resume behind the user's
+back. The existing HANDS switch disables/enables the skill scheduler; KAIA MIX
+resets the mixer and explicitly clears manual ownership. The skill snapshot
+reports the active skill, reason, profile state, catalog and manual overrides.
+Each active state exposes its actual lane targets/parameters and action windows;
+solo structural skills include the counted four-bar phrase's source-time bounds,
+while blend and echo skills report their measured transition window. The booth
+renders these values from scheduler state rather than inferring them from labels.
+
+This is a limited first execution layer, not the full skill repertoire in #402.
+Because #403 remains open and has not supplied a shared runtime capability registry,
+`dj_skills.py` uses a conservative current-engine allowlist and rejects any catalog
+entry that asks for a capability outside it. This is an explicit bridge, not a claim
+that the future #403 capability model is already integrated. Loops/rolls, hot cues,
+jog/pitch bend, scratches, filters, stutters, delay/reverb
+they must not appear as selectable skills or cosmetic controls. Human audition
+on real records and independent/blind assessment remain mandatory under #402.
+
 ### Real-time engineering boundary
 
 Keep the 20 ms Discord audio path bounded. Do not put disk or network I/O, full-track analysis,

@@ -1042,10 +1042,24 @@ that are easy to break:
   coherent partner, cut, contrast, or let a breakdown breathe. Longer blends, more layers, higher
   energy and more effects are not automatically better.
 - **Treat DJ skills as real musical operations, not labels or UI promises.** Every skill needs a
-  purpose, preconditions, timing/phrase rules, bounded parameters, explanation and safe exit.
-  Scratches, loops, rolls, cue juggling, vocal overlays, mashups, filters, FX, stutters, repeats,
-  backspins and brakes require real mixer/DSP support; never fake them by seeking a full-track
-  playhead or exposing a cosmetic control. Effects and tricks must serve the music.
+  purpose, preconditions, timing/phrase rules, bounded parameters, explanation, owned lanes,
+  composition rules and safe cancellation/release. The first `dj_skills.py` catalog may select only
+  current real capabilities: counted build/drop solo EQ moves, explicit no-op breakdown/groove
+  choices, the legacy phrase-EQ fallback, the existing blend headroom/upper-band/air moves and
+  the existing bounded echo-out. Do not infer counted roles from unaligned windows. Profile actions
+  use source-time coordinates; compensate for deck stretch rather than comparing against playback
+  seconds directly. Compile on the profile/planner workers, cap action count, and let the 20 ms
+  renderer evaluate only fixed bounded ramps. Manual booth control owns the touched lane until the
+  explicit KAIA MIX hand-back; automation must ease out and never fight the user. The booth's
+  active skill state must show target parameters, action/phrase bounds and their timebase, plus
+  manual lane ownership, directly from the scheduler; labels alone are not evidence of execution.
+  Loops, rolls,
+  hot cues, jog/pitch bend, scratches, filters, stutters, general FX, vocal/percussion separation
+  and other absent mixer capabilities require real #403 primitives; never fake them or expose
+  cosmetic controls. Until #403 adds the shared runtime capability registry, the catalog must
+  validate against its conservative current-engine allowlist and must state that this is a bridge,
+  not a dynamic #403 capability model. No implementation or unit test proves musical taste: #402
+  still requires real-crate audition and independent/blind listening assessment.
 - **Evaluate what can be heard.** Unit tests and mixcheck validate technical behavior, not taste.
   Do not call the DJ goal complete without real-crate listening and independent/blind human
   assessment of full-set musicality. The present compatibility graph, narrow mixcheck and limited

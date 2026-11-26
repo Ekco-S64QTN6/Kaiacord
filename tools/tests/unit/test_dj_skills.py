@@ -1,0 +1,389 @@
+"""Bounded DJ skill catalog, phrase scheduler and manual-ownership tests."""
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from utils.audio import dj_skills as S
+
+
+def _phrase(start, end, section, *, aligned=True, bars=4, strength=0.8):
+    return SimpleNamespace(
+        start=float(start), end=float(end), section=section,
+        aligned=aligned, bars=bars if aligned else None,
+        section_strength=strength,
+    )
+
+
+def _profile(*phrases, aligned=True, duration=None):
+    end = max((p.end for p in phrases), default=0.0)
+    return SimpleNamespace(
+        duration=float(duration if duration is not None else end),
+        phrase_bars=4, aligned=aligned, phrases=tuple(phrases),
+    )
+
+
+def test_catalog_defines_only_real_engine_capabilities_and_complete_contracts():
+    S.validate_catalog()
+    assert set(S.SKILL_CATALOG) == {
+        "solo_build_pressure", "solo_drop_reveal", "solo_breakdown_breathe",
+        "solo_groove_hold", "solo_legacy_phrase_eq", "blend_headroom_ride",
+        "blend_upper_exchange", "blend_air_handoff", "echo_out",
+    }
+    for spec in S.SKILL_CATALOG.values():
+        assert spec.purpose and spec.preconditions and spec.capabilities
+        assert set(spec.capabilities).issubset(S.ENGINE_CAPABILITIES)
+        assert spec.timing and spec.cancel_release and spec.fallback
+        assert spec.explanation and spec.renderer
+
+
+
+
+def test_catalog_rejects_skills_that_require_capabilities_not_in_the_current_engine():
+    from dataclasses import replace
+
+    original = S.SKILL_CATALOG["solo_build_pressure"]
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setitem(
+            S.SKILL_CATALOG, "solo_build_pressure",
+            replace(original, capabilities=original.capabilities + ("fx.delay",)),
+        )
+        with pytest.raises(ValueError, match="unavailable engine capabilities: fx.delay"):
+            S.validate_catalog()
+    finally:
+        monkeypatch.undo()
+
+
+def test_action_validation_rejects_unsupported_lanes_and_out_of_range_parameters():
+    scheduler = S.SkillScheduler()
+    with pytest.raises(ValueError, match="does not own"):
+        scheduler._action(
+            "solo_build_pressure", "solo.mid", 0, 1, 1, 2, 0.95, "invalid"
+        )
+    with pytest.raises(ValueError, match="out-of-bounds"):
+        scheduler._action(
+            "solo_build_pressure", "solo.low", 0, 1, 1, 2, 1.30, "too large"
+        )
+    with pytest.raises(ValueError, match="invalid action timing"):
+        scheduler._action(
+            "solo_build_pressure", "solo.low", 2, 1, 1, 3, 0.94, "time reversal"
+        )
+
+
+def test_profile_compiler_schedules_build_pressure_and_drop_reveal_on_counted_phrases():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 8, "build_candidate"),
+        _phrase(8, 16, "drop_candidate"),
+        _phrase(16, 24, "breakdown_candidate"),
+        _phrase(24, 32, "groove_candidate"),
+    ), fingerprint=1234)
+
+    build, build_label, build_id, handled = scheduler.render_solo(
+        np.array([6.49, 6.51], dtype=np.float32), slot=1
+    )
+    assert handled and build_id == "solo_build_pressure"
+    assert "build candidate" in build_label
+    assert build[0][-1] == pytest.approx(0.94, abs=0.01)
+    assert build[2][-1] == pytest.approx(1.04, abs=0.01)
+    active = scheduler.snapshot()["active"]
+    assert active["parameters"] == {"solo.low": 0.94, "solo.high": 1.04}
+    assert active["phrase"] == {
+        "kind": "build_pressure", "start": 0.0, "end": 8.0,
+        "bars": 4, "timebase": "source_record_seconds",
+    }
+    assert len(active["actions"]) == 2
+
+    drop, drop_label, drop_id, handled = scheduler.render_solo(
+        np.array([10.1, 10.11], dtype=np.float32), slot=1
+    )
+    assert handled and drop_id == "solo_drop_reveal"
+    assert "drop candidate" in drop_label
+    assert drop[0][-1] == pytest.approx(1.05, abs=0.01)
+    assert drop[2][-1] == pytest.approx(0.98, abs=0.01)
+
+
+def test_breakdown_and_groove_are_explicit_no_op_skills_not_timer_gestures():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 8, "breakdown_candidate"),
+        _phrase(8, 16, "groove_candidate"),
+    ), fingerprint=5)
+
+    breakdown, label, skill_id, handled = scheduler.render_solo(
+        np.array([2.0, 2.02], dtype=np.float32), slot=1
+    )
+    assert handled and skill_id == "solo_breakdown_breathe"
+    assert "breakdown breathe" in label
+    assert all(np.allclose(f, 1.0) for f in breakdown)
+
+    groove, label, skill_id, handled = scheduler.render_solo(
+        np.array([10.0, 10.02], dtype=np.float32), slot=1
+    )
+    assert handled and skill_id == "solo_groove_hold"
+    assert "groove carry" in label
+    assert all(np.allclose(f, 1.0) for f in groove)
+
+
+def test_unaligned_profiles_never_promote_section_labels_to_phrase_skills():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 8, "drop_candidate", aligned=False),
+        aligned=False,
+    ), fingerprint=5)
+    factors, label, skill_id, handled = scheduler.render_solo(
+        np.array([2.0, 2.02], dtype=np.float32), slot=1
+    )
+    assert not handled
+    assert label == "" and skill_id == ""
+    assert all(np.allclose(f, 1.0) for f in factors)
+    assert scheduler.snapshot()["profile_aligned"] is False
+
+
+def test_profile_action_plan_is_bounded_even_for_long_records():
+    phrases = tuple(
+        _phrase(i * 8, (i + 1) * 8, "build_candidate")
+        for i in range(100)
+    )
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(*phrases, duration=800), fingerprint=9)
+    assert scheduler.snapshot()["solo_actions"] == S.MAX_PROFILE_ACTIONS
+
+
+def test_overlapping_actions_require_explicit_composition_declarations():
+    build = S.SkillScheduler._action(
+        "solo_build_pressure", "solo.low", 0, 1, 2, 3, 0.94, "build"
+    )
+    drop = S.SkillScheduler._action(
+        "solo_drop_reveal", "solo.low", 1, 1.5, 2, 3, 1.05, "drop"
+    )
+    S._validate_action_set([build, drop], 8)  # reciprocal declaration permits this handoff
+    legacy = S.SkillScheduler._action(
+        "solo_legacy_phrase_eq", "solo.low", 1, 1.5, 2, 3, 0.90, "legacy"
+    )
+    with pytest.raises(ValueError, match="do not declare composition"):
+        S._validate_action_set([build, legacy], 8)
+
+
+def _blend_plan(kind="blend"):
+    return SimpleNamespace(
+        kind=kind, drop=30.0, length=64.0, beat=0.5, done=100.0,
+    )
+
+
+def test_blend_compiler_retains_headroom_exchange_and_outgoing_air_skills():
+    scheduler = S.SkillScheduler()
+    plan = _blend_plan()
+    scheduler.plan_blend(plan, energy=0.8, ramp_s=8.0, tail_s=16.0)
+    assert scheduler.snapshot()["blend_actions"] == 4
+
+    factors, label, skill_id = scheduler.render_blend(
+        plan, np.array([50.0, 50.02], dtype=np.float32), out_slot=1, in_slot=2
+    )
+    assert skill_id == "blend_upper_exchange"
+    assert "soft limiter" in label
+    assert "upper-band" in label
+    # The stage is the existing 0.84 multiplier. The upper bands trade in
+    # opposite directions: outgoing rises slightly while incoming steps back.
+    assert factors[0][-1] == pytest.approx(S.STAGE_MULTIPLIER, abs=0.01)
+    assert factors[2][-1] > factors[5][-1]
+    assert factors[2][-1] == pytest.approx(S.STAGE_MULTIPLIER * 1.108, abs=0.02)
+    active = scheduler.snapshot()["active"]
+    assert active["parameters"] == {
+        "out.gain": S.STAGE_MULTIPLIER,
+        "in.gain": S.STAGE_MULTIPLIER,
+        "upper_exchange_depth": pytest.approx(0.108, abs=0.001),
+        "upper_exchange_period_s": 16.0,
+    }
+    assert active["phrase"] == {
+        "kind": "measured blend", "start": 30.0, "end": 100.0,
+        "bars": 32.0, "timebase": "playback_seconds",
+    }
+    assert len(active["actions"]) == 3
+    assert {action["lane"] for action in active["actions"]} == {
+        "out.gain", "in.gain", "upper_pair",
+    }
+
+
+def test_blend_manual_override_eases_owned_lane_and_explicit_handback_restores_skill():
+    scheduler = S.SkillScheduler()
+    plan = _blend_plan()
+    scheduler.plan_blend(plan, energy=0.8, ramp_s=8.0, tail_s=16.0)
+    times = np.array([51.0, 51.02], dtype=np.float32)
+    baseline, _, _ = scheduler.render_blend(plan, times, out_slot=1, in_slot=2)
+
+    scheduler.manual_override(1, "high", at=50.0, bar_s=2.0)
+    during, _, _ = scheduler.render_blend(plan, times, out_slot=1, in_slot=2)
+    assert abs(float(during[2][-1]) - S.STAGE_MULTIPLIER) < abs(float(baseline[2][-1]) - S.STAGE_MULTIPLIER)
+    assert during[5][-1] == pytest.approx(baseline[5][-1])
+    assert scheduler.snapshot()["manual_overrides"]
+
+    scheduler.hand_back_all()
+    after, _, _ = scheduler.render_blend(plan, times, out_slot=1, in_slot=2)
+    assert after[2][-1] == pytest.approx(baseline[2][-1])
+    assert scheduler.snapshot()["manual_overrides"] == []
+
+
+def test_manual_override_releases_solo_legacy_fallback_lane_over_a_bar():
+    scheduler = S.SkillScheduler()
+    values = (
+        np.array([0.90, 0.90], dtype=np.float32),
+        np.array([1.0, 1.0], dtype=np.float32),
+        np.array([1.0, 1.0], dtype=np.float32),
+    )
+    scheduler.manual_override(2, "low", at=0.0, bar_s=2.0)
+    masked = scheduler.mask_solo_fallback(values, np.array([1.0, 1.02]), slot=2)
+    assert masked[0][-1] > values[0][-1]
+    assert masked[0][-1] < 1.0
+    assert np.array_equal(masked[1], values[1])
+    scheduler.hand_back_all()
+    restored = scheduler.mask_solo_fallback(values, np.array([1.0, 1.02]), slot=2)
+    assert np.array_equal(restored[0], values[0])
+
+
+def test_cancelled_blend_actions_are_discarded_and_echo_label_uses_existing_echo_engine():
+    scheduler = S.SkillScheduler()
+    plan = _blend_plan()
+    scheduler.plan_blend(plan, energy=0.8, ramp_s=8.0, tail_s=16.0)
+    scheduler.cancel_blend()
+    factors, label, skill_id = scheduler.render_blend(
+        plan, np.array([50.0, 50.02], dtype=np.float32), out_slot=1, in_slot=2
+    )
+    assert skill_id == "" and label == ""
+    assert all(np.allclose(f, 1.0) for f in factors)
+
+    echo = _blend_plan("echo")
+    scheduler.plan_blend(echo, energy=0.5, ramp_s=2.0, tail_s=4.0)
+    factors, label, skill_id = scheduler.render_blend(
+        echo, np.array([40.0, 40.02], dtype=np.float32), out_slot=1, in_slot=2
+    )
+    assert skill_id == "echo_out" and "bounded echo-out" in label
+    echo_state = scheduler.snapshot()["active"]
+    assert echo_state["parameters"] == {"tail_seconds": 70.0}
+    assert echo_state["phrase"]["kind"] == "measured echo-out transition"
+    assert all(np.allclose(f, 1.0) for f in factors)
+
+
+
+
+def test_aligned_profile_without_an_active_structural_action_allows_legacy_fallback():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 8, "unclassified_candidate"),
+    ), fingerprint=7)
+    factors, label, skill_id, handled = scheduler.render_solo(
+        np.array([2.0, 2.02], dtype=np.float32), slot=1
+    )
+    assert not handled and label == "" and skill_id == ""
+    assert all(np.allclose(factor, 1.0) for factor in factors)
+
+
+
+
+def test_section_specific_thresholds_preserve_real_groove_and_drop_evidence_floors():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 8, "build_candidate", strength=0.54),
+        _phrase(8, 16, "drop_candidate", strength=0.59),
+        _phrase(16, 24, "drop_candidate", strength=0.60),
+        _phrase(24, 32, "breakdown_candidate", strength=0.55),
+        _phrase(32, 40, "groove_candidate", strength=0.50),
+    ), fingerprint=11)
+    # Only the >=0.60 drop receives EQ actions; a counted breakdown and the
+    # producer's exact 0.50 groove candidate are intentional no-op skill events.
+    assert scheduler.snapshot()["solo_actions"] == 4
+    _, _, skill_id, handled = scheduler.render_solo(
+        np.array([34.0, 34.02], dtype=np.float32), slot=1
+    )
+    assert handled and skill_id == "solo_groove_hold"
+
+
+
+
+def test_structural_skills_reject_counted_windows_that_are_not_four_bars():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 16, "drop_candidate", bars=8, strength=0.9),
+        duration=16,
+    ), fingerprint=23)
+    assert scheduler.snapshot()["solo_actions"] == 0
+    factors, label, skill_id, handled = scheduler.render_solo(
+        np.array([2.0, 2.02], dtype=np.float32), slot=1
+    )
+    assert not handled and label == "" and skill_id == ""
+    assert all(np.allclose(factor, 1.0) for factor in factors)
+
+
+def test_structural_skills_reject_profiles_compiled_with_another_phrase_width():
+    scheduler = S.SkillScheduler()
+    profile = _profile(_phrase(0, 8, "drop_candidate", strength=0.9))
+    profile = SimpleNamespace(**{**vars(profile), "phrase_bars": 8})
+    scheduler.set_solo_profile(profile, fingerprint=24)
+    assert scheduler.snapshot()["solo_actions"] == 0
+
+
+
+
+def test_skill_scheduler_replays_the_same_phrase_actions_deterministically():
+    profile = _profile(
+        _phrase(0, 8, "build_candidate", strength=0.8),
+        _phrase(8, 16, "drop_candidate", strength=0.9),
+    )
+    times = np.linspace(6.0, 6.2, num=12, dtype=np.float32)
+    first, second = S.SkillScheduler(), S.SkillScheduler()
+    first.set_solo_profile(profile, fingerprint=55)
+    second.set_solo_profile(profile, fingerprint=55)
+    out_a = first.render_solo(times, slot=1)
+    out_b = second.render_solo(times, slot=1)
+    assert out_a[1:] == out_b[1:]
+    for a, b in zip(out_a[0], out_b[0]):
+        assert np.array_equal(a, b)
+
+
+
+
+def test_legacy_phrase_eq_reports_the_actual_four_bar_grid_window_and_targets():
+    scheduler = S.SkillScheduler()
+    factors = (
+        np.array([0.94, 0.95], dtype=np.float32),
+        np.array([1.0, 1.0], dtype=np.float32),
+        np.array([1.04, 1.03], dtype=np.float32),
+    )
+    grid = SimpleNamespace(bar_known=True, beat=0.5, downbeat=0.0, bar0=0.0)
+    scheduler.report_legacy("lifting the air into the phrase", 64.0, 64.02, factors, grid, 1.0)
+    active = scheduler.snapshot()["active"]
+    assert active["parameters"] == {
+        "solo.low": 0.95, "solo.mid": 1.0, "solo.high": 1.03,
+    }
+    assert active["phrase"] == {
+        "kind": "legacy phrase-EQ gesture", "start": 64.0, "end": 72.0,
+        "bars": S.SKILL_PHRASE_BARS, "timebase": "playback_seconds",
+    }
+    assert active["actions"] == []
+
+
+def test_profile_missing_falls_back_without_claiming_structure():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(None, fingerprint=0)
+    factors, label, skill_id, handled = scheduler.render_solo(
+        np.array([2.0, 2.02], dtype=np.float32), slot=1
+    )
+    assert not handled and label == "" and skill_id == ""
+    assert all(np.allclose(f, 1.0) for f in factors)
+
+
+def test_solo_phrase_actions_follow_source_time_when_deck_is_stretched():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 8, "build_candidate"),
+    ), fingerprint=0x12345678)
+    # Deck.at() is stretched playback time. At playback 4.8 s the 1.25x deck
+    # has reached source 6 s, where this build action is fully engaged.
+    factors, label, skill_id, handled = scheduler.render_solo(
+        np.array([4.8, 4.81], dtype=np.float32), slot=1, ratio=1.25
+    )
+    assert handled and skill_id == "solo_build_pressure"
+    assert "build candidate" in label
+    assert factors[0][-1] == pytest.approx(0.94, abs=0.01)
+    assert scheduler.solo_fingerprint == 0x12345678

@@ -439,3 +439,116 @@ def test_a_configured_booth_browser_still_wins(monkeypatch):
     monkeypatch.setattr(D, "_cfg", lambda key, default=None: "/opt/brave/brave" if key == "dj_browser" else default)
     monkeypatch.setattr(D.shutil, "which", lambda name: "/usr/bin/" + name)
     assert D._browser() == "/opt/brave/brave"
+
+
+def test_snapshot_exposes_skill_catalog_and_manual_lane_ownership(session):
+    src = session.source
+    before = D.snapshot(session)["skills"]
+    assert before["enabled"] is True
+    assert "solo_build_pressure" in before["catalog"]
+    assert "blend_headroom_ride" in before["catalog"]
+    assert "eq.low" in before["engine_capabilities"]
+    assert "transition.echo_tail" in before["engine_capabilities"]
+    assert before["manual_overrides"] == []
+
+    assert src.set_control(1, "high", 0.7)
+    after = D.snapshot(session)["skills"]
+    assert ("1", "high") in [tuple(item) for item in after["manual_overrides"]]
+    assert after["active"]["id"] == "manual_override"
+    assert after["active"]["parameters"] == {"high": 0.7}
+    assert after["active"]["phrase"]["kind"] == "manual release window"
+
+    src.skill_scheduler.hand_back_all()
+    handed_back = D.snapshot(session)["skills"]
+    assert handed_back["manual_overrides"] == []
+    assert handed_back["enabled"] is True
+
+
+def test_booth_asset_displays_skill_name_and_explanation():
+    page = D.PAGE.read_text(encoding="utf-8")
+    assert "S.skills && S.skills.active" in page
+    assert "skill.name" in page
+    assert "skill.label" in page
+    assert "skill.parameters" in page
+    assert "skill.phrase" in page
+    assert "parameterText" in page
+    assert "phraseText" in page
+    assert "manualText" in page
+    assert "manual_overrides" in page
+
+
+
+
+def test_booth_control_rides_and_reset_routes_transfer_skill_ownership(session, monkeypatch):
+    monkeypatch.setattr(D, "_cfg", lambda k, d: 0 if k == "dj_dashboard_port" else d)
+    src = session.source
+    base = D.serve()
+
+    def post(path, payload=None):
+        data = json.dumps(payload or {}).encode()
+        req = urllib.request.Request(
+            base + path,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            assert response.status == 204
+
+    try:
+        # The real booth control route must use CrossfadeSource.set_control,
+        # not write directly around the scheduler's ownership tracking.
+        post("/control", {"slot": 1, "name": "high", "value": 0.65})
+        assert src.controls.channels[1]["high"] == pytest.approx(0.65)
+        state = D.snapshot(session)["skills"]
+        assert ("1", "high") in [tuple(item) for item in state["manual_overrides"]]
+        assert state["active"]["parameters"] == {"high": 0.65}
+
+        # HANDS off pauses skills; turning it back on resumes Kaia automation.
+        post("/rides")
+        assert src.rides is False and src.skill_scheduler.enabled is False
+        post("/rides")
+        assert src.rides is True and src.skill_scheduler.enabled is True
+
+        # KAIA MIX clears paused decks, restores defaults, and explicitly
+        # removes manual lane ownership before the next rendered frame.
+        src.paused.add(1)
+        post("/reset")
+        assert not src.paused
+        assert src.rides is True and src.skill_scheduler.enabled is True
+        assert src.skill_scheduler.snapshot()["manual_overrides"] == []
+        assert src.controls.channels[1]["high"] == pytest.approx(1.0)
+    finally:
+        server, D._server = D._server, None
+        if server:
+            server.shutdown()
+
+
+def test_track_change_clears_previous_phrase_actions_before_new_profile_finishes(session):
+    import zlib
+
+    src = session.source
+    phrase = types.SimpleNamespace(
+        start=0.0, end=8.0, aligned=True, bars=4,
+        section="drop_candidate", section_strength=0.9,
+    )
+    profile = types.SimpleNamespace(
+        duration=300.0, aligned=True, phrase_bars=4, phrases=(phrase,),
+    )
+    src.skill_scheduler.set_solo_profile(profile, fingerprint=123)
+    assert src.skill_scheduler.snapshot()["profile_loaded"] is True
+    assert src.skill_scheduler.snapshot()["solo_actions"] == 2
+
+    next_record = rec("next")
+    src.current.record = next_record
+    session._changed(next_record)
+
+    state = src.skill_scheduler.snapshot()
+    assert state["profile_loaded"] is False
+    assert state["solo_actions"] == 0
+    assert src.skill_scheduler.solo_fingerprint == (
+        zlib.crc32(next_record.path.encode("utf-8")) & 0xFFFFFFFF
+    )
+    # The new profile request is queued, but the outgoing record's timeline is
+    # already gone before the worker can read or compile the incoming record.
+    assert session._skill_profile_queue.qsize() == 1
