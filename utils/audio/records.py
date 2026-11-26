@@ -1174,6 +1174,17 @@ class Controls:
         }
 
 
+@dataclass(frozen=True)
+class PendingLoopExit:
+    """Prepared program/PFL decoders waiting for the next loop wrap."""
+    old: Deck
+    preview: Deck
+    boundary: int
+    after_skip: bool
+    head_old: Optional[Deck]
+    head_preview: Optional[Deck]
+
+
 class CrossfadeSource(_AudioSource):
     """Plays decks one after another, mixing each into the next on the beat.
 
@@ -1231,7 +1242,7 @@ class CrossfadeSource(_AudioSource):
         self._headphone_streams: list[queue.Queue[bytes]] = []
         self._headphone_history: deque[bytes] = deque(maxlen=50)
         # A warmed post-loop decoder is committed at the next loop boundary.
-        self._pending_loop_exit: Optional[tuple] = None
+        self._pending_loop_exit: Optional[PendingLoopExit] = None
         self.paused: set = set()                  # deck slots someone paused at the booth
         # The free deck at the booth: a record loaded by hand (`by_hand`), its
         # cue point (seconds of its own time; None: Kaia's choice), and a deck
@@ -1507,9 +1518,9 @@ class CrossfadeSource(_AudioSource):
                 if deck is None or loop is None:
                     return False
                 pending = self._pending_loop_exit
-                if pending is not None and pending[1] is deck:
-                    if after_skip and not pending[4]:
-                        self._pending_loop_exit = (*pending[:4], True, *pending[5:])
+                if pending is not None and pending.old is deck:
+                    if after_skip and not pending.after_skip:
+                        self._pending_loop_exit = replace(pending, after_skip=True)
                     return True
                 if deck.played < loop.start_played:
                     deck._loop = None
@@ -1568,8 +1579,9 @@ class CrossfadeSource(_AudioSource):
                         boundary += count
                     if slot in self.paused:
                         boundary = old.played
-                    self._pending_loop_exit = ("current", old, preview, boundary, after_skip,
-                                                head_old, head_preview)
+                    self._pending_loop_exit = PendingLoopExit(
+                        old, preview, boundary, after_skip, head_old, head_preview
+                    )
             if stale:
                 preview.close()
                 if head_preview is not None:
@@ -1682,7 +1694,7 @@ class CrossfadeSource(_AudioSource):
             if deck is None:
                 return False
             if (deck.loop_active or (self._pending_loop_exit is not None
-                                  and self._pending_loop_exit[1] is deck)):
+                                  and self._pending_loop_exit.old is deck)):
                 return False
             if expected_path is not None and deck.record.path != expected_path:
                 return False
@@ -2344,9 +2356,9 @@ class CrossfadeSource(_AudioSource):
         with self._lock:
             pending = self._pending_loop_exit
             if pending is not None:
-                owner, old, preview, boundary, after_skip, head_old, head_preview = pending
-                assert old is not None and preview is not None
-                if owner == "current" and self.current is old and old.played >= boundary:
+                old, preview = pending.old, pending.preview
+                head_old, head_preview = pending.head_old, pending.head_preview
+                if self.current is old and old.played >= pending.boundary:
                     preview._zi = old._zi
                     preview.grid, preview.slot = old.grid, old.slot
                     preview.outs, preview.out_lead = old.outs, old.out_lead
@@ -2355,21 +2367,17 @@ class CrossfadeSource(_AudioSource):
                     self._pending_loop_exit = None
                     retired_loop = old
                     if head_preview is not None:
-                        if head_old is not None:
-                            assert head_old is not None
-                            if self._headphones_deck is head_old and self._headphones_slot == old.slot:
-                                head_preview._zi = head_old._zi
-                                head_preview.grid, head_preview.slot = old.grid, old.slot
-                                head_preview.outs, head_preview.out_lead = old.outs, old.out_lead
-                                self._headphones_deck = head_preview
-                                retired_head_loop = head_old
-                            else:
-                                abandoned_head_loop_preview = head_preview
+                        if head_old is not None and self._headphones_deck is head_old and self._headphones_slot == old.slot:
+                            head_preview._zi = head_old._zi
+                            head_preview.grid, head_preview.slot = old.grid, old.slot
+                            head_preview.outs, head_preview.out_lead = old.outs, old.out_lead
+                            self._headphones_deck = head_preview
+                            retired_head_loop = head_old
                         else:
                             abandoned_head_loop_preview = head_preview
-                    if after_skip:
+                    if pending.after_skip:
                         self._begin_planning("skip")
-                elif old is not None and preview is not None and self.current is not old:
+                elif self.current is not old:
                     self._pending_loop_exit = None
                     abandoned_loop_preview = preview
                     abandoned_head_loop_preview = head_preview
@@ -2705,8 +2713,8 @@ class CrossfadeSource(_AudioSource):
             pending_loop = self._pending_loop_exit
             self._pending_loop_exit = None
             for deck in (self.current, self.incoming, self.hand, self._headphones_deck,
-                         pending_loop[2] if pending_loop is not None else None,
-                         pending_loop[6] if pending_loop is not None else None):
+                         pending_loop.preview if pending_loop is not None else None,
+                         pending_loop.head_preview if pending_loop is not None else None):
                 if deck:
                     deck.close()
             self.current = self.incoming = self.hand = None
