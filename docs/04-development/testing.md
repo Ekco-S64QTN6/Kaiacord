@@ -196,5 +196,7 @@ finds modules whose unit/integration importer count exceeds the cap, and require
 `RELATED_TESTS` mapping and an independent `REQUIRED_RELATED_TESTS` entry. The existing mapping
 tests then verify that the named files exist and are actually selected.
 
-Changes are pushed straight to `main`; read the run for the pushed SHA, and
-fix forward with another commit if it fails.
+The default repository workflow is a direct push to `main`. When the owner explicitly requests
+PRs, verify all required workflows against the exact PR head SHA and merge only after they pass.
+A new commit creates a new head and therefore requires fresh checks; do not rely on results from an
+older SHA.

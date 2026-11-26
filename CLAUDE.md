@@ -1955,9 +1955,11 @@ from the registry in seconds and touches nothing else, so run that whenever
 - Areas: `ttrpg`, `fishing`, `combat`, `housing`, `alchemy`, `core`, `docs`, `config`, `kaia`,
   `art`, `music`, `infra`, `social`
 - One logical change per commit; don't mix balance changes with bug fixes.
-- **Commit on `main` and push straight to `origin main`.** No feature branches, no pull requests,
-  no waiting on CI: Ekco is the only developer, and the `main-protection` ruleset was disabled on
-  21 Nov 2026 for that reason. CI still runs on the push; read the run if it fails.
+- **Default: commit on `main` and push straight to `origin main`.** This remains the normal
+  workflow while the `main-protection` ruleset is disabled. An explicit owner request to prepare
+  PRs overrides that default: create a feature branch and pull request, run the required checks,
+  and verify that every required workflow passed on the exact PR head SHA before merging. If a
+  fix changes the head, re-check the new SHA; never merge while a required check is pending or failing.
 - Add files by name. `git commit -a` swept Ekco's uncommitted `config/kaia.yaml` into a pushed
   commit (21 Nov); `config/` and `memory/` are never committed by an agent.
 
