@@ -1925,13 +1925,13 @@ class CrossfadeSource(_AudioSource):
                      or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6))
             target_at = max(0.0, current[4] / current[1]) if not stale else 0.0
             delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S))
-            if delta_frames < -1 or delta_frames > 150:
+            if delta_frames < -1 or delta_frames > 145:
                 stale = True
             skip_frames = max(0, delta_frames)
         # Waiting for enough decoded source frames happens on the HTTP thread,
         # with no mixer lock held. Never use Deck.frame() to seek: an empty
         # preview buffer would count as a program decoder starvation event.
-        if not stale and skip_frames and not _wait_deck(preview, skip_frames + 1, 1.0):
+        if not stale and skip_frames and not _wait_deck(preview, skip_frames + 5, 1.0):
             preview.close()
             return False
         with self._lock:
@@ -1942,7 +1942,7 @@ class CrossfadeSource(_AudioSource):
             if not stale:
                 target_at = max(0.0, current[4] / current[1])
                 delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S))
-                if delta_frames < -1 or delta_frames > 150:
+                if delta_frames < -1 or delta_frames > 145:
                     stale = True
                     skip_frames = 0
                 else:
@@ -1950,7 +1950,7 @@ class CrossfadeSource(_AudioSource):
                 with preview._lock:
                     if stale:
                         pass
-                    elif len(preview._frames) < skip_frames:
+                    elif len(preview._frames) < skip_frames + 5:
                         stale = True
                     else:
                         for _ in range(skip_frames):
