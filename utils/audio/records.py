@@ -1468,16 +1468,19 @@ class CrossfadeSource(_AudioSource):
         """Choose a two-bar-ahead phrase start and a beat-counted end."""
         lead = own + 8 * grid.beat
         if grid.tracked:
+            ticks = grid.ticks
+            if ticks is None:
+                return None
             start = grid.tick_bar(lead, every=2)
             if start is None:
                 return None
-            index = int(np.searchsorted(grid.ticks, start - 1e-6))
-            if index >= len(grid.ticks) or abs(float(grid.ticks[index]) - start) > 0.025:
+            index = int(np.searchsorted(ticks, start - 1e-6))
+            if index >= len(ticks) or abs(float(ticks[index]) - start) > 0.025:
                 return None
             end_index = index + beats
-            if end_index >= len(grid.ticks):
+            if end_index >= len(ticks):
                 return None
-            end = float(grid.ticks[end_index])
+            end = float(ticks[end_index])
         else:
             start = grid.next_bar(lead, 1.0, every=2)
             end = start + beats * grid.beat
@@ -1551,6 +1554,7 @@ class CrossfadeSource(_AudioSource):
                     preview.close()
                     log_warning(f"[records] headphone loop exit decoder could not start: {exc}")
                     return False
+            assert preview is not None
             with self._lock:
                 stale = (self.current is not old or old._loop is not loop
                          or self.plan is not None or self.incoming is not None)
@@ -2334,7 +2338,8 @@ class CrossfadeSource(_AudioSource):
                     self._pending_loop_exit = None
                     retired_loop = old
                     if head_preview is not None:
-                        if self._headphones_deck is head_old and self._headphones_slot == old.slot:
+                        if (head_old is not None and self._headphones_deck is head_old
+                                and self._headphones_slot == old.slot):
                             head_preview._zi = head_old._zi
                             head_preview.grid, head_preview.slot = old.grid, old.slot
                             head_preview.outs, head_preview.out_lead = old.outs, old.out_lead
