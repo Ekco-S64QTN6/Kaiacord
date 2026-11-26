@@ -229,6 +229,11 @@ PITCH_BEND_LIMIT = 0.08
 PITCH_BEND_MAX_FRAMES = 500
 PITCH_BEND_RAMP_FRAMES = 8
 PITCH_BEND_BUFFER_FRAMES = 4
+#: Source-frame headroom for the longest hold at maximum positive bend plus
+#: its return ramp and a small safety margin.
+PITCH_BEND_START_HEADROOM_FRAMES = math.ceil(
+    (PITCH_BEND_MAX_FRAMES + PITCH_BEND_RAMP_FRAMES) * (1.0 + PITCH_BEND_LIMIT) + 10
+)
 
 
 @dataclass(frozen=True)
@@ -2678,7 +2683,8 @@ class CrossfadeSource(_AudioSource):
                 or self._planning or self._pending_planning_mode is not None or self._gliding
                 or self._pending_loop_exit is not None or slot in self.paused
                 or self._splice is not None
-                or deck.remaining <= PITCH_BEND_MAX_FRAMES + PITCH_BEND_RAMP_FRAMES + 10
+                or (not deck._bend_hold_active
+                    and deck.remaining <= PITCH_BEND_START_HEADROOM_FRAMES)
             ):
                 return False
             if head is not None and (head.loop_active or head.roll_active):
