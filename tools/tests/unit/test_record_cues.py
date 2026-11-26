@@ -50,7 +50,7 @@ def test_hot_cue_indices_are_strictly_bounded(cue_store, index):
     assert not record_cues.set_hot(record("original-name.mp3"), index, 1.0)
     assert not record_cues.clear_hot(record("original-name.mp3"), index)
 
-@pytest.mark.parametrize("position", [-1.0, float("nan"), float("inf"), True, "2", 10**10000])
+@pytest.mark.parametrize("position", [-1.0, float("nan"), float("inf"), True, "2", 10**500])
 def test_cue_positions_reject_invalid_or_unrepresentable_values(cue_store, position):
     assert not record_cues.set_hot(record("original-name.mp3"), 0, position)
     assert not record_cues.set_memory(record("original-name.mp3"), position)
