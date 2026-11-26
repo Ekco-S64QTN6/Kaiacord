@@ -122,6 +122,95 @@ def nxt(grid=STEADY, seconds=300.0, name="two"):
     return Next(rec(name, 120, "8A"), seconds, 0.0, grid)
 
 @pytest.fixture
+def loop_source():
+    frame_count = 1500
+    frame_values = (np.arange(frame_count, dtype=np.int16) % 20000) + 1000
+    samples = np.repeat(frame_values, FRAME_SAMPLES * 2)
+    data = samples.tobytes()
+
+    def factory(path, ratio, gain=0.0, offset=0.0, semitones=0):
+        start = int(round(offset / ratio * FRAMES_PER_S))
+        return io.BytesIO(data[start * FRAME_BYTES:])
+
+    first = Deck(rec("loop-pattern", 120, "8A"), 1.0, 300.0, factory)
+    first.grid = STEADY
+    src = CrossfadeSource(first, lambda _deck: None, stream_factory=factory,
+                          grid_at=lambda *_args: STEADY)
+    src.rides = False
+    wait_for(first, 150)
+    yield src
+    src.cleanup()
+
+
+def test_loop_repeats_exact_predecoded_pcm_and_wraps_only_the_source_clock(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    assert src.set_loop(1, 2)
+    loop = deck._loop
+    assert loop is not None and loop.beats == 2 and len(loop.frames) == 50
+    start_frame = loop.start_played
+    assert deck.at(start_frame) == pytest.approx(4.0)
+    assert deck.at(start_frame + 50) == pytest.approx(4.0)
+    assert deck.remaining == int(round((deck.end - 5.0) * FRAMES_PER_S))
+
+    while deck.played < start_frame:
+        src.read()
+    first_cycle = [src.read() for _ in range(50)]
+    assert deck.played == start_frame + 50
+    assert deck.at() == pytest.approx(4.0)
+    second_cycle = [src.read() for _ in range(50)]
+    assert first_cycle == second_cycle
+    assert deck.played == start_frame + 100
+    assert deck.at() == pytest.approx(4.0)
+    assert src.plan is None
+
+
+def test_loop_exit_warms_after_the_loop_and_switches_only_at_a_wrap(loop_source):
+    src = loop_source
+    old = src.current
+    assert old is not None and src.set_loop(1, 2)
+    loop = old._loop
+    assert loop is not None
+    while old.played < loop.start_played + 1:
+        src.read()
+    assert old.at() == pytest.approx(4.02)
+    assert src.set_loop(1, None)
+    pending = src._pending_loop_exit
+    assert pending is not None and pending[1] is old
+    boundary = pending[3]
+    assert boundary == loop.start_played + len(loop.frames)
+    while src.current is old:
+        src.read()
+    current = src.current
+    assert current is not None and current is not old
+    assert current._loop is None
+    assert current.at(0) == pytest.approx(5.0)
+    assert current.played == 1
+    assert old._closed
+
+
+def test_loop_is_rejected_without_a_counted_grid_or_during_a_transition(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    deck.grid = Grid(bpm=120.0, downbeat=0.0, contrast=8.0, bar_known=False)
+    assert not src.set_loop(1, 2)
+    deck.grid = STEADY
+    plan = types.SimpleNamespace(kind="out", mode="end")
+    src.plan = plan
+    assert not src.set_loop(1, 2)
+    assert deck._loop is None and src.plan is plan
+
+
+def test_loop_lengths_are_strictly_bounded(loop_source):
+    src = loop_source
+    assert not src.set_loop(1, True)
+    assert not src.set_loop(1, 16)
+    assert not src.set_loop(True, 2)
+    assert src.current._loop is None
+
+@pytest.fixture
 def hotcue_source():
     def factory(path, ratio, gain=0.0, offset=0.0, semitones=0):
         return tone(1000, 20.0)(path, ratio, gain=gain, offset=offset)
