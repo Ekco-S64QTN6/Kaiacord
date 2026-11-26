@@ -571,16 +571,17 @@ def test_pfl_uses_a_separate_decoder_without_advancing_the_program_deck(session)
 def test_headphone_stream_queues_are_bounded_and_drop_oldest(session):
     src = session.source
     stream = src.attach_headphone_stream()
-    assert stream is not None and src.attach_headphone_stream() is not None
+    second = src.attach_headphone_stream()
+    assert stream is not None and second is not None
     assert src.attach_headphone_stream() is None
     try:
         for _ in range(60):
             src.read()
-        assert stream.qsize() == 50
+        assert stream.qsize() == 50 and second.qsize() == 50
         assert stream.get_nowait() == list(src._headphone_history)[-50]
     finally:
         src.detach_headphone_stream(stream)
-        src.detach_headphone_stream(src._headphone_streams[-1])
+        src.detach_headphone_stream(second)
 
 
 def test_a_blend_comes_in_from_the_top_and_hands_the_vocals_over_at_the_swap():
