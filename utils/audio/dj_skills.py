@@ -326,7 +326,7 @@ class SkillScheduler:
 
     def set_solo_profile(self, profile, fingerprint: int) -> None:
         """Compile at most 64 phrase actions from a worker-built profile."""
-        del fingerprint
+        self._solo_fingerprint = int(fingerprint) & 0xFFFFFFFF
         actions: list[SkillAction] = []
         self._solo_profile_present = profile is not None
         self._solo_profile_aligned = bool(profile is not None and profile.aligned)
