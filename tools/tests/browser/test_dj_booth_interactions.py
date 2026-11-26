@@ -94,7 +94,7 @@ def _wait_for_ui_state(page, selector: str, value: str) -> None:
           const element = document.querySelector(selector);
           return !!element && element.textContent.trim() === value;
         }""",
-        {"selector": selector, "value": value},
+        arg={"selector": selector, "value": value},
         timeout=10000,
     )
 
