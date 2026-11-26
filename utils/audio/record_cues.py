@@ -19,7 +19,7 @@ from utils.infrastructure.monitoring.telemetry_paths import telemetry_path
 VERSION = 1
 HOT_CUE_COUNT = 8
 _LOCK = threading.RLock()
-_CACHE: dict[str, tuple[tuple[int, int, int, int] | None, dict]] = {}
+_CACHE: dict[str, tuple[tuple[str, int, int, int, int] | None, dict]] = {}
 
 
 def store_path() -> Path:
@@ -80,31 +80,39 @@ def _clean_bank(raw) -> dict:
     return out
 
 
+def _stat_key(path: Path) -> Optional[tuple[str, int, int, int, int]]:
+    try:
+        st = path.stat()
+        return (str(path.resolve()), int(st.st_dev), int(st.st_ino),
+                int(st.st_size), int(st.st_mtime_ns))
+    except OSError:
+        return None
+
+
 def load(record) -> dict:
-    """Return a copy of the record's memory/hot cue bank."""
+    """Return a copy of one record's memory/hot cue bank."""
     key = record_key(record)
     if key is None:
         return _empty()
     path = store_path()
-    try:
-        st = path.stat()
-        stat_key = (int(st.st_dev), int(st.st_ino), int(st.st_size), int(st.st_mtime_ns))
-    except OSError:
-        stat_key = None
     with _LOCK:
-        cached = _CACHE.get(key)
-        if cached is not None and cached[0] == stat_key:
-            return {"memory": cached[1]["memory"], "hot": list(cached[1]["hot"])}
-        payload = _read_store(path)
-        bank = _clean_bank(payload["records"].get(key))
-        try:
-            st = path.stat()
-            stat_key = (int(st.st_dev), int(st.st_ino), int(st.st_size), int(st.st_mtime_ns))
-        except OSError:
-            stat_key = None
-        _CACHE[key] = (stat_key, bank)
+        for _attempt in range(3):
+            before = _stat_key(path)
+            cached = _CACHE.get(key)
+            if cached is not None and cached[0] == before:
+                bank = cached[1]
+                return {"memory": bank["memory"], "hot": list(bank["hot"])}
+            payload = _read_store(path)
+            bank = _clean_bank(payload["records"].get(key))
+            after = _stat_key(path)
+            if before == after:
+                break
+        else:
+            # Replacements kept racing this read; return the complete snapshot,
+            # but do not cache it under an unverified file identity.
+            return {"memory": bank["memory"], "hot": list(bank["hot"])}
+        _CACHE[key] = (after, bank)
         return {"memory": bank["memory"], "hot": list(bank["hot"])}
-
 
 def _mutate(record, mutation) -> bool:
     key = record_key(record)
@@ -120,7 +128,7 @@ def _mutate(record, mutation) -> bool:
             payload["records"][key] = bank
             write_atomic(path, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
             st = path.stat()
-            _CACHE[key] = ((int(st.st_dev), int(st.st_ino), int(st.st_size), int(st.st_mtime_ns)), bank)
+            _CACHE[key] = (_stat_key(path), bank)
     return True
 
 
