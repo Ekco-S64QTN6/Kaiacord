@@ -329,7 +329,7 @@ class Deck:
             return len(self._frames) >= frames or self._eof
 
     def _take_live_frame(self) -> Optional[bytes]:
-        """Consume one frame from the underlying decoder without touching deck clocks."""
+        """Consume one decoder frame; b"" means temporarily starved, None means EOF."""
         with self._lock:
             if self._frames:
                 frame = self._frames.popleft()
@@ -339,7 +339,7 @@ class Deck:
             return None
         global DECKS_STARVED
         DECKS_STARVED += 1
-        return SILENCE
+        return b""
 
     def prepare_bend(self) -> bool:
         """Allocate the fixed resampler ring off the renderer's frame lock."""
@@ -357,12 +357,9 @@ class Deck:
 
     def set_bend(self, rate: float, *, release: bool = False) -> bool:
         """Set a temporary playback-rate multiplier; 1.0 is the neutral jog position."""
-        if isinstance(rate, bool):
+        if isinstance(rate, bool) or not isinstance(rate, (int, float)):
             return False
-        try:
-            target = float(rate)
-        except (TypeError, ValueError, OverflowError):
-            return False
+        target = float(rate)
         if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
             return False
         if target != 1.0 and (
@@ -430,6 +427,8 @@ class Deck:
             live = self._take_live_frame()
             if live is None:
                 return None
+            if not live:
+                return SILENCE
             if not self._bend_append(live):
                 # A long slow jog can fill the bounded ring. Return to neutral
                 # rather than dropping source audio or overwriting unread PCM.
@@ -473,6 +472,8 @@ class Deck:
                 if live is None:
                     self._roll = None
                     return None
+                if not live:
+                    return SILENCE
                 self.played += 1
                 self._source_samples += FRAME_SAMPLES
             repeated = roll.frames[index]
@@ -498,6 +499,8 @@ class Deck:
         live = self._take_live_frame()
         if live is None:
             return None
+        if not live:
+            return SILENCE
         self.played += 1
         self._source_samples += FRAME_SAMPLES
         return live
@@ -2602,12 +2605,9 @@ class CrossfadeSource(_AudioSource):
         """
         if isinstance(slot, bool) or slot not in (1, 2):
             return False
-        if isinstance(rate, bool):
+        if isinstance(rate, bool) or not isinstance(rate, (int, float)):
             return False
-        try:
-            target = float(rate)
-        except (TypeError, ValueError, OverflowError):
-            return False
+        target = float(rate)
         if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
             return False
         with self._lock:
@@ -3137,7 +3137,8 @@ class CrossfadeSource(_AudioSource):
         # Early enough to fit a blend before a long outro: the plan places
         # itself on the last phrase that leaves room, however soon it is made.
         if (plan is None and self.hand is None and not getattr(cur, "loop_active", False)
-                and not getattr(cur, "roll_active", False) and not cur.bend_active and not self._planning
+                and not getattr(cur, "roll_active", False)
+                and not getattr(cur, "bend_active", False) and not self._planning
                 and cur.remaining <= int(self._plan_ahead(cur) * FRAMES_PER_S)):
             self._begin_planning("end")
         if self.hand is not None and plan is None:
@@ -3154,7 +3155,8 @@ class CrossfadeSource(_AudioSource):
             out, cur = self._splice_frame(cur, k, out)
             t0 = cur.at(cur.played - 1)
         elif (plan is None and not getattr(cur, "loop_active", False)
-              and not getattr(cur, "roll_active", False) and not cur.bend_active
+              and not getattr(cur, "roll_active", False)
+              and not getattr(cur, "bend_active", False)
               and self.tempo_glide and not self._gliding and not self._planning
               and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
               and cur.grid is not None and cur.grid.bar_known
@@ -3180,7 +3182,8 @@ class CrossfadeSource(_AudioSource):
         solo = SOLO
         hands_now = (1.0,) * 6
         if (plan is None and not getattr(cur, "loop_active", False)
-                and not cur.bend_active and self.rides and out is not None and cur.grid is not None):
+                and not getattr(cur, "bend_active", False)
+                and self.rides and out is not None and cur.grid is not None):
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot, cur.ratio)
             if not handled:
