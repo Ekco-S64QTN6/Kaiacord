@@ -255,6 +255,30 @@ def test_section_specific_thresholds_preserve_real_groove_and_drop_evidence_floo
     assert handled and skill_id == "solo_groove_hold"
 
 
+
+
+def test_structural_skills_reject_counted_windows_that_are_not_four_bars():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 16, "drop_candidate", bars=8, strength=0.9),
+        duration=16,
+    ), fingerprint=23)
+    assert scheduler.snapshot()["solo_actions"] == 0
+    factors, label, skill_id, handled = scheduler.render_solo(
+        np.array([2.0, 2.02], dtype=np.float32), slot=1
+    )
+    assert not handled and label == "" and skill_id == ""
+    assert all(np.allclose(factor, 1.0) for factor in factors)
+
+
+def test_structural_skills_reject_profiles_compiled_with_another_phrase_width():
+    scheduler = S.SkillScheduler()
+    profile = _profile(_phrase(0, 8, "drop_candidate", strength=0.9))
+    profile = SimpleNamespace(**{**vars(profile), "phrase_bars": 8})
+    scheduler.set_solo_profile(profile, fingerprint=24)
+    assert scheduler.snapshot()["solo_actions"] == 0
+
+
 def test_profile_missing_falls_back_without_claiming_structure():
     scheduler = S.SkillScheduler()
     scheduler.set_solo_profile(None, fingerprint=0)
