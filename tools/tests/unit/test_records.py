@@ -123,10 +123,13 @@ def nxt(grid=STEADY, seconds=300.0, name="two"):
 
 @pytest.fixture
 def hotcue_source():
-    first = Deck(rec("hotcue-current", 120, "8A"), 1.05, 300.0, tone(1000, 20.0),
+    def factory(path, ratio, gain=0.0, offset=0.0, semitones=0):
+        return tone(1000, 20.0)(path, ratio, gain=gain, offset=offset)
+
+    first = Deck(rec("hotcue-current", 120, "8A"), 1.05, 300.0, factory,
                  gain=1.5, semitones=1)
     first.grid = STEADY
-    src = CrossfadeSource(first, lambda _deck: None, stream_factory=tone(1000, 20.0),
+    src = CrossfadeSource(first, lambda _deck: None, stream_factory=factory,
                           grid_at=lambda *_args: STEADY)
     src._fine = lambda _deck, _plan: None
     wait_for(first, 50)
