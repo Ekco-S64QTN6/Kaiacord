@@ -3,12 +3,14 @@ import numpy as np
 import pytest
 
 from utils.audio import songmap as S
+from utils.audio.beatgrid import Grid
 
 BPM = 120.0
 BAR = 240.0 / BPM                                  # 2 s
 
 
-def _section(bars: int, *, kick: bool, lead: bool, rng) -> np.ndarray:
+def _section(bars: int, *, kick: bool, lead: bool, rng,
+             upper: bool = False, transients: bool = False) -> np.ndarray:
     """Stereo audio: a 60 Hz kick on every beat, a sustained centred "voice"
     (a 660 Hz tone with a slow wobble), a little wide noise throughout."""
     n = int(bars * BAR * S.RATE)
@@ -21,6 +23,15 @@ def _section(bars: int, *, kick: bool, lead: bool, rng) -> np.ndarray:
         mono += 0.6 * np.sin(2 * np.pi * 60 * phase) * np.exp(-phase * 18)
     if lead:
         mono += 0.25 * np.sin(2 * np.pi * 660 * t + 2.0 * np.sin(2 * np.pi * 0.7 * t))
+    if upper:
+        mono += 0.18 * np.sin(2 * np.pi * 4200 * t)
+    if transients:
+        burst_len = int(0.025 * S.RATE)
+        envelope = np.exp(-np.arange(burst_len) / (0.006 * S.RATE))
+        for at in np.arange(0.25, bars * BAR, 0.5):
+            i = int(round(at * S.RATE))
+            if i + burst_len <= n:
+                mono[i:i + burst_len] += 0.35 * rng.standard_normal(burst_len) * envelope
     return np.stack([left + mono, right + mono], axis=1).astype(np.float32)
 
 
@@ -105,6 +116,8 @@ def test_audio_replacement_with_same_size_and_mtime_invalidates_memory_and_disk_
     cached = S.get(str(path))
     assert cached is not None and len(decoded) == 1
     assert np.array_equal(first.lead, cached.lead)
+    assert np.array_equal(first.upper, cached.upper)
+    assert np.array_equal(first.transient, cached.transient)
 
     path.write_bytes(b"B" * (3 * 1024 * 1024))
     import os
@@ -124,6 +137,78 @@ def test_audio_replacement_with_same_size_and_mtime_invalidates_memory_and_disk_
     assert np.array_equal(replaced.lead, from_disk.lead)
     S._MEM.clear()
     clear_audio_signature_cache()
+
+
+
+def test_upper_band_and_spectral_flux_capture_distinct_activity():
+    rng = np.random.default_rng(11)
+    active = _section(8, kick=False, lead=False, rng=rng, upper=True, transients=True)
+    quiet = _section(8, kick=False, lead=False, rng=rng)
+    m = S.compute(np.concatenate((active, quiet), axis=0))
+    assert m is not None
+    assert m.db("upper", 0.0, 8 * BAR) > m.db("upper", 8 * BAR, 16 * BAR) + 4.0
+    assert m.db("transient", 0.0, 8 * BAR) > m.db("transient", 8 * BAR, 16 * BAR) + 1.0
+
+
+def test_phrase_profile_aligns_to_counted_bars_and_keeps_raw_time():
+    m = S.compute(_record((8, True, False), (40, True, True), (16, True, False)))
+    assert m is not None
+    profile = S.profile_from_map(m, Grid(120.0, 2.0, 8.0, bar_known=True), phrase_bars=4)
+    assert profile.aligned and profile.grid_bpm == 120.0
+    assert profile.grid_contrast == 8.0
+    assert profile.phrases[0].start == 0.0
+    assert profile.phrases[0].end == pytest.approx(2.0)
+    assert not profile.phrases[0].aligned and profile.phrases[0].bars is None
+    assert profile.phrases[0].section == "intro_candidate"
+    first_phrase = profile.phrases[1]
+    assert first_phrase.start == pytest.approx(2.0)
+    assert first_phrase.end == pytest.approx(10.0)
+    assert first_phrase.aligned and first_phrase.bars == 4
+    assert first_phrase.full_db > -2.0
+    assert first_phrase.lead_db < -2.0  # the lead proxy remains a separate feature
+    assert all(p.start < p.end for p in profile.phrases)
+
+
+def test_profile_without_a_counted_bar_uses_unaligned_time_windows():
+    m = S.compute(_record((8, True, False), (40, True, True), (16, True, False)))
+    assert m is not None
+    profile = S.profile_from_map(m, Grid(120.0, 0.5, 8.0, bar_known=False), fallback_window_s=7.0)
+    assert not profile.aligned
+    assert profile.grid_bpm is None and profile.grid_contrast is None
+    assert profile.phrases
+    assert all(not p.aligned and p.bars is None for p in profile.phrases)
+    assert profile.phrases[0].start == 0.0
+    assert profile.phrases[0].end == pytest.approx(7.0)
+
+
+def test_phrase_profile_marks_breakdown_drop_and_outro_candidates():
+    breakdown = _record((24, True, True), (8, False, True), (48, True, True),
+                        (8, False, True), (16, True, True))
+    m = S.compute(breakdown)
+    assert m is not None
+    profile = S.profile_from_map(m, Grid(120.0, 0.0, 8.0, bar_known=True))
+    sections = [p.section for p in profile.phrases]
+    assert "breakdown_candidate" in sections
+    assert "drop_candidate" in sections
+
+    outro_map = S.compute(_record((8, True, False), (40, True, True), (16, True, False)))
+    assert outro_map is not None
+    outro_profile = S.profile_from_map(outro_map, Grid(120.0, 0.0, 8.0, bar_known=True))
+    assert "outro_candidate" in [p.section for p in outro_profile.phrases]
+
+
+def test_phrase_profile_api_returns_fallback_without_claiming_grid_alignment(tmp_path, monkeypatch):
+    from utils.audio import library
+
+    m = S.compute(_record((8, True, False), (40, True, True), (16, True, False)))
+    assert m is not None
+    monkeypatch.setattr(library, "audio_signature", lambda *_args, **_kwargs: "stable-v2")
+    monkeypatch.setattr(S, "get", lambda _path: m)
+    profile = S.phrase_profile(str(tmp_path / "record.mp3"), None, fallback_window_s=9.0)
+    assert profile is not None and not profile.aligned
+    assert profile.phrases[0].bars is None
+    assert profile.phrases[0].end == pytest.approx(9.0)
+
 
 def test_the_map_is_cached_and_an_unreadable_file_has_none(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "MAP_DIR", tmp_path / "maps")
