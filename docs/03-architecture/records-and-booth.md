@@ -389,9 +389,11 @@ pitch and remaining-time estimates use that rate too. A platter release ramps ba
 eight rendered frames. The entire hold is capped at 500 rendered frames (10 seconds), including
 time spent crossing the platter centre; an engine timeout and a browser release timer both
 return to unity if pointer-up is lost. Pointer cancel, lost capture, blur, page hide and hidden-tab
-events also release the gesture. Planning, automatic tempo glide and solo phrase skills are
-suspended while the nudge owns the deck; transitions, loops, slip rolls, pause and splice ownership
-refuse a new bend. The live source cursor is retained across the temporary rate change, so the
+events also release the gesture. If a page reload loses the original pointer state, the
+platter remains available for a one-tap release acknowledgement while **JOG RELEASE** is shown;
+pause, skip and KAIA MIX/reset are also explicit hand-back paths. Planning, automatic tempo glide
+and solo phrase skills are suspended while the nudge owns the deck; transitions, loops, slip rolls,
+pause and splice ownership refuse a new bend. The live source cursor is retained across the temporary rate change, so the
 record resumes where the decoder actually advanced to. This remains a human-operated primitive,
 not an autonomous pitch-ride skill, scratch, backspin or permanent pitch control. Physical device
 latency and musical suitability still require listening.
