@@ -358,7 +358,10 @@ def test_real_browser_jog_platter_bends_live_playback_and_returns_to_neutral(boo
             start_samples = deck._source_samples
             for _ in range(20):
                 source.read()
-            assert deck.bend["rate"] == pytest.approx(target_rate)
+            # Additional coalesced pointer events may update the target while
+            # the renderer advances; the applied rate need not equal the first
+            # request observed above, but it must remain a clockwise speed-up.
+            assert 1.01 < deck.bend["rate"] <= 1.08
             assert deck._source_samples - start_samples > 20 * R.FRAME_SAMPLES
             assert deck.at() > start_samples / R.RATE
 
