@@ -37,7 +37,7 @@ VERSION = 2
 #: evidence.
 METHOD = 5
 # Playlist taste changes rebuild paths, not the expensive measured audio graph.
-SET_METHOD = 2
+SET_METHOD = 3
 MAX_SETS = 16
 #: A set runs about an hour: it is walked until it reaches SET_TARGET_S of
 #: played time, and one that cannot reach SET_MIN_S is not a set.
@@ -491,7 +491,8 @@ def build(crate: list, budget_s: Optional[float] = None,
         finally:
             if pool is not None:
                 pool.terminate()
-        g["sets"] = make_sets(g, live)
+        profiles = build_profiles(live, g)
+        g["sets"] = make_sets(g, live, profiles=profiles)
         g["built"] = time.time()
         with _lock:
             save(g)
@@ -510,6 +511,33 @@ def family(rec) -> str:
         if any(w in g for w in words):
             return name
     return "Electronic"
+
+
+
+def build_profiles(live: dict, graph: Optional[dict] = None) -> dict:
+    """Build/read phrase profiles off the voice callback for set planning.
+
+    songmap owns cache identity and background-only analysis. Missing or failed
+    profiles are omitted; the musical policy treats them as neutral evidence.
+    """
+    from utils.audio import songmap
+    if graph is not None:
+        endpoints = set(graph.get("edges", {}))
+        for destinations in graph.get("edges", {}).values():
+            endpoints.update(destinations)
+        live = {path: record for path, record in live.items() if path in endpoints}
+    profiles = {}
+    for path, record in live.items():
+        if not os.path.isfile(path):
+            continue
+        try:
+            profile = songmap.phrase_profile(path, record.bpm)
+        except Exception as exc:
+            log_debug(f"[sets] no musical profile for {path}: {exc}")
+            continue
+        if profile is not None:
+            profiles[path] = profile
+    return profiles
 
 
 def _seconds(g: dict, path: str) -> float:
@@ -593,15 +621,18 @@ def transition_rank(current, candidate, edge: Optional[dict], *, history=(),
     )
 
 
-def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
-    """Sets walked through the graph, about an hour each: every next record a
-    measured lock from the one before, no song twice in a set (another file or
-    mix of it included), held to one genre family where the graph allows,
-    preferring a key it sits with and records the other sets have not used.
-    Each start is searched (depth first, backing out of dead ends) until the
-    walk reaches SET_TARGET_S; one that cannot reach SET_MIN_S is dropped."""
-    from utils.audio import library
+def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None,
+              *, profiles: Optional[dict] = None) -> list:
+    """Build measured-lock sets, with profile preference and set-arc context.
+
+    Technical feasibility remains the measured graph's hard boundary.
+    Phrase evidence only reorders those edges: a cluttered moment is deferred
+    when another measured option exists, but never silently deleted. Missing
+    profiles fall back to the prior transition ranking.
+    """
+    from utils.audio import library, musical_plan
     rng = rng or random.Random(1)
+    profiles = profiles or {}
     secs_known = any(_seconds(g, p) for p in live)
 
     def eligible(p):
@@ -614,8 +645,18 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
     fam = {p: family(live[p]) for p in live}
     used: dict = {}
     sets: list = []
+    assessment_cache = {}
     target = SET_TARGET_S if secs_known else float("inf")
     floor = SET_MIN_S if secs_known else 0.0
+
+    def assessment(a: str, b: str):
+        key = (a, b)
+        if key not in assessment_cache:
+            assessment_cache[key] = musical_plan.assess_transition(
+                live[a], live[b], edges.get(a, {}).get(b),
+                profiles.get(a), profiles.get(b),
+            )
+        return assessment_cache[key]
 
     def length(path):
         return played_seconds(g, path, live) if secs_known else float(len(path))
@@ -636,7 +677,17 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
                     history=[live[p] for p in path], start_family=fam[start],
                     onward=ahead,
                 )
-                return rank[:-1] + (used.get(b, 0), rng.random())
+                recent_roles = [
+                    assessment(a, nxt).incoming_role
+                    for a, nxt in zip(path, path[1:])
+                    if assessment(a, nxt).available
+                ]
+                candidate_assessment = assessment(cur, b)
+                preference, _ = musical_plan.contextual_score(candidate_assessment, recent_roles)
+                # Musical preference may outrank a duller measured option,
+                # while the rank remains an explicit tie-breaker. All options
+                # here are still measured locks.
+                return (-preference, rank[:-1], used.get(b, 0), rng.random())
             # Keep the whole ranked frontier. The bounded DFS below widens
             # from the best five to further candidates when preferred paths
             # dead-end; truncating here made backtracking unable to see them.
@@ -694,9 +745,44 @@ def make_sets(g: dict, live: dict, rng: Optional[random.Random] = None) -> list:
         for p in path:
             used[p] = used.get(p, 0) + 1
     sets.sort(key=lambda st: (family_of(st, live), min(live[p].bpm or 0 for p in st)))
+
+    # Persist only selected-decision explanations, not the potentially large
+    # profile arrays. Technical facts and musical observations stay separate.
+    plans = []
+    for index, path in enumerate(sets):
+        transitions = []
+        recent_roles: list[str] = []
+        for a, b in zip(path, path[1:]):
+            edge = edges.get(a, {}).get(b, {})
+            judged = assessment(a, b)
+            contextual, arc_reasons = musical_plan.contextual_score(judged, recent_roles)
+            technical = {
+                "measured_lock": bool(edge),
+                "beats": edge.get("beats"),
+                "back": edge.get("back"),
+                "cue": edge.get("cue"),
+                "ratio": edge.get("ratio"),
+                "agreement": edge.get("agree"),
+                "bars": edge.get("bars"),
+                "shift_ms": edge.get("ms"),
+            }
+            transitions.append({
+                "from": a,
+                "to": b,
+                "technical": technical,
+                "musical": judged.trace(),
+                "arc": {
+                    "recent_roles": list(recent_roles),
+                    "contextual_preference": contextual,
+                    "reasons": list(arc_reasons),
+                },
+            })
+            if judged.available and judged.incoming_role != "unknown":
+                recent_roles.append(judged.incoming_role)
+        plans.append({"set_index": index, "transitions": transitions})
+    g["set_plans"] = plans
     g["sets_method"] = SET_METHOD
     return sets
-
 
 def family_of(st: list, live: dict) -> str:
     """A set's genre family: the one most of its records are in."""

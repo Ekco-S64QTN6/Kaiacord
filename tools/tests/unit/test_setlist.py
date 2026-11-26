@@ -198,3 +198,71 @@ def test_legacy_next_set_still_selects_and_advances(tmp_path, monkeypatch):
     ]}
     assert setlist.next_set(graph, crate) == [r.path for r in crate[:4]]
     assert setlist.peek_next_set(graph, crate) == [r.path for r in crate[4:]]
+
+
+def test_set_builder_prefers_a_coherent_handoff_over_a_cluttered_measured_pair():
+    from utils.audio.songmap import PhraseProfile, PhraseState
+
+    def rec(name, genre="House"):
+        return Record(f"/m/{name}.mp3", f"Artist {name}", name, 120.0, "8A", genre)
+
+    def profile(section, *, level=-12.0):
+        state = PhraseState(
+            start=0.0, end=64.0, aligned=True, bars=4,
+            full_db=level, bass_db=level, lead_db=level,
+            upper_db=level, transient_db=level, energy_change_db=0.0,
+            section=section, section_strength=0.8,
+        )
+        return PhraseProfile(64.0, 4, 120.0, 8.0, True, (state,))
+
+    start, crowded, coherent = rec("Start"), rec("Crowded"), rec("Surprise", "Techno")
+    c1, c2, s1, s2 = rec("C1"), rec("C2"), rec("S1"), rec("S2")
+    live = {r.path: r for r in (start, crowded, coherent, c1, c2, s1, s2)}
+    edge = {"beats": 64, "back": 0, "cue": 0, "agree": 16, "bars": 16, "ratio": 1.0}
+    graph = {
+        "records": {},
+        "edges": {
+            start.path: {crowded.path: dict(edge), coherent.path: dict(edge)},
+            crowded.path: {c1.path: dict(edge)},
+            c1.path: {c2.path: dict(edge)},
+            coherent.path: {s1.path: dict(edge)},
+            s1.path: {s2.path: dict(edge)},
+        },
+    }
+    profiles = {
+        start.path: profile("build_candidate", level=-2.0),
+        crowded.path: profile("drop_candidate", level=-2.0),
+        coherent.path: profile("drop_candidate", level=-18.0),
+    }
+
+    sets = setlist.make_sets(graph, live, random.Random(7), profiles=profiles)
+
+    assert sets and sets[0][0] == start.path
+    assert sets[0][1] == coherent.path
+    chosen = graph["set_plans"][0]["transitions"][0]
+    assert chosen["technical"]["measured_lock"] is True
+    assert chosen["technical"]["beats"] == 64
+    assert chosen["musical"]["preference"] == "prefer"
+    assert chosen["musical"]["incoming_section"] == "drop_candidate"
+    assert chosen["arc"]["contextual_preference"] > 0
+
+
+def test_set_builder_keeps_technical_lock_and_musical_score_separate_without_profiles():
+    records = [Record(f"/m/{i}.mp3", "Artist", f"Track {i}", 120.0, "8A", "House") for i in range(4)]
+    edge = {"beats": 64, "agree": 16, "bars": 16, "ratio": 1.0}
+    graph = {
+        "records": {},
+        "edges": {
+            records[0].path: {records[1].path: dict(edge), records[2].path: dict(edge)},
+            records[1].path: {records[2].path: dict(edge)},
+            records[2].path: {records[3].path: dict(edge)},
+        },
+    }
+    live = {r.path: r for r in records}
+    sets = setlist.make_sets(graph, live, random.Random(2))
+
+    assert sets
+    first = graph["set_plans"][0]["transitions"][0]
+    assert first["technical"]["measured_lock"] is True
+    assert first["musical"]["available"] is False
+    assert first["musical"]["score"] == 0.0
