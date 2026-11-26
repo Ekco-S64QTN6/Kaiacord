@@ -1185,17 +1185,17 @@ function phonesStop() {
   if (phonesNode) phonesNode.port.postMessage({ type: "clear" });
   if (phonesContext && phonesContext.state === "running") phonesContext.suspend().catch(() => {});
 }
-function syncPhones() {
+function syncPhones(force = false) {
   const slot = cueHeld[1] ? 1 : cueHeld[2] ? 2 : phonesOn[1] ? 1 : phonesOn[2] ? 2 : null;
   const deck = slot && S && S.decks ? S.decks[slot] : null;
   const wantedSlot = deck ? slot : null, id = deck ? deck.id : null;
   if (wantedSlot === null) phonesStop();
-  if (phonesPending || (phonesRequested.slot === wantedSlot && phonesRequested.id === id)) return;
+  if (phonesPending || (!force && phonesRequested.slot === wantedSlot && phonesRequested.id === id)) return;
   phonesPending = true;
-  post("/phones", { slot: wantedSlot }).then((response) => {
+  post("/phones", { slot: wantedSlot, force }).then((response) => {
     phonesPending = false;
     if (response) phonesRequested = { slot: wantedSlot, id };
-    else { phonesRequested = { slot: undefined, id: null }; toast("headphone cue selection failed"); }
+    else { phonesRequested = { slot: wantedSlot, id }; toast("headphone cue selection failed"); }
   });
 }
 window.addEventListener("pagehide", phonesStop);
@@ -1206,7 +1206,9 @@ function moveCue(slot, pos) {
 function commitCue(slot) {
   if (dragCue[slot] == null) return;
   dragUntil[slot] = performance.now() + 1500;
-  post("/cue", { slot, pos: dragCue[slot] });
+  post("/cue", { slot, pos: dragCue[slot] }).then((response) => {
+    if (response && (phonesOn[slot] || cueHeld[slot])) syncPhones(true);
+  });
 }
 function scrubbing(slot) {
   const ov = q(slot, '[data-c="ov"]'), jog = q(slot, '[data-c="jog"]');
