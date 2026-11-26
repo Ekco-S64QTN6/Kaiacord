@@ -106,6 +106,10 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .ro .k { font-size: 9px; letter-spacing: 2px; color: var(--dim); }
 .ro .v { font-family: var(--disp); font-size: clamp(16px, 2.5vh, 26px); font-weight: 700; color: var(--text); line-height: 1.15; }
 .ro .v small { font-size: 12px; color: var(--dim); font-family: var(--mono); font-weight: 400; margin-left: 4px; }
+.pitch-control { display: flex; align-items: center; gap: 5px; margin-top: 3px; min-width: 0; }
+.pitch-control input { width: 100%; min-width: 0; height: 12px; margin: 0; accent-color: var(--dc); cursor: pointer; }
+.pitch-control input:disabled { opacity: .25; cursor: default; }
+.pitch-control output { min-width: 42px; color: var(--dc); text-align: right; font: 700 9px var(--mono); }
 .ro.big .v { font-size: clamp(22px, 3.3vh, 34px); color: var(--dc); text-shadow: 0 0 12px var(--dcg); }
 .ro.warn .v { color: var(--red); animation: blink .6s infinite; }
 .beats { display: flex; gap: 5px; margin-top: 5px; }
@@ -635,12 +639,18 @@ function dragged(slot) { return dragCue[slot] != null && performance.now() < (dr
 function posOf(d) {
   const dc = dragged(d.slot); if (dc !== null) return dc;
   // as heard: the mixer is ahead of the sound by its buffer and Discord's delay
-  const rate = (d.ratio || 1) * (d.bend && d.bend.rate ? d.bend.rate : 1);
+  const rate = (d.ratio || 1) * (d.playback_rate || (d.bend && d.bend.rate) || 1);
   return d.state === "playing" && !(S.paused || []).includes(d.slot) ? Math.max(0, Math.min(d.length, d.pos + (since() - syncLag()) * rate)) : d.pos;
 }
 const isFree = (slot) => !!(S && S.free === slot && S.decks && S.decks[slot]);
 const blendOn = () => !!(S && S.mix && S.mix.started);
 const canScrub = (slot) => isFree(slot) && !blendOn();
+const canPitch = (slot) => {
+  const d = S && S.decks && S.decks[slot];
+  return !!(d && d.on_air && d.state === "playing" && !S.mix
+    && !(S.paused || []).includes(slot) && !d.loop && !d.roll
+    && !(d.bend && d.bend.active));
+};
 const canBend = (slot) => {
   const d = S && S.decks && S.decks[slot];
   return !!(d && d.on_air && d.state === "playing" && !S.mix
@@ -701,7 +711,8 @@ function buildDeck(slot) {
       <div class="jogwrap"><canvas class="jog" data-c="jog"></canvas></div>
       <div class="readouts">
         <div class="ro big"><div class="k">BPM</div><div class="v" data-f="bpm">--.-</div></div>
-        <div class="ro"><div class="k">TEMPO</div><div class="v" data-f="pitch">±0.00<small>%</small></div></div>
+        <div class="ro"><div class="k">TEMPO</div><div class="v" data-f="pitch">±0.00<small>%</small></div>
+          <div class="pitch-control"><input data-f="pitch-slider" aria-label="Persistent pitch fader" type="range" min="92" max="108" step="0.1" value="100" title="Persistent pitch fader, plus or minus eight percent"><output data-f="pitch-value">0.0%</output></div></div>
         <div class="ro"><div class="k">ELAPSED</div><div class="v" data-f="el">--:--</div></div>
         <div class="ro" data-r="remain"><div class="k">REMAIN</div><div class="v" data-f="rem">--:--</div></div>
         <div class="ro" style="grid-column: span 2"><div class="k">BAR · BEAT</div><div class="v" data-f="bar">--</div>
@@ -959,7 +970,16 @@ function updateDeck(slot) {
   q(slot, '[data-f="bpm"]').textContent = d && d.tempo ? d.tempo.toFixed(1) : "--.-";
   const p = d ? d.pitch : 0;
   q(slot, '[data-f="pitch"]').innerHTML = `${p >= 0 ? "+" : "−"}${Math.abs(p).toFixed(2)}<small>%</small>`;
-  const effectiveRate = ratio * (d && d.bend && d.bend.rate ? d.bend.rate : 1);
+  const pitchSlider = q(slot, '[data-f="pitch-slider"]');
+  const pitchValue = q(slot, '[data-f="pitch-value"]');
+  const pitchTarget = d && d.pitch_control ? d.pitch_control.target : 1.0;
+  if (document.activeElement !== pitchSlider) pitchSlider.value = String(pitchTarget * 100);
+  pitchValue.textContent = `${(pitchTarget - 1) >= 0 ? "+" : "−"}${Math.abs((pitchTarget - 1) * 100).toFixed(1)}%`;
+  pitchSlider.disabled = !canPitch(slot);
+  pitchSlider.title = canPitch(slot)
+    ? "Persistent pitch fader: ±8%; the platter jog temporarily bends around this setting"
+    : "Pitch fader is available on the playing on-air deck when no transition, loop, roll, jog or pause owns it";
+  const effectiveRate = ratio * (d && d.playback_rate ? d.playback_rate : (d && d.bend && d.bend.rate ? d.bend.rate : 1));
   q(slot, '[data-f="el"]').textContent = d ? fmt(pos / effectiveRate) : "--:--";
   const rem = d ? (d.length - pos) / effectiveRate : NaN;
   q(slot, '[data-f="rem"]').textContent = d ? "−" + fmt(rem) : "--:--";
@@ -1001,7 +1021,8 @@ function updateDeck(slot) {
   const loop = d && d.loop ? d.loop : null;
   const roll = d && d.roll ? d.roll : null;
   const bend = d && d.bend ? d.bend : { active: false, percent: 0, target_percent: 0 };
-  const canLoop = !!(d && d.on_air && d.state === "playing" && !bend.active);
+  const canLoop = !!(d && d.on_air && d.state === "playing" && !bend.active
+    && !(d.pitch_control && d.pitch_control.active));
   for (const pad of q(slot, ".loopbank").querySelectorAll("[data-loop-beats]")) {
     const beats = Number(pad.dataset.loopBeats);
     pad.disabled = !canLoop || !!loop || !!roll;
@@ -1235,6 +1256,30 @@ function slider(el, slot, name, axis, reset) {
   el.addEventListener("dblclick", () => setCtl(slot, name, reset));
 }
 [1, 2].forEach((slot) => {
+  const pitchSlider = q(slot, '[data-f="pitch-slider"]');
+  const pitchState = { timer: 0, latest: 1.0, queue: Promise.resolve() };
+  pitchSlider.addEventListener("input", () => {
+    pitchState.latest = Number(pitchSlider.value) / 100;
+    q(slot, '[data-f="pitch-value"]').textContent = `${(pitchState.latest - 1) >= 0 ? "+" : "−"}${Math.abs((pitchState.latest - 1) * 100).toFixed(1)}%`;
+    clearTimeout(pitchState.timer);
+    pitchState.timer = setTimeout(() => {
+      pitchState.timer = 0;
+      const rate = pitchState.latest;
+      pitchState.queue = pitchState.queue.then(async () => {
+        const response = await post("/pitch", { slot, rate });
+        if (!response) {
+          const target = S && S.decks && S.decks[slot] && S.decks[slot].pitch_control
+            ? S.decks[slot].pitch_control.target : 1.0;
+          pitchSlider.value = String(target * 100);
+          toast("pitch fader unavailable while the deck is locked");
+        }
+      });
+    }, 35);
+  });
+  pitchSlider.addEventListener("dblclick", () => {
+    pitchSlider.value = "100";
+    pitchSlider.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   for (const n of ["trim", "high", "mid", "low"]) knob(qs(slot, `[data-k="${n}"]`), slot, n, FLAT[n]);
   slider(qs(slot, '[data-k="fader"]'), slot, "fader", "y", 1);
   q(slot, '[data-f="play"]').addEventListener("click", () => {

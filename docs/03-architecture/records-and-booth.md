@@ -378,6 +378,19 @@ lets a finite tail decay, and KAIA MIX/reset cancels it. The PFL CUE signal rema
 the MASTER leg hears the effected program. This is one master echo effect, not a general FX
 send/return, an automated skill or a substitute for local audio audition.
 
+**Persistent pitch fader** is a separate on-air operator control, bounded to ±8% and ramped
+across eight rendered frames. It is composed multiplicatively with the momentary platter jog:
+the program and selected PFL decoders consume the same source samples per output sample, and a
+jog release returns to the persistent fader setting rather than to unity. The dashboard reports
+the combined pitch/tempo and uses the combined source rate for elapsed/remaining estimates.
+Newly selected PFL decoders inherit the stable fader rate and catch up through their own resampler
+ring; they do not skip raw decoded frames behind the ring's cursor. The transition planner matches
+the incoming deck against the effective outgoing BPM while keeping bar/beat positions in decoded
+source time, then maps source-clock positions back to PCM frame and sub-frame boundaries. Manual
+hand starts use the same mapping. Automatic tempo glide yields while a pitch override is active,
+and loop/roll/transition ownership prevents conflicting pitch changes. This is a human-operated
+pitch control, not proof of hardware parity or musical quality.
+
 **Live jog / pitch bend** is a separate momentary operator control on the on-air platter.
 Clockwise/counterclockwise movement changes decoder sample consumption between 0.92× and
 1.08×, so tempo and pitch move together; this is a phase nudge, not a beat-matched permanent

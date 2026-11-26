@@ -880,6 +880,79 @@ def test_pause_and_kaia_mix_release_an_active_live_jog_bend(session, monkeypatch
 
 def test_booth_elapsed_and_remaining_clocks_use_the_live_jog_rate():
     page = D.PAGE.read_text(encoding="utf-8")
-    assert "const effectiveRate = ratio * (d && d.bend && d.bend.rate ? d.bend.rate : 1);" in page
+    assert "const effectiveRate = ratio * (d && d.playback_rate ? d.playback_rate : (d && d.bend && d.bend.rate ? d.bend.rate : 1));" in page
     assert "fmt(pos / effectiveRate)" in page
     assert "const rem = d ? (d.length - pos) / effectiveRate : NaN;" in page
+
+
+
+def test_persistent_pitch_http_control_keeps_program_and_new_pfl_decoder_aligned(session, monkeypatch):
+    monkeypatch.setattr(D, "_cfg", lambda key, default=None: 0 if key == "dj_dashboard_port" else default)
+    src = session.source
+    base = D.serve()
+
+    def post(path, payload):
+        request = urllib.request.Request(
+            base + path,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
+
+    stream = None
+    try:
+        # Set the persistent ride before selecting PHONES. The newly created PFL
+        # decoder must inherit the stable rate and catch up through its own ring.
+        assert post("pitch", {"slot": 1, "rate": 1.06}) == 204
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+            src.read()
+        deck = src.current
+        assert deck is not None and deck.pitch_rate == pytest.approx(1.06)
+        assert src.set_headphones(1)
+        head = src._headphones_deck
+        assert head is not None
+        assert head.pitch_rate == pytest.approx(1.06)
+        assert head.playback_rate == pytest.approx(1.06)
+        assert head.at() == pytest.approx(deck.at(), abs=2 / R.RATE)
+
+        stream = src.attach_headphone_stream()
+        assert stream is not None
+        for _ in range(12):
+            src.read()
+            monitor = stream.get_nowait()
+            assert monitor is not None and len(monitor) == R.FRAME_BYTES
+        assert deck._source_samples == pytest.approx(head._source_samples, abs=R.FRAME_SAMPLES * 1.1)
+
+        # A live fader movement updates both program and already-selected PFL.
+        assert post("pitch", {"slot": 1, "rate": 1.03}) == 204
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 2):
+            src.read()
+        assert deck.pitch_rate == pytest.approx(1.03)
+        assert head.pitch_rate == pytest.approx(1.03)
+        state = D.snapshot(session)["decks"]["1"]
+        assert state["pitch_control"]["target"] == pytest.approx(1.03)
+        assert state["tempo"] == pytest.approx(123.6)
+        assert state["pitch"] == pytest.approx(3.0)
+        assert post("pitch", {"slot": 1, "rate": 1.081}) == 400
+        assert post("pitch", {"slot": 1, "rate": True}) == 400
+        assert post("pitch", {"slot": 1, "rate": float("nan")}) == 400
+        assert post("pitch", {"slot": 2, "rate": 1.03}) == 409
+
+        assert post("pitch", {"slot": 1, "rate": 1.0}) == 204
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 2):
+            src.read()
+        assert deck.pitch_rate == pytest.approx(1.0)
+        assert head.pitch_rate == pytest.approx(1.0)
+    finally:
+        if stream is not None:
+            src.detach_headphone_stream(stream)
+        src.set_headphones(None)
+        server, D._server = D._server, None
+        if server:
+            server.shutdown()
+            server.server_close()

@@ -434,3 +434,53 @@ def test_real_browser_can_acknowledge_an_expired_jog_hold_from_the_platter(booth
         finally:
             page.close()
             browser.close()
+
+
+
+def test_real_browser_pitch_fader_is_persistent_and_resets_to_unity(booth):
+    _session, source, _record, base = booth
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1600, "height": 1100})
+        page.add_init_script("localStorage.setItem('kaia.fx', '0')")
+        try:
+            response = page.goto(base, wait_until="domcontentloaded", timeout=15000)
+            assert response is not None and response.ok
+            _wait_for_ui_state(page, "#deck1 [data-f=state]", "ON AIR")
+            pitch = page.locator('#deck1 [data-f="pitch-slider"]')
+            assert pitch.is_enabled()
+            with page.expect_response(
+                lambda result: result.url.endswith("/pitch")
+                and result.request.method == "POST"
+                and json.loads(result.request.post_data or "{}").get("rate") == pytest.approx(1.06)
+            ) as speed_response:
+                pitch.evaluate(
+                    "(el) => { el.focus(); el.value = '106'; el.dispatchEvent(new Event('input', {bubbles: true})); }"
+                )
+            assert speed_response.value.status == 204
+            deck = source.current
+            assert deck is not None
+            for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+                source.read()
+            assert deck.pitch_rate == pytest.approx(1.06)
+            assert deck.playback_rate == pytest.approx(1.06)
+            page.wait_for_function(
+                "() => document.querySelector('#deck1 [data-f=pitch-value]')?.textContent === '+6.0%'",
+                timeout=5000,
+            )
+            with page.expect_response(
+                lambda result: result.url.endswith("/pitch")
+                and result.request.method == "POST"
+                and json.loads(result.request.post_data or "{}").get("rate") == pytest.approx(1.0)
+            ) as neutral_response:
+                pitch.evaluate(
+                    "(el) => { el.value = '100'; el.dispatchEvent(new Event('input', {bubbles: true})); }"
+                )
+            assert neutral_response.value.status == 204
+            for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+                source.read()
+            assert deck.pitch_rate == pytest.approx(1.0)
+            assert deck.playback_rate == pytest.approx(1.0)
+        finally:
+            page.close()
+            browser.close()

@@ -2613,3 +2613,64 @@ def test_live_jog_bend_defers_automatic_planning_until_neutral(loop_source):
     for _ in range(R.PITCH_BEND_RAMP_FRAMES):
         src.read()
     assert not deck.bend_active
+
+
+
+def test_persistent_pitch_fader_composes_with_live_jog_and_returns_to_its_setting():
+    deck = Deck(rec("pitch-ride", 120, "8A"), 1.0, 5.0, tone(1000, 5.0))
+    wait_for(deck, 30)
+    try:
+        start = deck.at()
+        assert deck.set_pitch(1.06)
+        assert deck.pitch_ramping
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+        assert deck.pitch_rate == pytest.approx(1.06)
+        assert deck.playback_rate == pytest.approx(1.06)
+
+        assert deck.set_bend(1.04)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+        assert deck.playback_rate == pytest.approx(1.06 * 1.04)
+        assert deck.at() > start
+        assert deck.remaining == int(
+            max(0.0, deck.total_frames * FRAME_SAMPLES - deck._source_samples)
+            // (FRAME_SAMPLES * deck.playback_rate)
+        )
+
+        # Jog release returns to the persistent fader, not to unity.
+        assert deck.set_bend(1.0, release=True)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+        assert deck.bend["rate"] == pytest.approx(1.0)
+        assert deck.pitch_rate == pytest.approx(1.06)
+        assert deck.playback_rate == pytest.approx(1.06)
+
+        assert deck.set_pitch(1.0)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+        assert deck.pitch_rate == pytest.approx(1.0)
+        assert deck.playback_rate == pytest.approx(1.0)
+        assert deck.set_pitch(1.081) is False
+        assert deck.set_pitch(True) is False
+        assert deck.set_pitch(float("nan")) is False
+    finally:
+        deck.close()
+
+
+def test_transition_planner_matches_the_incoming_deck_to_the_persistent_pitch_rate():
+    plan = plan_transition(
+        3.1, 1.0, STEADY, 60.0, nxt(), "skip", 16, lead=2.0,
+        playback_rate=1.06,
+    )
+    assert plan.kind == "blend"
+    assert plan.playback_rate == pytest.approx(1.06)
+    assert plan.ratio == pytest.approx(1.06)
+    # Transition coordinates remain in decoded-source time; wall BPM changes.
+    assert plan.beat == pytest.approx(0.5)
+    assert plan.length == pytest.approx(8.0)
+    assert plan.drop >= 3.1 + 0.75 + 2.0 * 1.06

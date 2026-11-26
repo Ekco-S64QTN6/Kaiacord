@@ -110,10 +110,18 @@ during that release. **KAIA MIX** cancels the tail immediately and hands the mix
 The effect is on the program/master path: the headphone MASTER leg hears it, while the
 independent PFL CUE leg remains dry.
 
+To set a persistent pitch ride, move the **TEMPO** slider on the on-air deck between −8% and
++8%. It changes tempo and pitch together, ramps over eight rendered frames, and updates the
+reported BPM and remaining-time clock. The selected PFL decoder follows the same rate whether
+PHONES was selected before or after the ride began. Return the slider to 0.0% to restore the
+synced/base rate. The pitch fader is distinct from the platter's temporary jog bend and is
+available only while the on-air deck is playing without a transition, loop, slip roll, jog hold
+or pause owning it.
+
 To give the on-air record a temporary jog nudge, rotate the on-air deck's platter clockwise
 to speed it up or counterclockwise to slow it down. A half-turn from the starting point reaches
-the ±8% limit; returning toward the starting point moves the rate back toward unity. Release
-the platter to ramp back to the deck's synced/base tempo over eight rendered frames. The nudge
+the ±8% limit; returning toward the starting point moves the rate back toward the current pitch-fader setting. Release
+the platter to ramp back to that persistent setting over eight rendered frames. The nudge
 changes playback speed and pitch together and resumes from the source position reached during
 the gesture. The selected PFL cue follows the same rate. The free deck's platter remains a cue
 scrubber, not a live pitch control.
@@ -127,7 +135,7 @@ after a reload lost the original pointer state), tap the platter once to acknowl
 completed safety return and re-arm jog control.
 
 This is one human-operated echo effect, not a full effects bank or an autonomous Kaia skill.
-Permanent pitch rides, further performance effects and physical headphone/device acceptance remain open in [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403).
+Further performance effects and physical headphone/device acceptance remain open in [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403).
 The browser gesture coverage is separate from Kaia's musical decision-making in
 [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402); technical tests still do not
 prove that a transition sounds good.
