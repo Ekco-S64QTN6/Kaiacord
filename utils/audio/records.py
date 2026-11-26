@@ -2444,7 +2444,7 @@ class CrossfadeSource(_AudioSource):
                 return True
             if deck is None:
                 return False
-            if (deck.loop_active or deck.roll_active or deck.bend["active"]
+            if (deck.loop_active or deck.roll_active or deck.bend["active"] or deck.pitch_ramping
                     or (self._pending_loop_exit is not None and self._pending_loop_exit.old is deck)):
                 return False
             if expected_path is not None and deck.record.path != expected_path:
@@ -2460,6 +2460,7 @@ class CrossfadeSource(_AudioSource):
                 return False
             target = min(target, seconds - 0.04)
             record, ratio, gain, semitones = deck.record, deck.ratio, deck.gain, deck.semitones
+            pitch_rate = deck.pitch_rate
             old_deck = deck
             if self._splice is not None:
                 self._cancel_splice()
@@ -2470,6 +2471,9 @@ class CrossfadeSource(_AudioSource):
         try:
             preview = Deck(record, ratio, seconds, self._factory, gain=gain,
                            offset=target, semitones=semitones)
+            if not preview.set_pitch(pitch_rate, immediate=True):
+                preview.close()
+                return False
             if not _wait_deck(preview, 5, 1.0):
                 preview.close()
                 return False
@@ -2483,6 +2487,8 @@ class CrossfadeSource(_AudioSource):
             active = (self.current is old_deck) if owner == "current" else (self.hand is old_deck)
             stale = (generation != self._gen or not active or self.blend_started()
                      or self._splice is not None
+                     or not math.isclose(old_deck.pitch_rate, pitch_rate, rel_tol=1e-6, abs_tol=1e-6)
+                     or old_deck.pitch_ramping
                      or (expected_path is not None and old_deck.record.path != expected_path))
             if not stale:
                 preview.grid = old_deck.grid
@@ -2501,6 +2507,12 @@ class CrossfadeSource(_AudioSource):
 
         assert preview is not None
         old_deck.close()
+        # A selected PFL decoder belongs to the same deck/cue point. Rebuild it
+        # from the committed on-air decoder so its source cursor and pitch agree.
+        with self._lock:
+            refresh_headphones = owner == "current" and self._headphones_slot == slot
+        if refresh_headphones and not self.set_headphones(slot, force=True):
+            log_warning(f"[records] PFL decoder could not follow deck {slot}'s hot cue")
         if replan:
             self._begin_planning(replan)
         log_info(f"[records] deck {slot} jumped to hot cue at {target:.3f}s")

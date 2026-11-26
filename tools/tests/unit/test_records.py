@@ -397,6 +397,29 @@ def test_hot_cue_rebuilds_the_active_deck_at_exact_source_time(hotcue_source):
     assert len(replacement._frames) >= 5
 
 
+
+
+def test_hot_cue_preserves_persistent_pitch_and_rebuilds_selected_pfl_decoder(hotcue_source):
+    src = hotcue_source
+    assert src.set_headphones(1)
+    assert src.set_pitch(1, 1.05)
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+        src.read()
+    old = src.current
+    assert old is not None and old.pitch_rate == pytest.approx(1.05)
+    assert src._headphones_deck is not None
+    assert src._headphones_deck.pitch_rate == pytest.approx(1.05)
+
+    assert src.jump_to_cue(1, 5.25, expected_path=old.record.path)
+    replacement = src.current
+    preview = src._headphones_deck
+    assert replacement is not old
+    assert replacement is not None and replacement.pitch_rate == pytest.approx(1.05)
+    assert replacement.at() * replacement.ratio == pytest.approx(5.25, abs=0.02)
+    assert preview is not None and preview.pitch_rate == pytest.approx(1.05)
+    assert preview.at() == pytest.approx(replacement.at(), abs=1 / R.FRAMES_PER_S)
+
+
 def test_hot_cue_refuses_an_active_transition_without_mutating_it(hotcue_source):
     src = hotcue_source
     original = src.current
