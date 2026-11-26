@@ -54,7 +54,7 @@ def audio_signature(path: str, *, refresh: bool = False) -> Optional[str]:
         if (not refresh and held is not None and held[0] == key
                 and now - held[2] < _RECHECK_SECONDS):
             _cache.move_to_end(path)
-            return held[1]
+            return f"v{IDENTITY_VERSION}:{held[1]}"
 
     try:
         with open(path, "rb") as stream:
