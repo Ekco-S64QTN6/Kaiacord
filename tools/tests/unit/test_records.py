@@ -2269,9 +2269,17 @@ def test_slip_roll_repeats_predecoded_pcm_while_the_live_deck_clock_advances(loo
 
     assert src.set_roll(1, 1, pressed=False)
     assert deck._roll is not None and deck._roll.release_played == deck.played
-    released = [deck.frame() for _ in range(R.SLIP_ROLL_RELEASE_FRAMES)]
-    assert len(released) == R.SLIP_ROLL_RELEASE_FRAMES
+    release_start = deck._roll.release_played
+    deadline = time.monotonic() + 1.0
+    while deck._roll is not None and time.monotonic() < deadline:
+        before = deck.played
+        deck.frame()
+        if deck.played == before:
+            # A temporarily empty decoder returns silence without advancing
+            # the source clock; give its pump time to refill before retrying.
+            time.sleep(0.002)
     assert deck._roll is None
+    assert deck.played == release_start + R.SLIP_ROLL_RELEASE_FRAMES
     assert deck.at() == pytest.approx(_slip_live_position(deck))
     assert deck.at() > roll.end_own / deck.ratio
 
@@ -2364,3 +2372,244 @@ def test_slip_roll_rejects_conflicting_loop_transition_pause_and_unusable_grids(
 
     assert src.set_loop(1, 2)
     assert not src.set_roll(1, 1, pressed=True)
+
+
+@pytest.mark.parametrize("target,expected_direction", [(1.08, 1), (0.92, -1)])
+def test_live_jog_bend_resamples_the_pcm_and_tracks_the_real_source_cursor(target, expected_direction):
+    values = np.arange(30_000, dtype=np.int16)
+    pcm = np.repeat(values, 2).tobytes()
+
+    def ramp_factory(_path, _ratio, **_kwargs):
+        return io.BytesIO(pcm)
+
+    deck = Deck(rec("jog-ramp", 120, "8A"), 1.0, 0.6, ramp_factory)
+    wait_for(deck, 30)
+    try:
+        start = deck.at()
+        assert deck.set_bend(target)
+        assert deck.bend["active"] is True
+
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 12):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+
+        assert deck.bend["rate"] == pytest.approx(target, abs=1e-5)
+        output = np.frombuffer(deck.frame(), dtype=np.int16).reshape(-1, 2)[:, 0].astype(np.float32)
+        mean_step = float(np.mean(np.diff(output[100:850])))
+        assert mean_step > 1.04 if expected_direction > 0 else mean_step < 0.96
+
+        consumed = deck._source_samples
+        rendered_frames = R.PITCH_BEND_RAMP_FRAMES + 13
+        neutral_consumption = rendered_frames * FRAME_SAMPLES
+        if expected_direction > 0:
+            assert consumed > neutral_consumption
+        else:
+            assert consumed < neutral_consumption
+        assert deck.at() > start if expected_direction > 0 else deck.at() < start + rendered_frames * FRAME_SAMPLES / RATE
+
+        # Releasing the platter ramps back to 1.0 without jumping the source cursor.
+        before_release = deck._source_samples
+        assert deck.set_bend(1.0, release=True)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            assert deck.frame() is not None
+        assert deck.bend["active"] is False
+        assert deck.bend["rate"] == pytest.approx(1.0)
+        assert deck._source_samples > before_release
+        assert deck.at() == pytest.approx(
+            (deck._source_samples - deck.pad) / RATE + deck.offset / deck.ratio
+        )
+    finally:
+        deck.close()
+
+
+def test_live_jog_ring_stays_bounded_across_repeated_slow_holds():
+    values = np.arange(720_000, dtype=np.int16)
+    pcm = np.column_stack((values, values)).astype(np.int16).tobytes()
+
+    def ramp_factory(_path, _ratio, **_kwargs):
+        return io.BytesIO(pcm)
+
+    deck = Deck(rec("repeated-jog", 120, "8A"), 1.0, 15.0, ramp_factory)
+    wait_for(deck, 25)
+    try:
+        for _ in range(5):
+            assert deck.set_bend(0.92)
+            for _ in range(40):
+                frame = deck.frame()
+                assert frame is not None and len(frame) == FRAME_BYTES
+            assert deck.set_bend(1.0, release=True)
+            for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+                frame = deck.frame()
+                assert frame is not None and len(frame) == FRAME_BYTES
+            assert deck.bend_active is False
+            # The ring contains only the interpolation look-ahead, not a
+            # growing backlog from each 8% slow-down.
+            buffered = deck._bend_write_pos - deck._bend_read_pos
+            assert 0 <= buffered < 2 * FRAME_SAMPLES
+            assert deck._bend_capacity == R.PITCH_BEND_BUFFER_FRAMES * FRAME_SAMPLES + 2 * FRAME_SAMPLES
+        assert deck.played == 5 * (40 + R.PITCH_BEND_RAMP_FRAMES)
+        assert deck._source_samples > 0
+    finally:
+        deck.close()
+
+
+def test_live_jog_bend_keeps_program_and_pfl_decoders_in_lockstep(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    src.controls.set(None, "phones", 1.0)
+    src.controls.set(None, "phones_mix", 0.0)
+    assert src.set_headphones(1)
+    stream = src.attach_headphone_stream()
+    assert stream is not None
+    head = src._headphones_deck
+    assert head is not None
+    try:
+        assert src.set_bend(1, 1.06)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 15):
+            program = src.read()
+            monitor = stream.get_nowait()
+            assert np.allclose(np.frombuffer(program, np.int16),
+                               np.frombuffer(monitor, np.int16), atol=1)
+        assert deck.bend["rate"] == head.bend["rate"] == pytest.approx(1.06)
+        assert deck._source_samples == pytest.approx(head._source_samples, abs=1.0)
+        assert deck.at() == pytest.approx(head.at(), abs=1.0 / R.RATE)
+
+        assert src.set_bend(1, 1.0, release=True)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES + 2):
+            program = src.read()
+            monitor = stream.get_nowait()
+            assert np.allclose(np.frombuffer(program, np.int16),
+                               np.frombuffer(monitor, np.int16), atol=1)
+        assert not deck.bend_active and not head.bend_active
+        assert deck._source_samples == pytest.approx(head._source_samples, abs=1.0)
+    finally:
+        src.detach_headphone_stream(stream)
+        src.set_headphones(None)
+
+
+def test_live_jog_start_guard_reserves_fastest_rate_timeout_and_release_headroom(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    original = deck._source_samples
+    try:
+        # At base speed 540 output frames appear to exceed the old 518-frame
+        # guard, but a +8% hold can consume those samples before its 500-frame
+        # timeout and eight-frame return ramp have completed.
+        with src._lock:
+            deck._source_samples = (
+                deck.total_frames * FRAME_SAMPLES - 540 * FRAME_SAMPLES
+            )
+        assert deck.remaining == 540
+        assert not src.set_bend(1, 1.08)
+
+        # Once the same hold has started with sufficient headroom, subsequent
+        # platter updates are not re-rejected as its remaining time decreases.
+        with src._lock:
+            deck._source_samples = (
+                deck.total_frames * FRAME_SAMPLES
+                - (R.PITCH_BEND_START_HEADROOM_FRAMES + 1) * FRAME_SAMPLES
+            )
+        assert src.set_bend(1, 1.08)
+        with src._lock:
+            deck._source_samples = (
+                deck.total_frames * FRAME_SAMPLES - 540 * FRAME_SAMPLES
+            )
+        assert src.set_bend(1, 1.04)
+        assert deck.bend["target"] == pytest.approx(1.04)
+        assert src.set_bend(1, 1.0, release=True)
+    finally:
+        with src._lock:
+            deck._source_samples = original
+
+
+def test_live_jog_bend_validation_conflicts_timeout_and_skip_release(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+
+    for bad in (True, False, float("nan"), float("inf"), 10 ** 1000, 0.91, 1.09, "1.02", None):
+        assert not src.set_bend(1, bad)
+
+    src._planning = True
+    assert not src.set_bend(1, 1.04)
+    src._planning = False
+
+    # The glide worker can be preparing a splice before _splice is published.
+    src._gliding = True
+    assert not src.set_bend(1, 1.04)
+    src._gliding = False
+
+    src.paused.add(1)
+    assert not src.set_bend(1, 1.04)
+    src.paused.clear()
+
+    assert src.set_loop(1, 2)
+    assert not src.set_bend(1, 1.04)
+    assert src.set_loop(1, None)
+    while src._pending_loop_exit is not None:
+        src.read()
+
+    assert src.set_bend(1, 1.04)
+    assert deck.bend_active
+    assert not src.set_loop(1, 2)
+    assert not src.set_roll(1, 1, pressed=True)
+    assert not src.jump_to_cue(1, 5.0)
+    src.skip()
+    assert deck.bend["target"] == pytest.approx(1.0)
+
+
+def test_live_jog_timeout_covers_the_whole_hold_across_the_neutral_crossing(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+
+    assert src.set_bend(1, 1.05)
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES + 2):
+        src.read()
+    assert deck.bend["rate"] == pytest.approx(1.05)
+
+    # Returning to the platter centre is not a pointer release.
+    assert src.set_bend(1, 1.0)
+    assert deck._bend_hold_active is True
+    deck._bend_frames = R.PITCH_BEND_MAX_FRAMES - 1
+    src.read()
+    assert deck._bend_expired is True
+    assert deck._bend_hold_active is False
+    assert src.set_bend(1, 1.06) is False
+
+    # The rate returns to unity and the planner may proceed after the ramp.
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES + 2):
+        src.read()
+    assert deck.bend_active is False
+    assert deck._bend_expired is True
+    assert src.plan is None
+    assert src.set_bend(1, 1.06) is False
+    assert not src.set_loop(1, 2)
+    assert not src.set_roll(1, 1, pressed=True)
+    assert not src.jump_to_cue(1, 5.0)
+
+    # The expired hold stays latched until an explicit release arrives.
+    assert src.set_bend(1, 1.0, release=True)
+    assert deck._bend_expired is False
+    assert src.set_bend(1, 1.04)
+    assert src.set_bend(1, 1.0, release=True)
+
+
+def test_live_jog_bend_defers_automatic_planning_until_neutral(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    src._glide_next = 0
+    assert src.set_bend(1, 1.04)
+
+    for _ in range(15):
+        src.read()
+    assert src.plan is None
+    assert deck.bend_active
+
+    assert src.set_bend(1, 1.0, release=True)
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+        src.read()
+    assert not deck.bend_active

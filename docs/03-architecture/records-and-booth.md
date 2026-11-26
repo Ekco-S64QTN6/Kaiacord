@@ -317,7 +317,7 @@ is registered, but no autonomous skill currently owns or schedules it; the opera
 alone controls the master echo in the booth. This is an explicit bridge, not a claim
 that the future #403 capability model is already integrated. The manual slip-roll primitive
 and master echo are real operator controls, but neither is currently an autonomous skill. Do not
-advertise roll/beat-juggle compositions, live jog/pitch bend, scratches, filters, stutters or effects
+advertise roll/beat-juggle compositions, manual jog bends, scratches, filters, stutters or effects
 beyond the manual echo as selectable skills or cosmetic controls. Human audition on real records
 and independent/blind assessment remain mandatory under #402.
 
@@ -376,10 +376,30 @@ applies the PCM delay/feedback path after the program mix. The delay is fixed to
 tempo while running, feedback/wet are capped and ramped, release closes the input gate and
 lets a finite tail decay, and KAIA MIX/reset cancels it. The PFL CUE signal remains independent;
 the MASTER leg hears the effected program. This is one master echo effect, not a general FX
-send/return, an automated skill or a substitute for local audio audition. Momentary/slip rolls
-and live jog/pitch bend remain unimplemented. Further effects (filter, delay variants, reverb,
-phaser/flanger, stutter/repeat and performance effects) still need their own bounded DSP,
-cancellation and recovery paths before exposure.
+send/return, an automated skill or a substitute for local audio audition.
+
+**Live jog / pitch bend** is a separate momentary operator control on the on-air platter.
+Clockwise/counterclockwise movement changes decoder sample consumption between 0.92× and
+1.08×, so tempo and pitch move together; this is a phase nudge, not a beat-matched permanent
+pitch slider. The resampler uses a lazily prepared, fixed-capacity PCM ring and emits the same
+960-sample/20 ms frame shape. Ring allocation happens on the booth request thread before
+acquiring the renderer lock. The program and selected PFL decoders receive the same target and
+advance their own source clocks at the actual resampling rate; the dashboard playhead, tempo,
+pitch and remaining-time estimates use that rate too. A platter release ramps back to unity over
+eight rendered frames. The entire hold is capped at 500 rendered frames (10 seconds), including
+time spent crossing the platter centre; an engine timeout and a browser release timer both
+return to unity if pointer-up is lost. Pointer cancel, lost capture, blur, page hide and hidden-tab
+events also release the gesture. If a page reload loses the original pointer state, the
+platter remains available for a one-tap release acknowledgement while **JOG RELEASE** is shown;
+pause, skip and KAIA MIX/reset are also explicit hand-back paths. Planning, automatic tempo glide
+and solo phrase skills are suspended while the nudge owns the deck; a new bend is refused while
+a transition, loop, slip roll, pause, splice or tempo-glide preparation owns the deck. The live source cursor is retained across the temporary rate change, so the
+record resumes where the decoder actually advanced to. This remains a human-operated primitive,
+not an autonomous pitch-ride skill, scratch, backspin or permanent pitch control. Physical device
+latency and musical suitability still require listening.
+
+Further effects (filter, delay variants, reverb, phaser/flanger, stutter/repeat and performance
+effects) still need their own bounded DSP, cancellation and recovery paths before exposure.
 
 The `records-browser-tests` Playwright suite opens the actual loopback booth in Chromium and
 exercises memory/hot cue store, Shift-click overwrite, filled-pad recall, right-click clear,

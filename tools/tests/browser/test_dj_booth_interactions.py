@@ -1,7 +1,8 @@
-"""Real-browser gesture tests for the DJ booth cue and beat-loop controls."""
+"""Real-browser pointer tests for cue banks, beat loops, slip rolls and live jog recovery."""
 from __future__ import annotations
 
 import io
+import json
 import time
 import types
 
@@ -316,5 +317,120 @@ def test_real_browser_holds_and_releases_a_slip_roll_on_the_live_deck(booth):
             _wait_for_ui_state(page, "#deck1 [data-loop-status]", "OFF")
         finally:
             page.mouse.up()
+            page.close()
+            browser.close()
+
+
+def test_real_browser_jog_platter_bends_live_playback_and_returns_to_neutral(booth):
+    _session, source, _record, base = booth
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1600, "height": 1100})
+        page.add_init_script("localStorage.setItem('kaia.fx', '0')")
+        try:
+            response = page.goto(base, wait_until="domcontentloaded", timeout=15000)
+            assert response is not None and response.ok
+            _wait_for_ui_state(page, "#deck1 [data-f=state]", "ON AIR")
+
+            jog = page.locator('#deck1 [data-c="jog"]')
+            box = jog.bounding_box()
+            assert box is not None
+            cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+            radius = min(box["width"], box["height"]) * 0.36
+            page.mouse.move(cx, cy - radius)
+            page.mouse.down()
+
+            with page.expect_response(
+                lambda result: result.url.endswith("/bend")
+                and result.request.method == "POST"
+                and json.loads(result.request.post_data or "{}").get("action") == "set"
+            ) as bend_response:
+                # A clockwise quarter-turn on the platter is a +4% temporary bend.
+                page.mouse.move(cx + radius, cy, steps=8)
+            assert bend_response.value.status == 204
+            deck = source.current
+            assert deck is not None
+            target_rate = deck.bend["target"]
+            # Real pointer events sample the chord at browser-pixel positions;
+            # assert a clear clockwise speed-up, not an exact geometric quarter-turn.
+            assert 1.01 < target_rate <= 1.08
+
+            start_samples = deck._source_samples
+            for _ in range(20):
+                source.read()
+            # Additional coalesced pointer events may update the target while
+            # the renderer advances; the applied rate need not equal the first
+            # request observed above, but it must remain a clockwise speed-up.
+            assert 1.01 < deck.bend["rate"] <= 1.08
+            assert deck._source_samples - start_samples > 20 * R.FRAME_SAMPLES
+            assert deck.at() > start_samples / R.RATE
+
+            with page.expect_response(
+                lambda result: result.url.endswith("/bend")
+                and result.request.method == "POST"
+                and json.loads(result.request.post_data or "{}").get("action") == "release"
+            ) as release_response:
+                page.mouse.up()
+            assert release_response.value.status == 204
+            for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+                source.read()
+            assert deck.bend["active"] is False
+            assert deck.bend["rate"] == pytest.approx(1.0)
+            page.wait_for_function(
+                "() => { const e = document.querySelector('#deck1 [data-f=meta]'); return !!e && e.textContent.includes('JOG READY'); }",
+                timeout=5000,
+            )
+        finally:
+            page.mouse.up()
+            page.close()
+            browser.close()
+
+
+def test_real_browser_can_acknowledge_an_expired_jog_hold_from_the_platter(booth):
+    _session, source, _record, base = booth
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1600, "height": 1100})
+        page.add_init_script("localStorage.setItem('kaia.fx', '0')")
+        try:
+            response = page.goto(base, wait_until="domcontentloaded", timeout=15000)
+            assert response is not None and response.ok
+            _wait_for_ui_state(page, "#deck1 [data-f=state]", "ON AIR")
+
+            deck = source.current
+            assert deck is not None
+            # Model the engine's 10-second safety return after the originating
+            # tab/pointer state was lost. The samples are already at unity;
+            # only the explicit acknowledgement latch remains.
+            with source._lock:
+                deck._bend_target = 1.0
+                deck._bend_rate = 1.0
+                deck._bend_ramp_remaining = 0
+                deck._bend_hold_active = False
+                deck._bend_expired = True
+
+            page.wait_for_function(
+                "() => { const e = document.querySelector('#deck1 [data-f=meta]'); return !!e && e.textContent.includes('JOG RELEASE'); }",
+                timeout=5000,
+            )
+            jog = page.locator('#deck1 [data-c="jog"]')
+            assert "acknowledge" in (jog.get_attribute("title") or "")
+            box = jog.bounding_box()
+            assert box is not None
+
+            with page.expect_response(
+                lambda result: result.url.endswith("/bend")
+                and result.request.method == "POST"
+                and json.loads(result.request.post_data or "{}").get("action") == "release"
+            ) as release_response:
+                page.mouse.click(box["x"] + box["width"] / 2,
+                                 box["y"] + box["height"] / 2)
+            assert release_response.value.status == 204
+            assert deck.bend["expired"] is False
+            page.wait_for_function(
+                "() => { const e = document.querySelector('#deck1 [data-f=meta]'); return !!e && e.textContent.includes('JOG READY'); }",
+                timeout=5000,
+            )
+        finally:
             page.close()
             browser.close()

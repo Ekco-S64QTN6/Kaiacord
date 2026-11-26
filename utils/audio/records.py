@@ -10,7 +10,12 @@ eight bars. All of it is ffmpeg and NumPy on the CPU: no model, no VRAM.
 The free deck can also be worked by hand from the DJ booth: a record loaded
 onto it (`load`), its cue point moved (`set_cue`), played synced and on the
 beat (`play_hand`) while the faders do the mix, taking over once the record on
-air has gone quiet — or finished by Kaia (`finish`).
+air has gone quiet — or finished by Kaia (`finish`). The on-air jog platter
+also offers a momentary live pitch/phase nudge: decoded PCM is resampled at a
+bounded rate up to ±8%, the source clock advances at the actual consumed sample
+rate, and release returns to the base rate over eight rendered frames. Its
+selected PFL twin follows the same rate; this is a manual nudge, not a permanent
+pitch setting or an autonomous DJ skill.
 
 The mixer renders complete 20 ms PCM frames on a worker. A bounded
 `BufferedRecordsSource` queue sits between it and discord.py, so the voice
@@ -128,6 +133,7 @@ def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0
 
 
 FRAME_SAMPLES = RATE * FRAME_MS // 1000
+_FRAME_SAMPLE_OFFSETS = np.arange(FRAME_SAMPLES, dtype=np.float32)
 #: The blend: this many beats from the incoming record's first downbeat to the
 #: outgoing record gone. The bass swaps halfway, on a bar.
 MIX_BEATS = 64
@@ -218,6 +224,17 @@ class DeckLoop:
 SLIP_ROLL_MAX_FRAMES = 600
 SLIP_ROLL_RELEASE_FRAMES = 4
 
+#: Temporary live jog bend: +/-8%, 10-second fail-safe hold, smooth 8-frame release.
+PITCH_BEND_LIMIT = 0.08
+PITCH_BEND_MAX_FRAMES = 500
+PITCH_BEND_RAMP_FRAMES = 8
+PITCH_BEND_BUFFER_FRAMES = 4
+#: Source-frame headroom for the longest hold at maximum positive bend plus
+#: its return ramp and a small safety margin.
+PITCH_BEND_START_HEADROOM_FRAMES = math.ceil(
+    (PITCH_BEND_MAX_FRAMES + PITCH_BEND_RAMP_FRAMES) * (1.0 + PITCH_BEND_LIMIT) + 10
+)
+
 
 @dataclass(frozen=True)
 class DeckRoll:
@@ -258,6 +275,23 @@ class Deck:
         self.offset = max(0.0, offset)                      # seconds of the record skipped, own time
         self.total_frames = int(((seconds - self.offset) / ratio * RATE + self.pad) / FRAME_SAMPLES)
         self.played = 0                         # monotonic render-frame clock, even through loops and slip rolls
+        # Source time is counted in decoded 48 kHz samples. It normally equals
+        # played * 960, but live jog bend consumes source samples faster/slower.
+        self._source_samples = 0.0
+        self._bend_target = 1.0
+        self._bend_rate = 1.0
+        self._bend_ramp_remaining = 0
+        self._bend_frames = 0
+        self._bend_hold_active = False
+        self._bend_expired = False
+        self._bend_buffer_active = False
+        self._bend_capacity = PITCH_BEND_BUFFER_FRAMES * FRAME_SAMPLES + FRAME_SAMPLES * 2
+        self._bend_ring: Optional[np.ndarray] = None
+        self._bend_setup_lock = threading.Lock()
+        self._bend_read_pos = 0.0
+        self._bend_write_pos = 0
+        self._bend_pending_samples: Optional[np.ndarray] = None
+        self._bend_pending_offset = 0
         self._loop: Optional[DeckLoop] = None
         self._roll: Optional[DeckRoll] = None
         extra = {**({"gain": gain} if gain else {}), **({"offset": self.offset} if self.offset else {}),
@@ -301,8 +335,157 @@ class Deck:
         with self._lock:
             return len(self._frames) >= frames or self._eof
 
+    def _take_live_frame(self) -> Optional[bytes]:
+        """Consume one decoder frame; b"" means temporarily starved, None means EOF."""
+        with self._lock:
+            if self._frames:
+                frame = self._frames.popleft()
+                self._room.release()
+                return frame
+        if self._eof:
+            return None
+        global DECKS_STARVED
+        DECKS_STARVED += 1
+        return b""
+
+    def prepare_bend(self) -> bool:
+        """Allocate the fixed resampler ring off the renderer's frame lock."""
+        if self._bend_ring is not None:
+            return True
+        with self._bend_setup_lock:
+            if self._bend_ring is not None:
+                return True
+            try:
+                ring = np.zeros((self._bend_capacity, 2), dtype=np.float32)
+            except MemoryError:
+                return False
+            self._bend_ring = ring
+        return True
+
+    def set_bend(self, rate: float, *, release: bool = False) -> bool:
+        """Set a temporary playback-rate multiplier; 1.0 is the neutral jog position."""
+        if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+            return False
+        try:
+            target = float(rate)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
+            return False
+        if target != 1.0 and (
+            self._bend_expired or self._loop is not None or self._roll is not None
+        ):
+            return False
+        if target != 1.0 and not self._bend_buffer_active:
+            if not self.prepare_bend():
+                return False
+            self._bend_buffer_active = True
+        if target != 1.0 and not self._bend_hold_active:
+            self._bend_hold_active = True
+            self._bend_frames = 0
+        if release:
+            # Only a real pointer-up / explicit hand-back opens a new hold.
+            self._bend_hold_active = False
+            self._bend_expired = False
+            self._bend_frames = 0
+        if not math.isclose(target, self._bend_target, abs_tol=1e-5):
+            self._bend_target = target
+            self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
+        return True
+
+    def _bend_ensure(self, through: int) -> Optional[bool]:
+        """Append only the source samples required by the next output frame.
+
+        Complete decoded frames arrive from the pump, but unused tails remain
+        pending instead of entering the ring. This keeps a slow nudge from
+        accumulating buffered samples across repeated gestures.
+        """
+        ring = self._bend_ring
+        if ring is None:
+            return False
+        wanted = through + 1
+        while self._bend_write_pos < wanted:
+            pending = self._bend_pending_samples
+            if pending is None or self._bend_pending_offset >= FRAME_SAMPLES:
+                frame = self._take_live_frame()
+                if frame is None:
+                    return None
+                if not frame:
+                    return False
+                pending = np.frombuffer(frame, dtype=np.int16).reshape(
+                    FRAME_SAMPLES, 2
+                ).astype(np.float32)
+                self._bend_pending_samples = pending
+                self._bend_pending_offset = 0
+
+            free = int(self._bend_capacity - (self._bend_write_pos - self._bend_read_pos))
+            if free <= 0:
+                return False
+            available = FRAME_SAMPLES - self._bend_pending_offset
+            count = min(available, wanted - self._bend_write_pos, free)
+            if count <= 0:
+                return False
+
+            start = self._bend_write_pos % self._bend_capacity
+            end = start + count
+            source_start = self._bend_pending_offset
+            source_end = source_start + count
+            if end <= self._bend_capacity:
+                ring[start:end] = pending[source_start:source_end]
+            else:
+                first = self._bend_capacity - start
+                ring[start:] = pending[source_start:source_start + first]
+                ring[:end - self._bend_capacity] = pending[source_start + first:source_end]
+            self._bend_write_pos += count
+            self._bend_pending_offset = source_end
+            if self._bend_pending_offset >= FRAME_SAMPLES:
+                self._bend_pending_samples = None
+                self._bend_pending_offset = 0
+        return True
+
+    def _bent_frame(self) -> Optional[bytes]:
+        """Resample the live decoded stream at the temporary jog rate."""
+        if self._bend_hold_active:
+            self._bend_frames += 1
+            if self._bend_frames >= PITCH_BEND_MAX_FRAMES:
+                self._bend_expired = True
+                self._bend_hold_active = False
+                self._bend_target = 1.0
+                self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
+        if self._bend_ramp_remaining:
+            remaining = self._bend_ramp_remaining
+            self._bend_rate += (self._bend_target - self._bend_rate) / remaining
+            self._bend_ramp_remaining -= 1
+            if self._bend_ramp_remaining == 0:
+                self._bend_rate = self._bend_target
+
+        rate = self._bend_rate
+        positions = self._bend_read_pos + _FRAME_SAMPLE_OFFSETS * rate
+        indices = np.floor(positions).astype(np.int64)
+        needed = int(indices[-1]) + 1
+        available = self._bend_ensure(needed)
+        if available is None:
+            return None
+        if not available:
+            # b"" is temporary decoder starvation. The caller emits silence
+            # without moving the source cursor or freezing a slip roll.
+            return b""
+
+        if self._bend_ring is None:
+            return None
+        fractions = positions - indices
+        a = self._bend_ring[indices % self._bend_capacity]
+        b = self._bend_ring[(indices + 1) % self._bend_capacity]
+        mixed = a + (b - a) * fractions[:, None]
+        out = np.clip(np.rint(mixed), -32768, 32767).astype(np.int16).tobytes()
+        consumed = FRAME_SAMPLES * rate
+        self._bend_read_pos += consumed
+        self._source_samples += consumed
+        self.played += 1
+        return out
+
     def frame(self) -> Optional[bytes]:
-        """The next PCM frame, including a slip roll that advances the live decoder."""
+        """The next PCM frame, including a slip roll or bounded live jog bend."""
         global DECKS_STARVED
         roll = self._roll
         if roll is not None and self.played >= roll.start_played:
@@ -314,17 +497,22 @@ class Deck:
             # A slip roll repeats the prepared phrase but consumes the matching
             # live decoder frame. On release, the live playhead is therefore
             # exactly where it would have been without the roll.
-            with self._lock:
-                if self._frames:
-                    live = self._frames.popleft()
-                    self._room.release()
-                elif self._eof:
+            if self._bend_buffer_active:
+                live = self._bent_frame()
+                if live is None:
                     self._roll = None
                     return None
-                else:
-                    live = SILENCE
-                    DECKS_STARVED += 1
-            self.played += 1
+                if not live:
+                    return SILENCE
+            else:
+                live = self._take_live_frame()
+                if live is None:
+                    self._roll = None
+                    return None
+                if not live:
+                    return SILENCE
+                self.played += 1
+                self._source_samples += FRAME_SAMPLES
             repeated = roll.frames[index]
             if roll.release_played is None:
                 return repeated
@@ -343,18 +531,20 @@ class Deck:
             index = (loop.start_index + self.played - loop.start_played) % len(loop.frames)
             self.played += 1
             return loop.frames[index]
-        with self._lock:
-            if self._frames:
-                self.played += 1
-                self._room.release()
-                return self._frames.popleft()
-        if self._eof:
+        if self._bend_buffer_active:
+            bent = self._bent_frame()
+            return SILENCE if bent == b"" else bent
+        live = self._take_live_frame()
+        if live is None:
             return None
-        DECKS_STARVED += 1
-        return SILENCE
+        if not live:
+            return SILENCE
+        self.played += 1
+        self._source_samples += FRAME_SAMPLES
+        return live
 
     def at(self, frames: Optional[int] = None) -> float:
-        """Seconds into the record as played (stretched) at the start of frame `frames`."""
+        """Seconds into the record at the live decoded source cursor."""
         n = self.played if frames is None else frames
         loop = self._loop
         if loop is not None and n >= loop.start_played:
@@ -364,7 +554,13 @@ class Deck:
         if roll is not None and n >= roll.start_played:
             index = (n - roll.start_played) % len(roll.frames)
             return roll.start_own / self.ratio + index / FRAMES_PER_S
-        return (n * FRAME_SAMPLES - self.pad) / RATE + self.offset / self.ratio
+        if frames is None or n == self.played:
+            samples = self._source_samples
+        elif self._bend_buffer_active:
+            samples = self._source_samples + (n - self.played) * FRAME_SAMPLES * self._bend_rate
+        else:
+            samples = n * FRAME_SAMPLES
+        return (samples - self.pad) / RATE + self.offset / self.ratio
 
     @property
     def key(self) -> Optional[str]:
@@ -376,7 +572,8 @@ class Deck:
         loop = self._loop
         if loop is not None:
             return max(0, int(round((self.end - loop.end_own / self.ratio) * FRAMES_PER_S)))
-        return max(0, self.total_frames - self.played)
+        samples_left = max(0.0, self.total_frames * FRAME_SAMPLES - self._source_samples)
+        return int(samples_left // FRAME_SAMPLES)
 
     @property
     def loop(self) -> Optional[dict]:
@@ -420,6 +617,29 @@ class Deck:
         elif roll.release_played is None:
             self._roll = replace(roll, release_played=self.played)
         return True
+
+    @property
+    def bend(self) -> dict:
+        return {
+            "active": self._bend_hold_active or self._bend_expired
+                      or not math.isclose(self._bend_target, 1.0, abs_tol=1e-5)
+                      or not math.isclose(self._bend_rate, 1.0, abs_tol=1e-5),
+            "expired": self._bend_expired,
+            "rate": round(self._bend_rate, 4),
+            "target": round(self._bend_target, 4),
+            "percent": round((self._bend_rate - 1.0) * 100.0, 2),
+            "target_percent": round((self._bend_target - 1.0) * 100.0, 2),
+        }
+
+    @property
+    def bend_active(self) -> bool:
+        # An expired hold still needs a physical/UI release, but once its
+        # sample rate has returned to unity it no longer owns the transport.
+        return (
+            self._bend_hold_active
+            or not math.isclose(self._bend_target, 1.0, abs_tol=1e-5)
+            or not math.isclose(self._bend_rate, 1.0, abs_tol=1e-5)
+        )
 
     @property
     def end(self) -> float:
@@ -1650,6 +1870,12 @@ class CrossfadeSource(_AudioSource):
         if rolling_slot is not None:
             self.set_roll(rolling_slot, 1, pressed=False)
         with self._lock:
+            bending_slot = (
+                self.current.slot if self.current is not None and self.current.bend["active"] else None
+            )
+        if bending_slot is not None:
+            self.set_bend(bending_slot, 1.0, release=True)
+        with self._lock:
             # A skip already on its way stays on its way. Planned again from now,
             # each press moved it a phrase later — and the planner's search and a
             # fresh decoder ran again every time (24 Oct: six NEXTs in nine
@@ -1883,7 +2109,7 @@ class CrossfadeSource(_AudioSource):
 
         with self._lock:
             deck = self.current if self.current is not None and self.current.slot == slot else None
-            if (deck is None or deck.loop_active or deck.roll_active or deck.grid is None or not deck.grid.bar_known
+            if (deck is None or deck.loop_active or deck.roll_active or deck.bend["active"] or deck.grid is None or not deck.grid.bar_known
                     or self.plan is not None or self.incoming is not None or self.hand is not None
                     or self._planning or self._pending_planning_mode is not None
                     or self._pending_loop_exit is not None or slot in self.paused):
@@ -2001,7 +2227,7 @@ class CrossfadeSource(_AudioSource):
 
         with self._lock:
             deck = self.current if self.current is not None and self.current.slot == slot else None
-            if (deck is None or deck.loop_active or deck.roll_active or deck.grid is None
+            if (deck is None or deck.loop_active or deck.roll_active or deck.bend["active"] or deck.grid is None
                     or not deck.grid.bar_known or self.plan is not None or self.incoming is not None
                     or self.hand is not None or self._planning or self._pending_planning_mode is not None
                     or self._pending_loop_exit is not None or slot in self.paused):
@@ -2132,8 +2358,8 @@ class CrossfadeSource(_AudioSource):
                 return True
             if deck is None:
                 return False
-            if (deck.loop_active or deck.roll_active or (self._pending_loop_exit is not None
-                                  and self._pending_loop_exit.old is deck)):
+            if (deck.loop_active or deck.roll_active or deck.bend["active"]
+                    or (self._pending_loop_exit is not None and self._pending_loop_exit.old is deck)):
                 return False
             if expected_path is not None and deck.record.path != expected_path:
                 return False
@@ -2415,6 +2641,61 @@ class CrossfadeSource(_AudioSource):
                 self.skill_scheduler.manual_override(slot, name, at, bar_s, float(value))
             return True
 
+    def set_bend(self, slot: int, rate: float, *, release: bool = False) -> bool:
+        """Apply a live temporary jog rate to the on-air deck and its PFL twin.
+
+        The rate is a playback multiplier (0.92–1.08). One is neutral. Release
+        is always accepted for the current deck so a transition/skip can hand
+        ownership back even after the initiating browser gesture ends.
+        """
+        if isinstance(slot, bool) or slot not in (1, 2):
+            return False
+        if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+            return False
+        try:
+            target = float(rate)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
+            return False
+        with self._lock:
+            deck = self.current if self.current is not None and self.current.slot == slot else None
+            if deck is None:
+                return False
+            head = self._headphones_deck if self._headphones_slot == slot else None
+        if not math.isclose(target, 1.0, abs_tol=1e-5):
+            # Allocate bounded DSP memory on the HTTP thread, not while holding
+            # the frame-boundary lock needed by the audio renderer.
+            if not deck.prepare_bend() or (head is not None and not head.prepare_bend()):
+                return False
+        with self._lock:
+            current_head = self._headphones_deck if self._headphones_slot == slot else None
+            if self.current is not deck or current_head is not head:
+                return False
+            if math.isclose(target, 1.0, abs_tol=1e-5):
+                ok = deck.set_bend(1.0, release=release)
+                if head is not None:
+                    ok = head.set_bend(1.0, release=release) and ok
+                return ok
+            if (
+                deck.loop_active or deck.roll_active
+                or self.plan is not None or self.incoming is not None or self.hand is not None
+                or self._planning or self._pending_planning_mode is not None or self._gliding
+                or self._pending_loop_exit is not None or slot in self.paused
+                or self._splice is not None
+                or (not deck._bend_hold_active
+                    and deck.remaining <= PITCH_BEND_START_HEADROOM_FRAMES)
+            ):
+                return False
+            if head is not None and (head.loop_active or head.roll_active):
+                return False
+            if not deck.set_bend(target):
+                return False
+            if head is not None and not head.set_bend(target):
+                deck.set_bend(1.0, release=True)
+                return False
+            return True
+
     def set_echo(self, enabled: bool, beats: float = 1.0,
                  feedback: float = 0.35, wet: float = 0.30) -> bool:
         """Control the real master echo using the current on-air playback tempo."""
@@ -2424,10 +2705,11 @@ class CrossfadeSource(_AudioSource):
             current = self.current
             if current is None:
                 return False
+            playback_rate = current.ratio * current.bend["rate"]
             bpm = (
-                current.grid.bpm * current.ratio
+                current.grid.bpm * playback_rate
                 if current.grid is not None
-                else (current.record.bpm or 0.0) * current.ratio
+                else (current.record.bpm or 0.0) * playback_rate
             )
             return self.effects.set(
                 True, bpm=bpm, beats=beats, feedback=feedback, wet=wet
@@ -2695,9 +2977,10 @@ class CrossfadeSource(_AudioSource):
             pending_exit = self._pending_loop_exit
             if pending_exit is not None and pending_exit.old.slot == slot:
                 return False
-            if self.current is not None and self.current.slot == slot and self.current.roll_active:
-                # The PFL decoder must be armed with the same roll buffer and
-                # live source cursor; refuse a mid-roll replacement.
+            if self.current is not None and self.current.slot == slot and (
+                self.current.roll_active or self.current.bend["active"]
+            ):
+                # A new PFL decoder could not inherit the live roll/bend cursor.
                 return False
             desc = self._headphone_descriptor_locked(slot)
             if desc is None:
@@ -2758,6 +3041,7 @@ class CrossfadeSource(_AudioSource):
                         for _ in range(skip_frames):
                             preview._frames.popleft()
                             preview.played += 1
+                            preview._source_samples += FRAME_SAMPLES
                             preview._room.release()
             if not stale:
                 program = self.current if self.current is not None and self.current.slot == slot else None
@@ -2903,7 +3187,8 @@ class CrossfadeSource(_AudioSource):
         # Early enough to fit a blend before a long outro: the plan places
         # itself on the last phrase that leaves room, however soon it is made.
         if (plan is None and self.hand is None and not getattr(cur, "loop_active", False)
-                and not getattr(cur, "roll_active", False) and not self._planning
+                and not getattr(cur, "roll_active", False)
+                and not getattr(cur, "bend_active", False) and not self._planning
                 and cur.remaining <= int(self._plan_ahead(cur) * FRAMES_PER_S)):
             self._begin_planning("end")
         if self.hand is not None and plan is None:
@@ -2921,6 +3206,7 @@ class CrossfadeSource(_AudioSource):
             t0 = cur.at(cur.played - 1)
         elif (plan is None and not getattr(cur, "loop_active", False)
               and not getattr(cur, "roll_active", False)
+              and not getattr(cur, "bend_active", False)
               and self.tempo_glide and not self._gliding and not self._planning
               and self.frames_sent >= self._glide_next and abs(cur.ratio - 1.0) > 0.0015
               and cur.grid is not None and cur.grid.bar_known
@@ -2945,7 +3231,9 @@ class CrossfadeSource(_AudioSource):
         hands = self.controls
         solo = SOLO
         hands_now = (1.0,) * 6
-        if plan is None and not getattr(cur, "loop_active", False) and self.rides and out is not None and cur.grid is not None:
+        if (plan is None and not getattr(cur, "loop_active", False)
+                and not getattr(cur, "bend_active", False)
+                and self.rides and out is not None and cur.grid is not None):
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot, cur.ratio)
             if not handled:
@@ -3086,7 +3374,7 @@ class CrossfadeSource(_AudioSource):
             time.sleep(0.02)
         with self._lock:
             if (cur is not self.current or self.plan is not None or self.hand is not None or self._planning
-                    or not new.ready() or k_pre <= cur.played + 1):
+                    or cur.bend_active or not new.ready() or k_pre <= cur.played + 1):
                 new.close()
                 return
             new.grid, new.slot = cur.grid, cur.slot
