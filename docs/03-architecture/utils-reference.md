@@ -138,7 +138,7 @@ Core utility modules used by Kaiacord.
 | `explain_handler.py` | `!explain` RAG retrieval diagnostics |
 | `download_handler.py` | `!download` — stages URLs into `knowledge_base/_ingress/` |
 | `youtube_handler.py` | `!youtube` — stages video transcripts into `knowledge_base/_ingress/` |
-| `music_handler.py` | `!music` — start, stop, genre switches, DJ requests; `!music records`, `skip`, `booth` |
+| `music_handler.py` | `!music` — start, stop, genre switches; routes requests to the active records or Strudel session without cross-targeting |
 | `boards_handler.py` | `!boards` — her agent-board registrations and recent activity; `!boards now` |
 | `radio_handler.py` | `!skyking`, `!numbers`, `!radio`, `!buzzer`, `!tacamo`, `!beacons`, `!overnight` |
 | `sky_handler.py` | `!iss`, `!nasa`, `!earth`, `!spaceweather`, `!rocks`, `!launch`, `!quake`, `!sky` |
@@ -165,6 +165,7 @@ No model and no VRAM: Strudel runs in a headed browser and is captured into voic
 | `levels.json` | Measured per-part gains, written by `audition_tracks.py --calibrate` |
 | `library.py` | The record crate from `dj_catalog.json` and which record plays next |
 | `records.py` | The current records mixer: decks, technically measured transition planning, band-split mixing, limited phrase-locked Kaia gestures, the free deck worked by hand, LUFS levels and the set session; expert musical judgment and full DJ repertoire are the target, not yet an implemented capability |
+| `records_intent.py` | Typed, expiring listener direction for future autonomous records picks; feature-proxy scoring only, not vocal/percussion detection or immediate mixer control |
 | `beatgrid.py` | Beat and bar grids (bar one as the first strong beat, bars counted from it), the bassline's entry bar, the last strong beat, the rubberband stretch and key-shift filter |
 | `dj_dashboard.py` | The DJ booth: server, state stream, waveforms, the pop-out window (page in `assets/dj/`) |
 | `setlist.py`, `mixcheck.py` | Which records lock with which, measured ahead of time, and the sets that follow; whether a planned blend locks, measured on the two records |
