@@ -384,12 +384,12 @@ class SkillScheduler:
                         phrase.end, phrase.end + bar_s,
                     )
                     pair = (
-                        self._action("solo_build_pressure", "solo.low", start, attack_end,
-                                     release_start, end, 0.94,
-                                     "holding the low end back into a counted build candidate"),
-                        self._action("solo_build_pressure", "solo.high", start, attack_end,
-                                     release_start, end, 1.04,
-                                     "lifting the upper band into a counted build candidate"),
+                        self._phrase_action("solo_build_pressure", "solo.low", start, attack_end,
+                                           release_start, end, 0.94,
+                                           "holding the low end back into a counted build candidate", phrase),
+                        self._phrase_action("solo_build_pressure", "solo.high", start, attack_end,
+                                           release_start, end, 1.04,
+                                           "lifting the upper band into a counted build candidate", phrase),
                     )
                     if len(actions) + len(pair) > MAX_PROFILE_ACTIONS:
                         break
@@ -400,12 +400,12 @@ class SkillScheduler:
                         phrase.start + bar_s, phrase.start + 2.0 * bar_s,
                     )
                     pair = (
-                        self._action("solo_drop_reveal", "solo.low", start, attack_end,
-                                     release_start, end, 1.05,
-                                     "giving the low end a small reveal at a counted drop candidate"),
-                        self._action("solo_drop_reveal", "solo.high", start, attack_end,
-                                     release_start, end, 0.98,
-                                     "making a little room in the upper band at a counted drop candidate"),
+                        self._phrase_action("solo_drop_reveal", "solo.low", start, attack_end,
+                                           release_start, end, 1.05,
+                                           "giving the low end a small reveal at a counted drop candidate", phrase),
+                        self._phrase_action("solo_drop_reveal", "solo.high", start, attack_end,
+                                           release_start, end, 0.98,
+                                           "making a little room in the upper band at a counted drop candidate", phrase),
                     )
                     if len(actions) + len(pair) > MAX_PROFILE_ACTIONS:
                         break
@@ -413,18 +413,18 @@ class SkillScheduler:
                 elif phrase.section == "breakdown_candidate":
                     if len(actions) >= MAX_PROFILE_ACTIONS:
                         break
-                    actions.append(self._action(
+                    actions.append(self._phrase_action(
                         "solo_breakdown_breathe", "none", phrase.start,
                         phrase.start, phrase.end, phrase.end, 1.0,
-                        "letting the breakdown breathe without an extra EQ move",
+                        "letting the breakdown breathe without an extra EQ move", phrase,
                     ))
                 elif phrase.section == "groove_candidate":
                     if len(actions) >= MAX_PROFILE_ACTIONS:
                         break
-                    actions.append(self._action(
+                    actions.append(self._phrase_action(
                         "solo_groove_hold", "none", phrase.start,
                         phrase.start, phrase.end, phrase.end, 1.0,
-                        "letting a steady groove carry without an unnecessary move",
+                        "letting a steady groove carry without an unnecessary move", phrase,
                     ))
         _validate_action_set(actions, MAX_PROFILE_ACTIONS)
         self._solo_actions = tuple(actions)
