@@ -90,6 +90,8 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .dbody { display: grid; grid-template-columns: auto 1fr; gap: 14px; min-height: 0; align-items: center; }
 .jogwrap { position: relative; height: 100%; aspect-ratio: 1; max-height: 250px; min-height: 140px; }
 .jog { width: 100%; height: 100%; display: block; }
+.jog.bendable { cursor: grab; touch-action: none; }
+.jog.bending { cursor: grabbing; filter: drop-shadow(0 0 9px rgba(255,228,92,.48)); }
 .readouts { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(4px, 0.6vh, 8px); align-content: center; min-height: 0; }
 /* A short window: four rows of readouts were taller than the deck's middle, and
    spilled over the title above and the overview below. */
@@ -633,11 +635,17 @@ function dragged(slot) { return dragCue[slot] != null && performance.now() < (dr
 function posOf(d) {
   const dc = dragged(d.slot); if (dc !== null) return dc;
   // as heard: the mixer is ahead of the sound by its buffer and Discord's delay
-  return d.state === "playing" && !(S.paused || []).includes(d.slot) ? Math.max(0, Math.min(d.length, d.pos + (since() - syncLag()) * d.ratio)) : d.pos;
+  const rate = (d.ratio || 1) * (d.bend && d.bend.rate ? d.bend.rate : 1);
+  return d.state === "playing" && !(S.paused || []).includes(d.slot) ? Math.max(0, Math.min(d.length, d.pos + (since() - syncLag()) * rate)) : d.pos;
 }
 const isFree = (slot) => !!(S && S.free === slot && S.decks && S.decks[slot]);
 const blendOn = () => !!(S && S.mix && S.mix.started);
 const canScrub = (slot) => isFree(slot) && !blendOn();
+const canBend = (slot) => {
+  const d = S && S.decks && S.decks[slot];
+  return !!(d && d.on_air && d.state === "playing" && !S.mix
+    && !(S.paused || []).includes(slot) && !d.loop && !d.roll);
+};
 const handDeck = () => { const d = S && S.decks && S.decks[S.free]; return d && d.hand && !S.mix && (d.state === "playing" || d.state === "cued") ? d : null; };
 function mixNow() { return S.mix ? S.mix.now + since() - syncLag() : 0; }
 function beatLen(d) { return d.grid ? 60 / d.grid.bpm : null; }
@@ -755,7 +763,7 @@ function drawLanes() {
     g.fillStyle = "rgba(0,0,0,.35)"; g.fillRect(0, y0 + 2, W, laneH - 4);
     g.strokeStyle = COL.line; g.lineWidth = 1; g.beginPath(); g.moveTo(0, mid); g.lineTo(W, mid); g.stroke();
     if (!d) { g.fillStyle = COL.faint; g.font = "600 12px JetBrains Mono"; g.fillText(`DECK ${slot} · EMPTY`, 14, mid + 4); return; }
-    const w = waves[d.id], pos = posOf(d), ratio = d.ratio || 1, [r, gg, b] = RGB[slot];
+    const w = waves[d.id], pos = posOf(d), ratio = (d.ratio || 1) * (d.bend && d.bend.rate ? d.bend.rate : 1), [r, gg, b] = RGB[slot];
     // where this deck sits on the shared timeline: the outgoing deck's played clock
     const xOf = (t) => cx + (t - pos) / ratio * pps;
     // transition shading on both lanes
@@ -951,7 +959,7 @@ function updateDeck(slot) {
   const p = d ? d.pitch : 0;
   q(slot, '[data-f="pitch"]').innerHTML = `${p >= 0 ? "+" : "−"}${Math.abs(p).toFixed(2)}<small>%</small>`;
   q(slot, '[data-f="el"]').textContent = d ? fmt(pos / ratio) : "--:--";
-  const rem = d ? (d.length - pos) / ratio : NaN;
+  const rem = d ? (d.length - pos) / (ratio * (d.bend && d.bend.rate ? d.bend.rate : 1)) : NaN;
   q(slot, '[data-f="rem"]').textContent = d ? "−" + fmt(rem) : "--:--";
   q(slot, '[data-r="remain"]').classList.toggle("warn", !!(d && d.state === "playing" && rem < 30));
   const bt = d ? beatAt(d, pos) : null;
@@ -990,6 +998,7 @@ function updateDeck(slot) {
   }
   const loop = d && d.loop ? d.loop : null;
   const roll = d && d.roll ? d.roll : null;
+  const bend = d && d.bend ? d.bend : { active: false, percent: 0, target_percent: 0 };
   const canLoop = !!(d && d.on_air && d.state === "playing");
   for (const pad of q(slot, ".loopbank").querySelectorAll("[data-loop-beats]")) {
     const beats = Number(pad.dataset.loopBeats);
@@ -1008,8 +1017,19 @@ function updateDeck(slot) {
     : loop ? (loop.active ? `LOOP ${loop.beats}` : `ARM ${loop.beats}`) : "OFF";
   q(slot, '[data-f="play"]').classList.toggle("off", !d || (free && blendOn()));
   q(slot, '[data-c="ov"]').classList.toggle("scrub", canScrub(slot));
-  q(slot, '[data-c="jog"]').classList.toggle("scrub", canScrub(slot));
-  q(slot, '[data-f="meta"]').innerHTML = d ? `STRETCH <b>×${ratio.toFixed(4)}</b><br>LEN <b>${fmt(d.length / ratio)}</b>` : "";
+  const jog = q(slot, '[data-c="jog"]');
+  jog.classList.toggle("scrub", canScrub(slot));
+  jog.classList.toggle("bendable", canBend(slot));
+  jog.classList.toggle("bending", !!bend.active);
+  jog.title = canBend(slot)
+    ? "live jog: drag around the platter to bend tempo ±8%; release returns smoothly to the set tempo"
+    : canScrub(slot) ? "free deck: rotate the jog to move the cue point" : "jog unavailable while a transition, loop or roll owns the deck";
+  const bendText = bend.active
+    ? `JOG <b>${bend.percent >= 0 ? "+" : ""}${bend.percent.toFixed(1)}%</b>`
+    : canBend(slot) ? "JOG <b>READY</b>" : "";
+  q(slot, '[data-f="meta"]').innerHTML = d
+    ? `${bendText ? bendText + "<br>" : ""}STRETCH <b>×${ratio.toFixed(4)}</b><br>LEN <b>${fmt(d.length / ratio)}</b>`
+    : "";
   drawJog(slot, d); drawOverview(slot, d); drawPhase(slot, d);
 }
 
@@ -1068,6 +1088,33 @@ function post(path, body) {
 // Slip rolls are pointer-held controls. A missing pointer-up is also bounded
 // by the engine's 12-second auto-release, but release on blur/page hiding too.
 const heldRolls = new Map();
+const heldBends = new Map();
+function queueBend(state, rate) {
+  state.latest = rate;
+  if (state.timer) return;
+  state.timer = setTimeout(() => {
+    state.timer = 0;
+    const value = state.latest;
+    state.queue = state.queue.then(() =>
+      post("/bend", { slot: state.slot, action: "set", rate: value })
+    );
+  }, 35);
+}
+function releaseBend(slot, pointerId = null) {
+  const state = heldBends.get(slot);
+  if (!state || (pointerId !== null && state.pointerId !== pointerId)) return;
+  heldBends.delete(slot);
+  clearTimeout(state.timer);
+  clearTimeout(state.timeout);
+  state.jog.classList.remove("bending");
+  if (state.onRelease) state.onRelease();
+  state.queue = state.queue.then(() =>
+    post("/bend", { slot, action: "set", rate: state.latest })
+  ).then(() => post("/bend", { slot, action: "release" }));
+}
+function releaseAllBends() {
+  for (const [slot, state] of heldBends) releaseBend(slot, state.pointerId);
+}
 function releaseRoll(slot, pointerId = null) {
   const held = heldRolls.get(slot);
   if (!held || (pointerId !== null && held.pointerId !== pointerId)) return;
@@ -1105,10 +1152,10 @@ function releaseRoll(slot, pointerId = null) {
 const releaseAllRolls = () => {
   for (const [slot, held] of heldRolls) releaseRoll(slot, held.pointerId);
 };
-window.addEventListener("blur", releaseAllRolls);
-window.addEventListener("pagehide", releaseAllRolls);
+window.addEventListener("blur", () => { releaseAllRolls(); releaseAllBends(); });
+window.addEventListener("pagehide", () => { releaseAllRolls(); releaseAllBends(); });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) releaseAllRolls();
+  if (document.hidden) { releaseAllRolls(); releaseAllBends(); }
 });
 function ctl(slot, name) {
   const key = `${slot}:${name}`, l = local[key];
@@ -1417,7 +1464,7 @@ function commitCue(slot) {
 }
 function scrubbing(slot) {
   const ov = q(slot, '[data-c="ov"]'), jog = q(slot, '[data-c="jog"]');
-  let held = null;
+  let held = null, bendHold = null;
   const frac = (e) => { const r = ov.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); };
   ov.addEventListener("pointerdown", (e) => {
     if (!canScrub(slot)) { toast(isFree(slot) ? "kaia is mid-blend on this deck" : "this deck is on air — cue the free deck"); return; }
@@ -1425,20 +1472,67 @@ function scrubbing(slot) {
   });
   ov.addEventListener("pointermove", (e) => { if (held === "ov") moveCue(slot, frac(e) * S.decks[slot].length); });
   ov.addEventListener("pointerup", () => { if (held === "ov") { held = null; commitCue(slot); } });
-  // the jog: a full turn is sixteen beats
+  // On-air platter movement changes the actual decoder consumption rate;
+  // on the free deck the same platter remains a cue-position control.
   let ang = 0;
   const angle = (e) => { const r = jog.getBoundingClientRect(); return Math.atan2(e.clientY - r.top - r.height / 2, e.clientX - r.left - r.width / 2); };
+  const endJog = (event) => {
+    if (held === "bend") {
+      held = null;
+      releaseBend(slot, event.pointerId);
+      bendHold = null;
+    } else if (held === "jog") {
+      held = null;
+      commitCue(slot);
+    }
+  };
   jog.addEventListener("pointerdown", (e) => {
-    if (!canScrub(slot)) { if (!isFree(slot)) toast("this deck is on air — cue the free deck"); return; }
+    if (canBend(slot) && !heldBends.has(slot)) {
+      held = "bend";
+      ang = angle(e);
+      bendHold = { angle: ang, turns: 0 };
+      const state = {
+        slot, pointerId: e.pointerId, jog, latest: 1.0,
+        timer: 0, timeout: 0, queue: Promise.resolve(),
+        onRelease: () => { if (held === "bend") held = null; bendHold = null; },
+      };
+      heldBends.set(slot, state);
+      // The renderer independently enforces the same 10-second ceiling; this
+      // browser timer also releases the pointer gesture and any queued updates.
+      state.timeout = setTimeout(() => releaseBend(slot, e.pointerId), 10000);
+      jog.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+    if (!canScrub(slot)) {
+      if (isFree(slot)) toast("kaia is mid-blend on this deck");
+      else if (S && S.decks && S.decks[slot] && S.decks[slot].on_air)
+        toast("live jog unavailable during a transition, loop or roll");
+      return;
+    }
     held = "jog"; ang = angle(e); jog.setPointerCapture(e.pointerId); moveCue(slot, posOf(S.decks[slot]));
   });
   jog.addEventListener("pointermove", (e) => {
+    if (held === "bend" && bendHold) {
+      const a = angle(e);
+      let da = a - bendHold.angle;
+      if (da > Math.PI) da -= 2 * Math.PI;
+      if (da < -Math.PI) da += 2 * Math.PI;
+      bendHold.angle = a;
+      bendHold.turns += da;
+      const turns = Math.max(-1, Math.min(1, bendHold.turns / Math.PI));
+      const rate = 1.0 + turns * 0.08;
+      queueBend(heldBends.get(slot), rate);
+      return;
+    }
     if (held !== "jog") return;
     const a = angle(e); let da = a - ang; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI; ang = a;
     const d = S.decks[slot], beat = d.grid ? 60 / d.grid.bpm : 0.5;
     moveCue(slot, dragCue[slot] + da / (2 * Math.PI) * 16 * beat);
   });
-  jog.addEventListener("pointerup", () => { if (held === "jog") { held = null; commitCue(slot); } });
+  jog.addEventListener("pointerup", endJog);
+  jog.addEventListener("pointercancel", endJog);
+  jog.addEventListener("lostpointercapture", endJog);
 }
 // the parallel waveform: drag the free deck's lane sideways
 (() => {

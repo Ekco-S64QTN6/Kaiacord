@@ -110,8 +110,22 @@ during that release. **KAIA MIX** cancels the tail immediately and hands the mix
 The effect is on the program/master path: the headphone MASTER leg hears it, while the
 independent PFL CUE leg remains dry.
 
+To give the on-air record a temporary jog nudge, rotate the on-air deck's platter clockwise
+to speed it up or counterclockwise to slow it down. A half-turn from the starting point reaches
+the ±8% limit; returning toward the starting point moves the rate back toward unity. Release
+the platter to ramp back to the deck's synced/base tempo over eight rendered frames. The nudge
+changes playback speed and pitch together and resumes from the source position reached during
+the gesture. The selected PFL cue follows the same rate. The free deck's platter remains a cue
+scrubber, not a live pitch control.
+
+The nudge is available only on an on-air playing deck while no transition, loop, slip roll or
+pause owns it. It is momentary, not a permanent pitch slider or an autonomous Kaia skill. A
+10-second whole-hold safety cap forces a return to normal speed, including when the platter
+crosses its centre without being released; the browser also releases the gesture on pointer
+cancellation, window blur and page hide.
+
 This is one human-operated echo effect, not a full effects bank or an autonomous Kaia skill.
-Live jog/pitch bend, further performance effects and physical headphone/device acceptance remain open in [#403](https://github.com/Ekco-S64QTN6/Kaiacord).
+Permanent pitch rides, further performance effects and physical headphone/device acceptance remain open in [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403).
 The browser gesture coverage is separate from Kaia's musical decision-making in
 [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402); technical tests still do not
 prove that a transition sounds good.

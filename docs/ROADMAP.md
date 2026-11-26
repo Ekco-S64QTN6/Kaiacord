@@ -77,9 +77,15 @@ prove physical headphone/device routing or musical suitability. A manual 1/2/4/8
 now also implemented: predecoded on the request thread, armed at a counted bar, repeats while the
 live program and selected PFL decoders advance underneath, and releases to the advancing source
 position over four frames. A 12-second cap prevents a lost pointer-up from holding it indefinitely.
-The dedicated Chromium test drives the actual pointer hold/release route. Remaining #403 work
-includes live jog/pitch bend, additional performance effects with independent bounds and recovery
-paths, wider control-interaction coverage and local audio/device audition.
+The dedicated Chromium test drives the actual pointer hold/release route. A manual on-air jog
+nudge now also exists: the platter resamples the live decoder between 0.92× and 1.08×, updates the
+source clock and selected PFL twin together, and ramps back to unity over eight frames. A 10-second
+whole-gesture cap includes movement through the neutral centre; both the engine and browser release
+paths enforce it. The browser acceptance test moves the real platter with pointer input and checks
+the rendered source-clock change and neutral return. This is a manual phase/pitch nudge, not a
+permanent pitch slider or an autonomous pitch-ride skill. Remaining #403 work includes permanent
+pitch controls/long-form pitch rides, additional performance effects with independent bounds and
+recovery paths, wider control-interaction coverage and local audio/device audition.
 
 **#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
 uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove
@@ -89,16 +95,17 @@ latest-track-wins worker and use source-time coordinates even when a deck is str
 actions compile before plan publication. The renderer evaluates only a bounded action list and
 ramps. Manual lane changes claim ownership and ease Kaia's action out; KAIA MIX hands back.
 Until #403 supplies the shared runtime capability registry, the catalog validates against a
-conservative current-engine capability allowlist. This does not implement #403's missing PFL,
-loops, jog/pitch bend or general FX, and does not claim scratches, stutters or vocal/percussion
-recognition. No real-crate audition or blind listening evaluation has been performed here;
+conservative current-engine capability allowlist. Manual slip rolls, live jog bend and master
+echo are operator controls rather than autonomous skills. Permanent pitch rides, the full FX bank
+and beat-juggling repertoire remain outside the current autonomous catalog; it also does not claim
+scratches, stutters or vocal/percussion recognition. No real-crate audition or blind listening evaluation has been performed here;
 #402 remains the acceptance parent.
 
 | Item | What | Call |
 |:--|:--|:--|
 | **Expert DJ judgment and set storytelling** | Replace compatibility-first selection as the definition of quality with a musical decision process: understand the records' structure and musical roles, choose the right moment, account for vocals/hooks/density/energy/tension/release, plan the full hour's pacing and contrast, and evaluate what actually sounds. Kaia must sometimes wait, reject a technically valid blend, cut, contrast or choose an unexpected but coherent partner. | Yes — owner-confirmed; [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
 | **Composable expert DJ skill library** | Build real, explainable and safely executable skills: beat/phase work, pitch rides, cues, loops/rolls, cue/beat juggling, genuine scratches, phrase cuts, long/short blends, drop and breakdown swaps, vocal/acapella overlays, call-and-response, mashups, filters, FX, stutters, repeats, backspins, brakes and genre-aware technique. No cosmetic controls or fake tricks. | Yes — part of [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
-| **Professional booth/mixer parity** | Real PFL/cue mix, hot/memory cues, counted beat loops, manual slip rolls, configurable crossfader behavior and a manual tempo-synchronised master echo. Live jog/pitch bend, additional bounded performance effects and physical audio/device acceptance remain. | Yes — [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) |
+| **Professional booth/mixer parity** | Real PFL/cue mix, hot/memory cues, counted beat loops, manual slip rolls, a temporary ±8% live jog bend, configurable crossfader behavior and a manual tempo-synchronised master echo. Permanent pitch rides, additional bounded performance effects and physical audio/device acceptance remain. | Yes — [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) |
 | **Dashboard test-selection coverage** | Select `test_dj_dashboard.py` for dashboard Python changes, map the booth asset to meaningful browser tests, and test control interactions rather than CSS strings alone. | Yes — [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401) |
 | **Audible musicality acceptance** | Use real local crates and independent/blind human listening to assess full-set pacing, contrast, breakdown timing, vocal overlays, clutter, surprise and purposeful effects. Unit tests and beat-lock metrics alone cannot establish that the mix is good. | Yes — mandatory acceptance for [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
 | **Far-moved blends want ears** | A blend moved 0.18 beat or more now needs 0.8 of the shared-kick bars (and four) behind it, and one at the edge of the search is refused. The thresholds come from one blend heard as rough and the journal's numbers: a few far moves that still pass want listening to. The pair graph is measured again (`METHOD` 5) the next time a set starts. | Watch |
