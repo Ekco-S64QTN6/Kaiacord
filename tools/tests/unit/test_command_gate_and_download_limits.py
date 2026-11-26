@@ -43,7 +43,7 @@ def test_a_command_is_dispatched_only_past_the_shutdown_guard_and_rate_limit(mon
     dispatched = AsyncMock(return_value=True)
     monkeypatch.setattr(mp, "dispatch_command", dispatched)
     p = _processor(shutting_down, allowed)
-    asyncio.run(p._process_internal(_message("!download https://example.com/a.pdf")))
+    asyncio.run(p.process(_message("!download https://example.com/a.pdf")))
     assert dispatched.called is runs
     assert not p._run_intelligence_pipeline.called          # a refused command is never answered as chat
 
@@ -54,7 +54,7 @@ def test_ordinary_talk_does_not_spend_the_rate_limit_at_the_command_gate(monkeyp
     p.bot.user.display_name, p.bot.user.id = "Kaia", 999
     msg = _message("nothing addressed to anyone")
     msg.mentions, msg.role_mentions = [], []
-    asyncio.run(p._process_internal(msg))
+    asyncio.run(p.process(msg))
     assert not p.rate_limiter.is_allowed.called
 
 
