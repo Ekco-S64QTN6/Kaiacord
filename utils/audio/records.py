@@ -2404,9 +2404,18 @@ class RecordsSession:
         self._queue_skill_profile(record)
 
     def _queue_skill_profile(self, record: library.Record) -> None:
-        """Non-blocking latest-deck-wins enqueue; safe from the frame-boundary callback."""
+        """Clear stale actions and enqueue a latest-deck-wins profile compilation."""
         if self._closing or self._skill_profile_stop.is_set():
             return
+        src = self.source
+        if src is not None:
+            # The callback can run under src._lock (RLock). Clear the previous
+            # track's timeline before this frame can render against the new deck.
+            with src._lock:
+                if src.current is not None and src.current.record.path == record.path:
+                    import zlib
+                    fingerprint = zlib.crc32(record.path.encode("utf-8")) & 0xFFFFFFFF
+                    src.skill_scheduler.set_solo_profile(None, fingerprint)
         with self._skill_profile_queue_lock:
             self._skill_profile_generation += 1
             item = (self._skill_profile_generation, record)
@@ -3136,6 +3145,7 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
         except Exception as e:
             log_debug(f"[records] records_kaia_hands not read: {e}")
         session.source.skill_scheduler.set_enabled(session.source.rides)
+        session._queue_skill_profile(first)  # clear timeline and seed fallback before first PCM frame
         # The first record's decoder has to be ahead before the voice thread
         # starts asking: a set started while it was still spinning up (rubberband,
         # a busy machine) opened on frames of silence.
