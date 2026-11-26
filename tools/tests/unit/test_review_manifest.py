@@ -108,10 +108,34 @@ def test_not_applicable_rows_need_an_explanation():
         category="asset",
         risk_tier="low",
         review_status="not_applicable",
+        reviewed_blob_sha="abc123",
+        evidence="Binary reference image; no executable logic is present.",
+    )
+    assert validate_inventory(tracked, [row]) == []
+
+    stale = _row(
+        path="assets/example.webp",
+        category="asset",
+        risk_tier="low",
+        review_status="not_applicable",
+        reviewed_blob_sha="old-sha",
+        evidence="Binary reference image; no executable logic is present.",
+    )
+    assert any(
+        "reviewed_blob_sha must match current blob" in error
+        for error in validate_inventory(tracked, [stale])
+    )
+
+    missing_reason = _row(
+        path="assets/example.webp",
+        category="asset",
+        risk_tier="low",
+        review_status="not_applicable",
+        reviewed_blob_sha="abc123",
     )
     assert any(
         "not_applicable row requires an explanation" in error
-        for error in validate_inventory(tracked, [row])
+        for error in validate_inventory(tracked, [missing_reason])
     )
 
 
