@@ -76,6 +76,55 @@ def test_a_long_record_is_analysed_in_pieces_that_join_up():
     assert np.allclose(10 * np.log10(whole.lead[:k] + 1e-6), 10 * np.log10(pieces.lead[:k] + 1e-6), atol=1.5)
 
 
+
+
+def test_audio_replacement_with_same_size_and_mtime_invalidates_memory_and_disk_maps(tmp_path, monkeypatch):
+    from utils.audio.audio_identity import clear_audio_signature_cache
+
+    monkeypatch.setattr(S, "MAP_DIR", tmp_path / "maps")
+    S._MEM.clear()
+    clear_audio_signature_cache()
+    first_audio = _record((8, True, False), (40, True, True), (16, True, False))
+    second_audio = _record((8, True, False), (56, True, True))
+    decoded = []
+
+    def decode(path):
+        decoded.append(path)
+        return first_audio if len(decoded) == 1 else second_audio
+
+    monkeypatch.setattr(S, "_decode", decode)
+    path = tmp_path / "same-path.mp3"
+    path.write_bytes(b"A" * (3 * 1024 * 1024))
+    first_stat = path.stat()
+
+    first = S.get(str(path))
+    assert first is not None and len(decoded) == 1
+
+    # Clear only the memory cache: the second lookup must consume the disk map.
+    S._MEM.clear()
+    cached = S.get(str(path))
+    assert cached is not None and len(decoded) == 1
+    assert np.array_equal(first.lead, cached.lead)
+
+    path.write_bytes(b"B" * (3 * 1024 * 1024))
+    import os
+    os.utime(path, ns=(first_stat.st_atime_ns, first_stat.st_mtime_ns))
+    replaced_stat = path.stat()
+    assert replaced_stat.st_size == first_stat.st_size
+    assert replaced_stat.st_mtime_ns == first_stat.st_mtime_ns
+
+    # The warm memory entry and the on-disk NPZ both describe the old bytes.
+    replaced = S.get(str(path))
+    assert replaced is not None and len(decoded) == 2
+    assert not np.array_equal(first.lead, replaced.lead)
+
+    S._MEM.clear()
+    from_disk = S.get(str(path))
+    assert from_disk is not None and len(decoded) == 2
+    assert np.array_equal(replaced.lead, from_disk.lead)
+    S._MEM.clear()
+    clear_audio_signature_cache()
+
 def test_the_map_is_cached_and_an_unreadable_file_has_none(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "MAP_DIR", tmp_path / "maps")
     S._MEM.clear()
