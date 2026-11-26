@@ -1681,6 +1681,9 @@ class CrossfadeSource(_AudioSource):
                 return True
             if deck is None:
                 return False
+            if (deck.loop_active or (self._pending_loop_exit is not None
+                                  and self._pending_loop_exit[1] is deck)):
+                return False
             if expected_path is not None and deck.record.path != expected_path:
                 return False
 
