@@ -235,6 +235,26 @@ def test_aligned_profile_without_an_active_structural_action_allows_legacy_fallb
     assert all(np.allclose(factor, 1.0) for factor in factors)
 
 
+
+
+def test_section_specific_thresholds_preserve_real_groove_and_drop_evidence_floors():
+    scheduler = S.SkillScheduler()
+    scheduler.set_solo_profile(_profile(
+        _phrase(0, 8, "build_candidate", strength=0.54),
+        _phrase(8, 16, "drop_candidate", strength=0.59),
+        _phrase(16, 24, "drop_candidate", strength=0.60),
+        _phrase(24, 32, "breakdown_candidate", strength=0.55),
+        _phrase(32, 40, "groove_candidate", strength=0.50),
+    ), fingerprint=11)
+    # Only the >=0.60 drop receives EQ actions; a counted breakdown and the
+    # producer's exact 0.50 groove candidate are intentional no-op skill events.
+    assert scheduler.snapshot()["solo_actions"] == 4
+    _, _, skill_id, handled = scheduler.render_solo(
+        np.array([34.0, 34.02], dtype=np.float32), slot=1
+    )
+    assert handled and skill_id == "solo_groove_hold"
+
+
 def test_profile_missing_falls_back_without_claiming_structure():
     scheduler = S.SkillScheduler()
     scheduler.set_solo_profile(None, fingerprint=0)
