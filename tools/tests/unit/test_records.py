@@ -166,6 +166,42 @@ def test_loop_repeats_exact_predecoded_pcm_and_wraps_only_the_source_clock(loop_
     assert src.plan is None
 
 
+def test_pfl_monitor_follows_loop_pcm_and_exits_with_the_program_deck(loop_source):
+    src = loop_source
+    assert src.current is not None
+    src.controls.set(None, "phones", 1.0)
+    src.controls.set(None, "phones_mix", 0.0)
+    assert src.set_headphones(1)
+    stream = src.attach_headphone_stream()
+    assert stream is not None
+    head_old = src._headphones_deck
+    try:
+        assert src.set_loop(1, 2)
+        loop = src.current._loop
+        assert loop is not None
+        while src.current.played < loop.start_played:
+            src.read()
+            stream.get_nowait()
+        program_cycle = []
+        monitor_cycle = []
+        for _ in range(len(loop.frames)):
+            program_cycle.append(src.read())
+            monitor_cycle.append(stream.get_nowait())
+        assert all(np.allclose(np.frombuffer(a, np.int16), np.frombuffer(b, np.int16), atol=1)
+                       for a, b in zip(program_cycle, monitor_cycle))
+        assert src.set_loop(1, None)
+        while src.current._loop is not None or src.current is None:
+            src.read()
+        assert src._headphones_deck is not None and src._headphones_deck is not head_old
+        assert src._headphones_deck.at(0) == pytest.approx(5.0)
+        next_program = src.read()
+        next_monitor = stream.get_nowait()
+        assert np.allclose(np.frombuffer(next_program, np.int16),
+                           np.frombuffer(next_monitor, np.int16), atol=1)
+    finally:
+        src.detach_headphone_stream(stream)
+        src.set_headphones(None)
+
 def test_loop_exit_warms_after_the_loop_and_switches_only_at_a_wrap(loop_source):
     src = loop_source
     old = src.current
