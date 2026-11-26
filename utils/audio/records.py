@@ -1770,15 +1770,15 @@ class CrossfadeSource(_AudioSource):
         hands_now = (1.0,) * 6
         if plan is None and self.rides and out is not None and cur.grid is not None:
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
-            fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot)
+            fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot, cur.ratio)
             if not handled:
                 # Preserve the old small phrase gesture only when no aligned
                 # structural profile action can speak to this section. A stable
                 # CRC fingerprint survives Python process restarts.
-                import zlib
-                fingerprint = zlib.crc32(cur.record.path.encode("utf-8")) & 0xFFFF
-                fac, label = kaia_hands(None, times, self.energy, cur.grid, cur.ratio,
-                                        seed=fingerprint)
+                fac, label = kaia_hands(
+                    None, times, self.energy, cur.grid, cur.ratio,
+                    seed=self.skill_scheduler.solo_fingerprint & 0xFFFF,
+                )
                 fac = self.skill_scheduler.mask_solo_fallback(fac, times, cur.slot)
                 self.skill_scheduler.report_legacy(label, float(times[0]), float(times[-1]))
             self.gesture = label
