@@ -8,10 +8,11 @@ the mix moved it.
 
 A small HTTP server on 127.0.0.1 serves `assets/dj/index.html`, a state
 stream (`/events`, server-sent events, 20 a second), each record's three-band
-waveform (`/wave/<id>`), the record files themselves for the page's
-headphones (`/audio/<id>`, with byte ranges; heard in the window, never on
-air), and the controls: the mixer (`/control`, `/reset`, `/blend`), the decks
-(`/play`, `/cue`, `/load`) and `/skip`, the same skip `!music skip` makes.
+waveform (`/wave/<id>`), the engine's local PFL/master headphone PCM stream
+(`/phones/stream`, fixed 20 ms frames), a legacy local record-file range endpoint
+(`/audio/<id>`, not used for PHONES), and the controls: mixer (`/control`,
+`/reset`, `/blend`), decks (`/play`, `/cue`, `/load`), headphone selection
+(`/phones`) and `/skip`, the same skip `!music skip` makes.
 When a set starts the page is opened as an app window in an installed
 browser, and closed when the set ends.
 """
@@ -561,8 +562,7 @@ class _Handler(BaseHTTPRequestHandler):
                 pass
 
     def _audio(self, tid: str) -> None:
-        """A record's file, for the booth's headphones (CUE), with byte ranges
-        so the page can seek in it."""
+        """Legacy local range endpoint; PHONES now uses the engine's PFL PCM bus."""
         s = _session()
         rec = next((r for r in (s.crate if s else []) if track_id(r.path) == tid), None)
         path = rec.path if rec else _paths.get(tid)
@@ -632,7 +632,14 @@ class _Handler(BaseHTTPRequestHandler):
         body, src = self._body(), s.source
         if self.path == "/phones":
             raw_slot = body.get("slot")
-            slot = None if raw_slot in (None, "") else int(raw_slot)
+            if isinstance(raw_slot, bool):
+                return self._send(400, b"", "text/plain")
+            try:
+                slot = None if raw_slot in (None, "") else int(raw_slot)
+            except (TypeError, ValueError, OverflowError):
+                return self._send(400, b"", "text/plain")
+            if slot not in (None, 1, 2):
+                return self._send(400, b"", "text/plain")
             ok = src.set_headphones(slot, force=body.get("force") is True)
             return self._send(204 if ok else 400, b"", "text/plain")
         # Keep booth mutations at an audio-frame boundary. RecordsSession.load()
