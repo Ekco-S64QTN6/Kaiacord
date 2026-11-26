@@ -89,7 +89,7 @@ def analyse(path: str, want_bpm=None, identity: Optional[str] = None) -> dict:
         raise ValueError("under ten seconds of audio")
     bpm, ticks, conf, _, _ = es.RhythmExtractor2013(method="multifeature")(x)
     bpm, ticks = fold(float(bpm), ticks, want_bpm)
-    if audio_signature(path) != identity:
+    if audio_signature(path, refresh=True) != identity:
         raise RuntimeError("record audio changed while beat ticks were being analysed")
     return {"bpm": round(float(bpm), 3), "confidence": round(float(conf), 3),
             "audio_signature": identity, "ticks": [round(float(t), 4) for t in ticks]}
