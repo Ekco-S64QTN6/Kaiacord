@@ -258,6 +258,22 @@ def test_loop_exit_warms_after_the_loop_and_switches_only_at_a_wrap(loop_source)
     assert old._closed
 
 
+def test_hot_cue_recall_cannot_interrupt_an_active_or_exiting_loop(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None and src.set_loop(1, 2)
+    loop = deck._loop
+    assert loop is not None
+    while deck.played < loop.start_played:
+        src.read()
+    assert not src.jump_to_cue(1, 8.0, expected_path=deck.record.path)
+    assert src.current is deck and deck._loop is loop
+    assert src.set_loop(1, None)
+    pending = src._pending_loop_exit
+    assert pending is not None
+    assert not src.jump_to_cue(1, 12.0, expected_path=deck.record.path)
+    assert src.current is deck and src._pending_loop_exit is pending
+
 def test_loop_is_rejected_without_a_counted_grid_or_during_a_transition(loop_source):
     src = loop_source
     deck = src.current
