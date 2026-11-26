@@ -2512,6 +2512,9 @@ def test_live_jog_bend_validation_conflicts_timeout_and_skip_release(loop_source
 
     assert src.set_bend(1, 1.04)
     assert deck.bend_active
+    assert not src.set_loop(1, 2)
+    assert not src.set_roll(1, 1, pressed=True)
+    assert not src.jump_to_cue(1, 5.0)
     src.skip()
     assert deck.bend["target"] == pytest.approx(1.0)
 
@@ -2542,6 +2545,9 @@ def test_live_jog_timeout_covers_the_whole_hold_across_the_neutral_crossing(loop
     assert deck._bend_expired is True
     assert src.plan is None
     assert src.set_bend(1, 1.06) is False
+    assert not src.set_loop(1, 2)
+    assert not src.set_roll(1, 1, pressed=True)
+    assert not src.jump_to_cue(1, 5.0)
 
     # The expired hold stays latched until an explicit release arrives.
     assert src.set_bend(1, 1.0, release=True)
