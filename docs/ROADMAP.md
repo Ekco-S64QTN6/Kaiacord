@@ -55,7 +55,7 @@ audible effect. A request received during an in-flight pick is deferred to the f
 Unit tests cover routing, request lifecycle and preference ranking, not audible DJ quality.
 Real-crate listening and independent assessment remain under `#402`.
 
-**#403 implementation boundary (crossfader in PR #416; PFL in PR #418; hot/memory cue bank in PR #419):**
+**#403 implementation boundary (crossfader in PR #416; PFL in PR #418; hot/memory cue bank in PR #419; beat loops in PR #420):**
 the mixer provides backward-compatible `standard`, equal-power `constant_power` and midpoint `cut`
 crossfader laws, plus per-deck A/B/THRU assignments. Curve and assignment changes ramp over eight
 20 ms rendered frames; direct crossfader movement follows the hand immediately. The booth has a real
@@ -63,12 +63,12 @@ PFL path: a separate deck decoder taps EQ/trim before channel and crossfader gai
 local PCM headphone stream with an equal-power CUE↔MASTER blend and monitor level. Eight hot cues and
 one memory cue per deck persist in `memory/records/cues.json`, keyed by stable audio identity; recall
 uses a separately warmed decoder and a frame-boundary swap, never consumes program-deck frames, and
-refuses a started transition. Cue reads/writes stay out of the renderer. Engine and HTTP route tests cover persistence and recall,
-but automated browser gesture coverage for the pads remains pending. A beat-loop slice is now implemented
-on this branch: 1/2/4/8-beat buffers are predecoded off-renderer, armed at a counted phrase boundary,
-and exited through a prewarmed decoder at the next wrap; the separate PFL monitor follows the same loop.
-This does not close #403: momentary rolls, live jog/pitch bend, a bounded FX bus, and browser-driven
-gesture coverage for the cue and loop controls remain outstanding.
+refuses a started transition. Cue reads/writes stay out of the renderer. Beat loops merged in PR #420
+support 1/2/4/8-beat buffers predecoded off-renderer, armed at a counted phrase boundary, and exited
+through a prewarmed decoder at the next wrap; the separate PFL monitor follows the same loop.
+A dedicated Playwright workflow now opens the real loopback booth in Chromium and exercises memory/hot
+cue store, overwrite, recall and clear gestures plus loop arm/exit gestures through actual pointer input.
+Remaining #403 work is momentary rolls, live jog/pitch bend and a bounded DSP FX bus.
 
 **#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
 uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove
