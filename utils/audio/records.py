@@ -3141,37 +3141,53 @@ class CrossfadeSource(_AudioSource):
             if delta_frames < -1 or delta_frames > 145:
                 stale = True
             skip_frames = max(0, delta_frames)
-        # Waiting for enough decoded source frames happens on the HTTP thread,
-        # with no mixer lock held. Never use Deck.frame() to seek: an empty
-        # preview buffer would count as a program decoder starvation event.
-        if not stale and skip_frames and not _wait_deck(preview, skip_frames + 5, 1.0):
-            preview.close()
-            return False
+        # Catch up by rendering the preview through its own resampler. Popping
+        # decoded frames directly would leave the ring's read cursor at zero and
+        # make a newly selected PFL deck audibly jump back to its beginning.
+        for _ in range(4):
+            with self._lock:
+                current = self._headphone_descriptor_locked(slot)
+                stale = (generation != self._headphones_generation or current is None
+                         or current[0].path != record.path
+                         or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6)
+                         or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6))
+                if not stale:
+                    target_at = max(0.0, current[4] / current[1])
+                    delta_frames = int(round(
+                        (target_at - preview.at()) * FRAMES_PER_S / preview.playback_rate
+                    ))
+                    if delta_frames < -1 or delta_frames > 145:
+                        stale = True
+                    else:
+                        skip_frames = max(0, delta_frames)
+            if stale or not skip_frames:
+                break
+            # _bend_ensure consumes approximately skip_frames × playback_rate
+            # decoded frames, plus interpolation/look-ahead headroom.
+            required = int(math.ceil(skip_frames * preview.playback_rate)) + 5
+            if not _wait_deck(preview, required, 1.0):
+                stale = True
+                break
+            for _frame in range(skip_frames):
+                rendered = preview.frame()
+                if not rendered:
+                    stale = True
+                    break
+            if stale:
+                break
         with self._lock:
             current = self._headphone_descriptor_locked(slot)
-            stale = (generation != self._headphones_generation or current is None
+            stale = (stale or generation != self._headphones_generation or current is None
                      or current[0].path != record.path
                      or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6)
                      or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6))
             if not stale:
                 target_at = max(0.0, current[4] / current[1])
-                delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S / preview.playback_rate))
-                if delta_frames < -1 or delta_frames > 145:
+                delta_frames = int(round(
+                    (target_at - preview.at()) * FRAMES_PER_S / preview.playback_rate
+                ))
+                if delta_frames < -1 or delta_frames > 1:
                     stale = True
-                    skip_frames = 0
-                else:
-                    skip_frames = max(0, delta_frames)
-                with preview._lock:
-                    if stale:
-                        pass
-                    elif len(preview._frames) < skip_frames + 5:
-                        stale = True
-                    else:
-                        for _ in range(skip_frames):
-                            preview._frames.popleft()
-                            preview.played += 1
-                            preview._source_samples += FRAME_SAMPLES * preview.playback_rate
-                            preview._room.release()
             if not stale:
                 program = self.current if self.current is not None and self.current.slot == slot else None
                 if program is not None:
@@ -3416,7 +3432,7 @@ class CrossfadeSource(_AudioSource):
             self.applied = tuple(round(float(x[-1]), 3) for x in g)
             self.hands_now = hands_now
             self.levels["b"] = self._db(inc)
-            if out is None or t0 + FRAME_MS / 1000 * cur.playback_rate >= plan.done
+            if out is None or t0 + FRAME_MS / 1000 * cur.playback_rate >= plan.done:
                 with self._lock:
                     if self.incoming is incoming and self.plan is plan:
                         self._advance()
