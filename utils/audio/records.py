@@ -2131,15 +2131,26 @@ class RecordsSession:
         self._by_path = {r.path: r for r in crate}
         self.graph = setlist.load()
         self.set_list: Optional[list] = None
-        if setlist.needs_build(self.graph, crate):
-            pending = setlist.pending(self.graph, crate)
-            sets_only = (
-                self.graph.get("method", 2) >= setlist.METHOD
-                and self.graph.get("sets_method", 1) < setlist.SET_METHOD
-                and pending["records"] == 0
-                and pending["pairs"] == 0
-            )
-            setlist.build_in_background(crate, on_done=self._graph_built, sets_only=sets_only)
+
+        def check_graph():
+            # Audio identity can require hashing each file in the crate. Keep
+            # that disk work off Discord's event loop as well as the audio
+            # callback; the measuring subprocess is already separate.
+            try:
+                if not setlist.needs_build(self.graph, crate):
+                    return
+                pending = setlist.pending(self.graph, crate)
+                sets_only = (
+                    self.graph.get("method", 2) >= setlist.METHOD
+                    and self.graph.get("sets_method", 1) < setlist.SET_METHOD
+                    and pending["records"] == 0
+                    and pending["pairs"] == 0
+                )
+                setlist.build_in_background(crate, on_done=self._graph_built, sets_only=sets_only)
+            except Exception as e:
+                log_warning(f"[records] graph freshness check failed: {e}")
+
+        threading.Thread(target=check_graph, daemon=True, name="kaia-records-graph-check").start()
         self.loading: Optional[str] = None        # the newest record being readied for the free deck
         # Loads are prepared off-thread. A generation token makes a newer
         # booth choice supersede an older preparation that finishes later.
