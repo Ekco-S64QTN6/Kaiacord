@@ -2180,6 +2180,13 @@ class RecordsSession:
         self._listener_intent_min_pick_generation = 1
         self._listener_profile_lock = threading.Lock()
         self._listener_profile_cache: dict[str, object] = {}
+        # One bounded worker compiles per-record skill timelines from cached
+        # phrase profiles. A newer deck supersedes any queued older request.
+        self._skill_profile_queue: queue.Queue[tuple[int, library.Record]] = queue.Queue(maxsize=1)
+        self._skill_profile_stop = threading.Event()
+        self._skill_profile_thread: Optional[threading.Thread] = None
+        self._skill_profile_generation = 0
+        self._skill_profile_queue_lock = threading.Lock()
         self.last_listener_intent: Optional[dict] = None
         # What she says about the set, for the booth (`dj_voice`), newest last.
         self.chatter: deque = deque(maxlen=40)
@@ -2380,6 +2387,82 @@ class RecordsSession:
             intent, current_profile, candidate_profile,
             current_bpm, candidate_bpm, edge,
         )
+
+    def start_skill_profile_worker(self, record: library.Record) -> None:
+        """Start the bounded profile worker after playback successfully registers."""
+        if self._skill_profile_thread is not None and self._skill_profile_thread.is_alive():
+            self._queue_skill_profile(record)
+            return
+        self._skill_profile_stop.clear()
+        self._skill_profile_thread = threading.Thread(
+            target=self._run_skill_profile_worker,
+            daemon=True,
+            name=f"kaia-records-skills-{self.guild_id}",
+        )
+        self._skill_profile_thread.start()
+        self._queue_skill_profile(record)
+
+    def _queue_skill_profile(self, record: library.Record) -> None:
+        """Non-blocking latest-deck-wins enqueue; safe from the frame-boundary callback."""
+        if self._closing or self._skill_profile_stop.is_set():
+            return
+        with self._skill_profile_queue_lock:
+            self._skill_profile_generation += 1
+            item = (self._skill_profile_generation, record)
+            try:
+                self._skill_profile_queue.put_nowait(item)
+            except queue.Full:
+                try:
+                    self._skill_profile_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self._skill_profile_queue.put_nowait(item)
+                except queue.Full:
+                    # A racing worker already filled the one slot with a newer
+                    # request; its generation check prevents stale installation.
+                    return
+
+    def _run_skill_profile_worker(self) -> None:
+        """Build and compile profile actions away from the PCM renderer."""
+        import zlib
+        while not self._skill_profile_stop.is_set():
+            try:
+                generation, record = self._skill_profile_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            profile = self._listener_profile(record)
+            if self._skill_profile_stop.is_set() or self._closing:
+                continue
+            src = self.source
+            if src is None:
+                continue
+            fingerprint = zlib.crc32(record.path.encode("utf-8")) & 0xFFFFFFFF
+            with src._lock:
+                with self._skill_profile_queue_lock:
+                    current_generation = generation == self._skill_profile_generation
+                if (not current_generation or self._closing or src.current is None
+                        or src.current.record.path != record.path):
+                    continue
+                try:
+                    src.skill_scheduler.set_solo_profile(profile, fingerprint)
+                    if profile is not None:
+                        log_debug(
+                            f"[records] compiled {len(src.skill_scheduler.snapshot()['solo_actions']) if False else 'bounded'} "
+                            f"phrase-skill actions for {record.name}"
+                        )
+                    else:
+                        log_debug(f"[records] phrase profile unavailable for {record.name}; legacy fallback remains")
+                except Exception as exc:
+                    log_warning(f"[records] phrase-skill compilation failed for {record.name}: {exc}")
+                    src.skill_scheduler.set_solo_profile(None, fingerprint)
+
+    def stop_skill_profile_worker(self) -> None:
+        self._skill_profile_stop.set()
+        thread = self._skill_profile_thread
+        if thread is not None and thread.is_alive() and threading.current_thread() is not thread:
+            thread.join(timeout=0.25)
+        self._skill_profile_thread = None
 
     def _listener_intent_selected(self, nxt: Next) -> None:
         """Consume the matching one-shot request only after a prepared plan exists."""
@@ -2810,6 +2893,7 @@ class RecordsSession:
         except Exception as e:
             log_debug(f"[records] chatter: {e}")
         log_action(f"[records] now playing {record.name} ({record.bpm or '?'} bpm, {record.key or '?'})")
+        self._queue_skill_profile(record)
 
     def _humans(self) -> list[str]:
         return [m.display_name for m in getattr(self.vc.channel, "members", []) if not m.bot]
@@ -2886,6 +2970,7 @@ class RecordsSession:
                 self.vc.stop()
         except Exception as e:
             log_debug(f"[records] stop playback: {e}")
+        await asyncio.to_thread(self.stop_skill_profile_worker)
         if self.voice_source:
             self.voice_source.cleanup()
         if self.source:
@@ -3093,6 +3178,7 @@ async def _start_records(channel, crate: list[library.Record], first: library.Re
             log_debug(f"[records] startup voice disconnect failed: {cleanup_exc}")
         raise
     _sessions[guild.id] = session
+    session.start_skill_profile_worker(first)
     try:
         from utils.audio import dj_dashboard
         await asyncio.to_thread(dj_dashboard.serve)
