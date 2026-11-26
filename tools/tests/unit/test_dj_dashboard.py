@@ -453,6 +453,8 @@ def test_snapshot_exposes_skill_catalog_and_manual_lane_ownership(session):
     after = D.snapshot(session)["skills"]
     assert ("1", "high") in [tuple(item) for item in after["manual_overrides"]]
     assert after["active"]["id"] == "manual_override"
+    assert after["active"]["parameters"] == {"high": 0.7}
+    assert after["active"]["phrase"]["kind"] == "manual release window"
 
     src.skill_scheduler.hand_back_all()
     handed_back = D.snapshot(session)["skills"]
@@ -465,6 +467,9 @@ def test_booth_asset_displays_skill_name_and_explanation():
     assert "S.skills && S.skills.active" in page
     assert "skill.name" in page
     assert "skill.label" in page
+    assert "skill.parameters" in page
+    assert "skill.phrase" in page
+    assert "parameterText" in page
 
 
 def test_track_change_clears_previous_phrase_actions_before_new_profile_finishes(session):
