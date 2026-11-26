@@ -15,6 +15,7 @@ from typing import Optional
 
 
 INTENT_TTL_S = 15 * 60
+MIN_PREFERENCE_SCORE = 0.20
 
 
 @dataclass(frozen=True)
@@ -173,7 +174,10 @@ def score_candidate(intent: ListenerIntent, current_profile, candidate_profile,
     except (TypeError, ValueError, AttributeError):
         return None
     score = max(-1.0, min(1.0, direction * delta / 8.0))
-    return round(score, 3), f"{description} changes by {delta:+.1f} dB in the requested direction"
+    score = round(score, 3)
+    if score <= 0.0:
+        return score, f"{description} does not move in the requested direction ({delta:+.1f} dB)"
+    return score, f"{description} changes by {delta:+.1f} dB in the requested direction"
 
 
 def pending_label(intent: Optional[ListenerIntent]) -> Optional[str]:
