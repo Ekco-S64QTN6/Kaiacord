@@ -3003,6 +3003,7 @@ class CrossfadeSource(_AudioSource):
                         for _ in range(skip_frames):
                             preview._frames.popleft()
                             preview.played += 1
+                            preview._source_samples += FRAME_SAMPLES
                             preview._room.release()
             if not stale:
                 program = self.current if self.current is not None and self.current.slot == slot else None
