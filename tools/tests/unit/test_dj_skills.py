@@ -32,8 +32,27 @@ def test_catalog_defines_only_real_engine_capabilities_and_complete_contracts():
     }
     for spec in S.SKILL_CATALOG.values():
         assert spec.purpose and spec.preconditions and spec.capabilities
+        assert set(spec.capabilities).issubset(S.ENGINE_CAPABILITIES)
         assert spec.timing and spec.cancel_release and spec.fallback
         assert spec.explanation and spec.renderer
+
+
+
+
+def test_catalog_rejects_skills_that_require_capabilities_not_in_the_current_engine():
+    from dataclasses import replace
+
+    original = S.SKILL_CATALOG["solo_build_pressure"]
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setitem(
+            S.SKILL_CATALOG, "solo_build_pressure",
+            replace(original, capabilities=original.capabilities + ("fx.delay",)),
+        )
+        with pytest.raises(ValueError, match="unavailable engine capabilities: fx.delay"):
+            S.validate_catalog()
+    finally:
+        monkeypatch.undo()
 
 
 def test_action_validation_rejects_unsupported_lanes_and_out_of_range_parameters():
