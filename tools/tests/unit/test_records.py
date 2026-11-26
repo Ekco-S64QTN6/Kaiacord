@@ -2269,9 +2269,17 @@ def test_slip_roll_repeats_predecoded_pcm_while_the_live_deck_clock_advances(loo
 
     assert src.set_roll(1, 1, pressed=False)
     assert deck._roll is not None and deck._roll.release_played == deck.played
-    released = [deck.frame() for _ in range(R.SLIP_ROLL_RELEASE_FRAMES)]
-    assert len(released) == R.SLIP_ROLL_RELEASE_FRAMES
+    release_start = deck._roll.release_played
+    deadline = time.monotonic() + 1.0
+    while deck._roll is not None and time.monotonic() < deadline:
+        before = deck.played
+        deck.frame()
+        if deck.played == before:
+            # A temporarily empty decoder returns silence without advancing
+            # the source clock; give its pump time to refill before retrying.
+            time.sleep(0.002)
     assert deck._roll is None
+    assert deck.played == release_start + R.SLIP_ROLL_RELEASE_FRAMES
     assert deck.at() == pytest.approx(_slip_live_position(deck))
     assert deck.at() > roll.end_own / deck.ratio
 
