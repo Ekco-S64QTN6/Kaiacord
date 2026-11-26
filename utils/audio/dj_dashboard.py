@@ -699,6 +699,27 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(400, b"", "text/plain")
             ok = src.set_loop(slot, beats)
             return self._send(204 if ok else 409, b"", "text/plain")
+        if self.path == "/roll":
+            raw_slot = body.get("slot")
+            if isinstance(raw_slot, bool):
+                return self._send(400, b"", "text/plain")
+            if raw_slot in (1, 2):
+                slot = raw_slot
+            elif isinstance(raw_slot, str) and raw_slot.strip() in ("1", "2"):
+                slot = int(raw_slot.strip())
+            else:
+                return self._send(400, b"", "text/plain")
+            action = body.get("action")
+            if action == "hold":
+                beats = body.get("beats")
+                if isinstance(beats, bool) or not isinstance(beats, int) or beats not in (1, 2, 4, 8):
+                    return self._send(400, b"", "text/plain")
+                ok = src.set_roll(slot, beats, pressed=True)
+            elif action == "release":
+                ok = src.set_roll(slot, 1, pressed=False)
+            else:
+                return self._send(400, b"", "text/plain")
+            return self._send(204 if ok else 409, b"", "text/plain")
         if self.path == "/cuebank":
             raw_slot, raw_index = body.get("slot"), body.get("index")
             if isinstance(raw_slot, bool) or raw_slot not in (1, 2, "1", "2"):
