@@ -1056,8 +1056,10 @@ that are easy to break:
   Loops, rolls,
   hot cues, jog/pitch bend, scratches, filters, stutters, general FX, vocal/percussion separation
   and other absent mixer capabilities require real #403 primitives; never fake them or expose
-  cosmetic controls. No implementation or unit test proves musical taste: #402 still requires
-  real-crate audition and independent/blind listening assessment.
+  cosmetic controls. Until #403 adds the shared runtime capability registry, the catalog must
+  validate against its conservative current-engine allowlist and must state that this is a bridge,
+  not a dynamic #403 capability model. No implementation or unit test proves musical taste: #402
+  still requires real-crate audition and independent/blind listening assessment.
 - **Evaluate what can be heard.** Unit tests and mixcheck validate technical behavior, not taste.
   Do not call the DJ goal complete without real-crate listening and independent/blind human
   assessment of full-set musicality. The present compatibility graph, narrow mixcheck and limited
