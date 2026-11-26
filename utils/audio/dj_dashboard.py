@@ -720,7 +720,7 @@ class _Handler(BaseHTTPRequestHandler):
                     return self._send(400, b"", "text/plain")
             else:
                 return self._send(400, b"", "text/plain")
-            ok = src.set_bend(slot, rate)
+            ok = src.set_bend(slot, rate, release=(action == "release"))
             return self._send(204 if ok else 409, b"", "text/plain")
         if self.path == "/roll":
             raw_slot = body.get("slot")
