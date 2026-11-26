@@ -745,11 +745,14 @@ def test_master_echo_http_control_changes_real_pcm_and_releases_its_tail(session
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=5) as response:
-            return response.status
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
 
     try:
-        assert post({
+        assert post({}
             "action": "on", "beats": 1, "feedback": 0.5, "wet": 0.30,
         }) == 204
         state = D.snapshot(session)
