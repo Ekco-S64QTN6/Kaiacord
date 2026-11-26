@@ -1,6 +1,6 @@
 # Roadmap
 
-What is open, and the call on each. Updated 10 November 2026.
+What is open, and the call on each. Updated 25 November 2026.
 
 Each item carries a decision: **Yes** (to build), **Watch** (measure before building), **Owner's
 call**, or **No** (researched and declined, with the reason). Closed work is in `git log`.
@@ -17,8 +17,19 @@ call**, or **No** (researched and declined, with the reason). Closed work is in 
 
 ## Records (`!music records`)
 
+**Owner-confirmed north star:** Kaia must become an expert, creative DJ who can build an hour-long
+set with musical taste and storytelling. Technical alignment is necessary but insufficient: a
+perfectly locked transition can still be boring, crowded or emotionally wrong. Beat/key/phrase
+checks are guardrails, not an artistic score. The full product bar and capability target are in
+[records-and-booth.md](03-architecture/records-and-booth.md).
+
 | Item | What | Call |
 |:--|:--|:--|
+| **Expert DJ judgment and set storytelling** | Replace compatibility-first selection as the definition of quality with a musical decision process: understand the records' structure and musical roles, choose the right moment, account for vocals/hooks/density/energy/tension/release, plan the full hour's pacing and contrast, and evaluate what actually sounds. Kaia must sometimes wait, reject a technically valid blend, cut, contrast or choose an unexpected but coherent partner. | Yes — owner-confirmed; [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
+| **Composable expert DJ skill library** | Build real, explainable and safely executable skills: beat/phase work, pitch rides, cues, loops/rolls, cue/beat juggling, genuine scratches, phrase cuts, long/short blends, drop and breakdown swaps, vocal/acapella overlays, call-and-response, mashups, filters, FX, stutters, repeats, backspins, brakes and genre-aware technique. No cosmetic controls or fake tricks. | Yes — part of [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
+| **Professional booth/mixer parity** | Real PFL/cue mix, hot and memory cues, loops/rolls, live jog/pitch bend, configurable crossfader behavior and an actual bounded FX bus; test real browser interactions. | Yes — [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) |
+| **Dashboard test-selection coverage** | Select `test_dj_dashboard.py` for dashboard Python changes, map the booth asset to meaningful browser tests, and test control interactions rather than CSS strings alone. | Yes — [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401) |
+| **Audible musicality acceptance** | Use real local crates and independent/blind human listening to assess full-set pacing, contrast, breakdown timing, vocal overlays, clutter, surprise and purposeful effects. Unit tests and beat-lock metrics alone cannot establish that the mix is good. | Yes — mandatory acceptance for [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
 | **Far-moved blends want ears** | A blend moved 0.18 beat or more now needs 0.8 of the shared-kick bars (and four) behind it, and one at the edge of the search is refused. The thresholds come from one blend heard as rough and the journal's numbers: a few far moves that still pass want listening to. The pair graph is measured again (`METHOD` 5) the next time a set starts. | Watch |
 | **One voice at a time** | The vocals change hands at the swap in the mids and the presence band (to 6 kHz); only the air above rides early. The outgoing's whole vocal still plays over the incoming's held-down one during the ride, and where a record's voice is cannot be measured without stems. | Watch |
 | **Mix-out points need ears** | She leaves a record at its outro or last breakdown where a blend locks there, found from loudness curves. The curves find sections, not taste: a few blends at each kind of point want listening to. | Watch |
