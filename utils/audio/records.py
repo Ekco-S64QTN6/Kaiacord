@@ -2139,6 +2139,8 @@ class RecordsSession:
         self._listener_intent_lock = threading.Lock()
         self._listener_intent = None
         self._listener_intent_sequence = 0
+        self._listener_pick_generation = 0
+        self._listener_intent_min_pick_generation = 1
         self._listener_profile_lock = threading.Lock()
         self._listener_profile_cache: dict[str, object] = {}
         self.last_listener_intent: Optional[dict] = None
@@ -2225,6 +2227,13 @@ class RecordsSession:
             src._queued is not None or src._picking or src.incoming is not None
             or src.plan is not None or src._planning
         ))
+        with self._listener_intent_lock:
+            # A pick already in progress is not retroactively changed. Skip its
+            # generation, including the tiny window after _picking is set but
+            # before the worker enters _choose().
+            self._listener_intent_min_pick_generation = (
+                self._listener_pick_generation + (2 if src and src._picking else 1)
+            )
         reply = (
             f"Got it — I'll favour {intent.label} in the next records choice, "
             "where cached phrase evidence is available; it is a preference, not a guarantee."
@@ -2243,7 +2252,14 @@ class RecordsSession:
                     "status": "expired", "label": intent.label, "requested_by": intent.requested_by,
                 }
                 return None
+            if self._listener_pick_generation < self._listener_intent_min_pick_generation:
+                return None
             return intent
+
+    def _listener_pick_started(self) -> None:
+        """Advance the worker-owned selection generation before ranking candidates."""
+        with self._listener_intent_lock:
+            self._listener_pick_generation += 1
 
     def _listener_profile(self, record: library.Record):
         """Read/build a phrase profile on the picker worker, never the audio callback."""
@@ -2294,17 +2310,18 @@ class RecordsSession:
             if intent is None or intent.request_id != request_id:
                 return
             self._listener_intent = None
+            self._listener_intent_min_pick_generation = 0
             self.last_listener_intent = {
-                "status": "applied", "label": intent.label,
+                "status": "selected", "label": intent.label,
                 "requested_by": intent.requested_by,
                 "record": nxt.record.name,
                 "score": nxt.listener_intent_score,
                 "reason": nxt.listener_intent_reason,
-                "applied_at": time.time(),
+                "selected_at": time.time(),
             }
         log_action(
-            f"[records] applied {intent.label} preference to next pick "
-            f"{nxt.record.name} (score {nxt.listener_intent_score})"
+            f"[records] selected {nxt.record.name} for {intent.label} listener preference "
+            f"(score {nxt.listener_intent_score})"
         )
 
     #: How many fitting records are looked at for one that will blend with the
@@ -2377,6 +2394,7 @@ class RecordsSession:
         threading.Thread(target=run, daemon=True, name="kaia-records-load").start()
 
     def _choose(self, deck: Deck) -> Optional[Next]:
+        self._listener_pick_started()
         from utils.audio import beatgrid
         _envelope(deck.record.path)                    # the record on air, measured against at plan time
         while self.requests:
@@ -2838,8 +2856,8 @@ class RecordsSession:
             listener_intent = records_intent.pending_label(intent)
         elif self.last_listener_intent:
             last = self.last_listener_intent
-            if last.get("status") == "applied":
-                listener_intent = f"{last.get('label')} applied to {last.get('record')}"
+            if last.get("status") == "selected":
+                listener_intent = f"{last.get('label')} preference selected {last.get('record')}"
             elif last.get("status") == "expired":
                 listener_intent = f"{last.get('label')} request expired without usable phrase evidence"
         return {"now": now.name if now else None, "bpm": now.bpm if now else None,
