@@ -190,7 +190,7 @@ def _want_wave(path: str) -> str:
                 _waves[tid] = None
 
             w = waveform(path)
-            still_same = audio_signature(path) == signature
+            still_same = audio_signature(path, refresh=True) == signature
             try:
                 current = os.stat(path)
                 current_stat = (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
