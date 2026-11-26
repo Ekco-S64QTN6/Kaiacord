@@ -74,7 +74,7 @@ header { display: flex; align-items: center; gap: 18px; padding: 0 6px; }
 .fx .row, .fx .count, .fx .why, .blendsel { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #skip, #auto { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.turning, body.turning * { cursor: ns-resize !important; user-select: none; }
-.deck { --accent: var(--dc); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; gap: clamp(3px, 0.55vh, 6px); padding: 10px 14px 10px; min-height: 0; overflow: hidden; }
+.deck { --accent: var(--dc); display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto auto auto; gap: clamp(3px, 0.55vh, 6px); padding: 10px 14px 10px; min-height: 0; overflow: hidden; }
 .deck[data-slot="1"] { --dc: var(--d1); --dcg: rgba(0,240,255,.55); }
 .deck[data-slot="2"] { --dc: var(--d2); --dcg: rgba(255,47,209,.55); }
 .dtop { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
@@ -113,6 +113,13 @@ body.turning, body.turning * { cursor: ns-resize !important; user-select: none; 
 .ov { width: 100%; height: clamp(34px, 5vh, 54px); display: block; border: 1px solid var(--line); border-radius: 3px; background: rgba(0,0,0,.4); }
 .phase { width: 0; min-width: 0; height: 14px; display: block; }
 .transport { display: flex; gap: 8px; align-items: center; }
+.loopbank { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.looplabel { color: var(--dim); font: 700 8px var(--mono); letter-spacing: 1.2px; margin-right: 3px; }
+.looppad, .loopoff { min-width: 28px; padding: 4px 0; border: 1px solid var(--faint); border-radius: 3px; background: rgba(0,0,0,.45); color: var(--dim); font: 700 10px var(--mono); cursor: pointer; }
+.looppad.active { color: var(--dc); border-color: var(--dc); background: color-mix(in srgb, var(--dc) 13%, transparent); box-shadow: inset 0 0 8px var(--dcg); }
+.loopoff { color: var(--yellow); }
+.loopstatus { margin-left: auto; color: var(--dim); font: 700 8px var(--mono); letter-spacing: 1px; }
+.loopbank button:disabled { opacity: .25; cursor: default; }
 .cuebank { display: grid; grid-template-columns: 1.25fr repeat(8, minmax(0, 1fr)); gap: 4px; min-width: 0; }
 .cuepad { min-width: 0; padding: 4px 0; border: 1px solid var(--faint); border-radius: 3px; background: rgba(0,0,0,.45); color: var(--dim); font: 700 10px var(--mono); cursor: pointer; }
 .cuepad.filled { color: var(--dc); border-color: var(--dc); background: color-mix(in srgb, var(--dc) 10%, transparent); box-shadow: inset 0 0 8px color-mix(in srgb, var(--dc) 20%, transparent); }
@@ -678,6 +685,15 @@ function buildDeck(slot) {
     <div class="cuebank" aria-label="memory and hot cues">
       <button class="cuepad memory" data-cue-kind="memory" type="button" title="memory cue: click to store or jump; Shift-click to overwrite; right-click to clear">MEM</button>
       ${Array.from({ length: 8 }, (_, index) => '<button class="cuepad" data-cue-kind="hot" data-cue-index="' + index + '" type="button">' + (index + 1) + '</button>').join("")}
+    </div>
+    <div class="loopbank" aria-label="beat loops">
+      <span class="looplabel">LOOP</span>
+      <button class="looppad" data-loop-beats="1" type="button" title="arm a one-beat loop on the next counted phrase">1</button>
+      <button class="looppad" data-loop-beats="2" type="button" title="arm a two-beat loop on the next counted phrase">2</button>
+      <button class="looppad" data-loop-beats="4" type="button" title="arm a four-beat loop on the next counted phrase">4</button>
+      <button class="looppad" data-loop-beats="8" type="button" title="arm an eight-beat loop on the next counted phrase">8</button>
+      <button class="loopoff" data-loop-exit type="button" title="exit at the next loop boundary">EXIT</button>
+      <span class="loopstatus" data-loop-status>OFF</span>
     </div>`;
 }
 function buildStrip(slot) {
@@ -946,6 +962,16 @@ function updateDeck(slot) {
       ? `hot cue ${index + 1}: click to store; Shift-click to overwrite; right-click to clear`
       : `hot cue ${index + 1} at ${fmt(at)} — click to jump; Shift-click to overwrite; right-click to clear`;
   }
+  const loop = d && d.loop ? d.loop : null;
+  const canLoop = !!(d && d.on_air && d.state === "playing");
+  for (const pad of q(slot, ".loopbank").querySelectorAll("[data-loop-beats]")) {
+    const beats = Number(pad.dataset.loopBeats);
+    pad.disabled = !canLoop || !!loop;
+    pad.classList.toggle("active", !!loop && loop.beats === beats);
+  }
+  const loopExit = q(slot, "[data-loop-exit]");
+  loopExit.disabled = !loop;
+  q(slot, "[data-loop-status]").textContent = loop ? (loop.active ? `LOOP ${loop.beats}` : `ARM ${loop.beats}`) : "OFF";
   q(slot, '[data-f="play"]').classList.toggle("off", !d || (free && blendOn()));
   q(slot, '[data-c="ov"]').classList.toggle("scrub", canScrub(slot));
   q(slot, '[data-c="jog"]').classList.toggle("scrub", canScrub(slot));
@@ -1117,6 +1143,14 @@ function slider(el, slot, name, axis, reset) {
     pad.addEventListener("click", (e) => sendCueBank("hot", index, e.shiftKey ? "store" : "toggle"));
     pad.addEventListener("contextmenu", (e) => { e.preventDefault(); sendCueBank("hot", index, "clear"); });
   }
+  const sendLoop = async (action, beats) => {
+    const response = await post("/loop", { slot, action, ...(beats == null ? {} : { beats }) });
+    toast(response ? (action === "exit" ? "loop exit queued at next wrap" : `${beats}-beat loop armed on the next phrase`) : "loop unavailable: needs a live, beat-counted deck with room remaining");
+  };
+  for (const pad of q(slot, ".loopbank").querySelectorAll("[data-loop-beats]")) {
+    pad.addEventListener("click", () => sendLoop("set", Number(pad.dataset.loopBeats)));
+  }
+  q(slot, "[data-loop-exit]").addEventListener("click", () => sendLoop("exit", null));
   scrubbing(slot);
 });
 slider($("xf"), 0, "xfader", "x", null);
