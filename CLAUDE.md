@@ -1008,6 +1008,16 @@ that are easy to break:
   keep raw time coordinates, and never claim phrase alignment when `bar_known` is false.
   Path-based profile construction belongs on a background worker, never the audio callback.
   See [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404).
+- **Keep musical preference separate from measured feasibility.** Set construction may rank only
+  edges already measured as locking by `mixcheck`; `musical_plan.assess_transition()` adds a
+  soft, explainable preference from cached phrase windows and `arc_adjustment()` considers recent
+  roles. A `defer_if_alternative` decision reorders choices, it does not invalidate the technical
+  lock or hard-delete the edge; when no better measured path exists the builder retains a fallback.
+  Unaligned windows may supply time-local proxy features, but never counted section roles. Missing
+  profiles are neutral. Keep `graph.json` decision traces split into technical facts, musical
+  observations and set-arc context. Build profiles only in the background `records_graph.py`
+  process, never in the renderer callback. `SET_METHOD` changes must not bump graph `METHOD`.
+  See [#405](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405).
 - **Musical outcome outranks mechanical perfection.** A beat/key/phrase lock or a high compatibility
   score is a technical prerequisite, never proof of a good DJ transition. A locked pair can still
   be boring, crowded or emotionally wrong. Judge the musical moment — vocals/hooks, bass, percussion,
