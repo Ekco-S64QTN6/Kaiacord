@@ -121,6 +121,75 @@ LOOSE = Grid(bpm=120.0, downbeat=0.0, contrast=2.7)            # rock, breaks: B
 def nxt(grid=STEADY, seconds=300.0, name="two"):
     return Next(rec(name, 120, "8A"), seconds, 0.0, grid)
 
+@pytest.fixture
+def hotcue_source():
+    first = Deck(rec("hotcue-current", 120, "8A"), 1.05, 300.0, tone(1000, 20.0),
+                 gain=1.5, semitones=1)
+    first.grid = STEADY
+    src = CrossfadeSource(first, lambda _deck: None, stream_factory=tone(1000, 20.0),
+                          grid_at=lambda *_args: STEADY)
+    src._fine = lambda _deck, _plan: None
+    wait_for(first, 50)
+    yield src
+    src.cleanup()
+
+
+def test_hot_cue_rebuilds_the_active_deck_at_exact_source_time(hotcue_source):
+    src = hotcue_source
+    old = src.current
+    for _ in range(4):
+        src.read()
+    old_played = old.played
+    assert src.jump_to_cue(1, 5.25, expected_path=old.record.path)
+    replacement = src.current
+    assert replacement is not old
+    assert replacement.slot == 1
+    assert replacement.ratio == pytest.approx(1.05)
+    assert replacement.semitones == 1
+    assert replacement.grid == STEADY
+    assert replacement.at() * replacement.ratio == pytest.approx(5.25, abs=0.02)
+    assert old.played == old_played
+    assert len(replacement._frames) >= 5
+
+
+def test_hot_cue_refuses_an_active_transition_without_mutating_it(hotcue_source):
+    src = hotcue_source
+    original = src.current
+    plan = types.SimpleNamespace(kind="out", mode="end")
+    src.plan = plan
+    assert src.blend_started()
+    assert not src.jump_to_cue(1, 8.0)
+    assert src.current is original and src.plan is plan
+
+
+def test_hot_cue_identity_guard_rejects_a_replaced_deck(hotcue_source):
+    src = hotcue_source
+    original = src.current
+    assert not src.jump_to_cue(1, 8.0, expected_path="/music/other-track.mp3")
+    assert src.current is original
+
+
+def test_hot_cue_can_set_the_loaded_free_decks_next_play_position(hotcue_source):
+    src = hotcue_source
+    queued = nxt(seconds=120.0, name="queued-hotcue")
+    src._queued = queued
+    assert src.jump_to_cue(2, 37.5, expected_path=queued.record.path)
+    assert src.cue == pytest.approx(37.5)
+    assert src.by_hand
+
+
+def test_hot_cue_does_not_cancel_a_transition_for_the_incoming_deck(hotcue_source):
+    src = hotcue_source
+    original = src.current
+    incoming = Deck(rec("incoming-hotcue", 120, "8A"), 1.0, 120.0, tone(-1000, 20.0))
+    incoming.slot = 2
+    src.incoming = incoming
+    plan = types.SimpleNamespace(kind="blend", mode="skip")
+    src.plan = plan
+    assert not src.jump_to_cue(2, 12.0)
+    assert src.current is original and src.incoming is incoming and src.plan is plan
+    incoming.close()
+
 
 def test_a_blend_drops_the_incoming_downbeat_on_an_outgoing_bar():
     late_downbeat = Grid(bpm=120.0, downbeat=0.75, contrast=8.0)
