@@ -25,6 +25,7 @@ def _bare_session():
     session.source = SimpleNamespace(
         current=SimpleNamespace(record=current),
         _queued=None, _picking=False, incoming=None, plan=None, _planning=False,
+        _lock=threading.RLock(),
     )
     session.requests = ["/music/booth-picked.mp3"]
     session._listener_intent_lock = threading.Lock()
