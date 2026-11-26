@@ -121,13 +121,12 @@ def validate_inventory(
 
         reviewed_sha = row.get("reviewed_blob_sha", "")
         evidence = row.get("evidence", "")
-        if status == "reviewed":
+        if status in {"reviewed", "not_applicable"}:
             if current_sha is None or reviewed_sha != current_sha:
                 errors.append(f"row {index}: reviewed_blob_sha must match current blob for {path}")
             if not evidence:
-                errors.append(f"row {index}: reviewed row requires evidence for {path}")
-        elif status == "not_applicable" and not evidence:
-            errors.append(f"row {index}: not_applicable row requires an explanation for {path}")
+                description = "reviewed row requires evidence" if status == "reviewed" else "not_applicable row requires an explanation"
+                errors.append(f"row {index}: {description} for {path}")
         elif status == "not_reviewed" and reviewed_sha:
             errors.append(f"row {index}: not_reviewed row must not carry reviewed_blob_sha for {path}")
 
