@@ -12,7 +12,7 @@ import pytest
 from utils.audio import library
 from utils.audio import records as R
 from utils.audio.beatgrid import Grid
-from utils.audio.records import FRAME_BYTES, FRAMES_PER_S, RATE, CrossfadeSource, Deck, Next, plan_transition, gains
+from utils.audio.records import FRAME_BYTES, FRAME_SAMPLES, FRAMES_PER_S, RATE, CrossfadeSource, Deck, Next, plan_transition, gains
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +120,248 @@ LOOSE = Grid(bpm=120.0, downbeat=0.0, contrast=2.7)            # rock, breaks: B
 
 def nxt(grid=STEADY, seconds=300.0, name="two"):
     return Next(rec(name, 120, "8A"), seconds, 0.0, grid)
+
+@pytest.fixture
+def loop_source():
+    frame_count = 1500
+    frame_values = (np.arange(frame_count, dtype=np.int16) % 20000) + 1000
+    samples = np.repeat(frame_values, FRAME_SAMPLES * 2)
+    data = samples.tobytes()
+
+    def factory(path, ratio, gain=0.0, offset=0.0, semitones=0):
+        start = int(round(offset / ratio * FRAMES_PER_S))
+        return io.BytesIO(data[start * FRAME_BYTES:])
+
+    first = Deck(rec("loop-pattern", 120, "8A"), 1.0, 300.0, factory)
+    first.grid = STEADY
+    src = CrossfadeSource(first, lambda _deck: None, stream_factory=factory,
+                          grid_at=lambda *_args: STEADY)
+    src.rides = False
+    wait_for(first, 150)
+    yield src
+    src.cleanup()
+
+
+def test_loop_repeats_exact_predecoded_pcm_and_wraps_only_the_source_clock(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    assert src.set_loop(1, 2)
+    loop = deck._loop
+    assert loop is not None and loop.beats == 2 and len(loop.frames) == 50
+    start_frame = loop.start_played
+    assert deck.at(start_frame) == pytest.approx(4.0)
+    assert deck.at(start_frame + 50) == pytest.approx(4.0)
+    assert deck.remaining == int(round((deck.end - 5.0) * FRAMES_PER_S))
+
+    while deck.played < start_frame:
+        src.read()
+    first_cycle = [src.read() for _ in range(50)]
+    assert deck.played == start_frame + 50
+    assert deck.at() == pytest.approx(4.0)
+    second_cycle = [src.read() for _ in range(50)]
+    assert first_cycle == second_cycle
+    assert deck.played == start_frame + 100
+    assert deck.at() == pytest.approx(4.0)
+    assert src.plan is None
+
+
+def test_pfl_monitor_follows_loop_pcm_and_exits_with_the_program_deck(loop_source):
+    src = loop_source
+    assert src.current is not None
+    src.controls.set(None, "phones", 1.0)
+    src.controls.set(None, "phones_mix", 0.0)
+    assert src.set_headphones(1)
+    stream = src.attach_headphone_stream()
+    assert stream is not None
+    head_old = src._headphones_deck
+    try:
+        assert src.set_loop(1, 2)
+        loop = src.current._loop
+        assert loop is not None
+        while src.current.played < loop.start_played:
+            src.read()
+            stream.get_nowait()
+        program_cycle = []
+        monitor_cycle = []
+        for _ in range(len(loop.frames)):
+            program_cycle.append(src.read())
+            monitor_cycle.append(stream.get_nowait())
+        assert all(np.allclose(np.frombuffer(a, np.int16), np.frombuffer(b, np.int16), atol=1)
+                       for a, b in zip(program_cycle, monitor_cycle))
+        old_program = src.current
+        assert src.set_loop(1, None)
+        for _ in range(len(loop.frames) + 3):
+            if src.current is not old_program:
+                break
+            src.read()
+            stream.get_nowait()
+        assert src.current is not old_program
+        assert src._headphones_deck is not None and src._headphones_deck is not head_old
+        assert src._headphones_deck.at(0) == pytest.approx(5.0)
+        next_program = src.read()
+        next_monitor = stream.get_nowait()
+        assert np.allclose(np.frombuffer(next_program, np.int16),
+                           np.frombuffer(next_monitor, np.int16), atol=1)
+    finally:
+        src.detach_headphone_stream(stream)
+        src.set_headphones(None)
+
+def test_selecting_headphones_mid_loop_joins_the_current_loop_cursor(loop_source):
+    src = loop_source
+    assert src.current is not None and src.set_loop(1, 2)
+    loop = src.current._loop
+    assert loop is not None
+    while src.current.played < loop.start_played + 7:
+        src.read()
+    expected_position = src.current.at()
+    expected_index = (src.current.played - loop.start_played) % len(loop.frames)
+    src.controls.set(None, "phones", 1.0)
+    src.controls.set(None, "phones_mix", 0.0)
+    assert src.set_headphones(1)
+    head = src._headphones_deck
+    assert head is not None and head._loop is not None
+    assert head._loop.start_index == expected_index
+    assert head.at() == pytest.approx(expected_position)
+    stream = src.attach_headphone_stream()
+    assert stream is not None
+    try:
+        program = src.read()
+        monitor = stream.get_nowait()
+        assert np.allclose(np.frombuffer(program, np.int16),
+                           np.frombuffer(monitor, np.int16), atol=1)
+    finally:
+        src.detach_headphone_stream(stream)
+        src.set_headphones(None)
+
+def test_exiting_an_armed_loop_clears_the_matching_pfl_loop_too(loop_source):
+    src = loop_source
+    src.controls.set(None, "phones", 1.0)
+    src.controls.set(None, "phones_mix", 0.0)
+    assert src.set_headphones(1)
+    stream = src.attach_headphone_stream()
+    assert stream is not None
+    deck = src.current
+    head = src._headphones_deck
+    assert deck is not None and head is not None
+    try:
+        assert src.set_loop(1, 2)
+        loop = deck._loop
+        assert loop is not None and head._loop is not None
+        assert deck.played < loop.start_played
+        assert src.set_loop(1, None)
+        assert deck._loop is None and head._loop is None
+        assert src._pending_loop_exit is None
+    finally:
+        src.detach_headphone_stream(stream)
+        src.set_headphones(None)
+
+
+def test_headphone_selection_is_refused_during_a_pending_loop_exit(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None and src.set_loop(1, 2)
+    loop = deck._loop
+    assert loop is not None
+    while deck.played < loop.start_played:
+        src.read()
+    assert src.set_loop(1, None)
+    pending = src._pending_loop_exit
+    assert pending is not None
+    assert not src.set_headphones(1)
+    assert src._pending_loop_exit is pending and src.current is deck
+
+def test_loop_exit_warms_after_the_loop_and_switches_only_at_a_wrap(loop_source):
+    src = loop_source
+    old = src.current
+    assert old is not None and src.set_loop(1, 2)
+    loop = old._loop
+    assert loop is not None
+    while old.played < loop.start_played + 1:
+        src.read()
+    assert old.at() == pytest.approx(4.02)
+    assert src.set_loop(1, None)
+    pending = src._pending_loop_exit
+    assert pending is not None and pending.old is old
+    boundary = pending.boundary
+    assert boundary == loop.start_played + len(loop.frames)
+    while src.current is old:
+        src.read()
+    current = src.current
+    assert current is not None and current is not old
+    assert current._loop is None
+    assert current.at(0) == pytest.approx(5.0)
+    assert current.played == 1
+    assert old._closed
+
+
+def test_hot_cue_recall_cannot_interrupt_an_active_or_exiting_loop(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None and src.set_loop(1, 2)
+    loop = deck._loop
+    assert loop is not None
+    while deck.played < loop.start_played:
+        src.read()
+    assert not src.jump_to_cue(1, 8.0, expected_path=deck.record.path)
+    assert src.current is deck and deck._loop is loop
+    assert src.set_loop(1, None)
+    pending = src._pending_loop_exit
+    assert pending is not None
+    assert not src.jump_to_cue(1, 12.0, expected_path=deck.record.path)
+    assert src.current is deck and src._pending_loop_exit is pending
+
+def test_loop_is_rejected_without_a_counted_grid_or_during_a_transition(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+    deck.grid = Grid(bpm=120.0, downbeat=0.0, contrast=8.0, bar_known=False)
+    assert not src.set_loop(1, 2)
+    deck.grid = STEADY
+    src._planning = True
+    assert not src.set_loop(1, 2)
+    src._planning = False
+    src._pending_planning_mode = "skip"
+    assert not src.set_loop(1, 2)
+    src._pending_planning_mode = None
+    plan = types.SimpleNamespace(kind="out", mode="end")
+    src.plan = plan
+    assert not src.set_loop(1, 2)
+    assert deck._loop is None and src.plan is plan
+
+
+def test_loop_arming_rechecks_transition_planning_after_pcm_preparation(loop_source):
+    src = loop_source
+    original_factory = src._factory
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(target=lambda: result.append(src.set_loop(1, 2)), daemon=True)
+    worker.start()
+    assert entered.wait(timeout=1.0)
+    with src._lock:
+        src._planning = True
+    release.set()
+    worker.join(timeout=5.0)
+    with src._lock:
+        src._planning = False
+    assert not worker.is_alive()
+    assert result == [False]
+    assert src.current is not None and src.current._loop is None
+
+def test_loop_lengths_are_strictly_bounded(loop_source):
+    src = loop_source
+    assert not src.set_loop(1, True)
+    assert not src.set_loop(1, 16)
+    assert not src.set_loop(True, 2)
+    assert src.current._loop is None
 
 @pytest.fixture
 def hotcue_source():

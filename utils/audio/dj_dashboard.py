@@ -261,7 +261,8 @@ def _deck(d, state: str) -> dict:
             "pos": round(d.at() * d.ratio, 4),            # seconds of the record's own time
             "length": round(d.end * d.ratio, 3),
             "tempo": round(g.bpm * d.ratio, 2) if g else (round(d.record.bpm * d.ratio, 2) if d.record.bpm else None),
-            "grid": _grid(g), "buffering": not d.ready(5), "key_now": d.key, "semitones": d.semitones}
+            "grid": _grid(g), "buffering": not d.ready(5), "key_now": d.key, "semitones": d.semitones,
+            "loop": d.loop}
 
 
 #: How many times the booth has been launched (`open_window`, once per
@@ -676,6 +677,27 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(400, b"", "text/plain")
             ok = src.set_headphones(slot, force=body.get("force") is True)
             return self._send(204 if ok else 400, b"", "text/plain")
+        if self.path == "/loop":
+            raw_slot = body.get("slot")
+            if isinstance(raw_slot, bool):
+                return self._send(400, b"", "text/plain")
+            if raw_slot in (1, 2):
+                slot = raw_slot
+            elif isinstance(raw_slot, str) and raw_slot.strip() in ("1", "2"):
+                slot = int(raw_slot.strip())
+            else:
+                return self._send(400, b"", "text/plain")
+            action = body.get("action")
+            if action == "exit":
+                beats = None
+            elif action == "set":
+                beats = body.get("beats")
+                if isinstance(beats, bool) or not isinstance(beats, int) or beats not in (1, 2, 4, 8):
+                    return self._send(400, b"", "text/plain")
+            else:
+                return self._send(400, b"", "text/plain")
+            ok = src.set_loop(slot, beats)
+            return self._send(204 if ok else 409, b"", "text/plain")
         if self.path == "/cuebank":
             raw_slot, raw_index = body.get("slot"), body.get("index")
             if isinstance(raw_slot, bool) or raw_slot not in (1, 2, "1", "2"):

@@ -64,8 +64,11 @@ local PCM headphone stream with an equal-power CUE↔MASTER blend and monitor le
 one memory cue per deck persist in `memory/records/cues.json`, keyed by stable audio identity; recall
 uses a separately warmed decoder and a frame-boundary swap, never consumes program-deck frames, and
 refuses a started transition. Cue reads/writes stay out of the renderer. Engine and HTTP route tests cover persistence and recall,
-but automated browser gesture coverage for the pads remains pending. This does not close #403:
-loops/rolls, live jog/pitch bend and a bounded FX bus remain unimplemented.
+but automated browser gesture coverage for the pads remains pending. A beat-loop slice is now implemented
+on this branch: 1/2/4/8-beat buffers are predecoded off-renderer, armed at a counted phrase boundary,
+and exited through a prewarmed decoder at the next wrap; the separate PFL monitor follows the same loop.
+This does not close #403: momentary rolls, live jog/pitch bend, a bounded FX bus, and browser-driven
+gesture coverage for the cue and loop controls remain outstanding.
 
 **#406 implementation boundary (merged in PR #414):** the first bounded skill catalog now
 uses only existing mixer controls: counted build/drop solo EQ moves, explicit no-op breakdown/groove
