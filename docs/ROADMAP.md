@@ -43,7 +43,7 @@ rank. The lead/midrange and other feature curves remain proxies, not vocal/stem/
 Real-crate listening and independent assessment have not been performed here and remain mandatory
 before any claim that the sets sound better. `#402` remains the acceptance parent.
 
-**#407 implementation boundary (branch in progress):** listener requests are routed to the active
+**#407 implementation boundary (merged in PR #412):** listener requests are routed to the active
 records session without resolving Strudel while records mode is playing. Explicit booth track-path
 requests remain separate from musical direction. The first supported direction set is more/less
 bass, darker/brighter, build/drop and calmer/harder; vocal/acapella and percussion/drum detection
