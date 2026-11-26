@@ -234,6 +234,43 @@ def test_selecting_headphones_mid_loop_joins_the_current_loop_cursor(loop_source
         src.detach_headphone_stream(stream)
         src.set_headphones(None)
 
+def test_exiting_an_armed_loop_clears_the_matching_pfl_loop_too(loop_source):
+    src = loop_source
+    src.controls.set(None, "phones", 1.0)
+    src.controls.set(None, "phones_mix", 0.0)
+    assert src.set_headphones(1)
+    stream = src.attach_headphone_stream()
+    assert stream is not None
+    deck = src.current
+    head = src._headphones_deck
+    assert deck is not None and head is not None
+    try:
+        assert src.set_loop(1, 2)
+        loop = deck._loop
+        assert loop is not None and head._loop is not None
+        assert deck.played < loop.start_played
+        assert src.set_loop(1, None)
+        assert deck._loop is None and head._loop is None
+        assert src._pending_loop_exit is None
+    finally:
+        src.detach_headphone_stream(stream)
+        src.set_headphones(None)
+
+
+def test_headphone_selection_is_refused_during_a_pending_loop_exit(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None and src.set_loop(1, 2)
+    loop = deck._loop
+    assert loop is not None
+    while deck.played < loop.start_played:
+        src.read()
+    assert src.set_loop(1, None)
+    pending = src._pending_loop_exit
+    assert pending is not None
+    assert not src.set_headphones(1)
+    assert src._pending_loop_exit is pending and src.current is deck
+
 def test_loop_exit_warms_after_the_loop_and_switches_only_at_a_wrap(loop_source):
     src = loop_source
     old = src.current
