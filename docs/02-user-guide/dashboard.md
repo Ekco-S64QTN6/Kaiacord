@@ -116,7 +116,8 @@ reported BPM and remaining-time clock. The selected PFL decoder follows the same
 PHONES was selected before or after the ride began. Return the slider to 0.0% to restore the
 synced/base rate. The pitch fader is distinct from the platter's temporary jog bend and is
 available only while the on-air deck is playing without a transition, loop, slip roll, jog hold
-or pause owning it.
+or pause owning it. It is also locked while the tempo-synced master echo is feeding or its
+bounded tail is releasing, because the echo delay stays fixed until that tail clears.
 
 To give the on-air record a temporary jog nudge, rotate the on-air deck's platter clockwise
 to speed it up or counterclockwise to slow it down. A half-turn from the starting point reaches
