@@ -1326,11 +1326,14 @@ def sine(freq: float, amp: float, seconds: float):
 
 
 def test_an_unlocked_transition_echoes_out_under_the_next_record():
-    """No common beat anywhere: not a bare cut — the outgoing stops on its bar
-    and its last beat repeats, quieter each beat, under the incoming."""
+    """A failed blend verification falls back without losing an active pitch rate."""
     from utils.audio import mixcheck
     unlocked = lambda *a: (mixcheck.Verdict(False, 16, 3, why="no common beat"), 0.0)
     first = Deck(rec("one", 120, "8A"), 1.0, 20.0, sine(3000, 8000, 20.0))
+    assert first.set_pitch(1.04)
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+        assert first.frame()  # settle the rate before the planner takes ownership
+    assert first.pitch_rate == pytest.approx(1.04)
     queue = [nxt(STEADY)]
     src = CrossfadeSource(first, lambda deck: queue.pop() if queue else None, stream_factory=tone(0, 20.0),
                           grid_at=lambda record, start, seconds: STEADY, mix_beats=16, verify=unlocked)
@@ -1338,19 +1341,21 @@ def test_an_unlocked_transition_echoes_out_under_the_next_record():
     wait_until(lambda: src._queued is not None)
     plan = _plan(src)
     assert plan.kind == "echo" and plan.fallback == "unlocked"
+    assert plan.playback_rate == pytest.approx(1.04)
+    wall_drop = plan.drop / plan.playback_rate
+    wall_beat = plan.beat / plan.playback_rate
     rms = []
-    for _ in range(int((plan.drop + 4.0) * FRAMES_PER_S)):
+    for _ in range(int((wall_drop + 4.0) * FRAMES_PER_S)):
         f = src.read()
         x = np.frombuffer(f, dtype=np.int16).astype(np.float32) if f else np.zeros(1)
         rms.append(float(np.sqrt(np.mean(x * x))))
         if len(rms) % 10 == 0:
             time.sleep(0.005)                    # let the incoming deck's reader keep up
     at = lambda t: rms[int(t * FRAMES_PER_S)]
-    beat = plan.beat
-    assert at(plan.drop - 0.3) > 4000                                # the outgoing, full
-    first_repeat, third_repeat = at(plan.drop + 0.2 * beat), at(plan.drop + 2.2 * beat)
-    assert first_repeat > 1000 and third_repeat < first_repeat       # it rings on, and dies away
-    assert at(plan.drop + (R.ECHO_REPEATS + 1) * beat) < 50          # gone after the repeats
+    assert at(wall_drop - 0.3) > 4000                          # the outgoing, full
+    first_repeat, third_repeat = at(wall_drop + 0.2 * wall_beat), at(wall_drop + 2.2 * wall_beat)
+    assert first_repeat > 1000 and third_repeat < first_repeat  # it rings on, and dies away
+    assert at(wall_drop + (R.ECHO_REPEATS + 1) * wall_beat) < 50  # gone after the repeats
 
 
 class _SlowRenderer:
