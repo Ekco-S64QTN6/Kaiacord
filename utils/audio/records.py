@@ -303,6 +303,7 @@ class Deck:
 
     def frame(self) -> Optional[bytes]:
         """The next PCM frame, including a slip roll that advances the live decoder."""
+        global DECKS_STARVED
         roll = self._roll
         if roll is not None and self.played >= roll.start_played:
             if roll.release_played is None and self.played - roll.start_played >= roll.max_frames:
@@ -322,7 +323,6 @@ class Deck:
                     return None
                 else:
                     live = SILENCE
-                    global DECKS_STARVED
                     DECKS_STARVED += 1
             self.played += 1
             repeated = roll.frames[index]
@@ -350,7 +350,6 @@ class Deck:
                 return self._frames.popleft()
         if self._eof:
             return None
-        global DECKS_STARVED
         DECKS_STARVED += 1
         return SILENCE
 
