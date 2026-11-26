@@ -262,7 +262,7 @@ def _deck(d, state: str) -> dict:
             "length": round(d.end * d.ratio, 3),
             "tempo": round(g.bpm * d.ratio, 2) if g else (round(d.record.bpm * d.ratio, 2) if d.record.bpm else None),
             "grid": _grid(g), "buffering": not d.ready(5), "key_now": d.key, "semitones": d.semitones,
-            "loop": d.loop}
+            "loop": d.loop, "roll": d.roll}
 
 
 #: How many times the booth has been launched (`open_window`, once per
