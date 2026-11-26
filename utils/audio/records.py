@@ -128,6 +128,7 @@ def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0
 
 
 FRAME_SAMPLES = RATE * FRAME_MS // 1000
+_FRAME_SAMPLE_OFFSETS = np.arange(FRAME_SAMPLES, dtype=np.float32)
 #: The blend: this many beats from the incoming record's first downbeat to the
 #: outgoing record gone. The bass swaps halfway, on a bar.
 MIX_BEATS = 64
@@ -271,6 +272,8 @@ class Deck:
         self._bend_rate = 1.0
         self._bend_ramp_remaining = 0
         self._bend_frames = 0
+        self._bend_hold_active = False
+        self._bend_expired = False
         self._bend_buffer_active = False
         self._bend_capacity = PITCH_BEND_BUFFER_FRAMES * FRAME_SAMPLES + FRAME_SAMPLES * 2
         self._bend_ring: Optional[np.ndarray] = None
@@ -332,7 +335,7 @@ class Deck:
         DECKS_STARVED += 1
         return SILENCE
 
-    def set_bend(self, rate: float) -> bool:
+    def set_bend(self, rate: float, *, release: bool = False) -> bool:
         """Set a temporary playback-rate multiplier; 1.0 is the neutral jog position."""
         if isinstance(rate, bool):
             return False
@@ -342,9 +345,7 @@ class Deck:
             return False
         if not math.isfinite(target) or not 1.0 - PITCH_BEND_LIMIT <= target <= 1.0 + PITCH_BEND_LIMIT:
             return False
-        if target != 1.0 and self._loop is not None:
-            return False
-        if target != 1.0 and self._roll is not None:
+        if target != 1.0 and (self._bend_expired or self._loop is not None or self._roll is not None):
             return False
         if target != 1.0 and not self._bend_buffer_active:
             try:
@@ -352,9 +353,15 @@ class Deck:
             except MemoryError:
                 return False
             self._bend_buffer_active = True
+        if target != 1.0 and not self._bend_hold_active:
+            self._bend_hold_active = True
+            self._bend_frames = 0
+        if release:
+            # Only a real pointer-up / explicit hand-back opens a new hold.
+            self._bend_hold_active = False
+            self._bend_expired = False
+            self._bend_frames = 0
         if not math.isclose(target, self._bend_target, abs_tol=1e-5):
-            if self._bend_target == 1.0 and target != 1.0:
-                self._bend_frames = 0
             self._bend_target = target
             self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
         return True
@@ -379,11 +386,11 @@ class Deck:
 
     def _bent_frame(self) -> Optional[bytes]:
         """Resample the live decoded stream at the temporary jog rate."""
-        if self._bend_target != 1.0:
+        if self._bend_hold_active:
             self._bend_frames += 1
             if self._bend_frames >= PITCH_BEND_MAX_FRAMES:
-                # Apply the timeout once; repeatedly resetting the ramp while
-                # it returns to unity would leave the platter permanently bent.
+                self._bend_expired = True
+                self._bend_hold_active = False
                 self._bend_target = 1.0
                 self._bend_ramp_remaining = PITCH_BEND_RAMP_FRAMES
         if self._bend_ramp_remaining:
@@ -394,7 +401,7 @@ class Deck:
                 self._bend_rate = self._bend_target
 
         rate = self._bend_rate
-        positions = self._bend_read_pos + np.arange(FRAME_SAMPLES, dtype=np.float32) * rate
+        positions = self._bend_read_pos + _FRAME_SAMPLE_OFFSETS * rate
         indices = np.floor(positions).astype(np.int64)
         needed = int(indices[-1]) + 1
         while self._bend_write_pos <= needed:
@@ -551,7 +558,8 @@ class Deck:
     @property
     def bend(self) -> dict:
         return {
-            "active": not math.isclose(self._bend_target, 1.0, abs_tol=1e-5)
+            "active": self._bend_hold_active or self._bend_expired
+                      or not math.isclose(self._bend_target, 1.0, abs_tol=1e-5)
                       or not math.isclose(self._bend_rate, 1.0, abs_tol=1e-5),
             "rate": round(self._bend_rate, 4),
             "target": round(self._bend_target, 4),
@@ -1796,7 +1804,7 @@ class CrossfadeSource(_AudioSource):
                 self.current.slot if self.current is not None and self.current.bend_active else None
             )
         if bending_slot is not None:
-            self.set_bend(bending_slot, 1.0)
+            self.set_bend(bending_slot, 1.0, release=True)
         with self._lock:
             # A skip already on its way stays on its way. Planned again from now,
             # each press moved it a phrase later — and the planner's search and a
@@ -2563,7 +2571,7 @@ class CrossfadeSource(_AudioSource):
                 self.skill_scheduler.manual_override(slot, name, at, bar_s, float(value))
             return True
 
-    def set_bend(self, slot: int, rate: float) -> bool:
+    def set_bend(self, slot: int, rate: float, *, release: bool = False) -> bool:
         """Apply a live temporary jog rate to the on-air deck and its PFL twin.
 
         The rate is a playback multiplier (0.92–1.08). One is neutral. Release
@@ -2586,9 +2594,9 @@ class CrossfadeSource(_AudioSource):
                 return False
             head = self._headphones_deck if self._headphones_slot == slot else None
             if math.isclose(target, 1.0, abs_tol=1e-5):
-                ok = deck.set_bend(1.0)
+                ok = deck.set_bend(1.0, release=release)
                 if head is not None:
-                    head.set_bend(1.0)
+                    head.set_bend(1.0, release=release)
                 return ok
             if (
                 deck.loop_active or deck.roll_active or self.plan is not None or self.incoming is not None or self.hand is not None
@@ -3138,7 +3146,8 @@ class CrossfadeSource(_AudioSource):
         hands = self.controls
         solo = SOLO
         hands_now = (1.0,) * 6
-        if plan is None and not getattr(cur, "loop_active", False) and self.rides and out is not None and cur.grid is not None:
+        if (plan is None and not getattr(cur, "loop_active", False)
+                and not cur.bend_active and self.rides and out is not None and cur.grid is not None):
             times = t0 + np.arange(FRAME_SAMPLES, dtype=np.float32) / RATE
             fac, label, _skill_id, handled = self.skill_scheduler.render_solo(times, cur.slot, cur.ratio)
             if not handled:
