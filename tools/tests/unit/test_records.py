@@ -2690,6 +2690,30 @@ def test_persistent_pitch_fader_composes_with_live_jog_and_returns_to_its_settin
         deck.close()
 
 
+def test_pitch_fader_waits_until_the_tempo_echo_tail_clears(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+
+    assert src.set_echo(True, beats=1.0)
+    assert src.effects.active
+    assert src.set_pitch(1, 1.04) is False
+    assert deck.pitch_rate == pytest.approx(1.0)
+
+    # The input gate is off, but changing tempo during this fixed-delay tail
+    # would still detune its repeats from the beat it was armed against.
+    assert src.set_echo(False)
+    assert src.effects.tail_active
+    assert src.set_pitch(1, 1.04) is False
+
+    for _ in range(200):
+        if not src.effects.tail_active:
+            break
+        src.read()
+    assert not src.effects.tail_active
+    assert src.set_pitch(1, 1.04)
+
+
 def test_transition_planner_matches_the_incoming_deck_to_the_persistent_pitch_rate():
     plan = plan_transition(
         3.1, 1.0, STEADY, 60.0, nxt(), "skip", 16, lead=2.0,
