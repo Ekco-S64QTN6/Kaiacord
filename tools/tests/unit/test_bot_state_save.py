@@ -225,8 +225,8 @@ def test_shutdown_drains_bot_state_after_task_cancellation():
 
 def test_parallel_ingestion_history_updates_do_not_overwrite_each_other(tmp_path):
     """Force two workers to filter the same old list if the lock is absent."""
-    state = BotState(state_file=str(tmp_path / "bot_state_ingestions.json"))
-    state.save = lambda: None
+    path = tmp_path / "bot_state_ingestions.json"
+    state = BotState(state_file=str(path))
 
     both_reading = threading.Barrier(2)
     first_finished = threading.Event()
@@ -261,8 +261,15 @@ def test_parallel_ingestion_history_updates_do_not_overwrite_each_other(tmp_path
 
         assert not first.is_alive()
         assert not second.is_alive()
-        assert {
-            item["filename"] for item in state.recent_ingestions
-        } == {"first.md", "second.md"}
+        with state._lock:
+            filenames = {
+                item["filename"] for item in state.recent_ingestions
+            }
+        assert filenames == {"first.md", "second.md"}
     finally:
         state.close()
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert {
+        item["filename"] for item in saved["recent_ingestions"]
+    } == {"first.md", "second.md"}
