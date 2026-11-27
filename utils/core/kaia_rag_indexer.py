@@ -62,13 +62,9 @@ async def _await_thread_and_drain(func, *args, **kwargs):
             # A repeated cancellation must not release the owner while the
             # non-cancellable synchronous worker still has access to live state.
             continue
-        except Exception as exc:
+        except Exception:
             if not cancelled:
                 raise
-            log_warning(
-                f"RAG worker failed while draining after refresh cancellation: "
-                f"{type(exc).__name__}: {exc}"
-            )
             break
 
     if cancelled:
