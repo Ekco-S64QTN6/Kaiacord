@@ -303,9 +303,12 @@ class RAGPersistenceMixin:
                         # merely bytes copied into Python/the kernel's page cache.
                         f.flush()
                         os.fsync(f.fileno())
-                    if is_new:
-                        from utils.core.atomic_write import fsync_directory
-                        fsync_directory(os.path.dirname(os.path.abspath(path)))
+                    # Sync the parent on every acknowledged append. If a
+                    # previous first-write directory sync failed, the file may
+                    # remain visible in this process; retrying must not mistake
+                    # that visible name for a durable directory entry.
+                    from utils.core.atomic_write import fsync_directory
+                    fsync_directory(os.path.dirname(os.path.abspath(path)))
                 finally:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
