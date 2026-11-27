@@ -3842,7 +3842,10 @@ class RecordsSession:
         self._listener_pick_active_generation: Optional[int] = None
         self._listener_intent_min_pick_generation = 1
         self._listener_profile_lock = threading.Lock()
-        self._listener_profile_cache: dict[str, object] = {}
+        # Each path entry is paired with the complete source-audio identity.
+        # A live crate replacement must not leave this session steering picks
+        # from the previous file's phrase evidence.
+        self._listener_profile_cache: dict[str, tuple[str, object]] = {}
         # One bounded worker compiles per-record skill timelines from cached
         # phrase profiles. A newer deck supersedes any queued older request.
         self._skill_profile_queue: queue.Queue[tuple[int, library.Record]] = queue.Queue(maxsize=1)
@@ -4006,10 +4009,17 @@ class RecordsSession:
 
     def _listener_profile(self, record: library.Record):
         """Read/build a phrase profile on the picker worker, never the audio callback."""
+        # Identity lookup is cheap on a stable stat tuple and performs the
+        # shared complete-payload digest only when the file changes or its
+        # bounded revalidation interval expires. This method is never called
+        # from the 20 ms renderer.
+        identity = library.audio_signature(record.path)
+        if identity is None:
+            return None
         with self._listener_profile_lock:
             cached = self._listener_profile_cache.get(record.path)
-            if cached is not None:
-                return cached
+            if cached is not None and cached[0] == identity:
+                return cached[1]
         try:
             from utils.audio import songmap
             profile = songmap.phrase_profile(record.path, record.bpm)
@@ -4018,8 +4028,13 @@ class RecordsSession:
             return None
         if profile is None:
             return None
+        # phrase_profile() refreshes the shared identity after its analysis.
+        # Re-read that validated value so a file changed during construction
+        # cannot be cached under the identity observed before the work began.
+        if library.audio_signature(record.path) != identity:
+            return None
         with self._listener_profile_lock:
-            self._listener_profile_cache[record.path] = profile
+            self._listener_profile_cache[record.path] = (identity, profile)
             while len(self._listener_profile_cache) > self.INTENT_PROFILE_CACHE:
                 self._listener_profile_cache.pop(next(iter(self._listener_profile_cache)))
         return profile
