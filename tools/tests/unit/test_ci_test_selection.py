@@ -32,6 +32,9 @@ REQUIRED_RELATED_TESTS = {
         "tools/tests/unit/test_rag_persistence_concurrency.py",
         "tools/tests/unit/test_rag_persistence_safety.py",
     ),
+    "utils/core/rag_executor.py": (
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
+    ),
     "utils/core/message_processor.py": (
         "tools/tests/unit/test_dm_privacy.py",
         "tools/tests/unit/test_dm_trigger.py",
