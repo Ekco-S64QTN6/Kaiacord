@@ -18,6 +18,44 @@ TIMEOUT = 600
 _lock = asyncio.Lock()
 
 
+async def _start_child_owned(cmd: list[str]) -> subprocess.Popen:
+    """Start the ingress child without abandoning a late-created process on cancellation."""
+    starter = asyncio.create_task(asyncio.to_thread(
+        subprocess.Popen, cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, start_new_session=True,
+    ))
+    try:
+        return await asyncio.shield(starter)
+    except asyncio.CancelledError:
+        # Cancelling to_thread() cancels only the awaiter. Retain ownership of
+        # the spawn worker until Popen has either failed or returned its handle.
+        while not starter.done():
+            try:
+                await asyncio.shield(starter)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+
+        proc = None
+        try:
+            proc = starter.result()
+        except Exception:
+            pass
+        if proc is not None:
+            # No communicate() waiter exists yet. Kill the session and collect
+            # the direct child/pipes before allowing the caller's lock to go.
+            _end_group(proc, grace=0)
+            try:
+                proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                _end_group(proc, grace=0)
+                proc.communicate()
+            except Exception:
+                pass
+        raise
+
+
 async def run(staged: Optional[Path] = None) -> subprocess.CompletedProcess:
     """Run process_ingress over one staged file, or over everything staged.
 
@@ -33,9 +71,7 @@ async def run(staged: Optional[Path] = None) -> subprocess.CompletedProcess:
         if staged is not None and not staged.exists():
             # The hourly pass got there first.
             return subprocess.CompletedProcess(cmd, 0, "already filed", "")
-        proc = await asyncio.to_thread(
-            subprocess.Popen, cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, start_new_session=True)
+        proc = await _start_child_owned(cmd)
         waiting = asyncio.ensure_future(asyncio.to_thread(_communicate, proc, TIMEOUT))
         try:
             out, err = await asyncio.shield(waiting)
