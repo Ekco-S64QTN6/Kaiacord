@@ -40,6 +40,9 @@ REQUIRED_RELATED_TESTS = {
     "utils/core/rag_executor.py": (
         "tools/tests/unit/test_rag_executor_lifecycle.py",
     ),
+    "utils/core/kaia_rag_persistence.py": (
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
+    ),
     "utils/core/message_processor.py": (
         "tools/tests/unit/test_dm_privacy.py",
         "tools/tests/unit/test_dm_trigger.py",
