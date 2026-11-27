@@ -55,6 +55,23 @@ def test_successful_audit_command_with_advisory_still_fails_closed():
     assert audit.exit_code(result, event_name="pull_request") == 1
 
 
+def test_invalid_later_entry_keeps_previously_parsed_advisory_in_report():
+    report = _vulnerable_report()
+    report["dependencies"].append({"name": "malformed", "version": "2.0"})
+
+    result = audit.assess_report(report, audit_outcome="success")
+
+    assert result.status == "failed"
+    assert result.advisories[0].advisory_id == "PYSEC-2099-123"
+    assert audit.exit_code(result, event_name="pull_request") == 1
+
+    markdown = audit.render_markdown(result, event_name="pull_request")
+    assert "AUDIT FAILED" in markdown
+    assert "PYSEC-2099-123" in markdown
+    assert "aiohttp" in markdown
+    assert "3.14.5" in markdown
+
+
 def test_failed_audit_command_cannot_be_mistaken_for_a_clean_report():
     result = audit.assess_report(_clean_report(), audit_outcome="failure")
 

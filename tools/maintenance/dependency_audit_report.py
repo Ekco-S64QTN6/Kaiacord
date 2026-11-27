@@ -153,7 +153,7 @@ def render_markdown(result: AuditResult, *, event_name: str) -> str:
     ]
     if result.dependencies_scanned:
         lines.append(f"- Resolved dependencies: {result.dependencies_scanned}")
-    if result.status == "vulnerable":
+    if result.advisories:
         lines.extend([
             "",
             "| Package | Resolved version | Advisory | Fixed versions |",
