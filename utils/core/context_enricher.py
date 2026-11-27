@@ -152,7 +152,7 @@ class ContextEnricher:
             # forge [USER_MESSAGE] or escape into the persisted transcript.
             forwarded = self._forwarded_text(msg)
             if forwarded:
-                content = f"[LINKED_MESSAGE_CONTEXT]\\n{_neutralise_markers(forwarded)}"
+                content = f"[LINKED_MESSAGE_CONTEXT]\n{_neutralise_markers(forwarded)}"
         
         # 1. Resolve Mentions (Resolve <@ID> to Names)
         content = await self.resolve_mentions(content, msg)
