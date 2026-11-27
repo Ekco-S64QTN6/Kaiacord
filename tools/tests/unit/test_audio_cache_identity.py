@@ -566,3 +566,28 @@ def test_legacy_tick_cache_without_alternate_phase_field_is_stale(tmp_path, monk
     assert beatgrid.ticks_for(str(path), 120.0) is None
     beatgrid._read_ticks.cache_clear()
     audio_identity.clear_audio_signature_cache()
+
+
+
+def test_double_tempo_ticks_require_a_local_phase_hint_but_remain_available(tmp_path, monkeypatch):
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    monkeypatch.setattr(beatgrid, "TICKS_DIR", tmp_path / "ticks")
+    audio_identity.clear_audio_signature_cache()
+    signature = library.audio_signature(str(path))
+    assert signature
+    cache = beatgrid._ticks_path(str(path))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    primary = [i * 0.5 for i in range(40)]
+    alternate = [0.25 + i * 0.5 for i in range(40)]
+    cache.write_text(json.dumps({
+        "audio_signature": signature, "target_bpm": 120.0, "bpm": 120.0,
+        "ticks": primary, "alternate_ticks": alternate,
+    }), encoding="utf-8")
+    beatgrid._read_ticks.cache_clear()
+
+    assert beatgrid.ticks_available(str(path), 120.0)
+    assert beatgrid.ticks_for(str(path), 120.0) is None
+    assert beatgrid.ticks_for(str(path), 120.0, near=0.30)[0] == pytest.approx(0.25)
+    beatgrid._read_ticks.cache_clear()
+    audio_identity.clear_audio_signature_cache()
