@@ -1554,9 +1554,9 @@ class RAGIndexerMixin:
                     file_path, is_modified, is_log, itype = file_info
                     async with semaphore:
                         try:
-                            # PDF parsing has an explicit cancellation owner: unlike
-                            # asyncio.to_thread(), it stops queued/active parser work and
-                            # drains the worker before cancellation escapes.
+                            # PDF parsing has stronger cancellation control: it can
+                            # stop queued/active child work. Ordinary file operations
+                            # cannot be stopped, so their thread must be drained below.
                             if file_path.lower().endswith(".pdf"):
                                 from utils.core.pdf_worker import run_cancellable_in_thread
                                 indexed = await run_cancellable_in_thread(
