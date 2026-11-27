@@ -89,13 +89,14 @@ def _message(video_id, channel_id):
 
 
 @pytest.mark.parametrize(
-    "existing, video_id, expected",
+    "existing, video_id, expected, remains_reserved",
     [
-        (("abcdefghijk",), "abcdefghijk", "already being fetched"),
-        (("lmnopqrstuv", "wxyzABCDE_1"), "12345678901", "already fetching a couple of transcripts"),
+        (("abcdefghijk",), "abcdefghijk", "already being fetched", True),
+        (("lmnopqrstuv", "wxyzABCDE_1"), "12345678901",
+         "already fetching a couple of transcripts", False),
     ],
 )
-def test_handler_refuses_duplicate_or_over_capacity_jobs(existing, video_id, expected):
+def test_handler_refuses_duplicate_or_over_capacity_jobs(existing, video_id, expected, remains_reserved):
     for active_id in existing:
         assert handler._reserve_transcript(active_id) == "reserved"
     msg, sent = _message(video_id, channel_id=9001)
@@ -103,7 +104,7 @@ def test_handler_refuses_duplicate_or_over_capacity_jobs(existing, video_id, exp
     asyncio.run(handler.handle_youtube_command(None, msg, None))
 
     assert len(sent) == 1 and expected in sent[0]
-    assert not handler._is_transcript_inflight(video_id)
+    assert handler._is_transcript_inflight(video_id) is remains_reserved
 
 
 def test_concurrent_same_title_jobs_reserve_distinct_ingress_paths(monkeypatch, tmp_path):
