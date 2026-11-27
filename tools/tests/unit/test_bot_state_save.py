@@ -220,3 +220,80 @@ def test_shutdown_drains_bot_state_after_task_cancellation():
     assert snapshot < writer_drain
     assert "timeout=5.0" in source
     assert 'getattr(app_ctx, "bot_state", None)' in source
+
+def test_parallel_add_ingestion_updates_are_serialized_and_persisted(tmp_path):
+    """Parallel RAG workers must not overwrite each other's recent-history entries."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    class TrackingLock:
+        """Non-reentrant lock that exposes which thread currently owns it."""
+
+        def __init__(self):
+            self._lock = threading.Lock()
+            self._owner = None
+
+        def acquire(self, *args, **kwargs):
+            if self._owner == threading.get_ident():
+                raise AssertionError("BotState attempted to reacquire its non-reentrant lock")
+            acquired = self._lock.acquire(*args, **kwargs)
+            if acquired:
+                self._owner = threading.get_ident()
+            return acquired
+
+        def release(self):
+            self._owner = None
+            self._lock.release()
+
+        def __enter__(self):
+            self.acquire()
+            return self
+
+        def __exit__(self, *_exc):
+            self.release()
+            return False
+
+        def held_by_current_thread(self):
+            return self._owner == threading.get_ident()
+
+    class LockAwareList(list):
+        def __init__(self, values, lock):
+            super().__init__(values)
+            self._owner_lock = lock
+
+        def __iter__(self):
+            assert self._owner_lock.held_by_current_thread(), (
+                "recent_ingestions was read for mutation without owning BotState._lock"
+            )
+            return super().__iter__()
+
+    class LockAwareBotState(BotState):
+        def __setattr__(self, name, value):
+            if name == "recent_ingestions":
+                lock = self.__dict__.get("_lock")
+                if lock is not None and hasattr(lock, "held_by_current_thread"):
+                    value = LockAwareList(value, lock)
+            super().__setattr__(name, value)
+
+    path = tmp_path / "bot_state_ingestion_race.json"
+    state = LockAwareBotState(state_file=str(path))
+    state._lock = TrackingLock()
+    state.recent_ingestions = list(state.recent_ingestions)
+
+    filenames = [f"document-{number}.md" for number in range(8)]
+    try:
+        with ThreadPoolExecutor(max_workers=len(filenames)) as pool:
+            futures = [
+                pool.submit(state.add_ingestion, filename, f"snippet for {filename}")
+                for filename in filenames
+            ]
+            for future in futures:
+                future.result(timeout=5)
+
+    finally:
+        state.close()
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    saved_filenames = [entry["filename"] for entry in saved["recent_ingestions"]]
+    assert len(saved_filenames) == len(filenames)
+    assert len(set(saved_filenames)) == len(filenames)
+    assert set(saved_filenames) == set(filenames)
