@@ -69,10 +69,11 @@ def _release_transcript(video_id: str) -> None:
 def _reserve_ingress_path(title: str, safe_filename) -> Path:
     """Reserve a collision-free transcript filename across concurrent jobs."""
     with _inflight_lock:
-        path = INGRESS / safe_filename(title)
+        base = INGRESS / safe_filename(title)
+        path = base
         suffix = 2
         while path.exists() or path in _inflight_paths:
-            path = path.with_name(f"{path.stem.rsplit(' (', 1)[0]} ({suffix}){path.suffix}")
+            path = base.with_name(f"{base.stem} ({suffix}){base.suffix}")
             suffix += 1
         _inflight_paths.add(path)
         return path
