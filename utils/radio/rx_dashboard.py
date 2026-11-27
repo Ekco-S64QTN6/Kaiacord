@@ -372,6 +372,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
+                # A fresh /events connection starts at the current per-band sequence;
+                # there is no Last-Event-ID cursor. Deltas produced while a client
+                # deliberately closes this stream (for example, a hidden tab) are
+                # not replayed; /span separately replays its bounded retained rows.
                 seen = {}
                 ov_seen = None
                 while _server is not None:
@@ -427,7 +431,7 @@ class _Handler(BaseHTTPRequestHandler):
         """The TUNED span as it is made: frames of [u32 header length][header
         JSON][u32 row length][row], one per row. The page draws each the moment
         it lands, so the waterfall runs at the watcher's pace (SPAN_FPS) with
-        no batching in between. A new connection first gets the history."""
+        no batching in between. A new connection replays only the rows still retained in the bounded ring buffer; it has no per-client cursor."""
         import struct
         from utils.radio import scanner
         from utils.radio.rx_scope import scope
