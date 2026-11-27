@@ -25,6 +25,37 @@ def _in_context(fn, args, kwargs):
     return lambda: ctx.run(fn, *args, **kwargs)
 
 
+async def _await_executor_and_drain(future):
+    """Keep ownership of a synchronous worker until it has actually stopped.
+
+    Cancelling a task awaiting run_in_executor() otherwise cancels only the
+    asyncio wrapper, not a callable already running in a thread. Shield the
+    worker future, retain the caller's semaphore while it drains, and then
+    propagate cancellation. Retrieve any worker exception during that drain.
+    """
+    cancelled = False
+    while not future.done():
+        try:
+            await asyncio.shield(future)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception:
+            if not cancelled:
+                raise
+            break
+
+    if cancelled:
+        try:
+            future.result()
+        except BaseException:
+            # Cancellation remains the caller-visible result; retrieving the
+            # worker outcome prevents an unobserved-future exception.
+            pass
+        raise asyncio.CancelledError
+
+    return future.result()
+
+
 async def run_rag(fn, *args, **kwargs):
     """
     Run write-heavy RAG operations (indexing, memory writes).
@@ -34,7 +65,8 @@ async def run_rag(fn, *args, **kwargs):
         if inspect.iscoroutinefunction(fn):
             return await fn(*args, **kwargs)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(rag_executor, _in_context(fn, args, kwargs))
+        future = loop.run_in_executor(rag_executor, _in_context(fn, args, kwargs))
+        return await _await_executor_and_drain(future)
 
 async def run_rag_retrieval(fn, *args, **kwargs):
     """
@@ -50,3 +82,9 @@ async def run_rag_retrieval(fn, *args, **kwargs):
 def shutdown_rag_executor():
     """Shutdown the thread pool executor gracefully."""
     rag_executor.shutdown(wait=True)
+
+async def shutdown_rag_executor_async():
+    """Drain and close the RAG pool without blocking the event loop."""
+    await asyncio.to_thread(shutdown_rag_executor,)
+
+
