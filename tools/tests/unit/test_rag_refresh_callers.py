@@ -45,3 +45,57 @@ def test_dream_and_news_refreshes_queue_retry_on_false_or_timeout():
     assert 'log_error(f"Daily news RAG refresh raised: {refresh_error}")' in source
     assert "rag_refresh_completed = await run_rag_func(self.ctx.rag.refresh_knowledge_base) is True" in source
     assert '_request_rag_retry("daily news refresh")' in source
+
+
+def test_live_bot_refuses_standalone_incremental_and_single_file_reindex(
+    tmp_path, monkeypatch, capsys
+):
+    """A live bot owns the in-memory index; non-clear CLI runs must not open a second owner."""
+    import asyncio
+
+    from tools.maintenance import reindex_rag
+
+    constructed = []
+
+    monkeypatch.setattr(reindex_rag, "_bot_running", lambda: True)
+    monkeypatch.setattr(reindex_rag, "KaiaRAG", lambda: constructed.append(True))
+
+    for clear_storage, file_path in (
+        (False, None),
+        (False, str(tmp_path / "document.md")),
+        (True, None),
+    ):
+        result = asyncio.run(
+            reindex_rag.rebuild_rag(
+                clear_storage=clear_storage,
+                file_path=file_path,
+                force=False,
+            )
+        )
+        assert result is False
+
+    assert constructed == []
+    stderr = capsys.readouterr().err
+    assert stderr.count("REFUSED:") == 3
+    assert "--trigger" in stderr
+    assert "--force" in stderr
+
+
+def test_trigger_reindex_requests_live_bot_refresh_without_constructing_rag(
+    monkeypatch,
+):
+    """The supported live-bot route only requests work from the existing owner."""
+    from utils.core import rag_utils
+    from tools.maintenance import reindex_rag
+
+    requested = []
+    monkeypatch.setattr(rag_utils, "request_reindex", lambda: requested.append(True))
+    monkeypatch.setattr(
+        reindex_rag,
+        "KaiaRAG",
+        lambda: (_ for _ in ()).throw(AssertionError("trigger must not construct KaiaRAG")),
+    )
+
+    reindex_rag.trigger_bot_reindex()
+
+    assert requested == [True]
