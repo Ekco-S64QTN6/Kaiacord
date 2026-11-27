@@ -14,6 +14,8 @@ what is already clean, so turning it on changed no existing code beyond one pre-
 
 There is no formatter, and no check rewrites a file.
 
+The 20% changed-line coverage floor applies only to added statements in changed `utils/*.py` files. It does **not** measure HTML, CSS or JavaScript under `assets/`; those surfaces need browser-level regression tests. A green Python coverage result is not front-end coverage.
+
 ## Running the checks locally
 
 Neither tool is in `requirements.txt`; the bot does not need them.
