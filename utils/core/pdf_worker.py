@@ -44,6 +44,11 @@ def _is_cancelled() -> bool:
     return bool(event is not None and event.is_set())
 
 
+def cancellation_requested() -> bool:
+    """Whether the current PDF operation's async owner has been cancelled."""
+    return _is_cancelled()
+
+
 async def run_cancellable_in_thread(func, /, *args, **kwargs):
     """Run a synchronous PDF caller while retaining ownership through cancellation.
 
@@ -280,6 +285,8 @@ def _run_pdf_child(
                     input=input_bytes,
                     timeout=min(_PDF_SEMAPHORE_POLL_SECONDS, remaining),
                 )
+                if event is not None and event.is_set():
+                    return None
                 return subprocess.CompletedProcess(arguments, process.returncode, stdout, None)
             except subprocess.TimeoutExpired:
                 # communicate() retains the original input after TimeoutExpired;
