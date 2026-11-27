@@ -18,6 +18,19 @@ def test_a_dm_goes_to_its_own_log(tmp_path, monkeypatch):
     assert "knowledge_base" not in str(p)
 
 
+def test_a_dm_log_redacts_credentials_from_user_and_reply_urls(tmp_path, monkeypatch):
+    monkeypatch.setattr(dm_log, "telemetry_path", lambda p: str(tmp_path / p))
+    said = "read https://alice:pw@files.example.com/a?accessToken=user-secret&format=pdf"
+    reply = "https://api.example.com/b?clientSecret=reply-secret&format=pdf#private"
+    dm_log.record(42, "tester", said, reply)
+
+    saved = (tmp_path / "memory" / "dm_logs" / "42.md").read_text(encoding="utf-8")
+    assert "https://files.example.com/a?format=pdf" in saved
+    assert "https://api.example.com/b?format=pdf" in saved
+    for secret in ("alice", "pw", "user-secret", "reply-secret", "clientSecret", "#private"):
+        assert secret not in saved
+
+
 def test_the_pipeline_routes_dms_away_from_the_shared_log(log_turn):
     seen = log_turn(True)
     assert seen["private"] and not seen["shared"]
