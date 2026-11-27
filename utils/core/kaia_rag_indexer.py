@@ -298,11 +298,14 @@ class RAGIndexerMixin:
                     # empty, or corrupt while the last-good copy remains in _old.
                     # Validate that copy before promoting it or discarding either path.
                     old_dir = f"{itype_dir}_old"
-                    live_has_content = os.path.isdir(itype_dir) and bool(os.listdir(itype_dir))
-                    if not live_has_content and os.path.isdir(old_dir):
-                        self.indices[itype] = _restore_last_good_index(itype_dir, old_dir, itype)
-                        continue
                     try:
+                        # Keep directory inspection inside the recovery handler too:
+                        # an unreadable live directory can fail at listdir before
+                        # StorageContext gets a chance to report the corrupt snapshot.
+                        live_has_content = os.path.isdir(itype_dir) and bool(os.listdir(itype_dir))
+                        if not live_has_content and os.path.isdir(old_dir):
+                            self.indices[itype] = _restore_last_good_index(itype_dir, old_dir, itype)
+                            continue
                         if live_has_content:
                             log_debug(f"Loading {itype} index...")
                             storage_context = StorageContext.from_defaults(persist_dir=itype_dir)
