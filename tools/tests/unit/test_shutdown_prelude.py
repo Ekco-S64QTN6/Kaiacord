@@ -135,8 +135,8 @@ async def test_timed_out_rag_shutdown_save_retains_worker_and_skips_later_teardo
 
     registry = AsyncTaskRegistry()
     monkeypatch.setattr(async_task_registry, "task_registry", registry)
-    monkeypatch.setattr(shutdown_fixed, "_shutdown_prelude_timeout", lambda: 0.01)
-    monkeypatch.setattr(shutdown_fixed, "_shutdown_total_timeout_s", lambda: 0.08)
+    monkeypatch.setattr(shutdown_fixed, "_shutdown_prelude_timeout", lambda: 1.0)
+    monkeypatch.setattr(shutdown_fixed, "_shutdown_total_timeout_s", lambda: 0.35)
     monkeypatch.setattr(shutdown_fixed, "RAG_SAVE_TIMEOUT_S", 0.01)
 
     # The audio/radio prelude is idle and uses only local async stubs.
@@ -229,10 +229,10 @@ async def test_timed_out_rag_shutdown_save_retains_worker_and_skips_later_teardo
         # The event loop continues to run while the writer is beyond both the
         # normal save budget and the shortened test shutdown deadline.
         ticks = 0
-        for _ in range(8):
+        for _ in range(20):
             await asyncio.sleep(0.02)
             ticks += 1
-        assert ticks == 8
+        assert ticks == 20
         assert not owner.done(), "shutdown detached a still-running RAG writer"
         assert shutdown._rag_save_task is not None
         assert not shutdown._rag_save_task.done()
