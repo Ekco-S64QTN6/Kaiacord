@@ -2877,3 +2877,44 @@ def test_transition_without_outgoing_grid_scales_lead_to_pitch_source_clock():
     assert plan.kind == "cut"
     assert plan.playback_rate == pytest.approx(1.04)
     assert plan.drop == pytest.approx(10.0 + 0.4 * 1.04)
+
+def test_pfl_replacement_rechecks_pitch_ramp_after_off_lock_decoder_prepare(headphone_source):
+    src = headphone_source
+    assert src.set_headphones(1)
+    old_head = src._headphones_deck
+    assert old_head is not None
+
+    original_factory = src._factory
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(
+        target=lambda: result.append(src.set_headphones(1, force=True)),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        # The preview has captured the current 1.0 pitch rate and is building
+        # outside the mixer lock. Change the fader before the next render frame
+        # moves the instantaneous rate away from 1.0.
+        assert entered.wait(timeout=1.0)
+        assert src.set_pitch(1, 1.05)
+        assert src.current is not None and src.current.pitch_ramping
+        assert old_head.pitch_ramping
+    finally:
+        release.set()
+        worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert result == [False]
+    assert src._headphones_deck is old_head
+    assert src.current is not None and src.current.pitch_ramping
+    assert old_head.pitch_ramping
+
