@@ -44,6 +44,49 @@ def _read_non_pdf_document(file_path: str) -> str:
         return source.read()
 
 
+async def _await_thread_and_drain(func, *args, **kwargs):
+    """Run blocking work without allowing cancellation to orphan its worker thread.
+
+    Cancelling the task awaiting asyncio.to_thread() does not stop the thread.
+    Keep this coroutine alive until that thread has exited, then propagate the
+    cancellation so the owning refresh retains its index lock and registry
+    ownership for the complete lifetime of every mutating worker.
+    """
+    worker = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
+    cancelled = False
+    while not worker.done():
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            cancelled = True
+            # A repeated cancellation must not release the owner while the
+            # non-cancellable synchronous worker still has access to live state.
+            continue
+        except Exception as exc:
+            if not cancelled:
+                raise
+            log_warning(
+                f"RAG worker failed while draining after refresh cancellation: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            break
+
+    if cancelled:
+        try:
+            worker.result()
+        except BaseException as exc:
+            # Retrieve the result/exception so the worker task is not left with
+            # an unobserved failure while cancellation remains the caller result.
+            if not isinstance(exc, asyncio.CancelledError):
+                log_warning(
+                    f"RAG worker ended during cancellation drain: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+        raise asyncio.CancelledError
+
+    return worker.result()
+
+
 def _restore_last_good_index(itype_dir: str, old_dir: str, itype: str):
     """Validate and promote the retained last-good snapshot without losing either copy.
 
@@ -1479,14 +1522,14 @@ class RAGIndexerMixin:
             # 0. Safety Guard: Ensure indices are initialized
             if not self.indices:
                 log_info("Indices not initialized. Running initialization...")
-                await asyncio.to_thread(self._initialize_indices)
+                await _await_thread_and_drain(self._initialize_indices)
                 
             corrupt_dir = os.path.join(self.knowledge_base_dir, "_quarantine", "corrupt_files")
             if not os.path.exists(corrupt_dir): os.makedirs(corrupt_dir)
 
-            updated_itypes = await asyncio.to_thread(self._prune_deleted_files)
-            updated_itypes |= await asyncio.to_thread(self._reconcile_indices)
-            stale_updated, stale_manifest_changed = await asyncio.to_thread(self._cleanup_stale_file_nodes)
+            updated_itypes = await _await_thread_and_drain(self._prune_deleted_files)
+            updated_itypes |= await _await_thread_and_drain(self._reconcile_indices)
+            stale_updated, stale_manifest_changed = await _await_thread_and_drain(self._cleanup_stale_file_nodes)
             updated_itypes |= stale_updated
             # A previous partial snapshot write may have advanced the in-memory
             # file manifest. Retry every dirty index type before a no-change
@@ -1494,7 +1537,7 @@ class RAGIndexerMixin:
             updated_itypes |= set(self._get_pending_index_persist_types())
             if any(entry.get("stale_nodes") for entry in self.indexed_files.values()):
                 refresh_ok = False
-            new_file_paths = await asyncio.to_thread(self._find_changed_files)
+            new_file_paths = await _await_thread_and_drain(self._find_changed_files)
 
             if not new_file_paths:
                 log_debug("No new documents to index.")
@@ -1525,7 +1568,7 @@ class RAGIndexerMixin:
                                     is_log, itype, corrupt_dir,
                                 )
                             else:
-                                indexed = await asyncio.to_thread(
+                                indexed = await _await_thread_and_drain(
                                     self._index_single_file, file_path, is_modified,
                                     is_log, itype, corrupt_dir,
                                 )
@@ -1563,7 +1606,7 @@ class RAGIndexerMixin:
 
             if updated_itypes:
                 # Batch persist all updated indices at the end
-                persisted = await asyncio.to_thread(
+                persisted = await _await_thread_and_drain(
                     self._persist_updated_indices, updated_itypes)
                 failed = updated_itypes - (persisted or set())
                 if failed:
@@ -1577,7 +1620,7 @@ class RAGIndexerMixin:
             elif new_file_paths or stale_manifest_changed:
                 # Save manifest-only changes after the matching index state is
                 # already present on disk (or when no index mutation was needed).
-                if not await asyncio.to_thread(self._save_indexed_files):
+                if not await _await_thread_and_drain(self._save_indexed_files):
                     refresh_ok = False
                 
         except Exception as e:
