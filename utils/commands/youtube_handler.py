@@ -277,7 +277,7 @@ async def _correct_names(ctx, markdown: str, stats: dict, placeholder):
 
     glossary = await find_corrections(markdown, stats["title"], stats.get("channel", ""), ask,
                                       description=stats.get("description", ""))
-    fixed, counts = await asyncio.to_thread(apply_corrections, markdown, glossary)
+    fixed, counts = await _run_off_loop(apply_corrections, markdown, glossary)
     if counts:
         log_action(f"[youtube] corrected {len(counts)} misheard name(s) in "
                    f"'{stats['title'][:60]}' ({sum(counts.values())} replacements)")
