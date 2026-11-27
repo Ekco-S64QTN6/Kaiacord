@@ -35,7 +35,7 @@ USER_AGENT = "Mozilla/5.0 (compatible; KaiaBot/1.0; +knowledge-base-ingestion)"
 #: youtube-transcript-api uses requests.Session without a default request timeout.
 #: The caller also waits for the real worker thread to finish, so every network
 #: operation must have its own finite bound before its admission slot is released.
-TRANSCRIPT_HTTP_TIMEOUT_S = 10
+TRANSCRIPT_HTTP_TIMEOUT_S = 20
 
 
 class _TranscriptHTTPTimeoutSession(Session):
