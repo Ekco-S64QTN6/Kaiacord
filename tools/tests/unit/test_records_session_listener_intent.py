@@ -255,3 +255,69 @@ def test_measured_partner_frontier_is_reordered_by_the_requested_feature(monkeyp
     assert chosen.listener_intent_score is not None and chosen.listener_intent_score > 0.9
     # It is still a measured graph edge; the intent only changed ranking.
     assert chosen.source == "partner"
+
+
+def test_listener_profile_cache_rebuilds_when_audio_identity_changes(monkeypatch):
+    from utils.audio import songmap
+
+    session, record = _bare_session()
+    identity = {"value": "v2:first-audio"}
+    profiles = [_profile(-18.0), _profile(-3.0)]
+    built_for = []
+
+    monkeypatch.setattr(library, "audio_signature", lambda _path: identity["value"])
+
+    def build(_path, _bpm):
+        built_for.append(identity["value"])
+        return profiles[len(built_for) - 1]
+
+    monkeypatch.setattr(songmap, "phrase_profile", build)
+
+    first = session._listener_profile(record)
+    cached = session._listener_profile(record)
+    assert first is profiles[0]
+    assert cached is first
+    assert built_for == ["v2:first-audio"]
+
+    # The catalog path is unchanged; only the audio payload identity moves.
+    identity["value"] = "v2:replacement-audio"
+    replacement = session._listener_profile(record)
+
+    assert replacement is profiles[1]
+    assert replacement is not first
+    assert built_for == ["v2:first-audio", "v2:replacement-audio"]
+    assert session._listener_profile_cache[record.path] == (
+        "v2:replacement-audio", profiles[1]
+    )
+
+
+def test_listener_profile_is_not_cached_when_audio_changes_during_build(monkeypatch):
+    from utils.audio import songmap
+
+    session, record = _bare_session()
+    identity = {"value": "v2:original"}
+    original_profile = _profile(-18.0)
+    replacement_profile = _profile(-2.0)
+    builds = []
+
+    monkeypatch.setattr(library, "audio_signature", lambda _path: identity["value"])
+
+    def build(_path, _bpm):
+        builds.append(identity["value"])
+        if len(builds) == 1:
+            # Simulate a same-path media replacement while songmap is working.
+            identity["value"] = "v2:replacement"
+            return original_profile
+        return replacement_profile
+
+    monkeypatch.setattr(songmap, "phrase_profile", build)
+
+    assert session._listener_profile(record) is None
+    assert record.path not in session._listener_profile_cache
+
+    current = session._listener_profile(record)
+    assert current is replacement_profile
+    assert builds == ["v2:original", "v2:replacement"]
+    assert session._listener_profile_cache[record.path] == (
+        "v2:replacement", replacement_profile
+    )
