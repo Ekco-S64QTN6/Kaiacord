@@ -49,36 +49,22 @@ async def rebuild_rag(clear_storage: bool = False, file_path: str = None,
     """Rebuild or refresh the RAG index."""
     persist_dir = os.path.join(PROJECT_ROOT, "memory", "rag_storage")
 
-    # The kaia-tools menu asks before wiping the index under a live bot
-    # (confirm_offline_rebuild), but running this script directly bypassed that
-    # entirely and went straight to shutil.rmtree on a directory the bot holds
-    # open. Two processes writing one persist directory is not hypothetical:
-    # a second KaiaRAG opened against it during this session found no manifest,
-    # repopulated from scratch and overwrote the running bot's file_manifest.json.
-    # That one happened to produce an identical manifest. It did not have to.
-    if _bot_running() and not force:
-        if clear_storage:
-            # Both channels, deliberately. This refusal reached neither stdout
-            # nor logs/kaiacord.log — `log_error` in a standalone script without
-            # the bot's logging set up goes nowhere useful — so
-            # `reindex_rag.py --clear` under a live bot printed nothing at all
-            # and exited 0. The operator had every reason to believe the index
-            # had been rebuilt. A CLI that declines the job has to say so where
-            # the person who typed it will see it, and exit non-zero.
-            msg = ("Kaia is running. Refusing to clear memory/rag_storage from "
-                   "under her.\n"
-                   "  - to pick up new and moved files without a rebuild: "
-                   "tools/maintenance/reindex_rag.py --trigger\n"
-                   "  - to rebuild from scratch: stop the bot first\n"
-                   "  - to override anyway (can corrupt the manifest): --force")
-            print(f"REFUSED: {msg}", file=sys.stderr)
-            log_error(msg.replace("\n", " "))
-            return False
-        warn = ("Kaia is running. She owns memory/rag_storage, and writing it "
-                "from a second process can corrupt the manifest. Use the trigger "
-                "instead: tools/maintenance/reindex_rag.py --trigger")
-        print(f"WARNING: {warn}", file=sys.stderr)
-        log_warning(warn)
+    # memory/rag_storage has one live owner: the bot process. The shared
+    # persistence flock only serializes individual commits; it cannot merge a
+    # standalone KaiaRAG instance loaded from an older in-memory snapshot with
+    # the bot's newer indices. Refuse every standalone mode while the bot is up,
+    # not just --clear. --trigger is handled before rebuild_rag() in the CLI.
+    bot_up = _bot_running()
+    if bot_up and not force:
+        msg = ("Kaia is running and owns memory/rag_storage. Refusing to open a "
+               "second standalone RAG instance.\n"
+               "  - to refresh the live bot's index: "
+               "tools/maintenance/reindex_rag.py --trigger\n"
+               "  - to reindex one file or rebuild offline: stop the bot first\n"
+               "  - to override anyway (can overwrite newer bot state): --force")
+        print(f"REFUSED: {msg}", file=sys.stderr)
+        log_error(msg.replace("\n", " "))
+        return False
     
     if clear_storage:
         # Only the index. The directory also holds runtime state that is not
@@ -103,7 +89,6 @@ async def rebuild_rag(clear_storage: bool = False, file_path: str = None,
     # VRAM. Nothing is holding that VRAM during an offline rebuild, and the job
     # is tens of thousands of embeddings, so use the GPU when the bot is not
     # running. `--cpu-embed` forces the old behaviour.
-    bot_up = _bot_running()
     if bot_up:
         log_info("Bot is running — embedding on CPU so the chat model keeps its VRAM.")
     elif force_cpu_embed:
