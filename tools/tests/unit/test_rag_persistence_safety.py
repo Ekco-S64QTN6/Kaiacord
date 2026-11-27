@@ -2,6 +2,7 @@
 import os
 
 
+
 def test_an_index_left_in_old_is_restored_at_load(tmp_path):
     """persist() renames <itype> to <itype>_old, then <itype>_tmp to <itype>.
     Killed between the two, <itype> is missing and the last good copy sits in
@@ -22,6 +23,7 @@ def test_an_index_left_in_old_is_restored_at_load(tmp_path):
 
     assert os.path.exists(os.path.join(base, "knowledge", "MARKER")), "the old copy was not restored"
     assert not os.path.exists(os.path.join(base, "knowledge_old"))
+
 
 def _rag_with_fake_snapshot_loader(tmp_path, monkeypatch):
     """Build the real RAG initializer around simple, path-aware snapshot fixtures."""
@@ -47,6 +49,7 @@ def _rag_with_fake_snapshot_loader(tmp_path, monkeypatch):
     )
     rag._populate_indexed_files = lambda: None
     return rag, base, kaia_rag_indexer
+
 
 
 def test_corrupt_live_index_restores_and_loads_the_valid_last_good_backup(
@@ -84,6 +87,7 @@ def test_corrupt_live_index_restores_and_loads_the_valid_last_good_backup(
     assert not (live / "CORRUPT").exists()
     assert not old.exists()
     assert not Path(f"{live}_corrupt").exists()
+
 
 
 def test_unreadable_live_and_backup_snapshots_are_both_preserved(
