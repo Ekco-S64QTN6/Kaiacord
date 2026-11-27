@@ -73,6 +73,18 @@ def test_rx_dashboard_reflows_on_mobile_and_tablet_and_supports_touch_dial(rx_da
             assert mobile["touchAction"] == "none"
             assert mobile["canvasScale"] <= 2.05
 
+            # Compact phones still keep the frequency readout inside its VFO cell.
+            page.set_viewport_size({"width": 320, "height": 740})
+            compact = _layout(page)
+            freq_bounds = page.evaluate("""() => {
+              const f = document.querySelector("#freq").getBoundingClientRect();
+              const cell = document.querySelector("#vfo").firstElementChild.getBoundingClientRect();
+              return {freqRight:f.right, cellRight:cell.right};
+            }""")
+            assert compact["scrollWidth"] <= compact["viewport"] + 1
+            assert freq_bounds["freqRight"] <= freq_bounds["cellRight"] + 1
+
+            page.set_viewport_size({"width": 390, "height": 844})
             # A touch drag pans the dial; it must not depend on mouse events.
             page.evaluate("""() => {
               const canvas = document.querySelector("#spec");
