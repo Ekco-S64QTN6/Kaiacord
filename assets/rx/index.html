@@ -1239,6 +1239,9 @@ function loadChans() {
 }
 setInterval(() => { if (!document.hidden) loadSide(); }, 10000);
 setInterval(() => { if (!document.hidden) loadChans(); }, 60000);
+// Hidden-tab policy: close the live streams to save scanner/network work. On
+// resume, status/frequency catches up, but /events does not replay non-tuned-band
+// or overview rows missed while hidden. /span replays only its retained ring buffer.
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopEventStream(); stopSpanStream();
