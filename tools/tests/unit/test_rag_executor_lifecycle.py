@@ -207,3 +207,60 @@ async def test_executor_shutdown_waits_off_loop_thread_and_keeps_loop_responsive
             await asyncio.wait_for(closer, timeout=1.0)
         elif closer is None:
             await asyncio.to_thread(pool.shutdown, wait=True)
+
+
+@pytest.mark.parametrize(
+    ("async_name", "sync_name", "args"),
+    (
+        ("add_memory_async", "add_memory", (42, "tester", "remembered fact")),
+        ("log_user_interaction_async", "log_user_interaction",
+         (42, "tester", "hello", "hi")),
+        ("persist_async", "persist", (True, True)),
+    ),
+)
+@pytest.mark.asyncio
+async def test_default_executor_rag_writers_remain_registered_until_worker_exits(
+    async_name, sync_name, args, monkeypatch
+):
+    """Cancellation cannot orphan a default-executor RAG mutation."""
+    from utils.core.kaia_rag_persistence import RAGPersistenceMixin
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    started = threading.Event()
+    release = threading.Event()
+    registry = AsyncTaskRegistry()
+    harness = RAGPersistenceMixin.__new__(RAGPersistenceMixin)
+
+    def blocked_writer(*_args, **_kwargs):
+        started.set()
+        if not release.wait(timeout=3):
+            raise TimeoutError("test did not release the default-executor RAG writer")
+        return True
+
+    monkeypatch.setattr(harness, sync_name, blocked_writer, raising=False)
+    async_writer = getattr(RAGPersistenceMixin, async_name)
+    owner = asyncio.create_task(async_writer(harness, *args))
+    registry.register("rag-default-writer", owner)
+    try:
+        assert await asyncio.to_thread(started.wait, 1.0)
+
+        cancelled = await registry.cancel_all(timeout=0.05)
+        assert cancelled == 1
+        assert not owner.done(), "registry treated a running default-executor writer as drained"
+        assert registry.get_pending_count() == 1
+        assert any(task is owner for task in registry.get_all_tasks().values())
+
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(owner, timeout=1.0)
+        await asyncio.sleep(0)
+        assert registry.get_pending_count() == 0
+        assert registry.get_all_tasks() == {}
+    finally:
+        release.set()
+        if not owner.done():
+            owner.cancel()
+            try:
+                await asyncio.wait_for(owner, timeout=1.0)
+            except asyncio.CancelledError:
+                pass
