@@ -43,6 +43,7 @@ REQUIRED_RELATED_TESTS = {
     ),
     "utils/core/kaia_rag_persistence.py": (
         "tools/tests/unit/test_rag_executor_lifecycle.py",
+        "tools/tests/unit/test_user_log_atomic_append.py",
     ),
     "utils/commands/audit_handler.py": (
         "tools/tests/unit/test_rag_executor_lifecycle.py",
