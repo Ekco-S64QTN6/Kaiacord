@@ -139,11 +139,16 @@ def test_weak_or_contrary_evidence_preserves_the_precomputed_set_order(monkeypat
     session._rng = __import__("random").Random(1)
     session.say = lambda *_args: None
     session._listener_profile_lock = threading.Lock()
-    session._listener_profile_cache = {
+    profiles = {
         current.path: _profile(-18.0),
         higher_rank.path: _profile(-17.0),  # only +1 dB: below the preference floor
         set_next.path: _profile(-22.0),     # contrary direction
     }
+    identities = {path: f"identity:{path}" for path in profiles}
+    session._listener_profile_cache = {
+        path: (identities[path], profile) for path, profile in profiles.items()
+    }
+    monkeypatch.setattr(library, "audio_signature", lambda path: identities.get(path))
     session._listener_intent = records_intent.ListenerIntent(
         request_id=10, kind="more_bass", label="more bass",
         requested_by="listener", created_at=time.time(),
@@ -181,10 +186,15 @@ def test_listener_profile_scoring_uses_source_bpm_not_stretched_playback_bpm(mon
     current_profile = SimpleNamespace(duration=64.0, grid_bpm=120.0, phrases=())
     candidate_profile = SimpleNamespace(duration=64.0, grid_bpm=100.0, phrases=())
     session._listener_profile_lock = threading.Lock()
-    session._listener_profile_cache = {
-        current.path: current_profile,
-        candidate.path: candidate_profile,
+    identities = {
+        current.path: "identity:current",
+        candidate.path: "identity:candidate",
     }
+    session._listener_profile_cache = {
+        current.path: (identities[current.path], current_profile),
+        candidate.path: (identities[candidate.path], candidate_profile),
+    }
+    monkeypatch.setattr(library, "audio_signature", lambda path: identities.get(path))
     intent = records_intent.ListenerIntent(
         request_id=11, kind="more_bass", label="more bass",
         requested_by="listener", created_at=time.time(),
@@ -221,11 +231,16 @@ def test_measured_partner_frontier_is_reordered_by_the_requested_feature(monkeyp
     session._rng = __import__("random").Random(1)
     session.say = lambda *_args: None
     session._listener_profile_lock = threading.Lock()
-    session._listener_profile_cache = {
+    profiles = {
         current.path: _profile(-18.0),
         strong.path: _profile(-2.0),
         weak.path: _profile(-22.0),
     }
+    identities = {path: f"identity:{path}" for path in profiles}
+    session._listener_profile_cache = {
+        path: (identities[path], profile) for path, profile in profiles.items()
+    }
+    monkeypatch.setattr(library, "audio_signature", lambda path: identities.get(path))
     session._listener_pick_generation = 1
     session._listener_intent_min_pick_generation = 1
     session._listener_intent = records_intent.ListenerIntent(
