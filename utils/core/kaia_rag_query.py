@@ -834,9 +834,25 @@ class RAGQueryMixin:
                 ids |= self._resolve_identity_mappings(uid)
         return ids
 
+    def _snapshot_manifest_stale_node_ids(self) -> Set[str]:
+        """Copy stale-node IDs while holding the indexer's manifest lock."""
+        indexed_files = getattr(self, "indexed_files", {})
+        lock = getattr(self, "_data_lock", None)
+        if lock is None:
+            entries = indexed_files.values()
+        else:
+            with lock:
+                entries = list(indexed_files.values())
+        return {
+            node_id
+            for entry in entries
+            for node_id in entry.get("stale_nodes", [])
+        }
+
     def _score_and_filter_nodes(self, all_node_results: List[Any], query_lower: str, 
                                relevant_ids: Set[str], routing: Dict[str, Any], 
-                               top_k: int, include_news: bool, strict_identity: bool) -> List[Dict[str, Any]]:
+                               top_k: int, include_news: bool, strict_identity: bool,
+                               manifest_stale_ids: Optional[Set[str]] = None) -> List[Dict[str, Any]]:
         """Rank, boost, and filter retrieved nodes based on context and strategy."""
         from utils.core.rag_utils import get_node_text, get_node_metadata, is_news_node, is_profile_node
         from utils.infrastructure.system.yaml_config import config
@@ -854,13 +870,10 @@ class RAGQueryMixin:
         is_dream_query = routing["is_dream_query"]
         is_social_identity = routing["is_social_identity"]
 
-        # Snapshot stale IDs once for this scoring pass; the docstore check below
-        # also protects in-flight BM25 candidates created before cache eviction.
-        manifest_stale_ids = {
-            node_id
-            for entry in getattr(self, "indexed_files", {}).values()
-            for node_id in entry.get("stale_nodes", [])
-        }
+        # The live query path supplies a snapshot copied under _data_lock in
+        # a worker thread. Keep the fallback for direct test/tool callers.
+        if manifest_stale_ids is None:
+            manifest_stale_ids = self._snapshot_manifest_stale_node_ids()
 
         # Pre-compute current time for recency decay calculations
         _now_ts = time.time()
@@ -1359,8 +1372,17 @@ class RAGQueryMixin:
             # Cache raw results BEFORE filtering for !explain
             self._last_raw_results = all_node_results
             
+            # Copy the mutable manifest under its writer lock without blocking
+            # the event loop. Scoring then uses this detached set and never holds
+            # _data_lock while inspecting candidates or docstores.
+            manifest_stale_ids = await asyncio.to_thread(
+                self._snapshot_manifest_stale_node_ids
+            )
             # Scoring & Filtering
-            results = self._score_and_filter_nodes(all_node_results, query_lower, relevant_ids, routing, top_k, include_news, strict_identity)
+            results = self._score_and_filter_nodes(
+                all_node_results, query_lower, relevant_ids, routing, top_k,
+                include_news, strict_identity, manifest_stale_ids=manifest_stale_ids,
+            )
             if results: log_success(f"RAG retrieved {len(results)} nodes")
 
             # Cache results for !flag and !explain commands
