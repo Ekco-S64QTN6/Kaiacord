@@ -340,13 +340,12 @@ def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
         return False
     return ticks_for(path, bpm) is not None
 
-def _snap(g: Optional[Grid], path: str, anchor: Optional[Grid] = None) -> Optional[Grid]:
-    """`g` with its tempo and phase from the record's ticks, where it has them:
-    the downbeat moved onto the nearest tick, the beat fitted through all of
-    them. Left alone where the tracker disagrees grossly on the tempo."""
+def _snap(g: Optional[Grid], path: str, anchor: Optional[Grid] = None,
+          target_bpm: Optional[float] = None) -> Optional[Grid]:
+    """Snap a local grid to ticks folded for the original catalog BPM."""
     if g is None:
         return None
-    t = ticks_for(path, g.bpm)
+    t = ticks_for(path, target_bpm)
     if t is None:
         return g
     k = int(np.argmin(np.abs(t - g.downbeat)))
@@ -371,7 +370,7 @@ def grid_at(path: str, bpm: Optional[float], start: float = 0.0, seconds: float 
     if identity is None:
         return None
     grid = _grid_at(path, bpm, start, seconds, anchor)
-    result = _snap(grid, path, anchor)
+    result = _snap(grid, path, anchor, bpm)
     return result if _audio_identity(path, refresh=True) == identity else None
 
 
@@ -381,7 +380,7 @@ def grid_for(path: str, bpm: Optional[float], seconds: float = 60.0) -> Optional
     if identity is None:
         return None
     grid = _grid_for(path, bpm, seconds)
-    result = _snap(grid, path)
+    result = _snap(grid, path, target_bpm=bpm)
     return result if _audio_identity(path) == identity else None
 
 
