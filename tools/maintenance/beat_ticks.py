@@ -61,20 +61,20 @@ def _decode(path: str):
 
 
 def fold(bpm: float, ticks, want):
-    """Ticks at the catalog's tempo: half time gets the beats between ticks,
-    double time keeps every other tick."""
+    """Fold octave tempo errors without discarding the alternate double-tempo phase."""
     import numpy as np
     ticks = np.asarray(ticks, dtype=float)
     if not want or len(ticks) < 4:
-        return bpm, ticks
+        return bpm, ticks, None
     r = bpm / want
     if 0.45 < r < 0.55:
         mids = (ticks[:-1] + ticks[1:]) / 2
-        return bpm * 2, np.sort(np.concatenate([ticks, mids]))
+        return bpm * 2, np.sort(np.concatenate([ticks, mids])), None
     if 1.8 < r < 2.2:
-        # every other tick, the phase whose ticks sit on the louder onsets is unknown here: take the first
-        return bpm / 2, ticks[::2]
-    return bpm, ticks
+        # Both phases are plausible at half the tracker rate. The runtime grid
+        # chooses one only when its local onset evidence clearly prefers it.
+        return bpm / 2, ticks[::2], ticks[1::2]
+    return bpm, ticks, None
 
 
 def analyse(path: str, want_bpm=None, identity: Optional[str] = None) -> dict:
@@ -88,7 +88,7 @@ def analyse(path: str, want_bpm=None, identity: Optional[str] = None) -> dict:
     if len(x) < 44100 * 10:
         raise ValueError("under ten seconds of audio")
     bpm, ticks, conf, _, _ = es.RhythmExtractor2013(method="multifeature")(x)
-    bpm, ticks = fold(float(bpm), ticks, want_bpm)
+    bpm, ticks, alternate_ticks = fold(float(bpm), ticks, want_bpm)
     if audio_signature(path, refresh=True) != identity:
         raise RuntimeError("record audio changed while beat ticks were being analysed")
     return {
@@ -97,6 +97,8 @@ def analyse(path: str, want_bpm=None, identity: Optional[str] = None) -> dict:
         "audio_signature": identity,
         "target_bpm": round(float(want_bpm), 3) if want_bpm else None,
         "ticks": [round(float(t), 4) for t in ticks],
+        "alternate_ticks": ([round(float(t), 4) for t in alternate_ticks]
+                            if alternate_ticks is not None else None),
     }
 
 
@@ -137,9 +139,13 @@ def main() -> int:
                 target_bpm = round(float(bpm), 3) if bpm else None
                 if (cached.get("audio_signature") == identity
                         and "target_bpm" in cached
+                        and "alternate_ticks" in cached
                         and cached.get("target_bpm") == target_bpm):
                     continue
             data = analyse(path, bpm, identity=identity)
+            # A missing field is a legacy schema and must be regenerated once;
+            # test doubles and future alternate analyzers still write explicit null.
+            data.setdefault("alternate_ticks", None)
             _write(dest, data)
             print(f"ok   {data['bpm']:7.2f} bpm  conf {data['confidence']:.2f}  {len(data['ticks'])} beats  {os.path.basename(path)}")
         except Exception as e:
