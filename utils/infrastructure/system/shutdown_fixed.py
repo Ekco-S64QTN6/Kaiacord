@@ -313,8 +313,8 @@ class CleanShutdown:
 
         # 4b. Shut down RAG thread pool
         try:
-            from utils.core.rag_executor import shutdown_rag_executor
-            shutdown_rag_executor()
+            from utils.core.rag_executor import shutdown_rag_executor_async
+            await shutdown_rag_executor_async()
             log_info("  ✅ RAG thread pool closed")
         except Exception as e:
             log_warning(f"  ⚠️  Failed to close RAG thread pool: {e}")
