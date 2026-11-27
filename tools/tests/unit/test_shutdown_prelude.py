@@ -89,7 +89,10 @@ async def test_a_stuck_voice_stop_does_not_cost_the_index_save_or_the_model_unlo
 
     monkeypatch.setattr(gpu_manager.OllamaGPUManager, "unload_all_models", staticmethod(unload_all_models))
     monkeypatch.setattr(kaia_forum, "close_forum_client", close_forum_client)
-    monkeypatch.setattr(rag_executor, "shutdown_rag_executor", lambda: teardown.append("executor"))
+    async def shutdown_rag_executor_async():
+        teardown.append("executor")
+
+    monkeypatch.setattr(rag_executor, "shutdown_rag_executor_async", shutdown_rag_executor_async)
     monkeypatch.setattr(clear_gpu_memory, "force_clear_gpu", lambda: teardown.append("gpu"))
     monkeypatch.setattr(clear_gpu_memory, "kill_orphaned_runners", lambda **_kw: teardown.append("runners"))
 
@@ -132,6 +135,7 @@ async def test_timed_out_rag_shutdown_save_retains_worker_and_skips_later_teardo
     monkeypatch, tmp_path
 ):
     """A save past the global deadline stays owned and prevents resource teardown."""
+    import sys
     import threading
     import types
     from types import SimpleNamespace
