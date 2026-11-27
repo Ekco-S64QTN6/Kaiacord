@@ -39,6 +39,9 @@ def _already_have(video_id: str):
                 continue
     return None
 
+# These admission guards are process-local. Kaiacord runs as one bot process;
+# additional workers/replicas would each get their own cap and dedupe set, so a
+# multi-process deployment must move reservations to shared coordination first.
 # The global command rate limiter is per user; this separate cap protects
 # transcript fetches and local correction work across all channels/users.
 MAX_CONCURRENT_TRANSCRIPTS = 2
