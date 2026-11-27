@@ -222,6 +222,8 @@ async def test_timed_out_rag_shutdown_save_retains_worker_and_skips_later_teardo
     )
     shutdown = shutdown_fixed.CleanShutdown()
     shutdown.register_rag(BlockingRag())
+    force_exits = []
+    monkeypatch.setattr(shutdown, "force_exit", lambda code: force_exits.append(code))
     owner = asyncio.create_task(shutdown.async_shutdown(app_ctx))
     try:
         assert await asyncio.to_thread(worker_started.wait, 1.0)
@@ -246,6 +248,7 @@ async def test_timed_out_rag_shutdown_save_retains_worker_and_skips_later_teardo
         assert shutdown._rag_save_task is None
         assert shutdown._shutdown_complete.is_set() is False
         assert teardown == [], "later resource teardown ran after the global shutdown deadline"
+        assert force_exits == [1], "simple mode did not enforce its global shutdown deadline"
         app_ctx.close.assert_not_awaited()
     finally:
         release_worker.set()
