@@ -706,7 +706,7 @@ class ContextEnricher:
                             log_warning(f"URL PDF {_pt(url)} exceeded the {MAX_PAGE_BYTES}-byte input limit")
                             return ""
                         try:
-                            parsed_text = await asyncio.to_thread(_extract_pdf_text, raw_pdf)
+                            parsed_text = await pdf_worker.run_cancellable_in_thread(_extract_pdf_text, raw_pdf)
                         except Exception as e:
                             log_debug(f"URL PDF extraction failed {_pt(url)}: {type(e).__name__}: {e}")
                             return ""
