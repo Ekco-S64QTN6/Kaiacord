@@ -26,7 +26,10 @@ RELATED_TESTS = {
     **{f"finetune/{name}": ("tools/tests/unit/test_finetune_dataset.py",)
        for name in ("kaia_quality.py", "01_convert_logs.py", "01f_check_dataset.py",
                     "05c_evaluate_persona.py")},
-    ".github/scripts/run_ci_tests.py": ("tools/tests/unit/test_ci_test_selection.py",),
+    ".github/scripts/run_ci_tests.py": (
+        "tools/tests/unit/test_ci_test_selection.py",
+        "tools/tests/unit/test_ci_high_fan_in_coverage.py",
+    ),
     "utils/core/ingress.py": ("tools/tests/unit/test_ingress_now.py",),
     "utils/core/response_filter.py": (
         "tools/tests/unit/test_response_filters.py",
@@ -277,6 +280,10 @@ def select_tests(paths: list[str]) -> list[Path]:
         for sub in ("unit", "integration")
         for p in (TESTS / sub).rglob("test_*.py")
     }
+
+    high_fan_in_guard = "tools/tests/unit/test_ci_high_fan_in_coverage.py"
+    if high_fan_in_guard in available and any(rel.endswith(".py") for rel in paths):
+        selected.add(available[high_fan_in_guard])
 
     for rel in paths:
         if rel in available:
