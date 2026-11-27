@@ -17,6 +17,9 @@ REQUIRED_RELATED_TESTS = {
     ".github/scripts/run_ci_tests.py": (
         "tools/tests/unit/test_ci_test_selection.py",
     ),
+    "utils/core/ingress.py": (
+        "tools/tests/unit/test_ingress_now.py",
+    ),
     "utils/core/kaia_rag_query.py": (
         "tools/tests/unit/test_rag_index_hygiene.py",
         "tools/tests/unit/test_rag_identity_scoping.py",
