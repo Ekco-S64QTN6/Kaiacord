@@ -27,6 +27,7 @@ REQUIRED_RELATED_TESTS = {
         "tools/tests/unit/test_rag_retrieval_metadata.py",
         "tools/tests/unit/test_rag_persistence_concurrency.py",
         "tools/tests/unit/test_rag_retrieval_method_scope.py",
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
     ),
     "utils/core/kaia_rag_retriever.py": (
         "tools/tests/unit/test_fast_vector_query.py",
@@ -41,6 +42,9 @@ REQUIRED_RELATED_TESTS = {
         "tools/tests/unit/test_rag_executor_lifecycle.py",
     ),
     "utils/core/kaia_rag_persistence.py": (
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
+    ),
+    "utils/commands/audit_handler.py": (
         "tools/tests/unit/test_rag_executor_lifecycle.py",
     ),
     "utils/core/message_processor.py": (
