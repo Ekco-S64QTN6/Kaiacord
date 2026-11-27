@@ -103,6 +103,9 @@ RELATED_TESTS = {
         "tools/tests/unit/test_rag_persistence_concurrency.py",
         "tools/tests/unit/test_rag_executor_lifecycle.py",
     ),
+    "utils/infrastructure/system/dashboard_manager.py": (
+        "tools/tests/unit/test_shutdown_prelude.py",
+    ),
     "utils/infrastructure/system/shutdown_fixed.py": (
         "tools/tests/unit/test_telemetry_honesty.py",
         "tools/tests/unit/test_async_task_registry.py",
