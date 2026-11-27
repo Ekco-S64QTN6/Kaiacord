@@ -784,6 +784,6 @@ tab("checks", "CHECKS", (root, x) => {
 // ── boot ────────────────────────────────────────────────────────────
 nav();
 tickLive().then(() => { const want = (location.hash || "").slice(1) || (() => { try { return localStorage.getItem("ops.tab"); } catch (e) { return null; } })(); show(want || "ov"); });
-setInterval(tickLive, 3000);
+setInterval(() => { if (!document.hidden) tickLive(); }, 3000);
 // Re-read the current tab every 30 s; readers on the server answer from cache unless a file changed.
 setInterval(() => { if (!CUR || CUR.id === "logs" || document.hidden) return; D.src = {}; Promise.resolve(CUR.refresh(CUR.ctx)).catch(oops); }, 30000);
