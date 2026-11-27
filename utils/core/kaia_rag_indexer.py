@@ -44,6 +44,72 @@ def _read_non_pdf_document(file_path: str) -> str:
         return source.read()
 
 
+def _restore_last_good_index(itype_dir: str, old_dir: str, itype: str):
+    """Validate and promote the retained last-good snapshot without losing either copy.
+
+    The caller holds the persistence transaction lock. Validate the backup before
+    moving the live directory; if validation or promotion fails, keep the original
+    live and backup paths intact. Reload after promotion so the storage context is
+    bound to the live path rather than the temporary backup path.
+    """
+    import shutil
+
+    # Do not disturb the live path until the fallback has independently loaded.
+    load_index_from_storage(StorageContext.from_defaults(persist_dir=old_dir))
+
+    quarantine_dir = f"{itype_dir}_corrupt"
+    suffix = 1
+    while os.path.lexists(quarantine_dir):
+        quarantine_dir = f"{itype_dir}_corrupt_{suffix}"
+        suffix += 1
+
+    live_moved = False
+    backup_moved = False
+    try:
+        if os.path.lexists(itype_dir):
+            os.rename(itype_dir, quarantine_dir)
+            live_moved = True
+
+        os.rename(old_dir, itype_dir)
+        backup_moved = True
+        restored = load_index_from_storage(
+            StorageContext.from_defaults(persist_dir=itype_dir)
+        )
+    except Exception:
+        rollback_errors = []
+        if backup_moved and os.path.lexists(itype_dir) and not os.path.lexists(old_dir):
+            try:
+                os.rename(itype_dir, old_dir)
+            except Exception as exc:
+                rollback_errors.append(f"backup: {exc}")
+        if live_moved and os.path.lexists(quarantine_dir) and not os.path.lexists(itype_dir):
+            try:
+                os.rename(quarantine_dir, itype_dir)
+            except Exception as exc:
+                rollback_errors.append(f"live: {exc}")
+        if rollback_errors:
+            raise RuntimeError(
+                f"Could not roll back {itype} snapshot recovery; retained artifacts "
+                f"are {itype_dir}, {old_dir}, {quarantine_dir}: "
+                + "; ".join(rollback_errors)
+            )
+        raise
+
+    if live_moved:
+        try:
+            if os.path.isdir(quarantine_dir) and not os.path.islink(quarantine_dir):
+                shutil.rmtree(quarantine_dir)
+            else:
+                os.remove(quarantine_dir)
+        except OSError as exc:
+            # Recovery is already complete. A leftover corrupt snapshot is
+            # diagnostic debris, not a reason to discard the restored index.
+            log_warning(f"Could not remove quarantined corrupt {itype} snapshot {quarantine_dir}: {exc}")
+
+    log_warning(f"Restored {itype} index from validated last-good snapshot {old_dir}.")
+    return restored
+
+
 class ConversationTurnSplitter:
     """
     Splits structured conversation logs by turn groups.
@@ -228,15 +294,16 @@ class RAGIndexerMixin:
                 index_types = ['persona', 'user_profiles', 'knowledge', 'logs', 'dreams']
                 for itype in index_types:
                     itype_dir = os.path.join(self.persist_dir, itype)
-                    # A persist killed between its two renames leaves the last good
-                    # copy in <itype>_old and no <itype>: restore it rather than
-                    # start an empty index and re-embed everything.
+                    # An interrupted directory swap can leave the live path missing,
+                    # empty, or corrupt while the last-good copy remains in _old.
+                    # Validate that copy before promoting it or discarding either path.
                     old_dir = f"{itype_dir}_old"
-                    if not os.path.exists(itype_dir) and os.path.isdir(old_dir):
-                        os.rename(old_dir, itype_dir)
-                        log_warning(f"Restored {itype} index from {old_dir} (an interrupted persist).")
+                    live_has_content = os.path.isdir(itype_dir) and bool(os.listdir(itype_dir))
+                    if not live_has_content and os.path.isdir(old_dir):
+                        self.indices[itype] = _restore_last_good_index(itype_dir, old_dir, itype)
+                        continue
                     try:
-                        if os.path.exists(itype_dir) and os.listdir(itype_dir):
+                        if live_has_content:
                             log_debug(f"Loading {itype} index...")
                             storage_context = StorageContext.from_defaults(persist_dir=itype_dir)
                             self.indices[itype] = load_index_from_storage(storage_context)
@@ -248,6 +315,13 @@ class RAGIndexerMixin:
                             self.indices[itype].storage_context.persist(persist_dir=itype_dir)
                     except Exception as e:
                         log_error(f"Error initializing {itype} index (corruption suspected): {e}")
+                        if os.path.isdir(old_dir):
+                            # A retained backup is stronger evidence than an empty
+                            # replacement. If it cannot be validated, propagate the
+                            # failure with both snapshots untouched for diagnosis.
+                            self.indices[itype] = _restore_last_good_index(itype_dir, old_dir, itype)
+                            continue
+                        # No retained snapshot exists: use the established rebuild path.
                         # Auto-repair corrupted storage
                         try:
                             import shutil
