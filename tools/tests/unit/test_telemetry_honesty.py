@@ -190,7 +190,9 @@ def test_the_watchdog_flags_capitulation_not_word_polarity(tmp_path, monkeypatch
     ground on a strong belief because the speaker pushed."""
     import asyncio, json
     from types import SimpleNamespace as NS
-    from utils.core.message_processor import MessageProcessor
+    from utils.core import private_turn
+    from utils.core import message_processor as mp_module
+    from utils.core.message_processor import MessageProcessor, _private_diagnostic_detail
     (tmp_path / "memory").mkdir()
     (tmp_path / "memory" / "beliefs.json").write_text(json.dumps([
         {"topic": "information verification & online narratives", "confidence": 0.9,
@@ -198,15 +200,46 @@ def test_the_watchdog_flags_capitulation_not_word_polarity(tmp_path, monkeypatch
     monkeypatch.chdir(tmp_path)
     mp = MessageProcessor.__new__(MessageProcessor)
     mp.bot_state = NS(channel_memory={})
-    def run(own, reply):
-        ctx = NS(own_words=own, channel_id=1, author_name="u", sanitized_content=own, prompt_messages=[])
+    def run(own, reply, *, is_dm=False):
+        ctx = NS(own_words=own, channel_id=1, author_name="u", sanitized_content=own,
+                 prompt_messages=[], is_dm=is_dm)
         return asyncio.run(mp._run_consistency_watchdog(ctx, reply))
     # What the old check flagged: a good reply containing "good".
     assert run("tell me about recent news", "it's good that the sources are verified.") == []
-    # Pushback on the belief, and she folds.
-    got = run("no, online narratives need no verification of information at all.",
-              "you're right, verification of online narratives doesn't matter.")
+    # Pushback on the belief, and she folds. Public diagnostics retain detail.
+    public_logs = []
+    monkeypatch.setattr(mp_module, "log_warning", public_logs.append)
+    own = "you're wrong about information verification and online narratives"
+    reply = "you're right, verification of online narratives doesn't matter."
+    got = run(own, reply)
     assert got and "Conceded on 'information verification & online narratives'" in got[0]
+    assert public_logs and "information verification & online narratives" in public_logs[-1]
+    assert "recognizing the danger" in public_logs[-1]
+
+    # The same matched reason is actionable in-memory but not visible in the
+    # general diagnostic log for a private DM or invitation-only thread.
+    private_logs = []
+    monkeypatch.setattr(mp_module, "log_warning", private_logs.append)
+    token = private_turn.enter(True)
+    try:
+        private_got = run(own, reply, is_dm=True)
+    finally:
+        private_turn.leave(token)
+    assert private_got == got
+    assert private_logs and private_turn.WITHHELD in private_logs[-1]
+    assert "information verification" not in private_logs[-1]
+    assert "recognizing the danger" not in private_logs[-1]
+
+    # The helper shared by the later correction/failure diagnostics has the same
+    # private/public contract.
+    token = private_turn.enter(True)
+    try:
+        private_detail = _private_diagnostic_detail(got)
+    finally:
+        private_turn.leave(token)
+    assert private_detail == private_turn.WITHHELD
+    assert _private_diagnostic_detail(got) == str(got)
+
     # Pushback she holds against is fine.
     assert run("no, online narratives need no verification of information at all.",
                "i don't agree. unverified information spreads harm.") == []
