@@ -132,7 +132,6 @@ async def test_timed_out_rag_shutdown_save_retains_worker_and_skips_later_teardo
     monkeypatch, tmp_path
 ):
     """A save past the global deadline stays owned and prevents resource teardown."""
-    import sys
     import threading
     import types
     from types import SimpleNamespace
