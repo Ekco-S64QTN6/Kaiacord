@@ -21,6 +21,10 @@ def path_for(user_id) -> Path:
 
 
 def record(user_id, user_name: str, said: str, reply: str) -> None:
+    from utils.core.sanitizer import redact_urls_in_text
+
+    said = redact_urls_in_text(said)
+    reply = redact_urls_in_text(reply)
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     text = f"[{stamp}] {user_name}: {said}\n"
     if reply.strip():

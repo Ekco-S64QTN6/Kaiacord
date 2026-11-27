@@ -18,6 +18,19 @@ def test_a_dm_goes_to_its_own_log(tmp_path, monkeypatch):
     assert "knowledge_base" not in str(p)
 
 
+def test_a_dm_log_redacts_credentials_from_user_and_reply_urls(tmp_path, monkeypatch):
+    monkeypatch.setattr(dm_log, "telemetry_path", lambda p: str(tmp_path / p))
+    said = "read https://alice:pw@files.example.com/a?accessToken=user-secret&format=pdf"
+    reply = "https://api.example.com/b?clientSecret=reply-secret&format=pdf#private"
+    dm_log.record(42, "tester", said, reply)
+
+    saved = (tmp_path / "memory" / "dm_logs" / "42.md").read_text(encoding="utf-8")
+    assert "https://files.example.com/a?format=pdf" in saved
+    assert "https://api.example.com/b?format=pdf" in saved
+    for secret in ("alice", "pw", "user-secret", "reply-secret", "clientSecret", "#private"):
+        assert secret not in saved
+
+
 def test_the_pipeline_routes_dms_away_from_the_shared_log(log_turn):
     seen = log_turn(True)
     assert seen["private"] and not seen["shared"]
@@ -163,18 +176,27 @@ def test_private_inline_vision_diagnostics_withhold_attachment_url_filename_and_
         assert secret not in failure_log
 
 
-def test_public_inline_vision_diagnostics_keep_useful_attachment_context():
+def test_public_inline_vision_diagnostics_keep_context_but_redact_url_credentials():
     from utils.core.message_processor import (
         _vision_attachment_fetch_log,
         _vision_attachment_failure_log,
     )
 
-    url = "https://cdn.discordapp.com/attachments/123456/789012/photo.png"
+    url = "https://cdn.discordapp.com/attachments/123456/789012/photo.png?accessToken=fetch-secret&format=png"
     filename = "photo.png"
-    error = OSError("connection reset")
+    error = OSError(
+        "connection reset for "
+        "https://cdn.discordapp.com/attachments/123456/789012/photo.png?"
+        "clientSecret=error-secret&format=png"
+    )
 
-    assert url in _vision_attachment_fetch_log(url)
+    fetch_log = _vision_attachment_fetch_log(url)
+    assert "https://cdn.discordapp.com/attachments/123456/789012/photo.png?format=png" in fetch_log
+    assert "accessToken" not in fetch_log and "fetch-secret" not in fetch_log
+
     failure_log = _vision_attachment_failure_log(filename, error)
     assert filename in failure_log
     assert "connection reset" in failure_log
+    assert "clientSecret" not in failure_log and "error-secret" not in failure_log
+    assert "format=png" in failure_log
 

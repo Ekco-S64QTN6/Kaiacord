@@ -63,6 +63,12 @@ def test_ordinary_talk_does_not_spend_the_rate_limit_at_the_command_gate(monkeyp
     ("https://s3.example.com/b/doc.pdf?X-Amz-Signature=abc123&X-Amz-Credential=AKIA&versionId=7",
      "versionId=7", "abc123"),
     ("https://api.example.com/export?access_token=tok_live&format=md", "format=md", "tok_live"),
+    ("https://api.example.com/export?accessToken=tok_live&format=pdf", "format=pdf", "tok_live"),
+    ("https://api.example.com/export?refreshToken=refresh_live&format=pdf", "format=pdf", "refresh_live"),
+    ("https://api.example.com/export?authToken=auth_live&format=pdf", "format=pdf", "auth_live"),
+    ("https://api.example.com/export?clientSecret=secret_live&format=pdf", "format=pdf", "secret_live"),
+    ("https://api.example.com/export?APIKey=key_live&format=pdf", "format=pdf", "key_live"),
+
     ("https://x.blob.example.net/c/d.txt?sv=2024&sig=s3cr3t&se=2026", "/c/d.txt", "s3cr3t"),
     ("https://example.com/page?utm_source=news&id=44#section", "utm_source=news&id=44", "#section"),
     ("https://example.com/doc?api_key=k123&apikey=k456&q=moon", "q=moon", "k123"),
@@ -133,7 +139,18 @@ def test_a_staged_document_never_exists_without_its_sidecar(handler):
     src = open(handler, encoding="utf-8").read()
     writes = [line.strip() for line in src.splitlines() if "write_atomic" in line and "import" not in line]
     assert len(writes) == 2 and ".meta.json" in writes[0] and ".meta.json" not in writes[1]
-    assert all(w.startswith("await asyncio.to_thread(write_atomic") for w in writes)
+    # YouTube stages through a cancellation-draining wrapper around
+    # asyncio.to_thread(); ordinary downloads await asyncio.to_thread directly.
+    assert all(
+        w.startswith((
+            "await asyncio.to_thread(write_atomic",
+            "await _run_off_loop(write_atomic",
+        ))
+        for w in writes
+    )
+    if handler.endswith("youtube_handler.py"):
+        assert "asyncio.to_thread(func, *args)" in src
+        assert "await asyncio.shield(worker)" in src
 
 
 @pytest.mark.parametrize("url", ["https://www.youtube.com/watch?v=oE0QUK5w5Ls", "https://youtu.be/oE0QUK5w5Ls"])
