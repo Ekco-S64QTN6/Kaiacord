@@ -240,6 +240,15 @@ def test_the_watchdog_flags_capitulation_not_word_polarity(tmp_path, monkeypatch
     assert private_detail == private_turn.WITHHELD
     assert _private_diagnostic_detail(got) == str(got)
 
+    # Keep every watchdog diagnostic-detail call site on the same redaction path.
+    import inspect
+    watchdog_source = inspect.getsource(MessageProcessor._run_consistency_watchdog)
+    post_process_source = inspect.getsource(MessageProcessor._post_process_and_log)
+    assert "_private_diagnostic_detail(reasons)" in watchdog_source
+    assert "_private_diagnostic_detail(ce)" in watchdog_source
+    assert "_private_diagnostic_detail(_watchdog_reasons)" in post_process_source
+    assert "_private_diagnostic_detail(_wd_err)" in post_process_source
+
     # Pushback she holds against is fine.
     assert run("no, online narratives need no verification of information at all.",
                "i don't agree. unverified information spreads harm.") == []
