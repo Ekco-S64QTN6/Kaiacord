@@ -77,7 +77,8 @@ async def run_rag_retrieval(fn, *args, **kwargs):
         if inspect.iscoroutinefunction(fn):
             return await fn(*args, **kwargs)
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(rag_executor, _in_context(fn, args, kwargs))
+        future = loop.run_in_executor(rag_executor, _in_context(fn, args, kwargs))
+        return await _await_executor_and_drain(future)
 
 def shutdown_rag_executor():
     """Shutdown the thread pool executor gracefully."""
