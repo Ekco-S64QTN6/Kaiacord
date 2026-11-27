@@ -126,6 +126,58 @@ def test_a_log_rewritten_in_place_is_reindexed_from_the_start(indexer):
     assert not any("wrong answer" in t for t in texts)
 
 
+@pytest.mark.asyncio
+async def test_cancelled_refresh_keeps_index_lock_until_non_pdf_worker_drains(indexer, monkeypatch):
+    """Cancelling refresh must not orphan its non-PDF indexing thread."""
+    ix, kb = indexer
+    doc = kb / "documents" / "blocked.md"
+    doc.parent.mkdir()
+    doc.write_text("content that needs indexing")
+
+    ix._index_lock = threading.Lock()
+    ix._refresh_pending = False
+    ix._indexing_in_progress = False
+    worker_started = threading.Event()
+    release_worker = threading.Event()
+    worker_finished = threading.Event()
+
+    def blocked_index(_file_path, _modified, _is_log, _itype, _corrupt_dir):
+        worker_started.set()
+        if not release_worker.wait(timeout=5):
+            raise TimeoutError("test did not release RAG indexing worker")
+        worker_finished.set()
+        return True
+
+    monkeypatch.setattr(ix, "_prune_deleted_files", lambda: set())
+    monkeypatch.setattr(ix, "_reconcile_indices", lambda: set())
+    monkeypatch.setattr(ix, "_cleanup_stale_file_nodes", lambda: (set(), False))
+    monkeypatch.setattr(ix, "_find_changed_files", lambda: [
+        (str(doc), False, False, "knowledge")
+    ])
+    monkeypatch.setattr(ix, "_index_single_file", blocked_index)
+
+    refresh = asyncio.create_task(ix.refresh_knowledge_base())
+    assert await asyncio.wait_for(asyncio.to_thread(worker_started.wait, 2), timeout=3)
+
+    refresh.cancel()
+    await asyncio.sleep(0.05)
+
+    # The thread cannot be cancelled. The refresh must retain ownership rather
+    # than clear _indexing_in_progress/release _index_lock while it is running.
+    assert not refresh.done()
+    assert ix._index_lock.locked()
+    assert ix._indexing_in_progress
+    assert not worker_finished.is_set()
+
+    release_worker.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(refresh, timeout=2)
+
+    assert worker_finished.is_set()
+    assert not ix._index_lock.locked()
+    assert not ix._indexing_in_progress
+
+
 def test_turns_split_on_multi_word_speakers():
     text = ("[2026-09-01 10:00:00] Tenno Henka: hi there\n"
             "[2026-09-01 10:00:05] Kaia: hello\n")
