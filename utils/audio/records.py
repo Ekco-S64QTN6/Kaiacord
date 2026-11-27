@@ -3163,7 +3163,7 @@ class CrossfadeSource(_AudioSource):
                      # A target can change before the next render frame moves
                      # pitch_rate. The preview captured the old rate, so reject
                      # it while the program deck has any ramp still in flight.
-                     or (program is not None and program.pitch_ramping))
+                     or (program is not None and (program.pitch_ramping or program.bend_active)))
             target_at = max(0.0, current[4] / current[1]) if not stale else 0.0
             delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S / preview.playback_rate))
             if delta_frames < -1 or delta_frames > 145:
@@ -3180,7 +3180,7 @@ class CrossfadeSource(_AudioSource):
                          or current[0].path != record.path
                          or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6)
                          or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6)
-                         or (program is not None and program.pitch_ramping))
+                         or (program is not None and (program.pitch_ramping or program.bend_active)))
                 if not stale:
                     target_at = max(0.0, current[4] / current[1])
                     delta_frames = int(round(
@@ -3212,7 +3212,7 @@ class CrossfadeSource(_AudioSource):
                      or current[0].path != record.path
                      or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6)
                      or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6)
-                     or (program is not None and program.pitch_ramping))
+                     or (program is not None and (program.pitch_ramping or program.bend_active)))
             if not stale:
                 target_at = max(0.0, current[4] / current[1])
                 delta_frames = int(round(
