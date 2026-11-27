@@ -66,8 +66,10 @@ async def handle_flag_command(ctx, msg, send_kaia_response):
             "Nothing retrieved in this channel to flag. Ask me something first.", error=True))
         return
 
-    # Flagging persists the index; that is seconds of disk work.
-    flagged = await asyncio.to_thread(ctx.rag.flag_nodes, node_ids, construct)
+    # Flagging persists the index; retain the default-executor writer if
+    # this command is cancelled during shutdown.
+    from utils.core.rag_executor import run_in_default_executor_and_drain
+    flagged = await run_in_default_executor_and_drain(ctx.rag.flag_nodes, node_ids, construct)
     label = CONSTRUCT_LABELS[construct]
     await msg.channel.send(embed=box(
         "🏷️  Flagged",
