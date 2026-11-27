@@ -206,7 +206,7 @@ tools/tests/unit/test_clear_gpu_memory.py,19f79ce57b85dbac660080d6129f7f0d168bdb
 tools/tests/unit/test_code_blocks.py,383a044007b006f1ceef2b14486b71d230b943c5,1996,test,medium,not_reviewed,,,
 tools/tests/unit/test_combat_concurrency.py,34330b68565ffbf19cdec9ab3e2baf63d70c22ca,8816,test,medium,not_reviewed,,,
 tools/tests/unit/test_command_boxes.py,143a4fc06d124f4cfdeb562120cb58b873b3db47,13711,test,medium,not_reviewed,,,
-tools/tests/unit/test_command_gate_and_download_limits.py,6ae3e65a06490a101711575fa8b1c31621079042,7163,test,medium,not_reviewed,,,
+tools/tests/unit/test_command_gate_and_download_limits.py,6ae3e65a06490a101711575fa8b1c31621079042,7163,test,medium,reviewed,6ae3e65a06490a101711575fa8b1c31621079042,"Complete 157-line suite reviewed. Covers shutdown/rate-limit command dispatch, one active download per user, credential redaction across userinfo/provider/snake_case parameters, sidecar-before-document atomic staging, ingress provenance scrub, and YouTube routing. Its current redaction cases omit camelCase credential parameter names; follow-up #486 records the confirmed gap.",#486
 tools/tests/unit/test_command_limits.py,c1d670c415c18b51fffbc6074dd9c7ab99a548c1,3202,test,medium,not_reviewed,,,
 tools/tests/unit/test_command_registry.py,af5cca29d13f2f8da9e339c7dbd66a50cb51c9f4,12159,test,medium,not_reviewed,,,
 tools/tests/unit/test_commands_note.py,f46da3aadf0927ac8f16b25f45507895920ab5a7,1484,test,medium,not_reviewed,,,
@@ -214,7 +214,7 @@ tools/tests/unit/test_compact_user_logs_split.py,2ab3769d798dfdc0e09ab2cfcc8a4aa
 tools/tests/unit/test_concurrency_lock.py,3d209055845618d276307c49af65412ff2f97a05,1472,test,medium,not_reviewed,,,
 tools/tests/unit/test_contamination_scan.py,675f9fed8e894cb909207b0f0f1b985a57e31f34,4523,test,medium,not_reviewed,,,
 tools/tests/unit/test_context_enricher_files.py,d9d780371276d55dfcac0bab12e08a3dac58767f,5257,test,medium,reviewed,d9d780371276d55dfcac0bab12e08a3dac58767f,"Complete 126-line test file reviewed. Exercises the real ContextEnricher attachment reader, including marker neutralization, user-text separation, prompt-size cap, type/size/binary rejection, lookback ownership/time bounds, and reply attachment lookup.",#366
-tools/tests/unit/test_context_enricher_links.py,16e4d6ca128e59669b8498210e48ff36cd86fce9,22042,test,medium,not_reviewed,,,
+tools/tests/unit/test_context_enricher_links.py,16e4d6ca128e59669b8498210e48ff36cd86fce9,22042,test,medium,reviewed,16e4d6ca128e59669b8498210e48ff36cd86fce9,"Complete 560-line suite reviewed. Covers Discord linked-message read permissions including private threads, URL recognition/trailing punctuation, bounded streamed HTML, connect-time private-address rejection, chunked response reading, PDF extraction/worker resource limits and concurrency, bounded caches, and browser-check page handling.",#366
 tools/tests/unit/test_conversation_arc.py,d198297402025a6c009883a1dd7d6a4fc046d78d,1446,test,medium,not_reviewed,,,
 tools/tests/unit/test_conversation_beliefs.py,8a808432d6b1e39e5b5995a12f7f0f2b5109807f,5525,test,medium,not_reviewed,,,
 tools/tests/unit/test_corpus_exclusions.py,b57e6a68c5634b767a380e23abeb7a883ec4aa27,5907,test,medium,not_reviewed,,,
@@ -420,7 +420,7 @@ tools/tests/unit/test_untrusted_outside_text.py,161e8a6e9624875913971ac57e5afc7b
 tools/tests/unit/test_user_log_atomic_append.py,bbaf05db93b23fb230230637ba56c9a1574c3fdf,1135,test,medium,not_reviewed,,,
 tools/tests/unit/test_user_log_structure.py,0c4a61bbe354e71f807c56c1f573bfbb44f95d5b,12709,test,medium,not_reviewed,,,
 tools/tests/unit/test_uvk5.py,73ba7cbd3c6909f0153f7e1ab9f57481d40e95ce,6188,test,medium,not_reviewed,,,
-tools/tests/unit/test_vision_fetch_security.py,7d7974f74687f6f574895f328afb34dae4572da6,8338,test,medium,not_reviewed,,,
+tools/tests/unit/test_vision_fetch_security.py,7d7974f74687f6f574895f328afb34dae4572da6,8338,test,medium,reviewed,7d7974f74687f6f574895f328afb34dae4572da6,"Complete 264-line suite reviewed. Covers pre-session private URL rejection, redirect-to-metadata rejection and public redirect resolution with manual redirects, bounded body before decode, dimension budget and JPEG draft downscaling, attachment-count limits, and truthful notes when images fail to load.",#366
 tools/tests/unit/test_voice_busy.py,20f9478a6073b8f9ea29bbb2355553cc331d5cf2,9625,test,medium,not_reviewed,,,
 tools/tests/unit/test_voice_dependency_specs.py,c450024b798703521728c698d29fb73951f95b43,920,test,medium,not_reviewed,,,
 tools/tests/unit/test_voice_sampling.py,8db161afe81f013b21632987cbb370d7df78dc42,4339,test,medium,not_reviewed,,,
