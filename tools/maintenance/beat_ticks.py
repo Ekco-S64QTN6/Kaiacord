@@ -137,9 +137,15 @@ def main() -> int:
                 except (OSError, ValueError):
                     cached = {}
                 target_bpm = round(float(bpm), 3) if bpm else None
+                alternate = cached.get("alternate_ticks")
+                phase_cache_complete = (
+                    alternate is None
+                    or (isinstance(alternate, list) and len(alternate) >= 16)
+                )
                 if (cached.get("audio_signature") == identity
                         and "target_bpm" in cached
                         and "alternate_ticks" in cached
+                        and phase_cache_complete
                         and cached.get("target_bpm") == target_bpm):
                     continue
             data = analyse(path, bpm, identity=identity)
