@@ -39,6 +39,9 @@ def _already_have(video_id: str):
                 continue
     return None
 
+# Deployment contract: one Kaiacord.py bot process per state directory. These
+# in-memory reservations are process-local, not cross-worker coordination; a
+# multi-process deployment must move admission/deduplication to shared storage.
 # The global command rate limiter is per user; this separate cap protects
 # transcript fetches and local correction work across all channels/users.
 MAX_CONCURRENT_TRANSCRIPTS = 2
