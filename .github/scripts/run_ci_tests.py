@@ -104,6 +104,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_telemetry_honesty.py",
         "tools/tests/unit/test_rag_persistence_concurrency.py",
         "tools/tests/unit/test_rag_executor_lifecycle.py",
+        "tools/tests/unit/test_user_log_atomic_append.py",
     ),
     "utils/infrastructure/system/dashboard_manager.py": (
         "tools/tests/unit/test_shutdown_prelude.py",
