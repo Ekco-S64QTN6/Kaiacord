@@ -78,6 +78,7 @@ RELATED_TESTS = {
     "utils/commands/download_handler.py": ("tools/tests/unit/test_download_sidecar.py",),
     "utils/commands/youtube_handler.py": ("tools/tests/unit/test_youtube_handler_limits.py",),
     "tools/maintenance/youtube_to_kb_md.py": ("tools/tests/unit/test_youtube_handler_limits.py",),
+    "utils/commands/audit_handler.py": ("tools/tests/unit/test_rag_executor_lifecycle.py",),
     "utils/commands/news_handler.py": ("tools/tests/unit/test_command_boxes.py",),
     "tools/maintenance/process_ingress.py": ("tools/tests/unit/test_ingress_now.py",),
     "tools/maintenance/scrape_tech_news.py": ("tools/tests/unit/test_news_manager.py",),
@@ -97,8 +98,16 @@ RELATED_TESTS = {
         "tools/tests/unit/test_rag_retrieval_metadata.py",
         "tools/tests/unit/test_rag_persistence_concurrency.py",
         "tools/tests/unit/test_rag_retrieval_method_scope.py",
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
     ),
-    "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py", "tools/tests/unit/test_rag_persistence_concurrency.py"),
+    "utils/core/kaia_rag_persistence.py": (
+        "tools/tests/unit/test_telemetry_honesty.py",
+        "tools/tests/unit/test_rag_persistence_concurrency.py",
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
+    ),
+    "utils/infrastructure/system/dashboard_manager.py": (
+        "tools/tests/unit/test_shutdown_prelude.py",
+    ),
     "utils/infrastructure/system/shutdown_fixed.py": (
         "tools/tests/unit/test_telemetry_honesty.py",
         "tools/tests/unit/test_async_task_registry.py",

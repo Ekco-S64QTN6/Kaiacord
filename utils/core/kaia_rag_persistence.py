@@ -55,8 +55,9 @@ class RAGPersistenceMixin:
     # add_memory (in the worker thread) takes the same non-reentrant lock in
     # log_user_interaction, so the decorated version could never get it.
     async def add_memory_async(self, user_id: int, user_name: str, text: str) -> bool:
-        """Async wrapper for add_memory."""
-        return await asyncio.to_thread(self.add_memory, user_id, user_name, text)
+        """Async wrapper that retains ownership until the memory writer exits."""
+        from utils.core.rag_executor import run_in_default_executor_and_drain
+        return await run_in_default_executor_and_drain(self.add_memory, user_id, user_name, text)
 
     def add_memory(self, user_id: int, user_name: str, text: str) -> bool:
         """Log a 'remembered' fact into a separate file AND the interaction log."""
@@ -95,8 +96,11 @@ class RAGPersistenceMixin:
             return False
 
     async def log_user_interaction_async(self, user_id: int, user_name: str, message_content: str, bot_response: str) -> bool:
-        """Async wrapper for log_user_interaction."""
-        return await asyncio.to_thread(self.log_user_interaction, user_id, user_name, message_content, bot_response)
+        """Async wrapper that drains the interaction append on cancellation."""
+        from utils.core.rag_executor import run_in_default_executor_and_drain
+        return await run_in_default_executor_and_drain(
+            self.log_user_interaction, user_id, user_name, message_content, bot_response
+        )
 
     # Removed @thread_safe_rag_operation to ensure file writing always happens
     def log_user_interaction(self, user_id: int, user_name: str, message_content: str, bot_response: str) -> bool:
@@ -376,8 +380,9 @@ class RAGPersistenceMixin:
         }
 
     async def persist_async(self, force: bool = False, shutdown: bool = False) -> Optional[bool]:
-        """Async wrapper for persist."""
-        return await asyncio.to_thread(self.persist, force, shutdown)
+        """Async wrapper that retains the writer thread until persistence finishes."""
+        from utils.core.rag_executor import run_in_default_executor_and_drain
+        return await run_in_default_executor_and_drain(self.persist, force, shutdown)
 
     def _persist_index_atomic(self, itype: str) -> None:
         """Serialize the complete staging, swap, rollback and cleanup sequence."""

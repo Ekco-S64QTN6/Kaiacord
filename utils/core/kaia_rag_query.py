@@ -748,17 +748,27 @@ class RAGQueryMixin:
                         # persist is already running is written by the next one.
                         if not getattr(self, "_repair_persist_running", False):
                             self._repair_persist_running = True
+                            persist_started = False
 
-                            def _persist_once():
+                            async def _persist_once():
+                                nonlocal persist_started
+                                persist_started = True
                                 try:
-                                    self.persist(force=True)
+                                    from utils.core.rag_executor import run_in_default_executor_and_drain
+                                    await run_in_default_executor_and_drain(self.persist, force=True)
                                 finally:
                                     self._repair_persist_running = False
 
+                            repair_task = asyncio.create_task(_persist_once())
+                            # register() may cancel immediately once shutdown
+                            # begins. If the coroutine never starts, its finally
+                            # cannot clear the single-flight flag.
+                            repair_task.add_done_callback(
+                                lambda _task: setattr(self, "_repair_persist_running", False)
+                                if not persist_started else None
+                            )
                             from utils.infrastructure.monitoring.async_task_registry import task_registry
-                            task_registry.register(
-                                f"rag_repair_persist_{itype}",
-                                asyncio.create_task(asyncio.to_thread(_persist_once)))
+                            task_registry.register(f"rag_repair_persist_{itype}", repair_task)
                         
                         return await self._execute_hybrid_retrieval(itype, query, retrieve_count, _retry_count + 1)
                     except Exception as repair_err:

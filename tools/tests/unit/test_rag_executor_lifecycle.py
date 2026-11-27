@@ -207,3 +207,210 @@ async def test_executor_shutdown_waits_off_loop_thread_and_keeps_loop_responsive
             await asyncio.wait_for(closer, timeout=1.0)
         elif closer is None:
             await asyncio.to_thread(pool.shutdown, wait=True)
+
+
+@pytest.mark.parametrize(
+    ("async_name", "sync_name", "args"),
+    (
+        ("add_memory_async", "add_memory", (42, "tester", "remembered fact")),
+        ("log_user_interaction_async", "log_user_interaction",
+         (42, "tester", "hello", "hi")),
+        ("persist_async", "persist", (True, True)),
+    ),
+)
+@pytest.mark.asyncio
+async def test_default_executor_rag_writers_remain_registered_until_worker_exits(
+    async_name, sync_name, args, monkeypatch
+):
+    """Cancellation cannot orphan a default-executor RAG mutation."""
+    from utils.core.kaia_rag_persistence import RAGPersistenceMixin
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    started = threading.Event()
+    release = threading.Event()
+    registry = AsyncTaskRegistry()
+    harness = RAGPersistenceMixin.__new__(RAGPersistenceMixin)
+
+    def blocked_writer(*_args, **_kwargs):
+        started.set()
+        if not release.wait(timeout=3):
+            raise TimeoutError("test did not release the default-executor RAG writer")
+        return True
+
+    monkeypatch.setattr(harness, sync_name, blocked_writer, raising=False)
+    async_writer = getattr(RAGPersistenceMixin, async_name)
+    owner = asyncio.create_task(async_writer(harness, *args))
+    registry.register("rag-default-writer", owner)
+    try:
+        assert await asyncio.to_thread(started.wait, 1.0)
+
+        cancelled = await registry.cancel_all(timeout=0.05)
+        assert cancelled == 1
+        assert not owner.done(), "registry treated a running default-executor writer as drained"
+        assert registry.get_pending_count() == 1
+        assert any(task is owner for task in registry.get_all_tasks().values())
+
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(owner, timeout=1.0)
+        await asyncio.sleep(0)
+        assert registry.get_pending_count() == 0
+        assert registry.get_all_tasks() == {}
+    finally:
+        release.set()
+        if not owner.done():
+            owner.cancel()
+            try:
+                await asyncio.wait_for(owner, timeout=1.0)
+            except asyncio.CancelledError:
+                pass
+
+
+
+@pytest.mark.asyncio
+async def test_stale_node_repair_persist_keeps_registry_owner_until_thread_exits(
+    monkeypatch,
+):
+    """The repair task must drain its default-executor persistence worker."""
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    from llama_index.core.schema import NodeWithScore, TextNode
+    from utils.core.kaia_rag_query import RAGQueryMixin
+    from utils.infrastructure.monitoring import async_task_registry
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    registry = AsyncTaskRegistry()
+    monkeypatch.setattr(async_task_registry, "task_registry", registry)
+    worker_started = threading.Event()
+    release_worker = threading.Event()
+
+    class FakeRetriever:
+        def __init__(self):
+            self.calls = 0
+
+        async def aretrieve(self, _query):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("Node ID stale-node not found in index")
+            return [NodeWithScore(node=TextNode(text="repaired node"), score=0.8)]
+
+    retriever = FakeRetriever()
+
+    class FakeIndex:
+        def __init__(self):
+            self.storage_context = SimpleNamespace(
+                docstore=SimpleNamespace(docs={}),
+            )
+
+        def as_retriever(self, similarity_top_k):
+            assert similarity_top_k > 0
+            return retriever
+
+    class QueryHarness(RAGQueryMixin):
+        def __init__(self):
+            self.indices = {"knowledge": FakeIndex()}
+            self.bm25_cache = {}
+            self._data_lock = threading.Lock()
+            self._repair_persist_running = False
+
+        def _get_persistence_transaction_lock(self):
+            return nullcontext()
+
+        def _delete_nodes(self, _itype, node_ids):
+            assert node_ids == ["stale-node"]
+            return 1
+
+        def persist(self, force=False):
+            assert force is True
+            worker_started.set()
+            if not release_worker.wait(timeout=3):
+                raise TimeoutError("test did not release the stale-repair persist worker")
+            return True
+
+    query = QueryHarness()
+    try:
+        results = await query._execute_hybrid_retrieval("knowledge", "question", 2)
+        assert len(results) == 1
+        assert query._repair_persist_running is True
+        assert await asyncio.to_thread(worker_started.wait, 1.0)
+
+        cancelled = await registry.cancel_all(timeout=0.05)
+        assert cancelled == 1
+        assert registry.get_pending_count() == 1
+        repair_tasks = list(registry.get_all_tasks().values())
+        assert len(repair_tasks) == 1
+        assert not repair_tasks[0].done()
+
+        release_worker.set()
+        outcomes = await asyncio.gather(*repair_tasks, return_exceptions=True)
+        assert isinstance(outcomes[0], asyncio.CancelledError)
+        await asyncio.sleep(0)
+        assert registry.get_pending_count() == 0
+        assert registry.get_all_tasks() == {}
+        assert query._repair_persist_running is False
+    finally:
+        release_worker.set()
+        for task in registry.get_all_tasks().values():
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_flag_command_drains_default_executor_writer_on_cancellation(monkeypatch):
+    """The owner-only !flag handler cannot orphan its synchronous RAG writer."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from utils.commands import audit_handler
+    from utils.infrastructure.monitoring import retrieval_trace
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    registry = AsyncTaskRegistry()
+    worker_started = threading.Event()
+    release_worker = threading.Event()
+
+    monkeypatch.setattr(audit_handler, "_unavailable", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        retrieval_trace,
+        "recent",
+        lambda *_args, **_kwargs: [{"nodes": [{"id": "source-node"}]}],
+    )
+
+    def block_flag_nodes(node_ids, construct):
+        assert node_ids == ["source-node"]
+        assert construct == "linguistic_mimicry"
+        worker_started.set()
+        if not release_worker.wait(timeout=3):
+            raise TimeoutError("test did not release the audit flag writer")
+        return 1
+
+    ctx = SimpleNamespace(
+        config=SimpleNamespace(is_owner=lambda *_args, **_kwargs: True),
+        rag=SimpleNamespace(flag_nodes=block_flag_nodes),
+    )
+    msg = SimpleNamespace(
+        content="!flag linguistic_mimicry",
+        author=SimpleNamespace(name="tester", display_name="tester", id=42),
+        channel=SimpleNamespace(id=123, send=AsyncMock()),
+    )
+    owner = asyncio.create_task(audit_handler.handle_flag_command(ctx, msg, None))
+    registry.register("audit-flag-owner", owner)
+    try:
+        assert await asyncio.to_thread(worker_started.wait, 1.0)
+        cancelled = await registry.cancel_all(timeout=0.05)
+        assert cancelled == 1
+        assert not owner.done()
+        assert registry.get_pending_count() == 1
+        assert any(task is owner for task in registry.get_all_tasks().values())
+
+        release_worker.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(owner, timeout=1.0)
+        await asyncio.sleep(0)
+        assert registry.get_pending_count() == 0
+        assert registry.get_all_tasks() == {}
+    finally:
+        release_worker.set()
+        if not owner.done():
+            owner.cancel()
+            await asyncio.gather(owner, return_exceptions=True)

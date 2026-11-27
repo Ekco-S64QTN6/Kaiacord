@@ -56,6 +56,17 @@ async def _await_executor_and_drain(future):
     return future.result()
 
 
+async def run_in_default_executor_and_drain(fn, *args, **kwargs):
+    """Run a sync worker in asyncio's default pool without detaching it.
+
+    Cancelling an asyncio.to_thread() awaiter does not stop a running thread.
+    Keep the owner coroutine alive until that worker has actually finished so
+    task-registry shutdown cannot mistake a live writer for drained work.
+    """
+    worker = asyncio.create_task(asyncio.to_thread(fn, *args, **kwargs))
+    return await _await_executor_and_drain(worker)
+
+
 async def run_rag(fn, *args, **kwargs):
     """
     Run write-heavy RAG operations (indexing, memory writes).

@@ -27,6 +27,7 @@ REQUIRED_RELATED_TESTS = {
         "tools/tests/unit/test_rag_retrieval_metadata.py",
         "tools/tests/unit/test_rag_persistence_concurrency.py",
         "tools/tests/unit/test_rag_retrieval_method_scope.py",
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
     ),
     "utils/core/kaia_rag_retriever.py": (
         "tools/tests/unit/test_fast_vector_query.py",
@@ -40,12 +41,21 @@ REQUIRED_RELATED_TESTS = {
     "utils/core/rag_executor.py": (
         "tools/tests/unit/test_rag_executor_lifecycle.py",
     ),
+    "utils/core/kaia_rag_persistence.py": (
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
+    ),
+    "utils/commands/audit_handler.py": (
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
+    ),
     "utils/core/message_processor.py": (
         "tools/tests/unit/test_dm_privacy.py",
         "tools/tests/unit/test_dm_trigger.py",
         "tools/tests/unit/test_command_gate_and_download_limits.py",
         "tools/tests/unit/test_vision_fetch_security.py",
         "tools/tests/unit/test_channel_memory_lifecycle.py",
+    ),
+    "utils/infrastructure/system/dashboard_manager.py": (
+        "tools/tests/unit/test_shutdown_prelude.py",
     ),
     "utils/infrastructure/system/shutdown_fixed.py": (
         "tools/tests/unit/test_async_task_registry.py",

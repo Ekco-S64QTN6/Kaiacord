@@ -180,7 +180,8 @@ def test_shutdown_saves_only_what_changed_and_says_which():
     assert obj.persist(shutdown=True) is False and obj.persist_needed is True
 
     src = inspect.getsource(shutdown_fixed)
-    assert "persist(shutdown=True)" in src and "persist, True" not in src
+    assert "asyncio.to_thread(self.rag.persist, shutdown=True)" in src
+    assert "persist, True" not in src
     assert "if saved is None" in src, "shutdown reports success without checking the result"
 
 
