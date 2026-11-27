@@ -232,6 +232,7 @@ async def test_timed_out_rag_shutdown_save_retains_worker_and_skips_later_teardo
     )
     shutdown = shutdown_fixed.CleanShutdown()
     shutdown.register_rag(BlockingRag())
+    shutdown.enable_main_thread_shutdown_deadline()
     force_exits = []
     monkeypatch.setattr(shutdown, "force_exit", lambda code: force_exits.append(code))
     owner = asyncio.create_task(shutdown.async_shutdown(app_ctx))
