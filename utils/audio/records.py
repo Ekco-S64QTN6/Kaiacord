@@ -4493,7 +4493,7 @@ class RecordsSession:
             start_family=start_family, onward=onward(r), rng=self._rng,
         ))
         rest = [r for r in self.crate if fresh(r) and r not in first and library.tempo_ratio(playing, r.bpm)
-                and beatgrid.ticks_for(r.path, r.bpm) is not None]
+                and beatgrid.ticks_available(r.path, r.bpm)]
         rest.sort(key=lambda r: (onward(r) == 0, -library.score(deck.record, r), self._rng.random()))
         ranked = first + rest
 
