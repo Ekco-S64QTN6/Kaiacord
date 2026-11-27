@@ -16,8 +16,8 @@ runs on its own over transcripts already in the corpus.
 """
 import asyncio
 import json
-import time
 import threading
+import time
 from pathlib import Path
 
 from utils.infrastructure.logging.kaia_logger import log_action, log_error, log_warning
@@ -133,14 +133,15 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
 
     _last_used[channel_id] = now
     try:
-        await _stage_transcript(ctx, msg, video_id, convert, safe_filename, YouTubeError)
+        await _stage_transcript(ctx, msg, video_id, convert, safe_filename)
     finally:
         # _stage_transcript drains blocking worker threads on cancellation.
         _release_transcript(video_id)
 
 
-async def _stage_transcript(ctx, msg, video_id: str, convert, safe_filename, YouTubeError):
+async def _stage_transcript(ctx, msg, video_id: str, convert, safe_filename):
     """Run one admitted transcript job through conversion, correction and staging."""
+    from tools.maintenance.youtube_to_kb_md import YouTubeError
     have = await _run_off_loop(_already_have, video_id)
     if have:
         await msg.channel.send(embed=notice(
