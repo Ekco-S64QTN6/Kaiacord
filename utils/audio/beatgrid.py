@@ -292,35 +292,42 @@ def _audio_identity(path: str, *, refresh: bool = False) -> Optional[str]:
 
 
 @functools.lru_cache(maxsize=512)
-def _read_ticks(cache: str, identity: str, cache_mtime_ns: int) -> Optional[np.ndarray]:
+def _read_ticks(cache: str, identity: str, cache_mtime_ns: int,
+                target_bpm: Optional[float] = None) -> Optional[np.ndarray]:
+    """Read ticks only for the audio identity and requested fold target."""
     try:
         data = json.loads(Path(cache).read_text(encoding="utf-8"))
         if data.get("audio_signature") != identity:
             return None
+        if target_bpm is not None:
+            stored_target = data.get("target_bpm")
+            if stored_target is None or round(float(stored_target), 3) != target_bpm:
+                return None
         t = np.asarray(data["ticks"], dtype=float)
     except (OSError, ValueError, KeyError, TypeError):
         return None
     return t if len(t) >= 16 else None
 
 
-def ticks_for(path: str) -> Optional[np.ndarray]:
-    """The record's beat ticks, only when measured from this audio payload."""
+def ticks_for(path: str, bpm: Optional[float] = None) -> Optional[np.ndarray]:
+    """Ticks for this audio payload and, when supplied, its catalog fold target."""
     identity = _audio_identity(path)
     if identity is None:
         return None
+    target_bpm = round(float(bpm), 3) if bpm else None
     cache = _ticks_path(path)
     try:
         cache_mtime_ns = cache.stat().st_mtime_ns
     except OSError:
         return None
-    ticks = _read_ticks(str(cache), identity, cache_mtime_ns)
+    ticks = _read_ticks(str(cache), identity, cache_mtime_ns, target_bpm)
     return ticks if ticks is None or _audio_identity(path) == identity else None
 
 
 def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
-    """Find the record's ticks if they aren't cached (~2–3 s, the system
-    Python with Essentia). Blocking: call it off the voice thread."""
-    if ticks_for(path) is not None:
+    """Find ticks for this audio and catalog BPM if that cache is absent (~2–3 s).
+    Uses system Python with Essentia. Blocking: call it off the voice thread."""
+    if ticks_for(path, bpm) is not None:
         return True
     try:
         from utils.infrastructure.monitoring.telemetry_paths import is_test_run
@@ -331,15 +338,16 @@ def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
                        capture_output=True, timeout=180)
     except (OSError, subprocess.SubprocessError):
         return False
-    return ticks_for(path) is not None
-
+    return ticks_for(path, bpm) is not None
 
 def _snap(g: Optional[Grid], path: str, anchor: Optional[Grid] = None) -> Optional[Grid]:
     """`g` with its tempo and phase from the record's ticks, where it has them:
     the downbeat moved onto the nearest tick, the beat fitted through all of
     them. Left alone where the tracker disagrees grossly on the tempo."""
-    t = ticks_for(path)
-    if g is None or t is None:
+    if g is None:
+        return None
+    t = ticks_for(path, g.bpm)
+    if t is None:
         return g
     k = int(np.argmin(np.abs(t - g.downbeat)))
     beat = Grid(g.bpm, g.downbeat, g.contrast, ticks=t).local_beat()
