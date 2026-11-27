@@ -86,7 +86,7 @@ def test_existing_transcript_append_fsyncs_file_while_lock_is_held(tmp_path, mon
         None, _args(path, text="new turn\n\n")
     )
 
-    assert events == [("file", True)]
+    assert events == [("file", True), ("directory", True)]
     assert state["lock_held"] is False
     assert "new turn" in path.read_text(encoding="utf-8")
 
