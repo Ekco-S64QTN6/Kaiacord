@@ -9,7 +9,7 @@ what is already clean, so turning it on changed no existing code beyond one pre-
 | Lint | `quality.yml` | ruff 0.17.4 | whole repository, error rules only | yes |
 | Type ratchet | `quality.yml` | mypy 2.4.1 | changed `utils/*.py` files, against their base | yes |
 | Style count | `quality.yml` | ruff 0.17.4 | `utils`, `tools`, `.github` | no, run summary only |
-| Dependency audit | `dependency-audit.yml` | pip-audit 2.10.1 | `requirements.txt`, resolved | no, report-only |
+| Dependency audit | `dependency-audit.yml` | pip-audit 2.10.1 | resolved `requirements.txt` graph | yes for requirements-changing PRs; report-only on schedule/manual |
 | Changed-line coverage | `unit-tests.yml` | pytest-cov | added statements in changed `utils/*.py` | yes, 20% floor |
 
 There is no formatter, and no check rewrites a file.
@@ -73,13 +73,23 @@ Baseline with those flags: 607 errors in 100 of 268 files under `utils/` (`core`
 
 ## Dependency audit
 
-`pip-audit -r requirements.txt` runs weekly, on demand, and on any change to `requirements.txt`.
-It is report-only: the result is in the run summary and the `pip-audit` artifact, with package,
-resolved version, advisory ID and fixed version.
+`pip-audit -r requirements.txt` runs weekly, on demand, and on pull requests that change
+`requirements.txt` (or the audit workflow/report implementation). The resolved requirements graph
+is a **blocking gate on pull requests**: a known advisory, a non-successful audit command, a missing
+JSON result, or an invalid/incomplete report fails the check. The workflow runs pip-audit once,
+preserves its JSON output, and builds the Markdown summary and artifact from that same result.
 
-It does not block because advisories arrive on their own schedule and the baseline is not clean.
+Weekly scheduled and manually dispatched runs are explicitly **report-only**. They still publish
+vulnerability findings and scan errors to the summary and artifact, but do not fail the workflow.
+A nonzero scanner exit or invalid report is never described as a clean scan in either mode.
+
+A requirements-only scan on 27 November 2026 resolved 123 packages with zero advisories. Its
+`requirements.txt` blob SHA matched the current main input at the time of the scan. This checks
+only the declared requirements graph; it is not an audit of every package installed in the deployed
+environment or the separate fine-tuning stack.
+
 The deployed environment, audited on 12 November 2026, had advisories against 33 of 219 installed
-packages. Seven are pinned or bounded directly in `requirements.txt`:
+packages. Seven were then pinned or bounded directly in `requirements.txt`:
 
 | Package | Installed | Advisories | Fixed by |
 |:--|:--|--:|:--|
@@ -120,12 +130,16 @@ framework stack. The next dependency-audit run must confirm the resolved environ
 
 Policy:
 
+- Every requirements-changing PR must produce a valid, non-empty JSON dependency report and a
+  successful pip-audit command with zero known advisories. Vulnerabilities and scanner/resolver
+  failures both fail the PR check.
+- Weekly and manually dispatched runs remain report-only, but must distinguish a clean result,
+  known advisories, and a failed/invalid scan in their summary and artifact.
 - An advisory against a package that handles untrusted input (`pypdf`, `Pillow`, `aiohttp`,
   `beautifulsoup4`, `markdownify`) is fixed by raising the pin, with the suite run and the path
   exercised before it reaches the deployment.
 - An advisory that does not apply is recorded as `--ignore-vuln <ID>` in the workflow, with a
   comment saying why and the date. No blanket ignores.
-- The job becomes blocking for `requirements.txt` changes once the direct pins above are raised.
 
 ## Reproducible installs
 
