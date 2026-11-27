@@ -220,3 +220,56 @@ def test_shutdown_drains_bot_state_after_task_cancellation():
     assert snapshot < writer_drain
     assert "timeout=5.0" in source
     assert 'getattr(app_ctx, "bot_state", None)' in source
+
+
+
+def test_parallel_ingestion_history_updates_do_not_overwrite_each_other(tmp_path):
+    """Force two workers to filter the same old list if the lock is absent."""
+    path = tmp_path / "bot_state_ingestions.json"
+    state = BotState(state_file=str(path))
+
+    both_reading = threading.Barrier(2)
+    first_finished = threading.Event()
+
+    class CoordinatedList(list):
+        def __iter__(self):
+            # On the old implementation neither worker owns _lock here. Hold
+            # both workers after they have captured this same list object.
+            # The second worker resumes only after the first has replaced it.
+            if not state._lock.locked():
+                both_reading.wait(timeout=3)
+                if threading.current_thread().name == "ingestion-second":
+                    assert first_finished.wait(timeout=3)
+            return super().__iter__()
+
+    state.recent_ingestions = CoordinatedList()
+
+    def add_first():
+        state.add_ingestion("first.md")
+        first_finished.set()
+
+    def add_second():
+        state.add_ingestion("second.md")
+
+    first = threading.Thread(target=add_first, name="ingestion-first")
+    second = threading.Thread(target=add_second, name="ingestion-second")
+    try:
+        first.start()
+        second.start()
+        first.join(timeout=5)
+        second.join(timeout=5)
+
+        assert not first.is_alive()
+        assert not second.is_alive()
+        with state._lock:
+            filenames = {
+                item["filename"] for item in state.recent_ingestions
+            }
+        assert filenames == {"first.md", "second.md"}
+    finally:
+        state.close()
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert {
+        item["filename"] for item in saved["recent_ingestions"]
+    } == {"first.md", "second.md"}

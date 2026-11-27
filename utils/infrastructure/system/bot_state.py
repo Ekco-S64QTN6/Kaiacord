@@ -469,19 +469,29 @@ class BotState:
         return list(self.quip_history)
 
     def add_ingestion(self, filename: str, snippet: str = ""):
-        """Track a newly ingested document with an optional content snippet"""
-        # Remove old entry if it exists to update it
-        self.recent_ingestions = [i for i in self.recent_ingestions if i.get('filename') != filename]
-        
-        self.recent_ingestions.append({
-            'filename': filename,
-            'snippet': snippet,
-            'timestamp': time.time()
-        })
-        
-        # Keep only the last 10 ingestions
-        if len(self.recent_ingestions) > 10:
-            self.recent_ingestions.pop(0)
+        """Track a newly ingested document with an optional content snippet."""
+        # RAG indexes files in parallel worker threads. Serialize the
+        # read/replace/append/cap sequence with save()'s snapshot of this list;
+        # calling save() after releasing the non-reentrant lock avoids deadlock.
+        with self._lock:
+            if self._writer_closing or self._writer_closed:
+                return
+            # Build the completed replacement before publishing it. Readers
+            # that do not need the state lock then see either the previous
+            # history or the new complete history, never an intermediate list.
+            recent = [
+                item for item in self.recent_ingestions
+                if item.get("filename") != filename
+            ]
+            recent.append({
+                "filename": filename,
+                "snippet": snippet,
+                "timestamp": time.time(),
+            })
+            # Keep only the last 10 ingestions.
+            if len(recent) > 10:
+                recent.pop(0)
+            self.recent_ingestions = recent
         self.save()
 
     def update_kaia_state(self, engagement_delta: float = 0.0, coherence_sample: float = None):
