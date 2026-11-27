@@ -1,6 +1,5 @@
 """Real-Chromium interaction and responsive-layout checks for KAIA//RX."""
 
-import pytest
 from playwright.sync_api import sync_playwright
 
 from utils.radio import rx_dashboard as RX
@@ -50,7 +49,7 @@ def _layout(page):
       };
     }""")
 
-    
+
 def test_rx_dashboard_reflows_on_mobile_and_tablet_and_supports_touch_dial(rx_dashboard_url):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
