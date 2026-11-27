@@ -1,6 +1,7 @@
 """Query-specific retrieval labels must never mutate shared docstore nodes."""
 
 import asyncio
+from types import SimpleNamespace
 
 from llama_index.core.schema import NodeWithScore, TextNode
 
@@ -19,6 +20,9 @@ class _FakeVectorRetriever:
 class _FakeVectorIndex:
     def __init__(self, results):
         self.results = results
+        self.storage_context = SimpleNamespace(
+            docstore=SimpleNamespace(docs={}),
+        )
 
     def as_retriever(self, similarity_top_k):
         assert similarity_top_k > 0
