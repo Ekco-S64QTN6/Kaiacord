@@ -4,7 +4,6 @@ import os
 import pytest
 
 
-
 def test_an_index_left_in_old_is_restored_at_load(tmp_path):
     """persist() renames <itype> to <itype>_old, then <itype>_tmp to <itype>.
     Killed between the two, <itype> is missing and the last good copy sits in
@@ -53,7 +52,6 @@ def _rag_with_fake_snapshot_loader(tmp_path, monkeypatch):
     return rag, base, kaia_rag_indexer
 
 
-
 def test_corrupt_live_index_restores_and_loads_the_valid_last_good_backup(
     tmp_path, monkeypatch
 ):
@@ -89,8 +87,6 @@ def test_corrupt_live_index_restores_and_loads_the_valid_last_good_backup(
     assert not (live / "CORRUPT").exists()
     assert not old.exists()
     assert not Path(f"{live}_corrupt").exists()
-
-
 
 
 def test_recovery_syncs_parent_after_each_directory_transition(tmp_path, monkeypatch):
@@ -241,6 +237,7 @@ def test_recovery_reports_rollback_fsync_failure_without_discarding_artifacts(
     assert (live / "CORRUPT").read_text(encoding="utf-8") == "original live"
     assert (old / "LAST_GOOD").read_text(encoding="utf-8") == "backup"
 
+
 def test_unreadable_live_and_backup_snapshots_are_both_preserved(
     tmp_path, monkeypatch
 ):
@@ -270,7 +267,6 @@ def test_unreadable_live_and_backup_snapshots_are_both_preserved(
     assert (live / "CORRUPT").read_text(encoding="utf-8") == "unreadable live"
     assert (old / "CORRUPT").read_text(encoding="utf-8") == "unreadable backup"
     assert (base / "knowledge_old").is_dir()
-
 
 
 def test_unreadable_live_directory_listing_uses_the_valid_backup(
@@ -307,7 +303,6 @@ def test_unreadable_live_directory_listing_uses_the_valid_backup(
     assert rag.indices["knowledge"].persist_dir == str(live)
     assert (live / "LAST_GOOD").read_text(encoding="utf-8") == "valid backup"
     assert not (live / "CORRUPT").exists()
-
 
 
 def test_failed_reload_after_backup_promotion_rolls_both_directories_back(
