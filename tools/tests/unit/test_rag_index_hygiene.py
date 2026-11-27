@@ -1006,3 +1006,96 @@ def test_pdf_resource_failure_keeps_the_last_good_rag_nodes(indexer, monkeypatch
     assert ix.indices["knowledge"].docstore.document_exists(old_node)
     assert old_node in ix._vector_ids(ix.indices["knowledge"])
     assert ix.indexed_files[abs_path] == old_entry
+
+
+def test_stale_manifest_snapshot_serializes_with_a_concurrent_writer():
+    """The query takes a locked copy; a refresh mutation waits until it is complete."""
+    import threading
+    from utils.core.kaia_rag_query import RAGQueryMixin
+
+    iteration_started = threading.Event()
+    allow_iteration = threading.Event()
+    writer_finished = threading.Event()
+    snapshot_result = []
+    errors = []
+
+    class ObservedLock:
+        def __init__(self):
+            self._lock = threading.Lock()
+
+        def __enter__(self):
+            if threading.current_thread().name == "snapshot":
+                snapshot_waiting.set()
+            self._lock.acquire()
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self._lock.release()
+            return False
+
+        def locked(self):
+            return self._lock.locked()
+
+    snapshot_waiting = threading.Event()
+    data_lock = ObservedLock()
+
+    class GuardedManifest(dict):
+        def values(self):
+            assert data_lock.locked(), "manifest values were read without the writer lock"
+            source = super().values()
+
+            def iterate():
+                for index, entry in enumerate(source):
+                    if index == 0:
+                        iteration_started.set()
+                        if not allow_iteration.wait(timeout=2):
+                            raise TimeoutError("test did not release the manifest snapshot")
+                    yield entry
+
+            return iterate()
+
+    class QueryHarness(RAGQueryMixin):
+        def __init__(self):
+            self._data_lock = data_lock
+            self.indexed_files = GuardedManifest({
+                "/kb/first.md": {"stale_nodes": ["stale-before"]},
+            })
+
+    query = QueryHarness()
+
+    def snapshot():
+        try:
+            snapshot_result.append(query._snapshot_manifest_stale_node_ids())
+        except Exception as exc:
+            errors.append(exc)
+
+    def writer():
+        try:
+            with data_lock:
+                query.indexed_files["/kb/second.md"] = {
+                    "stale_nodes": ["stale-after"],
+                }
+                writer_finished.set()
+        except Exception as exc:
+            errors.append(exc)
+
+    snapshot_thread = threading.Thread(target=snapshot, name="snapshot")
+    snapshot_thread.start()
+    assert snapshot_waiting.wait(timeout=1)
+    assert iteration_started.wait(timeout=1)
+
+    writer_thread = threading.Thread(target=writer, name="refresh-writer")
+    writer_thread.start()
+    assert not writer_finished.wait(timeout=0.05), (
+        "refresh changed the manifest while the query was taking its snapshot"
+    )
+
+    allow_iteration.set()
+    snapshot_thread.join(timeout=1)
+    writer_thread.join(timeout=1)
+
+    assert not snapshot_thread.is_alive()
+    assert not writer_thread.is_alive()
+    assert errors == []
+    assert snapshot_result == [{"stale-before"}]
+    assert query.indexed_files["/kb/second.md"]["stale_nodes"] == ["stale-after"]
