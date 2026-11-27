@@ -2131,7 +2131,7 @@ def test_measured_alternatives_use_normalized_lock_quality_and_artist_variety(mo
     session._listener_intent = None
     session._listener_pick_generation = 0
     session._listener_intent_min_pick_generation = 1
-    monkeypatch.setattr(beatgrid, "ticks_for", lambda _path: [0.0])
+    monkeypatch.setattr(beatgrid, "ticks_for", lambda _path, _bpm=None: [0.0])
 
     deck = SimpleNamespace(record=current, grid=SimpleNamespace(bpm=124.0), ratio=1.0)
     ordered = session._candidates(deck)
