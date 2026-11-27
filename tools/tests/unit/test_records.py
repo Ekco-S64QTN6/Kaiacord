@@ -2877,3 +2877,106 @@ def test_transition_without_outgoing_grid_scales_lead_to_pitch_source_clock():
     assert plan.kind == "cut"
     assert plan.playback_rate == pytest.approx(1.04)
     assert plan.drop == pytest.approx(10.0 + 0.4 * 1.04)
+
+def test_pfl_replacement_rechecks_pitch_ramp_after_off_lock_decoder_prepare(headphone_source):
+    src = headphone_source
+    assert src.set_headphones(1)
+    old_head = src._headphones_deck
+    assert old_head is not None
+
+    original_factory = src._factory
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(
+        target=lambda: result.append(src.set_headphones(1, force=True)),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        # The preview has captured the current 1.0 pitch rate and is building
+        # outside the mixer lock. Change the fader before the next render frame
+        # moves the instantaneous rate away from 1.0.
+        assert entered.wait(timeout=1.0)
+        assert src.set_pitch(1, 1.05)
+        assert src.current is not None and src.current.pitch_ramping
+        assert old_head.pitch_ramping
+    finally:
+        release.set()
+        worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert result == [False]
+    assert src._headphones_deck is old_head
+    assert src.current is not None and src.current.pitch_ramping
+    assert old_head.pitch_ramping
+
+def test_pfl_replacement_rechecks_jog_ownership_after_off_lock_decoder_prepare(headphone_source):
+    src = headphone_source
+    assert src.set_headphones(1)
+    old_head = src._headphones_deck
+    assert old_head is not None
+
+    original_factory = src._factory
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(
+        target=lambda: result.append(src.set_headphones(1, force=True)),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert entered.wait(timeout=1.0)
+        # A momentary jog starts after the preview captured the old rate but
+        # before the replacement decoder can be committed.
+        assert src.set_bend(1, 1.05)
+        assert src.current is not None and src.current.bend_active
+        assert old_head.bend_active
+    finally:
+        release.set()
+        worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert result == [False]
+    assert src._headphones_deck is old_head
+    assert src.current is not None and src.current.bend_active
+    assert old_head.bend_active
+
+def test_pfl_can_be_rebuilt_at_a_steady_non_unity_pitch(headphone_source):
+    src = headphone_source
+    assert src.set_headphones(1)
+    assert src.set_pitch(1, 1.05)
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+        src.read()
+
+    program = src.current
+    old_head = src._headphones_deck
+    assert program is not None and old_head is not None
+    assert not program.pitch_ramping and not old_head.pitch_ramping
+    assert program.pitch_rate == pytest.approx(1.05)
+    assert old_head.pitch_rate == pytest.approx(1.05)
+
+    # A steady fader setting is inherited by a fresh decoder; only a ramp
+    # in flight should make the off-lock preview stale.
+    assert src.set_headphones(1, force=True)
+    preview = src._headphones_deck
+    assert preview is not None and preview is not old_head
+    assert preview.pitch_rate == pytest.approx(1.05)
+    assert not preview.pitch_ramping
+    assert preview.at() == pytest.approx(program.at(), abs=1 / R.FRAMES_PER_S)
+

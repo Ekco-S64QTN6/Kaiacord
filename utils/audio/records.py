@@ -3155,10 +3155,15 @@ class CrossfadeSource(_AudioSource):
             return False
         with self._lock:
             current = self._headphone_descriptor_locked(slot)
+            program = self.current if self.current is not None and self.current.slot == slot else None
             stale = (generation != self._headphones_generation or current is None
                      or current[0].path != record.path
                      or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6)
-                     or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6))
+                     or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6)
+                     # A target can change before the next render frame moves
+                     # pitch_rate. The preview captured the old rate, so reject
+                     # it while the program deck has any ramp still in flight.
+                     or (program is not None and (program.pitch_ramping or program.bend_active)))
             target_at = max(0.0, current[4] / current[1]) if not stale else 0.0
             delta_frames = int(round((target_at - preview.at()) * FRAMES_PER_S / preview.playback_rate))
             if delta_frames < -1 or delta_frames > 145:
@@ -3170,10 +3175,12 @@ class CrossfadeSource(_AudioSource):
         for _ in range(4):
             with self._lock:
                 current = self._headphone_descriptor_locked(slot)
+                program = self.current if self.current is not None and self.current.slot == slot else None
                 stale = (generation != self._headphones_generation or current is None
                          or current[0].path != record.path
                          or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6)
-                         or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6))
+                         or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6)
+                         or (program is not None and (program.pitch_ramping or program.bend_active)))
                 if not stale:
                     target_at = max(0.0, current[4] / current[1])
                     delta_frames = int(round(
@@ -3200,10 +3207,12 @@ class CrossfadeSource(_AudioSource):
                 break
         with self._lock:
             current = self._headphone_descriptor_locked(slot)
+            program = self.current if self.current is not None and self.current.slot == slot else None
             stale = (stale or generation != self._headphones_generation or current is None
                      or current[0].path != record.path
                      or not math.isclose(current[1], ratio, rel_tol=1e-6, abs_tol=1e-6)
-                     or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6))
+                     or not math.isclose(current[6], pitch_rate, rel_tol=1e-6, abs_tol=1e-6)
+                     or (program is not None and (program.pitch_ramping or program.bend_active)))
             if not stale:
                 target_at = max(0.0, current[4] / current[1])
                 delta_frames = int(round(
