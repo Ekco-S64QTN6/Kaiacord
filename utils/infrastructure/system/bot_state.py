@@ -475,17 +475,20 @@ class BotState:
         # save() takes this non-reentrant lock itself, so enqueue its snapshot
         # only after the mutation lock has been released.
         with self._lock:
-            self.recent_ingestions = [
+            recent = [
                 i for i in self.recent_ingestions if i.get('filename') != filename
             ]
-            self.recent_ingestions.append({
+            recent.append({
                 'filename': filename,
                 'snippet': snippet,
                 'timestamp': time.time(),
             })
             # Keep only the last 10 ingestions.
-            if len(self.recent_ingestions) > 10:
-                self.recent_ingestions.pop(0)
+            if len(recent) > 10:
+                recent.pop(0)
+            # Publish the completed list once: readers that do not need the
+            # state lock see either the old history or the complete new one.
+            self.recent_ingestions = recent
         self.save()
 
     def update_kaia_state(self, engagement_delta: float = 0.0, coherence_sample: float = None):
