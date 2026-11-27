@@ -377,7 +377,10 @@ class CleanShutdown:
                 except asyncio.CancelledError:
                     # External cancellation cannot release the worker's owner.
                     from utils.core.rag_executor import _await_executor_and_drain
-                    await _await_executor_and_drain(save_task)
+                    try:
+                        await _await_executor_and_drain(save_task)
+                    except Exception as drain_error:
+                        log_error(f"  ❌ RAG save drain failed during cancellation: {drain_error}")
                     raise
                 except Exception as save_error:
                     log_error(f"  ❌ RAG persistence worker failed: {save_error}")
