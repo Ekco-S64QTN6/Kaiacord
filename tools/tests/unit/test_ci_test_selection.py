@@ -16,6 +16,7 @@ SELECTOR = ROOT / ".github" / "scripts" / "run_ci_tests.py"
 REQUIRED_RELATED_TESTS = {
     ".github/scripts/run_ci_tests.py": (
         "tools/tests/unit/test_ci_test_selection.py",
+        "tools/tests/unit/test_ci_high_fan_in_coverage.py",
     ),
     "utils/core/ingress.py": (
         "tools/tests/unit/test_ingress_now.py",
@@ -214,56 +215,17 @@ def test_required_mapping_guard_detects_a_deleted_behavior_test():
         f"{module} -> tools/tests/unit/test_records.py"
     ]
 
-
-def test_every_high_fan_in_module_has_independent_related_test_mapping():
-    """The import cap must not turn a high-fan-in production change into zero tests."""
+def test_high_fan_in_guard_is_selected_for_any_python_change():
     selector = runpy.run_path(str(SELECTOR), run_name="ci_selector_test")
-    available = {
-        p.relative_to(ROOT).as_posix(): p
-        for sub in ("unit", "integration")
-        for p in (ROOT / "tools" / "tests" / sub).rglob("test_*.py")
-    }
-    # Read the test corpus once. The selector's import matching remains the
-    # single source of truth; the cache only avoids repeated filesystem reads.
-    test_sources = {
-        path: path.read_text(encoding="utf-8")
-        for path in available.values()
-    }
-    tracked = subprocess.run(
-        ["git", "ls-files", "-z", "--", "*.py"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-    ).stdout
-    production_paths = sorted(
-        raw.decode("utf-8")
-        for raw in tracked.split(b"\0")
-        if raw and not raw.decode("utf-8").startswith("tools/tests/")
-    )
+    guard = "tools/tests/unit/test_ci_high_fan_in_coverage.py"
+    for changed in (
+        "utils/core/new_high_fan_in_module.py",
+        "tools/tests/unit/test_dm_privacy.py",
+    ):
+        selected = {
+            path.relative_to(ROOT).as_posix()
+            for path in selector["select_tests"]([changed])
+        }
+        assert guard in selected, changed
 
-    mapping = selector["RELATED_TESTS"]
-    cap = selector["MAX_IMPORTERS"]
-    uncovered = []
-    for module in production_paths:
-        importers = selector["find_importers"](module, available, test_sources)
-        if len(importers) <= cap:
-            continue
-        mapped = mapping.get(module, ())
-        required = REQUIRED_RELATED_TESTS.get(module)
-        if not mapped or not required:
-            uncovered.append(
-                f"{module}: {len(importers)} importers, "
-                "but no independent required behavior mapping"
-            )
-            continue
-        missing = sorted(set(required) - set(mapped))
-        if missing:
-            uncovered.append(
-                f"{module}: required tests absent from RELATED_TESTS: {missing}"
-            )
 
-    assert not uncovered, (
-        "High-fan-in modules must keep explicit, independently guarded test "
-        "mappings instead of being silently dropped at MAX_IMPORTERS:\n"
-        + "\n".join(uncovered)
-    )
