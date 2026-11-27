@@ -225,8 +225,13 @@ async def on_ready():
                         except Exception as e:
                             log_error(f"[Phase 1] Recovery reload failed: {type(e).__name__}: {e}")
                     
-                    loop = asyncio.get_event_loop()
-                    loop.call_soon(lambda: asyncio.ensure_future(_reload()))
+                    from utils.infrastructure.gpu.prewarm_recovery import (
+                        schedule_prewarm_recovery_reload,
+                    )
+                    schedule_prewarm_recovery_reload(
+                        _reload(),
+                        model_name=config.chat_model,
+                    )
             _load_task.add_done_callback(_on_prewarm_done)
             
             # Poll Ollama's process list to confirm the chat model is actually resident in VRAM
