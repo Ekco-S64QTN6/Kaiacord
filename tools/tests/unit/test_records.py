@@ -2957,3 +2957,26 @@ def test_pfl_replacement_rechecks_jog_ownership_after_off_lock_decoder_prepare(h
     assert src.current is not None and src.current.bend_active
     assert old_head.bend_active
 
+def test_pfl_can_be_rebuilt_at_a_steady_non_unity_pitch(headphone_source):
+    src = headphone_source
+    assert src.set_headphones(1)
+    assert src.set_pitch(1, 1.05)
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+        src.read()
+
+    program = src.current
+    old_head = src._headphones_deck
+    assert program is not None and old_head is not None
+    assert not program.pitch_ramping and not old_head.pitch_ramping
+    assert program.pitch_rate == pytest.approx(1.05)
+    assert old_head.pitch_rate == pytest.approx(1.05)
+
+    # A steady fader setting is inherited by a fresh decoder; only a ramp
+    # in flight should make the off-lock preview stale.
+    assert src.set_headphones(1, force=True)
+    preview = src._headphones_deck
+    assert preview is not None and preview is not old_head
+    assert preview.pitch_rate == pytest.approx(1.05)
+    assert not preview.pitch_ramping
+    assert preview.at() == pytest.approx(program.at(), abs=1 / R.FRAMES_PER_S)
+
