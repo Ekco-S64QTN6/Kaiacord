@@ -76,6 +76,20 @@ from utils.core.sanitizer import (
 )
 from utils.core.private_turn import text as _private_text   # a DM's reply stays out of the log
 
+
+def _vision_attachment_fetch_log(url: str) -> str:
+    """Diagnostic message with private-turn URL data withheld."""
+    return f"Fetching image attachment for inline vision: {_private_text(url)}"
+
+
+def _vision_attachment_failure_log(filename: str, error: Exception) -> str:
+    """Keep public failure detail, but do not persist private attachment metadata."""
+    return (
+        f"Failed to fetch image {_private_text(str(filename))} for inline vision: "
+        f"{_private_text(str(error))}"
+    )
+
+
 # Constants
 
 def message_instant(msg) -> Optional["datetime"]:
@@ -1783,7 +1797,7 @@ class MessageProcessor:
                 filename = getattr(att, 'filename', '').lower()
                 try:
                     is_gif = filename.endswith('.gif')
-                    log_debug(f"Fetching image attachment for inline vision: {att.url}")
+                    log_debug(_vision_attachment_fetch_log(str(att.url)))
                     b64 = await self._fetch_image_as_base64(att.url, is_gif=is_gif)
                     if b64:
                         images.append(b64)
@@ -1793,7 +1807,9 @@ class MessageProcessor:
                         except Exception:
                             pass
                 except Exception as e:
-                    log_warning(f"Failed to fetch image {getattr(att, 'filename', 'unknown')} for inline vision: {e}")
+                    log_warning(_vision_attachment_failure_log(
+                        str(getattr(att, "filename", "unknown")), e
+                    ))
 
             if images and messages and messages[-1].get("role") == "user":
                 messages[-1]["images"] = images
