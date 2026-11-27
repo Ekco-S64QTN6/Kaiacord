@@ -2918,3 +2918,42 @@ def test_pfl_replacement_rechecks_pitch_ramp_after_off_lock_decoder_prepare(head
     assert src.current is not None and src.current.pitch_ramping
     assert old_head.pitch_ramping
 
+def test_pfl_replacement_rechecks_jog_ownership_after_off_lock_decoder_prepare(headphone_source):
+    src = headphone_source
+    assert src.set_headphones(1)
+    old_head = src._headphones_deck
+    assert old_head is not None
+
+    original_factory = src._factory
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(
+        target=lambda: result.append(src.set_headphones(1, force=True)),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert entered.wait(timeout=1.0)
+        # A momentary jog starts after the preview captured the old rate but
+        # before the replacement decoder can be committed.
+        assert src.set_bend(1, 1.05)
+        assert src.current is not None and src.current.bend_active
+        assert old_head.bend_active
+    finally:
+        release.set()
+        worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert result == [False]
+    assert src._headphones_deck is old_head
+    assert src.current is not None and src.current.bend_active
+    assert old_head.bend_active
+
