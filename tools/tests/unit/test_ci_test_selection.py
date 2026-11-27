@@ -67,6 +67,15 @@ REQUIRED_RELATED_TESTS = {
     "assets/dj/index.html": (
         "tools/tests/unit/test_dj_dashboard.py",
     ),
+    "assets/rx/index.html": (
+        "tools/tests/unit/test_rx_dashboard.py",
+    ),
+    "assets/admin/index.html": (
+        "tools/tests/unit/test_admin_dashboard.py",
+    ),
+    "assets/admin/app.js": (
+        "tools/tests/unit/test_admin_dashboard.py",
+    ),
 }
 
 
