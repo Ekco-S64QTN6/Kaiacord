@@ -169,6 +169,90 @@ q { quotes: none; }
 #bkform input[type=text] { background: var(--panel2); color: var(--text); border: 1px solid var(--faint); border-radius: 3px; padding: 5px 7px; font: 12px var(--mono); width: 100%; }
 #bkform input:focus { outline: none; border-color: var(--cyan); }
 #bkform label { font-size: 11px; color: var(--mid); display: flex; gap: 6px; align-items: center; }
+
+/* Responsive receiver layout: keep the VFO and spectrum usable without a
+   permanently reserved 440px rail on tablets and phones. */
+#spec, #fallOver { touch-action: none; }
+.btn, .tab, .mk { touch-action: manipulation; }
+.btn:focus-visible, .tab:focus-visible, .mk:focus-visible,
+select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--cyan); outline-offset: 2px;
+}
+.tabs { overflow-x: auto; scrollbar-width: thin; }
+.tab { flex: none; min-height: 30px; }
+@media (max-width: 1080px) {
+  html, body { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+  #app {
+    height: auto; min-height: 100vh; min-height: 100svh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(420px, 62vh) 88px auto;
+    padding: 7px; gap: 7px;
+  }
+  header { grid-column: 1; grid-row: 1; flex-wrap: wrap; min-height: 42px; gap: 6px; }
+  #vfo {
+    grid-column: 1; grid-row: 2;
+    grid-template-columns: minmax(0, .9fr) minmax(240px, 1fr);
+    grid-template-rows: auto auto; gap: 8px; min-height: 154px;
+  }
+  #vfo .ctl {
+    grid-column: 1 / -1; display: flex; flex-wrap: wrap;
+    justify-items: initial; justify-content: flex-start; gap: 6px;
+  }
+  #vfo .ctl .row { flex-wrap: wrap; }
+  #dial { grid-column: 1; grid-row: 3; min-height: 420px; }
+  #map { grid-column: 1; grid-row: 4; min-height: 88px; }
+  #right {
+    grid-column: 1; grid-row: 5; min-height: 440px;
+    grid-template-columns: minmax(190px, .8fr) minmax(0, 1.2fr);
+    grid-template-rows: minmax(440px, 58vh);
+  }
+  #kaia { grid-column: 1; grid-row: 1; }
+  #side { grid-column: 2; grid-row: 1; min-height: 440px; }
+  .tabs { white-space: nowrap; }
+  .tab { min-height: 36px; }
+}
+@media (max-width: 680px) {
+  #app {
+    padding: 6px; gap: 6px;
+    grid-template-rows: auto auto minmax(400px, 62vh) 82px auto;
+  }
+  header { gap: 4px; padding: 2px; }
+  .logo { font-size: 16px; letter-spacing: 2px; }
+  .pill { gap: 4px; padding: 3px 6px; font-size: 9px; letter-spacing: 0; }
+  #clock { font-size: 14px; letter-spacing: 0; }
+  #vfo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; padding: 8px; }
+  #freq { font-size: clamp(27px, 7vw, 39px); letter-spacing: 0; }
+  #freq small { font-size: 11px; margin-left: 3px; }
+  .meter { grid-template-columns: 45px minmax(24px, 1fr) 50px; gap: 4px; font-size: 9px; letter-spacing: .5px; }
+  .meter canvas { height: 11px; }
+  #vfo .ctl { gap: 4px; }
+  #vfo .ctl .row { gap: 4px; }
+  .btn { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 6px 8px; }
+  #dial {
+    min-height: 400px;
+    grid-template-rows: auto minmax(105px, 22vh) 20px minmax(170px, 1fr) 20px;
+  }
+  #dial > .bar { min-height: 52px; height: auto; padding: 5px 7px; flex-wrap: wrap; gap: 5px; }
+  #dial > .bar .spacer { display: none; }
+  #dial > .bar input[type=range] { width: clamp(46px, 13vw, 72px); }
+  #map { min-height: 82px; }
+  #right {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 210px minmax(390px, 58vh);
+  }
+  #kaia { grid-column: 1; grid-row: 1; }
+  #side { grid-column: 1; grid-row: 2; min-height: 390px; }
+  .tabs { gap: 2px; padding: 6px 5px 4px; }
+  .tab { min-height: 36px; padding: 6px 7px; font-size: 9px; letter-spacing: .5px; }
+  .lg { grid-template-columns: 34px 64px 52px minmax(0, 1fr); gap: 4px; font-size: 10px; }
+  .ch { grid-template-columns: 66px minmax(0, 1fr) 58px; gap: 5px; }
+  .bk { grid-template-columns: 10px 66px minmax(0, 1fr) auto; gap: 5px; }
+  #bkform { position: fixed; top: 50%; left: 8px; right: 8px; width: auto; transform: translateY(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #toast { transition: none; }
+}
 </style>
 </head>
 <body>
@@ -279,7 +363,9 @@ function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("sh
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 const fmtF = (hz) => { const s = Math.round(hz).toString().padStart(9, "0"); return `${+s.slice(0, s.length - 6)}.${s.slice(-6, -3)}.${s.slice(-3)}`; };
 function fit(cv) {
-  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  // Match the WebGL waterfall's cap: Retina/4K DPR must not multiply every
+  // canvas backing store into a large memory and fill-rate cost.
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, r.width, r.height];
