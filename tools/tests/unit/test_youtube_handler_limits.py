@@ -89,8 +89,8 @@ def _message(video_id, channel_id):
 @pytest.mark.parametrize(
     "existing, video_id, expected",
     [
-        (("already-running",), "already-running", "already being fetched"),
-        (("one", "two"), "third", "already fetching a couple of transcripts"),
+        (("abcdefghijk",), "abcdefghijk", "already being fetched"),
+        (("lmnopqrstuv", "wxyzABCDE_1"), "12345678901", "already fetching a couple of transcripts"),
     ],
 )
 def test_handler_refuses_duplicate_or_over_capacity_jobs(existing, video_id, expected):
