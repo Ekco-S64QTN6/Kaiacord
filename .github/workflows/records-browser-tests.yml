@@ -5,6 +5,9 @@ on:
     branches: ["**"]
     paths:
       - "assets/dj/index.html"
+      - "assets/rx/index.html"
+      - "utils/radio/rx_dashboard.py"
+      - "tools/tests/browser/test_rx_dashboard_responsive.py"
       - "utils/audio/dj_dashboard.py"
       - "utils/audio/records.py"
       - "utils/audio/record_cues.py"
@@ -14,6 +17,9 @@ on:
   pull_request:
     paths:
       - "assets/dj/index.html"
+      - "assets/rx/index.html"
+      - "utils/radio/rx_dashboard.py"
+      - "tools/tests/browser/test_rx_dashboard_responsive.py"
       - "utils/audio/dj_dashboard.py"
       - "utils/audio/records.py"
       - "utils/audio/record_cues.py"
@@ -43,6 +49,9 @@ jobs:
       - name: Install Chromium and system libraries
         timeout-minutes: 6
         run: python -m playwright install --with-deps chromium
-      - name: Exercise real booth controls in Chromium
-        timeout-minutes: 5
-        run: python -m pytest -q tools/tests/browser/test_dj_booth_interactions.py
+      - name: Exercise DJ booth and RX dashboard in Chromium
+        timeout-minutes: 7
+        run: |
+          python -m pytest -q \
+            tools/tests/browser/test_dj_booth_interactions.py \
+            tools/tests/browser/test_rx_dashboard_responsive.py

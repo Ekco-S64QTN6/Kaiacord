@@ -606,10 +606,23 @@ function meterLevels() {
 const shown = { 1: { low: 0, high: 0, level: -90 }, 2: { low: 0, high: 0, level: -90 }, master: -90 };
 
 // ── stream ───────────────────────────────────────────────────────
+let boothEvents = null, boothReconnect = null;
+function stopBoothEvents() {
+  if (boothReconnect !== null) { clearTimeout(boothReconnect); boothReconnect = null; }
+  if (boothEvents) { boothEvents.close(); boothEvents = null; }
+}
 function connect() {
-  const es = new EventSource("/events");
+  if (document.hidden) return;
+  if (boothEvents) boothEvents.close();
+  const es = boothEvents = new EventSource("/events");
   es.onmessage = (e) => { S = JSON.parse(e.data); kaiaRelaunch(S.launch); recvAt = performance.now() / 1000; meterIngest(); wantWaves(); };
-  es.onerror = () => { es.close(); setTimeout(connect, 1500); };
+  es.onerror = () => {
+    es.close();
+    const current = boothEvents === es;
+    if (current) boothEvents = null;
+    if (current && !document.hidden && boothReconnect === null)
+      boothReconnect = setTimeout(() => { boothReconnect = null; connect(); }, 1500);
+  };
 }
 function wantWaves() {
   if (!S || !S.decks) return;
@@ -1193,7 +1206,14 @@ const releaseAllRolls = () => {
 window.addEventListener("blur", () => { releaseAllRolls(); releaseAllBends(); });
 window.addEventListener("pagehide", () => { releaseAllRolls(); releaseAllBends(); });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { releaseAllRolls(); releaseAllBends(); }
+  if (document.hidden) {
+    releaseAllRolls(); releaseAllBends();
+    stopBoothEvents();
+  } else {
+    connect();
+    loadCrate();
+    if (setsOn) loadSets();
+  }
 });
 function ctl(slot, name) {
   const key = `${slot}:${name}`, l = local[key];
@@ -2153,7 +2173,7 @@ $("setspane").addEventListener("click", (e) => {
     toast(`loading ${name} on deck ${S ? S.free : ""}…`);
   });
 });
-setInterval(() => { if (setsOn) loadSets(); }, 4000);
+setInterval(() => { if (setsOn && !document.hidden) loadSets(); }, 4000);
 // What a load came to, said once.
 let loadSeen = 0;
 function loadNews() {
@@ -2165,7 +2185,7 @@ function loadNews() {
     unreadable: `${l.name} couldn't be read` }[l.result] || `${l.name}: ${l.result}`;
   toast(msg);
 }
-setInterval(loadCrate, 10000);
+setInterval(() => { if (!document.hidden) loadCrate(); }, 10000);
 
 function esc(s) { return String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function updateHeader() {

@@ -4,6 +4,7 @@ import threading
 import time
 import urllib.request
 from types import SimpleNamespace as NS
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -198,3 +199,22 @@ def test_every_rx_launch_is_counted_even_when_the_window_is_reused(monkeypatch):
     monkeypatch.setattr(rx, "_window", NS(poll=lambda: None))   # already open
     assert rx.open_window() == "http://127.0.0.1:1/"
     assert rx._launch == 1
+
+
+def test_rx_dashboard_is_responsive_touch_capable_and_pauses_hidden_work():
+    page = Path("assets/rx/index.html").read_text(encoding="utf-8")
+
+    assert '@media (max-width: 1080px)' in page
+    assert '@media (max-width: 680px)' in page
+    assert 'addEventListener("pointerdown"' in page
+    assert 'addEventListener("pointerup"' in page
+    assert 'addEventListener("pointercancel"' in page
+    assert "Math.min(window.devicePixelRatio || 1, 2)" in page
+    assert "1000 / 30" in page and "1000 / 15" in page
+    assert 'document.addEventListener("visibilitychange"' in page
+    assert 'stopEventStream(); stopSpanStream();' in page
+    assert "user-scalable=no" not in page
+    # Browser pinch/ctrl-wheel zoom remains available; the dial only consumes a plain wheel.
+    assert "if (e.ctrlKey || e.metaKey) return;" in page
+    # Background stream suspension must not stop the separately started audio monitor.
+    assert 'fetch("/audio", { signal: ctl.signal })' in page

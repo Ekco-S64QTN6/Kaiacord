@@ -169,6 +169,90 @@ q { quotes: none; }
 #bkform input[type=text] { background: var(--panel2); color: var(--text); border: 1px solid var(--faint); border-radius: 3px; padding: 5px 7px; font: 12px var(--mono); width: 100%; }
 #bkform input:focus { outline: none; border-color: var(--cyan); }
 #bkform label { font-size: 11px; color: var(--mid); display: flex; gap: 6px; align-items: center; }
+
+/* Responsive receiver layout: keep the VFO and spectrum usable without a
+   permanently reserved 440px rail on tablets and phones. */
+#spec, #fallOver { touch-action: none; }
+.btn, .tab, .mk { touch-action: manipulation; }
+.btn:focus-visible, .tab:focus-visible, .mk:focus-visible,
+select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--cyan); outline-offset: 2px;
+}
+.tabs { overflow-x: auto; scrollbar-width: thin; }
+.tab { flex: none; min-height: 30px; }
+@media (max-width: 1080px) {
+  html, body { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+  #app {
+    height: auto; min-height: 100vh; min-height: 100svh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(420px, 62vh) 88px auto;
+    padding: 7px; gap: 7px;
+  }
+  header { grid-column: 1; grid-row: 1; flex-wrap: wrap; min-height: 42px; gap: 6px; }
+  #vfo {
+    grid-column: 1; grid-row: 2;
+    grid-template-columns: minmax(0, .9fr) minmax(240px, 1fr);
+    grid-template-rows: auto auto; gap: 8px; min-height: 154px;
+  }
+  #vfo .ctl {
+    grid-column: 1 / -1; display: flex; flex-wrap: wrap;
+    justify-items: initial; justify-content: flex-start; gap: 6px;
+  }
+  #vfo .ctl .row { flex-wrap: wrap; }
+  #dial { grid-column: 1; grid-row: 3; min-height: 420px; }
+  #map { grid-column: 1; grid-row: 4; min-height: 88px; }
+  #right {
+    grid-column: 1; grid-row: 5; min-height: 440px;
+    grid-template-columns: minmax(190px, .8fr) minmax(0, 1.2fr);
+    grid-template-rows: minmax(440px, 58vh);
+  }
+  #kaia { grid-column: 1; grid-row: 1; }
+  #side { grid-column: 2; grid-row: 1; min-height: 440px; }
+  .tabs { white-space: nowrap; }
+  .tab { min-height: 36px; }
+}
+@media (max-width: 680px) {
+  #app {
+    padding: 6px; gap: 6px;
+    grid-template-rows: auto auto minmax(400px, 62vh) 82px auto;
+  }
+  header { gap: 4px; padding: 2px; }
+  .logo { font-size: 16px; letter-spacing: 2px; }
+  .pill { gap: 4px; padding: 3px 6px; font-size: 9px; letter-spacing: 0; }
+  #clock { font-size: 14px; letter-spacing: 0; }
+  #vfo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; padding: 8px; }
+  #freq { font-size: clamp(20px, 6vw, 34px); letter-spacing: 0; white-space: nowrap; }
+  #freq small { font-size: 10px; margin-left: 2px; letter-spacing: 0; }
+  .meter { grid-template-columns: 45px minmax(24px, 1fr) 50px; gap: 4px; font-size: 9px; letter-spacing: .5px; }
+  .meter canvas { height: 11px; }
+  #vfo .ctl { gap: 4px; }
+  #vfo .ctl .row { gap: 4px; }
+  .btn { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 6px 8px; }
+  #dial {
+    min-height: 400px;
+    grid-template-rows: auto minmax(105px, 22vh) 20px minmax(170px, 1fr) 20px;
+  }
+  #dial > .bar { min-height: 52px; height: auto; padding: 5px 7px; flex-wrap: wrap; gap: 5px; }
+  #dial > .bar .spacer { display: none; }
+  #dial > .bar input[type=range] { width: clamp(46px, 13vw, 72px); }
+  #map { min-height: 82px; }
+  #right {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 210px minmax(390px, 58vh);
+  }
+  #kaia { grid-column: 1; grid-row: 1; }
+  #side { grid-column: 1; grid-row: 2; min-height: 390px; }
+  .tabs { gap: 2px; padding: 6px 5px 4px; }
+  .tab { min-height: 36px; padding: 6px 7px; font-size: 9px; letter-spacing: .5px; }
+  .lg { grid-template-columns: 34px 64px 52px minmax(0, 1fr); gap: 4px; font-size: 10px; }
+  .ch { grid-template-columns: 66px minmax(0, 1fr) 58px; gap: 5px; }
+  .bk { grid-template-columns: 10px 66px minmax(0, 1fr) auto; gap: 5px; }
+  #bkform { position: fixed; top: 50%; left: 8px; right: 8px; width: auto; transform: translateY(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #toast { transition: none; }
+}
 </style>
 </head>
 <body>
@@ -279,7 +363,9 @@ function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("sh
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 const fmtF = (hz) => { const s = Math.round(hz).toString().padStart(9, "0"); return `${+s.slice(0, s.length - 6)}.${s.slice(-6, -3)}.${s.slice(-3)}`; };
 function fit(cv) {
-  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  // Match the WebGL waterfall's cap: Retina/4K DPR must not multiply every
+  // canvas backing store into a large memory and fill-rate cost.
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, r.width, r.height];
@@ -408,8 +494,15 @@ function fToD(f) { for (const s of segs) if (f >= s.lo && f <= s.hi) return s.d0
 function segOfBand(i) { return segs.find((s) => s.i === i); }
 
 // ── the stream ──
+let eventStream = null, eventReconnect = null;
+function stopEventStream() {
+  if (eventReconnect !== null) { clearTimeout(eventReconnect); eventReconnect = null; }
+  if (eventStream) { eventStream.close(); eventStream = null; }
+}
 function connect() {
-  const es = new EventSource("/events");
+  if (document.hidden) return;
+  if (eventStream) eventStream.close();
+  const es = eventStream = new EventSource("/events");
   es.onmessage = (e) => {
     S = JSON.parse(e.data);
     kaiaRelaunch(S.launch);
@@ -427,7 +520,12 @@ function connect() {
     if (S.ov) pushOv(b64(S.ov.data), S.ov.n);
     onState();
   };
-  es.onerror = () => { es.close(); setTimeout(connect, 1500); };
+  es.onerror = () => {
+    es.close();
+    if (eventStream === es) eventStream = null;
+    if (!document.hidden && eventReconnect === null)
+      eventReconnect = setTimeout(() => { eventReconnect = null; connect(); }, 1500);
+  };
 }
 function pushBand(b, data, n) { if (fall) fall.push(bandKey(b.i), b.cols, ROWS, data, n); }
 
@@ -435,28 +533,51 @@ function pushBand(b, data, n) { if (fall) fall.push(bandKey(b.i), b.cols, ROWS, 
 // Frames: [u32 header length][header JSON][u32 row length][row]; a zero length is a heartbeat.
 let spanLive = null, spanAvg = null, spanPeak = null;
 const dec = new TextDecoder();
+let spanController = null, spanStreaming = false;
+function stopSpanStream() {
+  if (spanController) { spanController.abort(); spanController = null; }
+}
 async function spanStream() {
-  for (;;) {
-    try {
-      const r = await fetch("/span", { cache: "no-store" }), rd = r.body.getReader();
-      let buf = new Uint8Array(0);
-      for (;;) {
-        const { value, done } = await rd.read(); if (done) break;
-        const nb = new Uint8Array(buf.length + value.length); nb.set(buf); nb.set(value, buf.length); buf = nb;
-        let off = 0;
-        while (buf.length - off >= 4) {
-          const hl = new DataView(buf.buffer, buf.byteOffset + off, 4).getUint32(0, true);
-          if (!hl) { off += 4; continue; }
-          if (buf.length - off < 8 + hl) break;
-          const rl = new DataView(buf.buffer, buf.byteOffset + off + 4 + hl, 4).getUint32(0, true);
-          if (buf.length - off < 8 + hl + rl) break;
-          onSpanRow(JSON.parse(dec.decode(buf.subarray(off + 4, off + 4 + hl))), buf.slice(off + 8 + hl, off + 8 + hl + rl));
-          off += 8 + hl + rl;
+  if (document.hidden) return;
+  if (spanStreaming) return;
+  spanStreaming = true;
+  try {
+    while (!document.hidden) {
+      const controller = new AbortController();
+      spanController = controller;
+      try {
+        const r = await fetch("/span", { cache: "no-store", signal: controller.signal });
+        if (!r.ok || !r.body) throw new Error(`span stream HTTP ${r.status}`);
+        const rd = r.body.getReader();
+        let buf = new Uint8Array(0);
+        for (;;) {
+          const { value, done } = await rd.read();
+          if (done) break;
+          const nb = new Uint8Array(buf.length + value.length); nb.set(buf); nb.set(value, buf.length); buf = nb;
+          let off = 0;
+          while (buf.length - off >= 4) {
+            const hl = new DataView(buf.buffer, buf.byteOffset + off, 4).getUint32(0, true);
+            if (!hl) { off += 4; continue; }
+            if (buf.length - off < 8 + hl) break;
+            const rl = new DataView(buf.buffer, buf.byteOffset + off + 4 + hl, 4).getUint32(0, true);
+            if (buf.length - off < 8 + hl + rl) break;
+            onSpanRow(JSON.parse(dec.decode(buf.subarray(off + 4, off + 4 + hl))), buf.slice(off + 8 + hl, off + 8 + hl + rl));
+            off += 8 + hl + rl;
+          }
+          buf = buf.slice(off);
         }
-        buf = buf.slice(off);
+      } catch (e) {
+        if (document.hidden || e.name === "AbortError") break;
+      } finally {
+        if (spanController === controller) spanController = null;
       }
-    } catch (_) {}
-    await new Promise((res) => setTimeout(res, 1000));
+      if (!document.hidden) await new Promise((res) => setTimeout(res, 1000));
+    }
+  } finally {
+    spanStreaming = false;
+    // A visibility change can occur while fetch/read is unwinding. Re-arm only
+    // after the old reader has exited, never with two readers on /span.
+    if (!document.hidden && bands.length) setTimeout(spanStream, 0);
   }
 }
 function onSpanRow(h, row) {
@@ -568,14 +689,26 @@ function onState() {
 }
 
 // ── drawing ──
-let tPrev = performance.now();
+// The scanner's data arrives at about 25–30 Hz. Redrawing every 60/120 Hz
+// wastes CPU on spectrum traces and WebGL layers without making the receiver
+// fresher. Respect reduced motion and stop the visual loop when the tab is hidden.
+const FRAME_MS = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ? 1000 / 15 : 1000 / 30;
+let tPrev = performance.now(), frameRequest = 0;
+function scheduleFrame() {
+  if (!document.hidden && !frameRequest) frameRequest = requestAnimationFrame(frame);
+}
 function frame(now) {
-  const dt = Math.min(0.1, (now - tPrev) / 1000); tPrev = now;
-  try {
-    $("clock").textContent = new Date().toTimeString().slice(0, 8);
-    if (S && segs.length) { ease(dt); updateVfo(); drawDial(dt); drawMap(); kaiaGaze(); }
-  } catch (e) { console.error(e); }
-  requestAnimationFrame(frame);
+  frameRequest = 0;
+  if (document.hidden) return;
+  if (now - tPrev >= FRAME_MS - 1) {
+    const dt = Math.min(0.1, (now - tPrev) / 1000); tPrev = now;
+    try {
+      $("clock").textContent = new Date().toTimeString().slice(0, 8);
+      if (S && segs.length) { ease(dt); updateVfo(); drawDial(dt); drawMap(); kaiaGaze(); }
+    } catch (e) { console.error(e); }
+  }
+  scheduleFrame();
 }
 function ease(dt) {
   const k = 1 - Math.exp(-dt * 5);
@@ -814,27 +947,57 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "Escape") { if ($("bkform").classList.contains("show")) closeBk(); else if (S && S.tuned) $("scan").onclick(); }
   else if (e.key === "m" || e.key === "M") $("mon").onclick();
 });
-function dAt(e, cv) { const r = cv.getBoundingClientRect(); return { d: cam.d0 + (e.clientX - r.left) / r.width * (cam.d1 - cam.d0), r }; }
+function dAt(e, cv) {
+  const r = cv.getBoundingClientRect();
+  return { d: cam.d0 + (e.clientX - r.left) / Math.max(1, r.width) * (cam.d1 - cam.d0), r };
+}
 let drag = null;
 for (const id of ["spec", "fallOver"]) {
   const cv = $(id);
-  cv.addEventListener("wheel", (e) => { e.preventDefault(); const h = dAt(e, cv); cam.t0 = cam.d0; cam.t1 = cam.d1; zoomAt(h.d, e.deltaY < 0 ? 0.8 : 1.25); }, { passive: false });
-  cv.addEventListener("mousedown", (e) => { const h = dAt(e, cv); drag = { x: e.clientX, d0: cam.d0, d1: cam.d1, moved: false, w: h.r.width }; });
-  cv.addEventListener("mousemove", (e) => {
+  cv.addEventListener("wheel", (e) => {
+    // Leave browser pinch/ctrl-wheel zoom available; only plain wheel zooms the dial.
+    if (e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    const h = dAt(e, cv); cam.t0 = cam.d0; cam.t1 = cam.d1;
+    zoomAt(h.d, e.deltaY < 0 ? 0.8 : 1.25);
+  }, { passive: false });
+  cv.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const h = dAt(e, cv);
+    drag = { pointerId: e.pointerId, x: e.clientX, d0: cam.d0, d1: cam.d1, moved: false, w: h.r.width };
+    try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (drag && drag.pointerId !== e.pointerId) return;
     const h = dAt(e, cv);
     if (drag && (drag.moved || Math.abs(e.clientX - drag.x) > 4)) {
       drag.moved = true; const dd = (e.clientX - drag.x) / drag.w * (drag.d1 - drag.d0);
-      userView(drag.d0 - dd, drag.d1 - dd); cam.d0 = cam.t0; cam.d1 = cam.t1; $("hover").style.display = "none"; return;
+      userView(drag.d0 - dd, drag.d1 - dd); cam.d0 = cam.t0; cam.d1 = cam.t1;
+      $("hover").style.display = "none"; return;
     }
+    // Touch has no hover state; avoid expensive tooltip work during a finger move.
+    if (e.pointerType !== "mouse") return;
     const fq = snapTo(dToF(h.d)), ch = ledger.find((c) => Math.abs(c.freq - fq) < 3200), bm = bkAt(fq);
     const hv = $("hover"), pr = $("dial").getBoundingClientRect();
     hv.style.display = "block"; hv.style.left = Math.min(pr.width - 260, e.clientX - pr.left + 12) + "px"; hv.style.top = (e.clientY - pr.top + 12) + "px";
     hv.textContent = `${(fq / MHZ).toFixed(4)} MHz · ${segAtD(h.d).name}` + (bm ? ` · ★ ${bm.name || bm.tag}` : "") + (ch ? ` · ${ch.label || ch.service} · voice ${ch.voice}× of ${ch.hits}` : "") + " — click to tune";
   });
-  cv.addEventListener("mouseleave", () => { $("hover").style.display = "none"; });
-  cv.addEventListener("mouseup", (e) => { const d = drag; drag = null; if (d && !d.moved) tune(snapTo(dToF(dAt(e, cv).d))); });
+  cv.addEventListener("pointerleave", (e) => {
+    if (e.pointerType === "mouse" && !drag) $("hover").style.display = "none";
+  });
+  cv.addEventListener("pointerup", (e) => {
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const d = drag; drag = null;
+    if (!d.moved) tune(snapTo(dToF(dAt(e, cv).d)));
+  });
+  const cancelDrag = (e) => {
+    if (drag && drag.pointerId === e.pointerId) drag = null;
+    $("hover").style.display = "none";
+  };
+  cv.addEventListener("pointercancel", cancelDrag);
+  cv.addEventListener("lostpointercapture", cancelDrag);
 }
-window.addEventListener("mouseup", () => { drag = null; });
+window.addEventListener("blur", () => { drag = null; $("hover").style.display = "none"; });
 $("mapover").addEventListener("click", (e) => {                       // the band map: look at a band
   const r = $("mapover").getBoundingClientRect(), s = segAtD((e.clientX - r.left) / r.width);
   userView(s.d0, s.d1);
@@ -1053,8 +1216,12 @@ function renderSide(force) {
 function big(src) { $("big").querySelector("img").src = src; $("big").style.display = "grid"; }
 $("big").onclick = () => { $("big").style.display = "none"; };
 const sig = (xs) => JSON.stringify(xs.map((x) => x.id || x.ts || x.freq));
-function loadLog() { return fetch("/log?kinds=" + logKinds.join(",")).then((r) => r.json()).then((g) => { const ch = sig(g) !== sig(logRows); logRows = g; if (ch && side === "log") renderSide(); }).catch(() => {}); }
+function loadLog() {
+  if (document.hidden) return Promise.resolve();
+  return fetch("/log?kinds=" + logKinds.join(",")).then((r) => r.json()).then((g) => { const ch = sig(g) !== sig(logRows); logRows = g; if (ch && side === "log") renderSide(); }).catch(() => {});
+}
 function loadSide() {
+  if (document.hidden) return;
   Promise.all([fetch("/ledger").then((r) => r.json()), fetch("/catches").then((r) => r.json()), fetch("/nights").then((r) => r.json()), fetch("/highlights").then((r) => r.json())])
     .then(([l, c, n, h]) => {
       const changed = { catches: sig(c) !== sig(catches), nights: n.length !== nightsList.length, hl: sig(h.top) + sig(h.new) !== sig(hl.top) + sig(hl.new) };
@@ -1066,13 +1233,27 @@ function loadSide() {
     }).catch(() => {});
   loadLog();
 }
-function loadChans() { return fetch("/channels").then((r) => r.json()).then((c) => { const ch = sig(c) !== sig(chans) || c.reduce((a, x) => a + x.hits, 0) !== chans.reduce((a, x) => a + x.hits, 0); chans = c; if (ch && side === "ch") renderSide(); }).catch(() => {}); }
-setInterval(loadSide, 10000); setInterval(loadChans, 60000);
-loadBk(); loadChans();
+function loadChans() {
+  if (document.hidden) return Promise.resolve();
+  return fetch("/channels").then((r) => r.json()).then((c) => { const ch = sig(c) !== sig(chans) || c.reduce((a, x) => a + x.hits, 0) !== chans.reduce((a, x) => a + x.hits, 0); chans = c; if (ch && side === "ch") renderSide(); }).catch(() => {});
+}
+setInterval(() => { if (!document.hidden) loadSide(); }, 10000);
+setInterval(() => { if (!document.hidden) loadChans(); }, 60000);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopEventStream(); stopSpanStream();
+    if (frameRequest) { cancelAnimationFrame(frameRequest); frameRequest = 0; }
+  } else {
+    tPrev = performance.now();
+    connect();
+    if (bands.length) spanStream();
+    loadBk(); loadChans(); loadSide();
+    scheduleFrame();
+  }
+});
 
-connect(); loadSide(); requestAnimationFrame(frame);
-window.addEventListener("wheel", (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
-window.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && ["+", "-", "=", "0"].includes(e.key)) e.preventDefault(); });
+loadBk(); loadChans();
+connect(); loadSide(); scheduleFrame();
 </script>
 </body>
 </html>

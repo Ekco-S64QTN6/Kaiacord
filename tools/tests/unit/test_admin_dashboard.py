@@ -369,3 +369,12 @@ def test_a_check_that_times_out_takes_its_children_with_it(tmp_path):
             return
         time.sleep(0.1)
     raise AssertionError("the grandchild outlived the timed-out check")
+
+
+def test_admin_dashboard_keeps_browser_zoom_and_pauses_hidden_live_polling():
+    page = Path("assets/admin/index.html").read_text(encoding="utf-8")
+    script = Path("assets/admin/app.js").read_text(encoding="utf-8")
+
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in page
+    assert "user-scalable=no" not in page
+    assert 'setInterval(() => { if (!document.hidden) tickLive(); }, 3000);' in script
