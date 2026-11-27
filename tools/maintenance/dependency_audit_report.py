@@ -107,17 +107,17 @@ def assess_report(
                 )
             )
 
+    if advisories:
+        return AuditResult(
+            "vulnerable", len(dependencies), tuple(advisories), "", audit_outcome
+        )
     if audit_outcome != "success":
         return AuditResult(
             "failed",
             len(dependencies),
-            tuple(advisories),
+            (),
             f"pip-audit command outcome was {audit_outcome!r}, not 'success'",
             audit_outcome,
-        )
-    if advisories:
-        return AuditResult(
-            "vulnerable", len(dependencies), tuple(advisories), "", audit_outcome
         )
     return AuditResult("clean", len(dependencies), (), "", audit_outcome)
 
@@ -164,6 +164,11 @@ def render_markdown(result: AuditResult, *, event_name: str) -> str:
             lines.append(
                 f"| {_markdown_cell(item.package)} | {_markdown_cell(item.version)} "
                 f"| {_markdown_cell(item.advisory_id)} | {_markdown_cell(fixed)} |"
+            )
+        if result.audit_outcome != "success":
+            lines.append(
+                "\nThe pip-audit process exited non-zero; inspect the workflow log for "
+                "additional scan diagnostics."
             )
     if not blocking and result.status != "clean":
         lines.extend([
