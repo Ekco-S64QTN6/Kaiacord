@@ -444,7 +444,7 @@ def test_grid_snap_uses_the_catalog_bpm_not_the_refined_grid_bpm(tmp_path, monke
         "audio_signature": signature,
         "target_bpm": target_bpm,
         "bpm": target_bpm,
-        "ticks": [i * 60.0 / target_bpm for i in range(20)],
+        "ticks": [i * 60.0 / target_bpm for i in range(40)],
     }), encoding="utf-8")
     monkeypatch.setattr(
         beatgrid, "_grid_for",
