@@ -119,3 +119,77 @@ def test_unreadable_live_and_backup_snapshots_are_both_preserved(
     assert (live / "CORRUPT").read_text(encoding="utf-8") == "unreadable live"
     assert (old / "CORRUPT").read_text(encoding="utf-8") == "unreadable backup"
     assert (base / "knowledge_old").is_dir()
+
+
+
+def test_unreadable_live_directory_listing_uses_the_valid_backup(
+    tmp_path, monkeypatch
+):
+    """A permission/listing failure is a corrupt-live condition too."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    rag, base, indexer_module = _rag_with_fake_snapshot_loader(tmp_path, monkeypatch)
+    live = base / "knowledge"
+    old = base / "knowledge_old"
+    os.rename(live, old)
+    (old / "LAST_GOOD").write_text("valid backup", encoding="utf-8")
+    live.mkdir()
+    (live / "CORRUPT").write_text("unreadable live", encoding="utf-8")
+
+    real_listdir = os.listdir
+
+    def listdir(path):
+        if Path(path) == live:
+            raise PermissionError("cannot inspect live snapshot")
+        return real_listdir(path)
+
+    monkeypatch.setattr(indexer_module.os, "listdir", listdir)
+    monkeypatch.setattr(
+        indexer_module,
+        "load_index_from_storage",
+        lambda path: SimpleNamespace(persist_dir=str(path)),
+    )
+
+    rag._initialize_indices()
+
+    assert rag.indices["knowledge"].persist_dir == str(live)
+    assert (live / "LAST_GOOD").read_text(encoding="utf-8") == "valid backup"
+    assert not (live / "CORRUPT").exists()
+
+
+
+def test_failed_reload_after_backup_promotion_rolls_both_directories_back(
+    tmp_path, monkeypatch
+):
+    """A backup that fails at its final path must not replace or erase the live copy."""
+    from pathlib import Path
+
+    rag, base, indexer_module = _rag_with_fake_snapshot_loader(tmp_path, monkeypatch)
+    live = base / "knowledge"
+    old = base / "knowledge_old"
+    os.rename(live, old)
+    (old / "LAST_GOOD").write_text("backup", encoding="utf-8")
+    live.mkdir()
+    (live / "CORRUPT").write_text("original live", encoding="utf-8")
+
+    live_loads = 0
+
+    def load_snapshot(path):
+        nonlocal live_loads
+        path = Path(path)
+        if path == live:
+            live_loads += 1
+            if live_loads in (1, 2):
+                raise ValueError("live snapshot cannot load")
+        return object()
+
+    monkeypatch.setattr(indexer_module, "load_index_from_storage", load_snapshot)
+
+    import pytest
+    with pytest.raises(ValueError, match="live snapshot cannot load"):
+        rag._initialize_indices()
+
+    assert (live / "CORRUPT").read_text(encoding="utf-8") == "original live"
+    assert (old / "LAST_GOOD").read_text(encoding="utf-8") == "backup"
+    assert not (base / "knowledge_corrupt").exists()
