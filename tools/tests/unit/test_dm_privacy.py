@@ -135,3 +135,46 @@ def test_a_guard_does_not_quote_a_dm_reply_into_the_log(monkeypatch):
     lines.clear()
     rf.BotSpeakFilter.strip_apologies("you're right, the cron job was the culprit.")
     assert lines and "cron job" in lines[0]
+
+def test_private_inline_vision_diagnostics_withhold_attachment_url_filename_and_error():
+    from utils.core import private_turn
+    from utils.core.message_processor import (
+        _vision_attachment_fetch_log,
+        _vision_attachment_failure_log,
+    )
+
+    url = (
+        "https://cdn.discordapp.com/attachments/123456/789012/"
+        "private-medical-document.png?ex=secret&is=token&hm=signed"
+    )
+    filename = "private-medical-document.png"
+    error = OSError("private storage location unavailable")
+    token = private_turn.enter(True)
+    try:
+        fetch_log = _vision_attachment_fetch_log(url)
+        failure_log = _vision_attachment_failure_log(filename, error)
+    finally:
+        private_turn.leave(token)
+
+    assert private_turn.WITHHELD in fetch_log
+    assert private_turn.WITHHELD in failure_log
+    for secret in ("123456", "789012", filename, "secret", "token", "signed", "private storage"):
+        assert secret not in fetch_log
+        assert secret not in failure_log
+
+
+def test_public_inline_vision_diagnostics_keep_useful_attachment_context():
+    from utils.core.message_processor import (
+        _vision_attachment_fetch_log,
+        _vision_attachment_failure_log,
+    )
+
+    url = "https://cdn.discordapp.com/attachments/123456/789012/photo.png"
+    filename = "photo.png"
+    error = OSError("connection reset")
+
+    assert url in _vision_attachment_fetch_log(url)
+    failure_log = _vision_attachment_failure_log(filename, error)
+    assert filename in failure_log
+    assert "connection reset" in failure_log
+
