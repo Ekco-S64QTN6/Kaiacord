@@ -171,7 +171,8 @@ def test_tick_maintenance_replaces_cache_when_signature_changes(tmp_path, monkey
 
     def fake_analyse(record_path, bpm=None, identity=None):
         analysed.append(identity)
-        return {"audio_signature": identity, "bpm": 124.0, "confidence": 0.9, "ticks": [i * 0.48 for i in range(20)]}
+        return {"audio_signature": identity, "target_bpm": round(float(bpm), 3) if bpm else None,
+                "bpm": 124.0, "confidence": 0.9, "ticks": [i * 0.48 for i in range(20)]}
 
     monkeypatch.setitem(namespace["main"].__globals__, "analyse", fake_analyse)
     monkeypatch.setattr(sys, "argv", ["beat_ticks.py", str(path), "--cache", str(cache_dir)])
