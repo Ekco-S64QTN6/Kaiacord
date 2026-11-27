@@ -101,6 +101,62 @@ def test_daily_cap_survives_a_manager_restart(tmp_path, monkeypatch):
 
     asyncio.run(run())
 
+
+@pytest.mark.asyncio
+async def test_followup_retry_is_registered_and_drained_during_shutdown(tmp_path, monkeypatch):
+    from utils.infrastructure.monitoring import async_task_registry
+    from utils.infrastructure.monitoring.async_task_registry import AsyncTaskRegistry
+
+    async def run():
+        manager = _manager(tmp_path, monkeypatch)
+        registry = AsyncTaskRegistry()
+        monkeypatch.setattr(async_task_registry, "task_registry", registry)
+        monkeypatch.setattr(CoreTaskManager, "NEWS_FOLLOWUP_RETRY_DELAY_SECONDS", 3600)
+        manager.run_news_update = AsyncMock()
+
+        stop_names = (
+            "news_refresh_task",
+            "dream_engine_task",
+            "evening_reflection_task",
+            "aethelgard_dawn_task",
+            "noon_raid_task",
+            "afterthought_task",
+            "forum_auto_post_task",
+            "forum_tech_support_task",
+            "observation_digest_task",
+            "metadata_enrichment_task",
+            "dream_curation_task",
+            "corpus_hygiene_task",
+            "ingress_task",
+            "radio_task",
+            "agent_boards_task",
+            "self_correction_task",
+        )
+        for name in stop_names:
+            setattr(manager, name, SimpleNamespace(stop=Mock()))
+        manager.presence_task = None
+        manager.monologue_task = None
+        manager.proactive_task = None
+
+        manager._schedule_news_followup_retry()
+        retry = manager._news_followup_retry_task
+        await asyncio.sleep(0)  # Let it enter the long retry delay.
+
+        assert retry is not None and not retry.done()
+        assert any(task is retry for task in registry.get_all_tasks().values())
+
+        manager.stop()
+        await registry.cancel_all(timeout=1.0)
+        await asyncio.sleep(0)
+
+        assert retry.cancelled()
+        assert registry.get_pending_count() == 0
+        assert registry.get_all_tasks() == {}
+        assert manager._news_followup_retry_task is None
+        manager.run_news_update.assert_not_awaited()
+
+    await run()
+
 @pytest.mark.parametrize(
     ("global_stdout", "expected_schedules"),
     [
