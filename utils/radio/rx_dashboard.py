@@ -431,7 +431,8 @@ class _Handler(BaseHTTPRequestHandler):
         """The TUNED span as it is made: frames of [u32 header length][header
         JSON][u32 row length][row], one per row. The page draws each the moment
         it lands, so the waterfall runs at the watcher's pace (SPAN_FPS) with
-        no batching in between. A new connection replays only the rows still retained in the bounded ring buffer; it has no per-client cursor."""
+        no batching in between. A new connection replays only the rows still
+        retained in the bounded ring buffer; it has no per-client cursor."""
         import struct
         from utils.radio import scanner
         from utils.radio.rx_scope import scope
