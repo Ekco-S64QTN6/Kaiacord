@@ -331,7 +331,7 @@ async def test_cancelling_a_queued_pdf_does_not_start_after_the_slot_is_released
         raise AssertionError("cancelled PDF operation must not start a child")
 
     monkeypatch.setattr(pw, "_acquire_worker_slot", observed_acquire)
-    monkeypatch.setattr(pw, "_run_pdf_child", forbidden_child)
+    monkeypatch.setattr(pw.subprocess, "Popen", forbidden_child)
     assert pw._PDF_WORKER_SEMAPHORE.acquire(blocking=False)
     try:
         task = asyncio.create_task(
