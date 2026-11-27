@@ -22,9 +22,15 @@ flowchart TD
 ### 1. Ingestion (`kaia_rag_indexer.py`)
 - **In the background**: a refresh runs off the event loop, two files at a time, and persists
   every changed index at the end.
-- **Reading**: Markdown and text are read directly; PDF and DOCX through llama_index's reader. A
-  PDF or DOCX that fails is converted to Markdown beside the original (pypdf, docx2txt), and the
-  next sweep indexes that.
+- **Reading**: Markdown and text are read directly. DOCX is extracted with
+  `docx2txt.process()`. PDFs go through `utils.core.pdf_worker.extract_pdf_file()`, an isolated
+  parser worker with bounded input, page, text and process resources; the untrusted PDF object
+  graph is never parsed inside the bot process.
+- **Parser failures**: if the PDF worker is unavailable, hits a resource limit, or returns no
+  extractable text, that file is skipped for the current sweep and its last-good indexed nodes are
+  left in place for a later retry. Other parsing exceptions can enter `_handle_corrupt_file`,
+  which attempts a Markdown sidecar conversion; for DOCX this uses `docx2txt`, and a successful
+  sidecar is indexed on the next sweep. A worker skip is not described as an automatic conversion.
 - **Chunking** (`_get_node_parser_for_doc`): documents in 1,024-token chunks with 200 of overlap,
   news briefs split at their `##` headings, conversation logs six turns at a time with one turn
   of overlap. Smaller book chunks were measured on 26 Sept 2026
