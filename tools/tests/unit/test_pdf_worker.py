@@ -368,7 +368,7 @@ async def test_cancelling_an_active_pdf_child_kills_and_reaps_it(monkeypatch):
         pw.run_cancellable_in_thread(
             pw._run_pdf_child,
             b"%PDF-1.4",
-            "import time\\ntime.sleep(60)\\n",
+            "import time\ntime.sleep(60)\n",
             timeout_seconds=30,
         )
     )
