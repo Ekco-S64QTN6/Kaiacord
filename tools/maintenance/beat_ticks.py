@@ -13,9 +13,9 @@ Run by the system Python, which has Essentia (the bot's venv does not):
     /usr/bin/python3 tools/maintenance/beat_ticks.py --catalog FILE       # a whole dj_catalog.json
 
 Each record's ticks go to <cache>/<sha1 of path>.json with BPM, confidence,
-ticks and the complete audio signature that produced them. Existing entries
-are retained only while that signature still matches. A tracker that lands on
-half or double the catalog's tempo is folded
+ticks, the complete audio signature and requested folding BPM. An entry is
+retained only while both identities match. A tracker that lands on half or
+double the catalog's tempo is folded
 back to it (half-time ticks get the beats between them). Existing entries are
 kept unless --force. Prints one line per record; exits non-zero if any failed.
 
@@ -91,8 +91,13 @@ def analyse(path: str, want_bpm=None, identity: Optional[str] = None) -> dict:
     bpm, ticks = fold(float(bpm), ticks, want_bpm)
     if audio_signature(path, refresh=True) != identity:
         raise RuntimeError("record audio changed while beat ticks were being analysed")
-    return {"bpm": round(float(bpm), 3), "confidence": round(float(conf), 3),
-            "audio_signature": identity, "ticks": [round(float(t), 4) for t in ticks]}
+    return {
+        "bpm": round(float(bpm), 3),
+        "confidence": round(float(conf), 3),
+        "audio_signature": identity,
+        "target_bpm": round(float(want_bpm), 3) if want_bpm else None,
+        "ticks": [round(float(t), 4) for t in ticks],
+    }
 
 
 def _write(dest: Path, data: dict) -> None:
@@ -129,7 +134,10 @@ def main() -> int:
                     cached = json.loads(dest.read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     cached = {}
-                if cached.get("audio_signature") == identity:
+                target_bpm = round(float(bpm), 3) if bpm else None
+                if (cached.get("audio_signature") == identity
+                        and "target_bpm" in cached
+                        and cached.get("target_bpm") == target_bpm):
                     continue
             data = analyse(path, bpm, identity=identity)
             _write(dest, data)
