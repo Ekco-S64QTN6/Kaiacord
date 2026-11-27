@@ -90,6 +90,11 @@ def _vision_attachment_failure_log(filename: str, error: Exception) -> str:
     )
 
 
+def _private_diagnostic_detail(value: Any) -> str:
+    """Render diagnostic detail without disclosing values from a private turn."""
+    return _private_text(str(value))
+
+
 # Constants
 
 def message_instant(msg) -> Optional["datetime"]:
@@ -2598,7 +2603,7 @@ class MessageProcessor:
                         reasons.append(f"Direct conversational self-contradiction on '{verb}' state")
 
             if contradiction_detected:
-                log_warning(f"[CONSISTENCY_WATCHDOG] Contradiction detected! Reasons: {reasons}")
+                log_warning(f"[CONSISTENCY_WATCHDOG] Contradiction detected! Reasons: {_private_diagnostic_detail(reasons)}")
                 log_path = telemetry_path("memory/generation_log.jsonl")
                 def _log_to_disk():
                     with open(log_path, 'a', encoding='utf-8') as lf:
@@ -2618,7 +2623,7 @@ class MessageProcessor:
                     await asyncio.to_thread(_save_watchdog_prompt, ctx, response_text, reasons)
             return reasons
         except Exception as ce:
-            log_debug(f"Self-Consistency Watchdog failed (non-fatal): {ce}")
+            log_debug(f"Self-Consistency Watchdog failed (non-fatal): {_private_diagnostic_detail(ce)}")
         return []
 
     async def _post_process_and_log(self, ctx: MessageContext):
@@ -2643,11 +2648,11 @@ class MessageProcessor:
                 if _corrected and _corrected.strip() and _corrected != ctx.response_text:
                     log_warning(
                         "[CONSISTENCY_WATCHDOG] Stripped self-model capitulation from a "
-                        f"response conflicting with an active belief. Reasons: {_watchdog_reasons}"
+                        f"response conflicting with an active belief. Reasons: {_private_diagnostic_detail(_watchdog_reasons)}"
                     )
                     ctx.response_text = _corrected
             except Exception as _wd_err:
-                log_debug(f"Watchdog stance correction skipped (non-fatal): {_wd_err}")
+                log_debug(f"Watchdog stance correction skipped (non-fatal): {_private_diagnostic_detail(_wd_err)}")
         
         # The prose passes below leave code alone (utils/core/code_blocks.py).
         from utils.core import code_blocks
