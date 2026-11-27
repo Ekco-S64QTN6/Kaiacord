@@ -15,10 +15,12 @@ from utils.commands import youtube_handler as handler
 def _clear_transcript_admission(monkeypatch):
     with handler._inflight_lock:
         handler._inflight_video_ids.clear()
+        handler._inflight_paths.clear()
     monkeypatch.setattr(handler, "_last_used", {})
     yield
     with handler._inflight_lock:
         handler._inflight_video_ids.clear()
+        handler._inflight_paths.clear()
 
 
 def test_transcript_session_adds_a_finite_default_http_timeout(monkeypatch):
@@ -102,6 +104,23 @@ def test_handler_refuses_duplicate_or_over_capacity_jobs(existing, video_id, exp
 
     assert len(sent) == 1 and expected in sent[0]
     assert not handler._is_transcript_inflight(video_id)
+
+
+def test_concurrent_same_title_jobs_reserve_distinct_ingress_paths(monkeypatch, tmp_path):
+    monkeypatch.setattr(handler, "INGRESS", tmp_path)
+    tmp_path.mkdir(exist_ok=True)
+
+    first = handler._reserve_ingress_path("same video title", converter.safe_filename)
+    second = handler._reserve_ingress_path("same video title", converter.safe_filename)
+
+    assert first != second
+    assert first.name == "Transcript - same video title.md"
+    assert second.name == "Transcript - same video title (2).md"
+    assert handler._inflight_paths == {first, second}
+
+    handler._release_ingress_path(first)
+    handler._release_ingress_path(second)
+    assert handler._inflight_paths == set()
 
 
 def test_handler_releases_its_reservation_when_staging_raises(monkeypatch):
