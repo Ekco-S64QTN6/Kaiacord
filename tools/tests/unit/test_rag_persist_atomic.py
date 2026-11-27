@@ -236,3 +236,27 @@ def test_manifest_uses_shared_durable_atomic_writer(tmp_path, monkeypatch):
 
     assert calls == [Path(harness.state_file)]
     assert json.loads(Path(harness.state_file).read_text(encoding="utf-8")) == harness.indexed_files
+
+
+
+def test_staging_tree_fsync_failure_never_promotes_the_new_snapshot(
+    tmp_path, monkeypatch
+):
+    from utils.core import atomic_write
+
+    live = tmp_path / "knowledge"
+    live.mkdir()
+    (live / "docstore.json").write_text('{"old": true}', encoding="utf-8")
+    harness = _rag(tmp_path, fail=False)
+
+    def fail_tree(_directory):
+        raise OSError("injected staged-tree fsync failure")
+
+    monkeypatch.setattr(atomic_write, "fsync_tree", fail_tree)
+
+    with pytest.raises(OSError, match="injected staged-tree fsync failure"):
+        harness._persist_index_atomic("knowledge")
+
+    assert (live / "docstore.json").read_text(encoding="utf-8") == '{"old": true}'
+    assert (tmp_path / "knowledge_tmp" / "docstore.json").read_text(encoding="utf-8") == '{"new": true}'
+    assert not (tmp_path / "knowledge_old").exists()
