@@ -836,12 +836,15 @@ class RAGQueryMixin:
 
     def _snapshot_manifest_stale_node_ids(self) -> Set[str]:
         """Copy stale-node IDs while holding the indexer's manifest lock."""
-        indexed_files = getattr(self, "indexed_files", {})
         lock = getattr(self, "_data_lock", None)
         if lock is None:
-            entries = indexed_files.values()
+            indexed_files = getattr(self, "indexed_files", {})
+            entries = list(indexed_files.values())
         else:
             with lock:
+                # Index initialization can replace the whole manifest object;
+                # resolve it only after acquiring the same lock as writers.
+                indexed_files = getattr(self, "indexed_files", {})
                 entries = list(indexed_files.values())
         return {
             node_id
