@@ -378,14 +378,27 @@ lets a finite tail decay, and KAIA MIX/reset cancels it. The PFL CUE signal rema
 the MASTER leg hears the effected program. This is one master echo effect, not a general FX
 send/return, an automated skill or a substitute for local audio audition.
 
+**Persistent pitch fader** is a separate on-air operator control, bounded to ±8% and ramped
+across eight rendered frames. It is composed multiplicatively with the momentary platter jog:
+the program and selected PFL decoders consume the same source samples per output sample, and a
+jog release returns to the persistent fader setting rather than to unity. The dashboard reports
+the combined pitch/tempo and uses the combined source rate for elapsed/remaining estimates.
+Newly selected PFL decoders inherit the stable fader rate and catch up through their own resampler
+ring; they do not skip raw decoded frames behind the ring's cursor. The transition planner matches
+the incoming deck against the effective outgoing BPM while keeping bar/beat positions in decoded
+source time, then maps source-clock positions back to PCM frame and sub-frame boundaries. Manual
+hand starts use the same mapping. Automatic tempo glide yields while a pitch override is active,
+and loop/roll/transition ownership prevents conflicting pitch changes. This is a human-operated
+pitch control, not proof of hardware parity or musical quality.
+
 **Live jog / pitch bend** is a separate momentary operator control on the on-air platter.
 Clockwise/counterclockwise movement changes decoder sample consumption between 0.92× and
-1.08×, so tempo and pitch move together; this is a phase nudge, not a beat-matched permanent
-pitch slider. The resampler uses a lazily prepared, fixed-capacity PCM ring and emits the same
+1.08×, so tempo and pitch move together; this is a phase nudge around the persistent
+pitch-fader setting, not a second permanent speed control. The resampler uses a lazily prepared, fixed-capacity PCM ring and emits the same
 960-sample/20 ms frame shape. Ring allocation happens on the booth request thread before
 acquiring the renderer lock. The program and selected PFL decoders receive the same target and
 advance their own source clocks at the actual resampling rate; the dashboard playhead, tempo,
-pitch and remaining-time estimates use that rate too. A platter release ramps back to unity over
+pitch and remaining-time estimates use that rate too. A platter release ramps back to the persistent pitch-fader setting over
 eight rendered frames. The entire hold is capped at 500 rendered frames (10 seconds), including
 time spent crossing the platter centre; an engine timeout and a browser release timer both
 return to unity if pointer-up is lost. Pointer cancel, lost capture, blur, page hide and hidden-tab

@@ -397,6 +397,29 @@ def test_hot_cue_rebuilds_the_active_deck_at_exact_source_time(hotcue_source):
     assert len(replacement._frames) >= 5
 
 
+
+
+def test_hot_cue_preserves_persistent_pitch_and_rebuilds_selected_pfl_decoder(hotcue_source):
+    src = hotcue_source
+    assert src.set_headphones(1)
+    assert src.set_pitch(1, 1.05)
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES + 1):
+        src.read()
+    old = src.current
+    assert old is not None and old.pitch_rate == pytest.approx(1.05)
+    assert src._headphones_deck is not None
+    assert src._headphones_deck.pitch_rate == pytest.approx(1.05)
+
+    assert src.jump_to_cue(1, 5.25, expected_path=old.record.path)
+    replacement = src.current
+    preview = src._headphones_deck
+    assert replacement is not old
+    assert replacement is not None and replacement.pitch_rate == pytest.approx(1.05)
+    assert replacement.at() * replacement.ratio == pytest.approx(5.25, abs=0.02)
+    assert preview is not None and preview.pitch_rate == pytest.approx(1.05)
+    assert preview.at() == pytest.approx(replacement.at(), abs=1 / R.FRAMES_PER_S)
+
+
 def test_hot_cue_refuses_an_active_transition_without_mutating_it(hotcue_source):
     src = hotcue_source
     original = src.current
@@ -1303,11 +1326,14 @@ def sine(freq: float, amp: float, seconds: float):
 
 
 def test_an_unlocked_transition_echoes_out_under_the_next_record():
-    """No common beat anywhere: not a bare cut — the outgoing stops on its bar
-    and its last beat repeats, quieter each beat, under the incoming."""
+    """A failed blend verification falls back without losing an active pitch rate."""
     from utils.audio import mixcheck
     unlocked = lambda *a: (mixcheck.Verdict(False, 16, 3, why="no common beat"), 0.0)
     first = Deck(rec("one", 120, "8A"), 1.0, 20.0, sine(3000, 8000, 20.0))
+    assert first.set_pitch(1.04)
+    for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+        assert first.frame()  # settle the rate before the planner takes ownership
+    assert first.pitch_rate == pytest.approx(1.04)
     queue = [nxt(STEADY)]
     src = CrossfadeSource(first, lambda deck: queue.pop() if queue else None, stream_factory=tone(0, 20.0),
                           grid_at=lambda record, start, seconds: STEADY, mix_beats=16, verify=unlocked)
@@ -1315,19 +1341,21 @@ def test_an_unlocked_transition_echoes_out_under_the_next_record():
     wait_until(lambda: src._queued is not None)
     plan = _plan(src)
     assert plan.kind == "echo" and plan.fallback == "unlocked"
+    assert plan.playback_rate == pytest.approx(1.04)
+    wall_drop = plan.drop / plan.playback_rate
+    wall_beat = plan.beat / plan.playback_rate
     rms = []
-    for _ in range(int((plan.drop + 4.0) * FRAMES_PER_S)):
+    for _ in range(int((wall_drop + 4.0) * FRAMES_PER_S)):
         f = src.read()
         x = np.frombuffer(f, dtype=np.int16).astype(np.float32) if f else np.zeros(1)
         rms.append(float(np.sqrt(np.mean(x * x))))
         if len(rms) % 10 == 0:
             time.sleep(0.005)                    # let the incoming deck's reader keep up
     at = lambda t: rms[int(t * FRAMES_PER_S)]
-    beat = plan.beat
-    assert at(plan.drop - 0.3) > 4000                                # the outgoing, full
-    first_repeat, third_repeat = at(plan.drop + 0.2 * beat), at(plan.drop + 2.2 * beat)
-    assert first_repeat > 1000 and third_repeat < first_repeat       # it rings on, and dies away
-    assert at(plan.drop + (R.ECHO_REPEATS + 1) * beat) < 50          # gone after the repeats
+    assert at(wall_drop - 0.3) > 4000                          # the outgoing, full
+    first_repeat, third_repeat = at(wall_drop + 0.2 * wall_beat), at(wall_drop + 2.2 * wall_beat)
+    assert first_repeat > 1000 and third_repeat < first_repeat  # it rings on, and dies away
+    assert at(wall_drop + (R.ECHO_REPEATS + 1) * wall_beat) < 50  # gone after the repeats
 
 
 class _SlowRenderer:
@@ -2613,3 +2641,99 @@ def test_live_jog_bend_defers_automatic_planning_until_neutral(loop_source):
     for _ in range(R.PITCH_BEND_RAMP_FRAMES):
         src.read()
     assert not deck.bend_active
+
+
+
+def test_persistent_pitch_fader_composes_with_live_jog_and_returns_to_its_setting():
+    deck = Deck(rec("pitch-ride", 120, "8A"), 1.0, 5.0, tone(1000, 5.0))
+    wait_for(deck, 30)
+    try:
+        start = deck.at()
+        assert deck.set_pitch(1.06)
+        assert deck.pitch_ramping
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+        assert deck.pitch_rate == pytest.approx(1.06)
+        assert deck.playback_rate == pytest.approx(1.06)
+
+        assert deck.set_bend(1.04)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+        assert deck.playback_rate == pytest.approx(1.06 * 1.04)
+        assert deck.at() > start
+        assert deck.remaining == int(
+            max(0.0, deck.total_frames * FRAME_SAMPLES - deck._source_samples)
+            // (FRAME_SAMPLES * deck.playback_rate)
+        )
+
+        # Jog release returns to the persistent fader, not to unity.
+        assert deck.set_bend(1.0, release=True)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+        assert deck.bend["rate"] == pytest.approx(1.0)
+        assert deck.pitch_rate == pytest.approx(1.06)
+        assert deck.playback_rate == pytest.approx(1.06)
+
+        assert deck.set_pitch(1.0)
+        for _ in range(R.PITCH_BEND_RAMP_FRAMES):
+            frame = deck.frame()
+            assert frame is not None and len(frame) == FRAME_BYTES
+        assert deck.pitch_rate == pytest.approx(1.0)
+        assert deck.playback_rate == pytest.approx(1.0)
+        assert deck.set_pitch(1.081) is False
+        assert deck.set_pitch(True) is False
+        assert deck.set_pitch(float("nan")) is False
+    finally:
+        deck.close()
+
+
+def test_pitch_fader_waits_until_the_tempo_echo_tail_clears(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None
+
+    assert src.set_echo(True, beats=1.0)
+    assert src.effects.active
+    assert src.set_pitch(1, 1.04) is False
+    assert deck.pitch_rate == pytest.approx(1.0)
+
+    # The input gate is off, but changing tempo during this fixed-delay tail
+    # would still detune its repeats from the beat it was armed against.
+    assert src.set_echo(False)
+    assert src.effects.tail_active
+    assert src.set_pitch(1, 1.04) is False
+
+    for _ in range(200):
+        if not src.effects.tail_active:
+            break
+        src.read()
+    assert not src.effects.tail_active
+    assert src.set_pitch(1, 1.04)
+
+
+def test_transition_planner_matches_the_incoming_deck_to_the_persistent_pitch_rate():
+    plan = plan_transition(
+        3.1, 1.0, STEADY, 60.0, nxt(), "skip", 16, lead=2.0,
+        playback_rate=1.04,
+    )
+    assert plan.kind == "blend"
+    assert plan.playback_rate == pytest.approx(1.04)
+    assert plan.ratio == pytest.approx(1.04)
+    # Transition coordinates remain in decoded-source time; wall BPM changes.
+    assert plan.beat == pytest.approx(0.5)
+    assert plan.length == pytest.approx(8.0)
+    assert plan.drop >= 3.1 + 0.75 + 2.0 * 1.04
+
+
+
+def test_transition_without_outgoing_grid_scales_lead_to_pitch_source_clock():
+    plan = plan_transition(
+        10.0, 1.0, None, 30.0, nxt(), "skip", 16, lead=0.4,
+        playback_rate=1.04,
+    )
+    assert plan.kind == "cut"
+    assert plan.playback_rate == pytest.approx(1.04)
+    assert plan.drop == pytest.approx(10.0 + 0.4 * 1.04)

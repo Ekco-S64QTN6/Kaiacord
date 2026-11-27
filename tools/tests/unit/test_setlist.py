@@ -5,8 +5,11 @@ preferred the long ones: on 31 Oct a third of the hour sets' transitions were
 16-beat blends, which Ekco heard as "mixes into the next song super quick".
 """
 import random
+from types import SimpleNamespace
 
-from utils.audio import setlist
+import pytest
+
+from utils.audio import mixcheck, setlist
 from utils.audio.library import Record
 
 N = 14
@@ -266,3 +269,47 @@ def test_set_builder_keeps_technical_lock_and_musical_score_separate_without_pro
     assert first["technical"]["measured_lock"] is True
     assert first["musical"]["available"] is False
     assert first["musical"]["score"] == 0.0
+
+
+
+def test_verify_converts_pitch_rated_source_clock_plan_to_wall_time(monkeypatch):
+    plan = SimpleNamespace(
+        playback_rate=1.06,
+        start=10.6,
+        drop=18.02,
+        length=8.48,
+        offset=0.25,
+        ratio=1.04,
+        beat=0.53,
+        done=26.5,
+    )
+    observed = {}
+
+    def check(out_path, out_ratio, in_path, in_ratio, start, offset, drop, heard, beat):
+        observed.update(
+            out_path=out_path,
+            out_ratio=out_ratio,
+            in_path=in_path,
+            in_ratio=in_ratio,
+            start=start,
+            offset=offset,
+            drop=drop,
+            heard=heard,
+            beat=beat,
+        )
+        return SimpleNamespace(locked=True, correction_ms=None)
+
+    monkeypatch.setattr(mixcheck, "check", check)
+    verdict, shift = setlist.verify("out.wav", 1.06, "in.wav", plan)
+
+    assert verdict.locked
+    assert shift == 0.0
+    assert observed["out_path"] == "out.wav"
+    assert observed["out_ratio"] == pytest.approx(1.06)
+    assert observed["in_path"] == "in.wav"
+    assert observed["in_ratio"] == pytest.approx(1.04)
+    assert observed["start"] == pytest.approx(10.0)
+    assert observed["offset"] == 0.25
+    assert observed["drop"] == pytest.approx(17.0)
+    assert observed["heard"] == pytest.approx(8.0)
+    assert observed["beat"] == pytest.approx(0.5)
