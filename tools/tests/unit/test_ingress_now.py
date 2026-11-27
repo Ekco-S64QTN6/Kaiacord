@@ -159,3 +159,55 @@ def test_a_filing_cancelled_at_shutdown_ends_promptly(monkeypatch):
     assert started["proc"].returncode is not None
     with pytest.raises(ProcessLookupError):
         os.killpg(started["proc"].pid, 0)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux process-group handling required")
+def test_a_filing_cancelled_during_popen_startup_kills_the_late_child(monkeypatch):
+    import os
+    import threading
+    import subprocess as sp
+    from utils.core import ingress
+
+    started = threading.Event()
+    release_spawn = threading.Event()
+    spawned = threading.Event()
+    created = {}
+    real = sp.Popen
+
+    def delayed_popen(cmd, **kwargs):
+        started.set()
+        if not release_spawn.wait(5):
+            raise AssertionError("test did not release the delayed Popen")
+        proc = real([sys.executable, "-c", "import time; time.sleep(60)"], **kwargs)
+        created["proc"] = proc
+        spawned.set()
+        return proc
+
+    monkeypatch.setattr(ingress.subprocess, "Popen", delayed_popen)
+
+    async def go():
+        task = asyncio.create_task(ingress.run())
+        assert await asyncio.to_thread(started.wait, 2.0)
+        task.cancel()
+        await asyncio.sleep(0.05)
+        completed_before_spawn = task.done()
+        release_spawn.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert await asyncio.to_thread(spawned.wait, 2.0)
+        return completed_before_spawn
+
+    proc = None
+    try:
+        completed_before_spawn = asyncio.run(go())
+        proc = created["proc"]
+        assert not completed_before_spawn, "run() abandoned the Popen worker before it returned"
+        assert proc.returncode is not None, "late-created child was not waited for"
+        with pytest.raises(ProcessLookupError):
+            os.killpg(proc.pid, 0)
+    finally:
+        release_spawn.set()
+        proc = created.get("proc")
+        if proc is not None and proc.poll() is None:
+            ingress._end_group(proc, grace=0)
+            proc.communicate(timeout=10)
