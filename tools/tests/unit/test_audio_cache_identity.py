@@ -32,7 +32,7 @@ def test_tick_json_is_rejected_when_audio_at_the_path_is_replaced(tmp_path, monk
     cache = beatgrid._ticks_path(str(path))
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps({"bpm": 124, "target_bpm": 124.0, "confidence": 0.9,
-                                 "audio_signature": signature,
+                                 "audio_signature": signature, "alternate_ticks": None,
                                  "ticks": [i * 0.48 for i in range(20)]}), encoding="utf-8")
     beatgrid._read_ticks.cache_clear()
     assert len(beatgrid.ticks_for(str(path), 124.0)) == 20
@@ -418,7 +418,7 @@ def test_legacy_tick_json_is_stale_for_a_targeted_read(tmp_path, monkeypatch):
     cache = beatgrid._ticks_path(str(path))
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps({
-        "bpm": 120.0, "audio_signature": signature,
+        "bpm": 120.0, "audio_signature": signature, "alternate_ticks": None,
         "ticks": [i * 0.5 for i in range(20)],
     }), encoding="utf-8")
     beatgrid._read_ticks.cache_clear()
@@ -445,6 +445,7 @@ def test_grid_snap_uses_the_catalog_bpm_not_the_refined_grid_bpm(tmp_path, monke
         "target_bpm": target_bpm,
         "bpm": target_bpm,
         "ticks": [i * 60.0 / target_bpm for i in range(40)],
+        "alternate_ticks": None,
     }), encoding="utf-8")
     monkeypatch.setattr(
         beatgrid, "_grid_for",
@@ -457,5 +458,136 @@ def test_grid_snap_uses_the_catalog_bpm_not_the_refined_grid_bpm(tmp_path, monke
     assert snapped is not None
     assert snapped.tracked
     assert snapped.bpm == pytest.approx(target_bpm, abs=0.01)
+    beatgrid._read_ticks.cache_clear()
+    audio_identity.clear_audio_signature_cache()
+
+
+def test_double_tempo_fold_preserves_both_half_beat_phases():
+    import runpy
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[3] / "tools" / "maintenance" / "beat_ticks.py"
+    fold = runpy.run_path(str(script), run_name="beat_ticks_double_fold_test")["fold"]
+    raw = np.arange(0.0, 8.0, 0.25)
+
+    bpm, primary, alternate = fold(240.0, raw, 120.0)
+
+    assert bpm == pytest.approx(120.0)
+    assert np.array_equal(primary, raw[::2])
+    assert np.array_equal(alternate, raw[1::2])
+
+
+def test_half_tempo_fold_still_inserts_midpoint_beats():
+    import runpy
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[3] / "tools" / "maintenance" / "beat_ticks.py"
+    fold = runpy.run_path(str(script), run_name="beat_ticks_half_fold_test")["fold"]
+    raw = np.arange(0.0, 8.0, 1.0)
+
+    bpm, ticks, alternate = fold(60.0, raw, 120.0)
+
+    expected = np.sort(np.concatenate([raw, (raw[:-1] + raw[1:]) / 2]))
+    assert bpm == pytest.approx(120.0)
+    assert np.array_equal(ticks, expected)
+    assert alternate is None
+
+
+def test_grid_snap_selects_the_double_tempo_phase_closest_to_local_grid(tmp_path, monkeypatch):
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    monkeypatch.setattr(beatgrid, "TICKS_DIR", tmp_path / "ticks")
+    audio_identity.clear_audio_signature_cache()
+    signature = library.audio_signature(str(path))
+    assert signature
+    cache = beatgrid._ticks_path(str(path))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    primary = [i * 0.5 for i in range(40)]
+    alternate = [0.25 + i * 0.5 for i in range(40)]
+    cache.write_text(json.dumps({
+        "audio_signature": signature, "target_bpm": 120.0, "bpm": 120.0,
+        "ticks": primary, "alternate_ticks": alternate,
+    }), encoding="utf-8")
+    local = beatgrid.Grid(120.0, 0.30, 8.0)
+    monkeypatch.setattr(beatgrid, "_grid_for", lambda *_args: local)
+    beatgrid._read_ticks.cache_clear()
+
+    snapped = beatgrid.grid_for(str(path), 120.0)
+
+    assert snapped is not None and snapped.tracked
+    assert snapped.downbeat == pytest.approx(0.25)
+    assert snapped.ticks[0] == pytest.approx(0.25)
+    beatgrid._read_ticks.cache_clear()
+    audio_identity.clear_audio_signature_cache()
+
+
+def test_grid_snap_falls_back_when_double_tempo_phase_is_ambiguous(tmp_path, monkeypatch):
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    monkeypatch.setattr(beatgrid, "TICKS_DIR", tmp_path / "ticks")
+    audio_identity.clear_audio_signature_cache()
+    signature = library.audio_signature(str(path))
+    assert signature
+    cache = beatgrid._ticks_path(str(path))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({
+        "audio_signature": signature, "target_bpm": 120.0, "bpm": 120.0,
+        "ticks": [i * 0.5 for i in range(40)],
+        "alternate_ticks": [0.25 + i * 0.5 for i in range(40)],
+    }), encoding="utf-8")
+    local = beatgrid.Grid(120.0, 0.125, 8.0)
+    monkeypatch.setattr(beatgrid, "_grid_for", lambda *_args: local)
+    beatgrid._read_ticks.cache_clear()
+
+    snapped = beatgrid.grid_for(str(path), 120.0)
+
+    assert snapped is local
+    assert not snapped.tracked
+    assert snapped.downbeat == pytest.approx(0.125)
+    beatgrid._read_ticks.cache_clear()
+    audio_identity.clear_audio_signature_cache()
+
+
+def test_legacy_tick_cache_without_alternate_phase_field_is_stale(tmp_path, monkeypatch):
+    monkeypatch.setattr(beatgrid, "TICKS_DIR", tmp_path / "ticks")
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    audio_identity.clear_audio_signature_cache()
+    signature = library.audio_signature(str(path))
+    assert signature
+    cache = beatgrid._ticks_path(str(path))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({
+        "audio_signature": signature, "target_bpm": 120.0,
+        "ticks": [i * 0.5 for i in range(20)],
+    }), encoding="utf-8")
+    beatgrid._read_ticks.cache_clear()
+
+    assert beatgrid.ticks_for(str(path), 120.0) is None
+    beatgrid._read_ticks.cache_clear()
+    audio_identity.clear_audio_signature_cache()
+
+
+
+def test_double_tempo_ticks_require_a_local_phase_hint_but_remain_available(tmp_path, monkeypatch):
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    monkeypatch.setattr(beatgrid, "TICKS_DIR", tmp_path / "ticks")
+    audio_identity.clear_audio_signature_cache()
+    signature = library.audio_signature(str(path))
+    assert signature
+    cache = beatgrid._ticks_path(str(path))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    primary = [i * 0.5 for i in range(40)]
+    alternate = [0.25 + i * 0.5 for i in range(40)]
+    cache.write_text(json.dumps({
+        "audio_signature": signature, "target_bpm": 120.0, "bpm": 120.0,
+        "ticks": primary, "alternate_ticks": alternate,
+    }), encoding="utf-8")
+    beatgrid._read_ticks.cache_clear()
+
+    assert beatgrid.ticks_available(str(path), 120.0)
+    assert beatgrid.ticks_for(str(path), 120.0) is None
+    assert beatgrid.ticks_for(str(path), 120.0, near=0.30)[0] == pytest.approx(0.25)
     beatgrid._read_ticks.cache_clear()
     audio_identity.clear_audio_signature_cache()
