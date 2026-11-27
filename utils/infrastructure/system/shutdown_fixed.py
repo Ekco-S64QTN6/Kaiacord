@@ -102,7 +102,30 @@ class CleanShutdown:
         self._setup_complete = False
         self.rag = None
         self._rag_save_task = None
+        self._shutdown_force_exit_timer = None
+        self._shutdown_deadline_exit_lock = threading.Lock()
+        self._shutdown_deadline_exit_requested = threading.Event()
         
+    def _force_exit_at_shutdown_deadline(self) -> None:
+        """Force the process out once when a main-thread shutdown hits its cap."""
+        with self._shutdown_deadline_exit_lock:
+            if self._shutdown_deadline_exit_requested.is_set():
+                return
+            self._shutdown_deadline_exit_requested.set()
+        self.force_exit(1)
+
+    def _arm_main_thread_shutdown_deadline(self, loop, deadline: float) -> None:
+        """Simple mode has no parent bot-thread join, so enforce its deadline here."""
+        if threading.current_thread() is not threading.main_thread():
+            return
+        timer = threading.Timer(
+            max(0.0, deadline - loop.time()),
+            self._force_exit_at_shutdown_deadline,
+        )
+        timer.daemon = True
+        self._shutdown_force_exit_timer = timer
+        timer.start()
+
     def register_stats_poller(self, poller):
         """Register stats poller for cleanup"""
         self.stats_poller = poller
@@ -330,6 +353,7 @@ class CleanShutdown:
                         save_late = True
 
                     if save_late:
+                        self._arm_main_thread_shutdown_deadline(loop, shutdown_deadline)
                         log_error(
                             "  ❌ RAG save reached the global shutdown deadline. "
                             "Retaining the event loop and RAG resources until the writer exits; "
@@ -340,6 +364,10 @@ class CleanShutdown:
                         # the process if this writer never returns.
                         from utils.core.rag_executor import _await_executor_and_drain
                         saved = await _await_executor_and_drain(save_task)
+                        timer = self._shutdown_force_exit_timer
+                        if timer is not None:
+                            timer.cancel()
+                            self._shutdown_force_exit_timer = None
                 except asyncio.CancelledError:
                     # External cancellation cannot release the worker's owner.
                     from utils.core.rag_executor import _await_executor_and_drain
@@ -354,8 +382,14 @@ class CleanShutdown:
 
             if save_late or loop.time() >= shutdown_deadline:
                 # A completed-but-late save is still useful, but the remaining
-                # teardown budget is gone. Do not close the clients, executor,
-                # or GPU while the process is already beyond its shutdown cap.
+                # teardown budget is gone. In simple mode there is no parent
+                # joiner, so force_exit enforces the same deadline as dashboard mode.
+                timer = self._shutdown_force_exit_timer
+                if timer is not None:
+                    timer.cancel()
+                    self._shutdown_force_exit_timer = None
+                if threading.current_thread() is threading.main_thread():
+                    self._force_exit_at_shutdown_deadline()
                 log_error(
                     "  ❌ Shutdown save drained after the global deadline; "
                     "skipping remaining resource teardown."
