@@ -435,7 +435,6 @@ def test_pdf_parse_concurrency_is_globally_bounded(monkeypatch):
     import json
     import threading
     import time
-    from types import SimpleNamespace
     from utils.core import pdf_worker
 
     active = 0
@@ -446,19 +445,22 @@ def test_pdf_parse_concurrency_is_globally_bounded(monkeypatch):
         "pages": [[1, "parsed"]], "truncated": False,
     }).encode()
 
-    def slow_parser(*_args, **_kwargs):
-        nonlocal active, peak
-        with counter_lock:
-            active += 1
-            peak = max(peak, active)
-        try:
-            time.sleep(0.08)
-            return SimpleNamespace(returncode=0, stdout=output)
-        finally:
-            with counter_lock:
-                active -= 1
+    class SlowProcess:
+        returncode = 0
 
-    monkeypatch.setattr(pdf_worker.subprocess, "run", slow_parser)
+        def communicate(self, input=None, timeout=None):
+            nonlocal active, peak
+            with counter_lock:
+                active += 1
+                peak = max(peak, active)
+            try:
+                time.sleep(0.08)
+                return output, b""
+            finally:
+                with counter_lock:
+                    active -= 1
+
+    monkeypatch.setattr(pdf_worker.subprocess, "Popen", lambda *_a, **_k: SlowProcess())
 
     async def parse_burst():
         return await asyncio.gather(*(
