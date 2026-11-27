@@ -291,26 +291,47 @@ def _audio_identity(path: str, *, refresh: bool = False) -> Optional[str]:
     return audio_signature(path, refresh=refresh)
 
 
+def _valid_tick_array(value) -> Optional[np.ndarray]:
+    """A cached phase must be a finite, strictly increasing one-dimensional beat list."""
+    try:
+        ticks = np.asarray(value, dtype=float)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if (ticks.ndim != 1 or len(ticks) < 16 or not np.all(np.isfinite(ticks))
+            or np.any(np.diff(ticks) <= 0)):
+        return None
+    return ticks
+
+
 @functools.lru_cache(maxsize=512)
 def _read_ticks(cache: str, identity: str, cache_mtime_ns: int,
-                target_bpm: Optional[float] = None) -> Optional[np.ndarray]:
-    """Read ticks only for the audio identity and requested fold target."""
+                target_bpm: Optional[float] = None) -> Optional[tuple[np.ndarray, Optional[np.ndarray]]]:
+    """Read complete tick candidates only for the audio identity and requested fold target."""
     try:
         data = json.loads(Path(cache).read_text(encoding="utf-8"))
-        if data.get("audio_signature") != identity:
+        if data.get("audio_signature") != identity or "alternate_ticks" not in data:
             return None
         if target_bpm is not None:
             stored_target = data.get("target_bpm")
             if stored_target is None or round(float(stored_target), 3) != target_bpm:
                 return None
-        t = np.asarray(data["ticks"], dtype=float)
-    except (OSError, ValueError, KeyError, TypeError):
+        ticks = _valid_tick_array(data["ticks"])
+        if ticks is None:
+            return None
+        alternate = (None if data["alternate_ticks"] is None
+                     else _valid_tick_array(data["alternate_ticks"]))
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
         return None
-    return t if len(t) >= 16 else None
+    return ticks, alternate
 
 
-def ticks_for(path: str, bpm: Optional[float] = None) -> Optional[np.ndarray]:
-    """Ticks for this audio payload and, when supplied, its catalog fold target."""
+def ticks_for(path: str, bpm: Optional[float] = None, *,
+              near: Optional[float] = None) -> Optional[np.ndarray]:
+    """Ticks for this audio/target, choosing the phase nearest the supplied local grid.
+
+    If two double-tempo phases are equally plausible from the local grid, return
+    None so callers can keep the conservative onset-derived grid instead.
+    """
     identity = _audio_identity(path)
     if identity is None:
         return None
@@ -320,8 +341,20 @@ def ticks_for(path: str, bpm: Optional[float] = None) -> Optional[np.ndarray]:
         cache_mtime_ns = cache.stat().st_mtime_ns
     except OSError:
         return None
-    ticks = _read_ticks(str(cache), identity, cache_mtime_ns, target_bpm)
-    return ticks if ticks is None or _audio_identity(path) == identity else None
+    cached = _read_ticks(str(cache), identity, cache_mtime_ns, target_bpm)
+    if cached is None:
+        return None
+    ticks, alternate = cached
+    if near is not None and alternate is not None:
+        primary_distance = float(np.min(np.abs(ticks - near)))
+        alternate_distance = float(np.min(np.abs(alternate - near)))
+        expected_beat = 60.0 / target_bpm if target_bpm else float(np.median(np.diff(ticks)))
+        ambiguity_margin = max(0.002, 0.05 * expected_beat)
+        if abs(primary_distance - alternate_distance) <= ambiguity_margin:
+            return None
+        if alternate_distance < primary_distance:
+            ticks = alternate
+    return ticks if _audio_identity(path) == identity else None
 
 
 def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
@@ -346,7 +379,7 @@ def _snap(g: Optional[Grid], path: str, anchor: Optional[Grid] = None,
     """Snap a local grid to ticks folded for the original catalog BPM."""
     if g is None:
         return None
-    t = ticks_for(path, target_bpm)
+    t = ticks_for(path, target_bpm, near=g.downbeat)
     if t is None:
         return g
     k = int(np.argmin(np.abs(t - g.downbeat)))
