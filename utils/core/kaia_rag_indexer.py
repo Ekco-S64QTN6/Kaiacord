@@ -23,11 +23,10 @@ import traceback
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple, Set
 
-import pypdf
 import docx2txt
 
 from llama_index.core import (
-    VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document,
+    VectorStoreIndex, StorageContext, load_index_from_storage, Document,
 )
 from llama_index.core.node_parser import SentenceSplitter, CodeSplitter
 
@@ -35,6 +34,14 @@ from utils.infrastructure.logging.kaia_logger import (
     log_success, log_info, log_warning, log_error, log_critical, log_action, log_debug
 )
 from utils.infrastructure.system.shutdown_fixed import shutdown_manager
+
+
+def _read_non_pdf_document(file_path: str) -> str:
+    """Read the remaining supported text/DOCX formats without the PDF reader plugin."""
+    if file_path.lower().endswith(".docx"):
+        return docx2txt.process(file_path) or ""
+    with open(file_path, "r", encoding="utf-8", errors="replace") as source:
+        return source.read()
 
 
 class ConversationTurnSplitter:
@@ -1149,24 +1156,42 @@ class RAGIndexerMixin:
 
     def _index_regular_file(self, file_path: str, abs_path: str, itype: str) -> bool:
         """Parse and insert a full replacement before attempting old-node cleanup."""
-        from llama_index.core import SimpleDirectoryReader, Document as LlamaDocument
+        from llama_index.core import Document as LlamaDocument
 
         mtime = os.path.getmtime(file_path)
         size = os.path.getsize(file_path)
         docs = None
-        try:
-            docs = SimpleDirectoryReader(input_files=[file_path]).load_data()
-        except Exception:
-            for enc in ['latin-1', 'cp1252', 'iso-8859-1']:
-                try:
-                    with open(file_path, 'r', encoding=enc, errors='replace') as f:
-                        docs = [LlamaDocument(text=f.read())]
-                    break
-                except Exception:
-                    continue
-        if not docs:
-            with open(file_path, 'rb') as f:
-                docs = [LlamaDocument(text=f.read().decode('utf-8', errors='replace'))]
+        if file_path.lower().endswith(".pdf"):
+            # SimpleDirectoryReader delegates PDF parsing to pypdf in this
+            # process. Never give it an untrusted object graph: use the shared,
+            # resource-limited child and leave the last-good index intact on
+            # oversize, timeout, queue pressure or parser failure.
+            from utils.core.pdf_worker import extract_pdf_file
+            extracted = extract_pdf_file(file_path)
+            if extracted is None:
+                raise RuntimeError(
+                    "PDF parser unavailable or resource limit reached; skipping this indexing cycle"
+                )
+            page_text = [
+                f"## Page {number}\n\n{text}"
+                for number, text in extracted["pages"]
+            ]
+            if not page_text:
+                raise RuntimeError("PDF contained no extractable text; skipping this indexing cycle")
+            if extracted.get("truncated"):
+                page_text.append("[PDF text truncated by the configured page or character limit]")
+            pdf_text = "\n\n".join(page_text).strip()
+            metadata = {"file_name": os.path.basename(file_path)}
+            for key in ("title", "author", "subject"):
+                if extracted.get(key):
+                    metadata[key] = extracted[key]
+            docs = [LlamaDocument(text=pdf_text, metadata=metadata)]
+        else:
+            doc_text = _read_non_pdf_document(file_path)
+            docs = [LlamaDocument(
+                text=doc_text,
+                metadata={"file_name": os.path.basename(file_path)},
+            )]
 
         parser = self._get_node_parser_for_doc(itype, file_path)
         prepared_batches = []
@@ -1488,16 +1513,22 @@ class RAGIndexerMixin:
             log_action(f"Extracting text from PDF...")
             log_info(pdf_path)
             
-            reader = pypdf.PdfReader(pdf_path)
+            from utils.core.pdf_worker import extract_pdf_file
+            extracted = extract_pdf_file(pdf_path)
+            if extracted is None:
+                raise RuntimeError("PDF parser unavailable or a resource limit was reached")
             basename = os.path.basename(pdf_path)
-            title = basename[:-4] if basename.lower().endswith('.pdf') else basename
-            
-            extracted_pages = []
-            for i, page in enumerate(reader.pages):
-                page_text = page.extract_text()
-                if page_text and page_text.strip():
-                    extracted_pages.append(f"## Page {i+1}\n\n{page_text}")
-            
+            title = (extracted.get("title") or "").strip()
+            if not title:
+                title = basename[:-4] if basename.lower().endswith('.pdf') else basename
+
+            extracted_pages = [
+                f"## Page {number}\n\n{page_text}"
+                for number, page_text in extracted["pages"]
+            ]
+            if extracted_pages and extracted.get("truncated"):
+                extracted_pages.append("[PDF text truncated by the configured page or character limit]")
+
             if extracted_pages:
                 text = f"# {title}\n\n" + "\n\n".join(extracted_pages)
                 from utils.core.atomic_write import write_atomic

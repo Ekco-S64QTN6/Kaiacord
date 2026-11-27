@@ -399,170 +399,52 @@ def test_pdf_extraction_caps_pages_and_text(monkeypatch):
     assert len(module._extract_pdf_text(_small_pdf("this text is deliberately longer than twelve"))) <= 76
 
 
-def test_pdf_parser_timeout_fails_closed(monkeypatch):
-    import subprocess
+def test_context_link_extraction_uses_the_small_shared_worker_budget(monkeypatch):
+    from utils.core import pdf_worker
 
-    captured = {}
+    seen = {}
 
-    def timeout(*args, **kwargs):
-        captured.update(kwargs)
-        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+    def extract(raw_bytes, **kwargs):
+        seen.update(kwargs)
+        seen["raw_bytes"] = raw_bytes
+        return {"text": "bounded linked PDF text"}
 
-    monkeypatch.setattr(ce.subprocess, "run", timeout)
-    assert ce._extract_pdf_text(_small_pdf()) == ""
-    assert captured["timeout"] == ce.MAX_PDF_PARSE_TIMEOUT_SECONDS
-
-
-def test_pdf_parser_uses_a_resource_limited_disposable_process(monkeypatch):
-    from types import SimpleNamespace
-    import sys
-
-    captured = {}
-
-    def run(command, **kwargs):
-        captured["command"] = command
-        captured.update(kwargs)
-        return SimpleNamespace(returncode=0, stdout=b"bounded worker output")
-
-    monkeypatch.setattr(ce.subprocess, "run", run)
-    assert ce._extract_pdf_text(_small_pdf()) == "bounded worker output"
-    assert captured["command"][:2] == [sys.executable, "-I"]
-    assert captured["timeout"] == ce.MAX_PDF_PARSE_TIMEOUT_SECONDS
-    assert captured["stdout"] == ce.subprocess.PIPE
-    assert captured["stderr"] == ce.subprocess.DEVNULL
-    assert "resource.setrlimit(resource.RLIMIT_AS" in ce._PDF_WORKER_SCRIPT
-    assert "resource.setrlimit(resource.RLIMIT_CPU" in ce._PDF_WORKER_SCRIPT
-    # A worker the CPU limit kills must not dump core: each test run left one,
-    # and the desktop reported it as a Kaiacord crash.
-    assert "resource.setrlimit(resource.RLIMIT_CORE, (0, 0))" in ce._PDF_WORKER_SCRIPT
-    assert ".prctl(4, 0, 0, 0, 0)" in ce._PDF_WORKER_SCRIPT
+    monkeypatch.setattr(pdf_worker, "extract_pdf_bytes", extract)
+    assert ce._extract_pdf_text(_small_pdf()) == "bounded linked PDF text"
+    assert seen["max_input_bytes"] == ce.MAX_PAGE_BYTES
+    assert seen["max_pages"] == ce.MAX_PDF_PAGES
+    assert seen["max_text_chars"] == ce.MAX_PDF_TEXT_CHARS
+    assert seen["memory_bytes"] == ce.MAX_PDF_PARSE_MEMORY_BYTES
+    assert seen["cpu_seconds"] == ce.MAX_PDF_PARSE_CPU_SECONDS
+    assert seen["timeout_seconds"] == ce.MAX_PDF_PARSE_TIMEOUT_SECONDS
+    assert seen["queue_wait_seconds"] == ce.MAX_PDF_PARSE_QUEUE_WAIT_SECONDS
 
 
-def test_oversized_pdf_response_is_rejected_before_parser(monkeypatch):
-    from types import SimpleNamespace
+def test_oversized_pdf_response_is_rejected_before_starting_a_worker(monkeypatch):
+    from utils.core import pdf_worker
 
-    # The worker itself also rejects oversized input; this guards the helper
-    # independently from any caller's read cap.
     called = []
-    monkeypatch.setattr(ce.subprocess, "run", lambda *a, **k: called.append(True))
+    monkeypatch.setattr(pdf_worker.subprocess, "run", lambda *a, **k: called.append(True))
     assert ce._extract_pdf_text(b"%PDF-" + b"x" * ce.MAX_PAGE_BYTES) == ""
     assert not called
 
 
-@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux resource limits required")
-def test_pdf_worker_enforces_the_configured_address_space_limit(monkeypatch):
-    """Exercise RLIMIT_AS in the real isolated worker, not a mocked subprocess."""
-    import subprocess
-    import sys
-
-    script = ce._PDF_WORKER_SCRIPT + f"""
-import mmap
-try:
-    mmap.mmap(-1, {ce.MAX_PDF_PARSE_MEMORY_BYTES + 32 * 1024 * 1024})
-except (OSError, MemoryError):
-    sys.exit(42)
-sys.exit(43)
-"""
-    monkeypatch.setattr(ce, "_PDF_WORKER_SCRIPT", script)
-    real_run = ce.subprocess.run
-    observed = {}
-
-    def capture_run(*args, **kwargs):
-        completed = real_run(*args, **kwargs)
-        observed["returncode"] = completed.returncode
-        return completed
-
-    monkeypatch.setattr(ce.subprocess, "run", capture_run)
-    assert ce._extract_pdf_text(_small_pdf()) == ""
-    assert observed["returncode"] == 42, (
-        "worker did not hit its configured RLIMIT_AS before the probe mapping"
-    )
-
-
-@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux resource limits required")
-def test_pdf_worker_cpu_limit_terminates_a_cpu_bound_child(monkeypatch, tmp_path):
-    """The actual worker must hit RLIMIT_CPU before its wall-clock timeout."""
-    import time
-
-    loop_started = tmp_path / "cpu-loop-started"
-    configured_cpu_limit = f"cpu_limit = {ce.MAX_PDF_PARSE_CPU_SECONDS}"
-    assert configured_cpu_limit in ce._PDF_WORKER_SCRIPT
-    # Keep this probe short and deterministic across shared CI runners while
-    # exercising the exact resource.setrlimit call used in production.
-    worker_script = ce._PDF_WORKER_SCRIPT.replace(
-        configured_cpu_limit, "cpu_limit = 1", 1
-    )
-    script = worker_script + (
-        "\nfrom pathlib import Path\n"
-        f"Path({str(loop_started)!r}).write_text('started')\n"
-        "while True:\n    pass\n"
-    )
-    monkeypatch.setattr(ce, "_PDF_WORKER_SCRIPT", script)
-    real_run = ce.subprocess.run
-    observed = {}
-
-    def capture_run(*args, **kwargs):
-        try:
-            completed = real_run(*args, **kwargs)
-        except ce.subprocess.TimeoutExpired:
-            observed["timed_out"] = True
-            raise
-        observed["returncode"] = completed.returncode
-        return completed
-
-    monkeypatch.setattr(ce.subprocess, "run", capture_run)
-    started = time.monotonic()
-    assert ce._extract_pdf_text(_small_pdf()) == ""
-    elapsed = time.monotonic() - started
-
-    assert loop_started.exists(), "worker failed before reaching the CPU-bound loop"
-    assert observed.get("timed_out") is not True, (
-        "worker reached the wall-clock timeout instead of its CPU limit"
-    )
-    assert observed.get("returncode", 0) != 0, "CPU-bound worker exited normally"
-    assert elapsed < ce.MAX_PDF_PARSE_TIMEOUT_SECONDS
-
-
-@pytest.mark.skipif(__import__("sys").platform != "linux", reason="Linux process handling required")
-def test_pdf_worker_wall_timeout_kills_and_reaps_the_child(monkeypatch, tmp_path):
-    """A timed-out real worker is killed and reaped by subprocess.run."""
-    import os
-    import time
-
-    pid_file = tmp_path / "pdf-worker.pid"
-    script = ce._PDF_WORKER_SCRIPT + (
-        f"\nimport os\nfrom pathlib import Path\n"
-        f"Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
-        "import time\ntime.sleep(10)\n"
-    )
-    monkeypatch.setattr(ce, "_PDF_WORKER_SCRIPT", script)
-    monkeypatch.setattr(ce, "MAX_PDF_PARSE_TIMEOUT_SECONDS", 1.0)
-
-    started = time.monotonic()
-    assert ce._extract_pdf_text(_small_pdf()) == ""
-    assert time.monotonic() - started < 3.0
-    assert pid_file.exists(), "worker did not reach its deliberate sleep"
-    child_pid = int(pid_file.read_text(encoding="utf-8"))
-
-    with pytest.raises(ProcessLookupError):
-        os.kill(child_pid, 0)
-
-
-
 def test_pdf_parse_concurrency_is_globally_bounded(monkeypatch):
-    """Concurrent messages may start at most two isolated parser workers."""
+    """Context, dreams, RAG and downloads share one parser slot per process."""
     import asyncio
+    import json
     import threading
     import time
     from types import SimpleNamespace
+    from utils.core import pdf_worker
 
-    monkeypatch.setattr(
-        ce, "_PDF_PARSE_SEMAPHORE",
-        threading.BoundedSemaphore(ce.MAX_CONCURRENT_PDF_PARSERS),
-    )
     active = 0
     peak = 0
     counter_lock = threading.Lock()
+    output = json.dumps({
+        "title": "", "author": "", "subject": "", "page_count": 1,
+        "pages": [[1, "parsed"]], "truncated": False,
+    }).encode()
 
     def slow_parser(*_args, **_kwargs):
         nonlocal active, peak
@@ -571,26 +453,27 @@ def test_pdf_parse_concurrency_is_globally_bounded(monkeypatch):
             peak = max(peak, active)
         try:
             time.sleep(0.08)
-            return SimpleNamespace(returncode=0, stdout=b"parsed")
+            return SimpleNamespace(returncode=0, stdout=output)
         finally:
             with counter_lock:
                 active -= 1
 
-    monkeypatch.setattr(ce.subprocess, "run", slow_parser)
+    monkeypatch.setattr(pdf_worker.subprocess, "run", slow_parser)
 
     async def parse_burst():
         return await asyncio.gather(*(
-            asyncio.to_thread(ce._extract_pdf_text, b"%PDF-1.4\nfixture")
+            asyncio.to_thread(
+                pdf_worker.extract_pdf_bytes,
+                _small_pdf(),
+                queue_wait_seconds=3,
+            )
             for _ in range(8)
         ))
 
     results = asyncio.run(parse_burst())
-
-    assert results == ["parsed"] * 8
-    assert peak == ce.MAX_CONCURRENT_PDF_PARSERS
-    assert peak <= 2
+    assert [result["text"] for result in results] == ["parsed"] * 8
+    assert peak == pdf_worker.PDF_MAX_CONCURRENT_WORKERS == 1
     assert active == 0
-
 
 
 def test_context_cache_removes_expired_entries_even_below_the_hard_cap():

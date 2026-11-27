@@ -2,17 +2,18 @@
 # ===================================================
 
 # Core Infrastructure
-discord.py[voice]==2.7.1
-# Voice: discord.py needs PyNaCl to encrypt the RTP stream and libopus from
-# the system (libopus.so) to encode it.
+discord.py==2.7.1
+# Voice: discord.py checks for PyNaCl (RTP encryption) and davey (DAVE E2EE)
+# at runtime. Install them explicitly: discord.py[voice] 2.7.1 declares
+# PyNaCl<1.6, which conflicts with the libsodium security fix in 1.6.2.
 #
 # `davey` and discord.py >= 2.7 are BOTH required, not optional. Discord
 # enforced its DAVE end-to-end-encryption protocol for all non-stage voice on
 # 2 March 2026; a client without it is refused at the handshake with close
 # code 4017 and can never join a voice channel. discord.py 2.6.4 has no DAVE
 # support at all, so voice fails with five retries and "Not connected to
-# voice" no matter what the bot does. The [voice] extra pulls both in.
-PyNaCl>=1.5.0
+# voice" no matter what the bot does.
+PyNaCl>=1.6.2
 davey>=0.1.6
 # The !music engine drives Strudel in a local Chromium. Install the browser
 # once with: python -m playwright install chromium
@@ -33,7 +34,7 @@ Pillow>=13.0.0
 llama-index-core==0.14.12
 llama-index-llms-ollama==0.9.1
 llama-index-embeddings-ollama==0.8.6
-llama-index-readers-file==0.5.6
+# RAG reads TXT/MD/DOCX directly; PDFs use the isolated shared pypdf worker.
 llama-index-workflows==2.12.2
 
 # Search & Retrieval
@@ -44,7 +45,7 @@ scipy>=1.15.0
 pandas==2.3.3
 
 # Document Processing
-pypdf==6.21.4
+pypdf==7.2.0
 docx2txt==0.9
 python-docx==1.2.0
 beautifulsoup4==4.14.3
@@ -57,8 +58,4 @@ atproto>=0.0.54
 twikit>=2.0.0
 browser_cookie3>=0.19.1
 
-# System & Monitoring
-fastapi==0.128.0
-uvicorn==0.40.0
-uvloop==0.22.1
-watchfiles==1.1.1
+# No FastAPI/Uvicorn application is used; the local dashboards use stdlib HTTP servers.
