@@ -299,13 +299,18 @@ def _is_secret_param(name: str) -> bool:
     return bool(_SECRET_PARAM.search(normalized.lower()))
 
 
-def redact_url(url: str) -> str:
-    """`url` as it may be written down: no user:password, no credential parameters, no fragment.
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
+_URL_TRAILING_PUNCTUATION = ".,;:!?\"'"
+_MAX_NESTED_URL_DEPTH = 5
 
-    A signed link (object storage, a share token, an API key in the query) is
-    what was fetched, but what is kept as a document's source is retrievable
-    by everyone and read back in logs. The host, path and ordinary parameters
-    stay, so the source is still recognisable.
+
+def _redact_url(url: str, depth: int = 0) -> str:
+    """Redact one URL, including URL-valued query parameters.
+
+    A redirect/proxy parameter can carry a second URL whose userinfo or signed
+    query would otherwise survive as an opaque, percent-encoded outer value.
+    Recurse through a small bounded number of nested URL layers; beyond that,
+    omit the nested link rather than risk persisting credentials.
     """
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
     try:
@@ -314,24 +319,32 @@ def redact_url(url: str) -> str:
         if ":" in host:
             host = f"[{host}]"
         netloc = f"{host}:{parts.port}" if parts.port else host
-        kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not _is_secret_param(k)]
+        kept = []
+        for key, value in parse_qsl(parts.query, keep_blank_values=True):
+            if _is_secret_param(key):
+                continue
+            if _URL_IN_TEXT.search(value):
+                value = (
+                    "[link]" if depth >= _MAX_NESTED_URL_DEPTH
+                    else _redact_urls_in_text(value, depth + 1)
+                )
+            kept.append((key, value))
         return urlunsplit((parts.scheme, netloc, parts.path, urlencode(kept), ""))
     except ValueError:
         return ""
 
 
+def redact_url(url: str) -> str:
+    """Return a URL with userinfo, credential parameters and fragments removed.
 
-_URL_IN_TEXT = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
-_URL_TRAILING_PUNCTUATION = ".,;:!?\"'"
-
-
-def redact_urls_in_text(text: str) -> str:
-    """Remove credentials from user-authored URLs before writing transcripts.
-
-    Unlike fetched page blocks, the user's own URL remains part of the
-    conversation record. Keep its useful destination, but never retain
-    userinfo, signed query values or fragments in the shared RAG logs.
+    A signed link is what was fetched, but what is kept as a document's source
+    is retrievable by everyone and read back in logs. The host, path and
+    ordinary parameters stay, so the source is still recognisable.
     """
+    return _redact_url(url, 0)
+
+
+def _redact_urls_in_text(text: str, depth: int = 0) -> str:
     def _replace(match):
         raw = match.group(0)
         candidate = raw.rstrip(_URL_TRAILING_PUNCTUATION)
@@ -346,9 +359,21 @@ def redact_urls_in_text(text: str) -> str:
         trailing = raw[len(candidate):]
         if not candidate:
             return raw
-        return (redact_url(candidate) or "[link]") + trailing
+        if depth >= _MAX_NESTED_URL_DEPTH:
+            return "[link]" + trailing
+        return (_redact_url(candidate, depth) or "[link]") + trailing
 
     return _URL_IN_TEXT.sub(_replace, text or "")
+
+
+def redact_urls_in_text(text: str) -> str:
+    """Remove credentials from user-authored URLs before writing transcripts.
+
+    Unlike fetched page blocks, the user's own URL remains part of the
+    conversation record. Keep its useful destination, but never retain
+    userinfo, signed query values or fragments in the shared RAG logs.
+    """
+    return _redact_urls_in_text(text, 0)
 
 
 def local_request_ok(host: str | None, origin: str | None, port: int) -> bool:
