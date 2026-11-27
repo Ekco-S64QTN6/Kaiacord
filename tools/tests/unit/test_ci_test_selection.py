@@ -50,6 +50,9 @@ REQUIRED_RELATED_TESTS = {
         "tools/tests/unit/test_vision_fetch_security.py",
         "tools/tests/unit/test_channel_memory_lifecycle.py",
     ),
+    "utils/infrastructure/system/dashboard_manager.py": (
+        "tools/tests/unit/test_shutdown_prelude.py",
+    ),
     "utils/infrastructure/system/shutdown_fixed.py": (
         "tools/tests/unit/test_async_task_registry.py",
         "tools/tests/unit/test_shutdown_prelude.py",
