@@ -46,6 +46,7 @@ _COOLDOWN_S = 20
 _last_used: dict[int, float] = {}
 _inflight_lock = threading.Lock()
 _inflight_video_ids: set[str] = set()
+_inflight_paths: set[Path] = set()
 
 
 def _reserve_transcript(video_id: str) -> str:
@@ -63,6 +64,24 @@ def _release_transcript(video_id: str) -> None:
     """Release a reservation after every worker and staging step has finished."""
     with _inflight_lock:
         _inflight_video_ids.discard(video_id)
+
+
+def _reserve_ingress_path(title: str, safe_filename) -> Path:
+    """Reserve a collision-free transcript filename across concurrent jobs."""
+    with _inflight_lock:
+        path = INGRESS / safe_filename(title)
+        suffix = 2
+        while path.exists() or path in _inflight_paths:
+            path = path.with_name(f"{path.stem.rsplit(' (', 1)[0]} ({suffix}){path.suffix}")
+            suffix += 1
+        _inflight_paths.add(path)
+        return path
+
+
+def _release_ingress_path(path: Path) -> None:
+    """Release a filename reservation once its staged document is committed."""
+    with _inflight_lock:
+        _inflight_paths.discard(path)
 
 
 def _is_transcript_inflight(video_id: str) -> bool:
@@ -176,13 +195,11 @@ async def _stage_transcript(ctx, msg, video_id: str, convert, safe_filename):
     except Exception as e:
         log_warning(f"[youtube] name correction skipped: {type(e).__name__}: {e}")
 
+    reserved_path = None
     try:
         INGRESS.mkdir(parents=True, exist_ok=True)
-        path = INGRESS / safe_filename(stats["title"])
-        n = 2
-        while path.exists():
-            path = INGRESS / safe_filename(f"{stats['title']} ({n})")
-            n += 1
+        path = _reserve_ingress_path(stats["title"], safe_filename)
+        reserved_path = path
         # preformatted: the converter already produced knowledge-base Markdown
         # with frontmatter, headings and timestamp anchors. Running the ingress
         # normaliser over it would reflow the paragraphs and destroy them. So
@@ -209,6 +226,9 @@ async def _stage_transcript(ctx, msg, video_id: str, convert, safe_filename):
         log_error(f"[youtube] staging failed: {e}")
         await _fail(msg, placeholder, "got the transcript but couldn't stage it.")
         return
+    finally:
+        if reserved_path is not None:
+            _release_ingress_path(reserved_path)
 
     if placeholder:
         try:
