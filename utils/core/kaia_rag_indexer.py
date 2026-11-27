@@ -1426,8 +1426,21 @@ class RAGIndexerMixin:
                     file_path, is_modified, is_log, itype = file_info
                     async with semaphore:
                         try:
-                            # Index file in a separate thread to avoid blocking event loop
-                            if await asyncio.to_thread(self._index_single_file, file_path, is_modified, is_log, itype, corrupt_dir):
+                            # PDF parsing has an explicit cancellation owner: unlike
+                            # asyncio.to_thread(), it stops queued/active parser work and
+                            # drains the worker before cancellation escapes.
+                            if file_path.lower().endswith(".pdf"):
+                                from utils.core.pdf_worker import run_cancellable_in_thread
+                                indexed = await run_cancellable_in_thread(
+                                    self._index_single_file, file_path, is_modified,
+                                    is_log, itype, corrupt_dir,
+                                )
+                            else:
+                                indexed = await asyncio.to_thread(
+                                    self._index_single_file, file_path, is_modified,
+                                    is_log, itype, corrupt_dir,
+                                )
+                            if indexed:
                                 return itype
                         except Exception as e:
                             log_error(f"Error indexing {file_path}: {e}")
