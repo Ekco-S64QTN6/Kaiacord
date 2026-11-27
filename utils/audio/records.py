@@ -2240,17 +2240,24 @@ class CrossfadeSource(_AudioSource):
                 preview.close()
 
         with self._lock:
-            stale = (self.current is not old or old.loop_active or self.plan is not None
-                     or self.incoming is not None or self.hand is not None
-                     or self._planning or self._pending_planning_mode is not None
-                     or slot in self.paused)
+            head = (self._headphones_deck
+                    if self._headphones_slot == slot else None)
+            stale = (
+                self.current is not old or old.loop_active or old.roll_active
+                or old.bend["active"] or old.pitch_control_active
+                or self.plan is not None or self.incoming is not None or self.hand is not None
+                or self._planning or self._pending_planning_mode is not None
+                or self._pending_loop_exit is not None or slot in self.paused
+                or (head is not None and (
+                    head.loop_active or head.roll_active
+                    or head.bend["active"] or head.pitch_control_active
+                ))
+            )
             frames_until = int(round((start_own / ratio - old.at()) * FRAMES_PER_S))
             if not stale and frames_until >= 2:
                 loop_frames_pcm = tuple(pcm)
                 old._loop = DeckLoop(loop_frames_pcm, old.played + frames_until,
                                      start_own, end_own, beats)
-                head = (self._headphones_deck
-                        if self._headphones_slot == slot else None)
                 if head is not None:
                     head._loop = DeckLoop(loop_frames_pcm, head.played + frames_until,
                                           start_own, end_own, beats)
@@ -2368,6 +2375,7 @@ class CrossfadeSource(_AudioSource):
         with self._lock:
             stale = (
                 self.current is not old or old.loop_active or old.roll_active
+                or old.bend["active"] or old.pitch_control_active
                 or self.plan is not None or self.incoming is not None or self.hand is not None
                 or self._planning or self._pending_planning_mode is not None
                 or self._pending_loop_exit is not None or slot in self.paused
@@ -2383,7 +2391,8 @@ class CrossfadeSource(_AudioSource):
             head_stale = (
                 head_old is not None
                 and (self._headphones_deck is not head_old or self._headphones_slot != slot
-                     or head_old.roll_active or head_old.loop_active)
+                     or head_old.roll_active or head_old.loop_active
+                     or head_old.bend["active"] or head_old.pitch_control_active)
             )
             if (not stale and not head_stale and frames_until >= 2 and enough_live_audio
                     and (head_frames_until is None or head_frames_until >= 2)):

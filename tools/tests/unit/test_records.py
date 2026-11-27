@@ -356,6 +356,43 @@ def test_loop_arming_rechecks_transition_planning_after_pcm_preparation(loop_sou
     assert result == [False]
     assert src.current is not None and src.current._loop is None
 
+def test_loop_arming_rechecks_pitch_ownership_after_pcm_preparation(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None and src.set_headphones(1)
+    head = src._headphones_deck
+    assert head is not None
+
+    original_factory = src._factory
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(
+        target=lambda: result.append(src.set_loop(1, 2)), daemon=True
+    )
+    worker.start()
+    try:
+        assert entered.wait(timeout=1.0)
+        # The initial transport check has passed; a pitch-fader update races
+        # the off-lock PCM preparation before the loop is committed.
+        assert src.set_pitch(1, 1.05)
+    finally:
+        release.set()
+        worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert result == [False]
+    assert deck.pitch_control_active and head.pitch_control_active
+    assert not deck.loop_active and not head.loop_active
+
+
 def test_loop_lengths_are_strictly_bounded(loop_source):
     src = loop_source
     assert not src.set_loop(1, True)
@@ -2400,6 +2437,109 @@ def test_slip_roll_rejects_conflicting_loop_transition_pause_and_unusable_grids(
 
     assert src.set_loop(1, 2)
     assert not src.set_roll(1, 1, pressed=True)
+
+
+def test_loop_arming_rechecks_jog_ownership_after_pcm_preparation(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None and src.set_headphones(1)
+    head = src._headphones_deck
+    assert head is not None
+
+    original_factory = src._factory
+    entered, release = threading.Event(), threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(target=lambda: result.append(src.set_loop(1, 2)), daemon=True)
+    worker.start()
+    try:
+        assert entered.wait(timeout=1.0)
+        assert src.set_bend(1, 1.05)
+    finally:
+        release.set()
+        worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert result == [False]
+    assert deck.bend_active and head.bend_active
+    assert not deck.loop_active and not head.loop_active
+
+
+def test_slip_roll_arming_rechecks_pitch_ownership_after_pcm_preparation(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None and src.set_headphones(1)
+    head = src._headphones_deck
+    assert head is not None
+
+    original_factory = src._factory
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(
+        target=lambda: result.append(src.set_roll(1, 2, pressed=True)),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert entered.wait(timeout=1.0)
+        # A pitch ramp started while the counted phrase is being decoded.
+        assert src.set_pitch(1, 1.05)
+    finally:
+        release.set()
+        worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert result == [False]
+    assert deck.pitch_control_active and head.pitch_control_active
+    assert not deck.roll_active and not head.roll_active
+
+
+def test_slip_roll_arming_rechecks_jog_ownership_after_pcm_preparation(loop_source):
+    src = loop_source
+    deck = src.current
+    assert deck is not None and src.set_headphones(1)
+    head = src._headphones_deck
+    assert head is not None
+
+    original_factory = src._factory
+    entered, release = threading.Event(), threading.Event()
+
+    def blocking_factory(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=3.0)
+        return original_factory(*args, **kwargs)
+
+    src._factory = blocking_factory
+    result = []
+    worker = threading.Thread(
+        target=lambda: result.append(src.set_roll(1, 2, pressed=True)), daemon=True
+    )
+    worker.start()
+    try:
+        assert entered.wait(timeout=1.0)
+        assert src.set_bend(1, 1.05)
+    finally:
+        release.set()
+        worker.join(timeout=5.0)
+
+    assert not worker.is_alive()
+    assert result == [False]
+    assert deck.bend_active and head.bend_active
+    assert not deck.roll_active and not head.roll_active
 
 
 @pytest.mark.parametrize("target,expected_direction", [(1.08, 1), (0.92, -1)])
