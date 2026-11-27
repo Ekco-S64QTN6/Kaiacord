@@ -327,13 +327,8 @@ def _read_ticks(cache: str, identity: str, cache_mtime_ns: int,
     return ticks, alternate
 
 
-def ticks_for(path: str, bpm: Optional[float] = None, *,
-              near: Optional[float] = None) -> Optional[np.ndarray]:
-    """Ticks for this audio/target, choosing the phase nearest the supplied local grid.
-
-    If two double-tempo phases are equally plausible from the local grid, return
-    None so callers can keep the conservative onset-derived grid instead.
-    """
+def _tick_candidates(path: str, bpm: Optional[float] = None):
+    """Read cached tick candidates for one unchanged audio identity and target BPM."""
     identity = _audio_identity(path)
     if identity is None:
         return None
@@ -344,13 +339,33 @@ def ticks_for(path: str, bpm: Optional[float] = None, *,
     except OSError:
         return None
     cached = _read_ticks(str(cache), identity, cache_mtime_ns, target_bpm)
-    if cached is None:
+    if cached is None or _audio_identity(path) != identity:
         return None
-    ticks, alternate = cached
-    if near is not None and alternate is not None:
+    return identity, cached
+
+
+def ticks_available(path: str, bpm: Optional[float] = None) -> bool:
+    """Whether target-matched tick data exists, without choosing a beat phase."""
+    return _tick_candidates(path, bpm) is not None
+
+
+def ticks_for(path: str, bpm: Optional[float] = None, *,
+              near: Optional[float] = None) -> Optional[np.ndarray]:
+    """Ticks for this audio/target, selected against a local onset-grid phase.
+
+    A double-tempo cache has two plausible phases. It is never returned without
+    a local grid hint, and ties fall back to the conservative onset-derived grid.
+    """
+    candidates = _tick_candidates(path, bpm)
+    if candidates is None:
+        return None
+    identity, (ticks, alternate) = candidates
+    if alternate is not None:
+        if near is None:
+            return None
         primary_distance = float(np.min(np.abs(ticks - near)))
         alternate_distance = float(np.min(np.abs(alternate - near)))
-        expected_beat = 60.0 / target_bpm if target_bpm else float(np.median(np.diff(ticks)))
+        expected_beat = 60.0 / round(float(bpm), 3) if bpm else float(np.median(np.diff(ticks)))
         ambiguity_margin = max(0.002, 0.05 * expected_beat)
         if abs(primary_distance - alternate_distance) <= ambiguity_margin:
             return None
@@ -362,7 +377,7 @@ def ticks_for(path: str, bpm: Optional[float] = None, *,
 def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
     """Find ticks for this audio and catalog BPM if that cache is absent (~2–3 s).
     Uses system Python with Essentia. Blocking: call it off the voice thread."""
-    if ticks_for(path, bpm) is not None:
+    if ticks_available(path, bpm):
         return True
     try:
         from utils.infrastructure.monitoring.telemetry_paths import is_test_run
@@ -373,7 +388,7 @@ def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
                        capture_output=True, timeout=180)
     except (OSError, subprocess.SubprocessError):
         return False
-    return ticks_for(path, bpm) is not None
+    return ticks_available(path, bpm)
 
 
 def _snap(g: Optional[Grid], path: str, anchor: Optional[Grid] = None,
