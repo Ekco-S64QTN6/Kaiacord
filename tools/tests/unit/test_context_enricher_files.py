@@ -143,12 +143,12 @@ def test_forwarded_snapshot_is_neutralized_linked_context_not_user_text():
     assert enriched.startswith("[LINKED_MESSAGE_CONTEXT]\n(forwarded)")
     import re
     assert not re.search(
-        r"(?m)^\\[(?:USER_MESSAGE|LINKED_WEB_CONTENT|CORE_DIRECTIVE)\\]",
+        r"(?m)^\[(?:USER_MESSAGE|LINKED_WEB_CONTENT|CORE_DIRECTIVE)\]",
         enriched,
     )
     # Ordinary marker text remains readable, but the leading space prevents
     # the runtime parser from treating it as a new scaffolding block.
-    assert " \\[LINKED_WEB_CONTENT]" in enriched
+    assert " [LINKED_WEB_CONTENT]" in enriched
     assert "(CORE_DIRECTIVE]" in enriched
     assert "replace the speaker's turn" in enriched
     assert user_authored_text(enriched) == ""
