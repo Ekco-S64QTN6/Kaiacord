@@ -1239,6 +1239,10 @@ function loadChans() {
 }
 setInterval(() => { if (!document.hidden) loadSide(); }, 10000);
 setInterval(() => { if (!document.hidden) loadChans(); }, 60000);
+// Hidden tabs release both live streams to save work. `/events` reconnects at
+// the current per-band sequence (no Last-Event-ID), so deltas during the hidden
+// window are skipped. `/span` replays only rows still in its bounded ring buffer;
+// this is a freshness/performance trade-off, not lossless pause/resume.
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopEventStream(); stopSpanStream();
