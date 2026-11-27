@@ -391,26 +391,39 @@ class RAGPersistenceMixin:
         deletes the index and starts it empty. Raises on failure, with the last
         good copy back in place.
         """
+        from utils.core.atomic_write import fsync_directory, fsync_tree
+
         itype_dir = os.path.join(self.persist_dir, itype)
         temp_dir = f"{itype_dir}_tmp"
         old_dir = f"{itype_dir}_old"
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)                      # a previous save cut short
+            fsync_directory(self.persist_dir)
         try:
+            # The storage backend writes a complete staging tree, but it does
+            # not expose its file descriptors. Sync its regular files and
+            # directory entries before making that tree the live snapshot.
             self.indices[itype].storage_context.persist(persist_dir=temp_dir)
+            fsync_tree(temp_dir)
+
             if os.path.exists(old_dir):
                 shutil.rmtree(old_dir)
+                fsync_directory(self.persist_dir)
             if os.path.exists(itype_dir):
                 os.rename(itype_dir, old_dir)
+                fsync_directory(self.persist_dir)
             os.rename(temp_dir, itype_dir)
+            fsync_directory(self.persist_dir)
             if os.path.exists(old_dir):
                 shutil.rmtree(old_dir)
+                fsync_directory(self.persist_dir)
         except Exception:
             # Moved aside and not replaced: put the last good copy back, or the
-            # next boot finds no index at all.
+            # next boot finds no index at all. Sync the rollback rename too.
             try:
                 if not os.path.exists(itype_dir) and os.path.exists(old_dir):
                     os.rename(old_dir, itype_dir)
+                    fsync_directory(self.persist_dir)
             except Exception as restore_err:
                 log_error(f"Could not restore {itype} index from {old_dir}: {restore_err}")
             raise
