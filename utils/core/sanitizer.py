@@ -127,8 +127,9 @@ def _strip_reply_context(text: str) -> str:
 def summarize_link_context(text: str) -> str:
     """Persist a user turn without fetched reply, page, embed, or message blocks.
 
-    The URL typed by the user is kept in the user-authored portion. External
-    page titles and body text are deliberately not copied into future prompts.
+    The URL typed by the user is retained for context, but userinfo,
+    credential query parameters and fragments are removed before persistence.
+    External page titles and body text are not copied into future prompts.
     """
     if not text:
         return text
@@ -141,6 +142,7 @@ def summarize_link_context(text: str) -> str:
         return "\n" + citation if citation else ""
 
     cleaned = RUNTIME_SCAFFOLDING.sub(_replace, text)
+    cleaned = redact_urls_in_text(cleaned)
     return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
 
 
@@ -285,6 +287,18 @@ _SECRET_PARAM = re.compile(
     re.IGNORECASE)
 
 
+def _is_secret_param(name: str) -> bool:
+    """Match credential parameter names in snake_case, kebab-case and camelCase.
+
+    Query keys are publisher-controlled. Split camel/acronym boundaries before
+    applying the same token-boundary rules so accessToken and APIKey are not
+    retained merely because their word boundary is an uppercase letter.
+    """
+    normalized = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", normalized)
+    return bool(_SECRET_PARAM.search(normalized.lower()))
+
+
 def redact_url(url: str) -> str:
     """`url` as it may be written down: no user:password, no credential parameters, no fragment.
 
@@ -300,10 +314,41 @@ def redact_url(url: str) -> str:
         if ":" in host:
             host = f"[{host}]"
         netloc = f"{host}:{parts.port}" if parts.port else host
-        kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not _SECRET_PARAM.search(k)]
+        kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not _is_secret_param(k)]
         return urlunsplit((parts.scheme, netloc, parts.path, urlencode(kept), ""))
     except ValueError:
         return ""
+
+
+
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
+_URL_TRAILING_PUNCTUATION = ".,;:!?\"'"
+
+
+def redact_urls_in_text(text: str) -> str:
+    """Remove credentials from user-authored URLs before writing transcripts.
+
+    Unlike fetched page blocks, the user's own URL remains part of the
+    conversation record. Keep its useful destination, but never retain
+    userinfo, signed query values or fragments in the shared RAG logs.
+    """
+    def _replace(match):
+        raw = match.group(0)
+        candidate = raw.rstrip(_URL_TRAILING_PUNCTUATION)
+        # A closing bracket belongs to prose only when it has no matching
+        # opener in the URL (e.g. the ")" around a Markdown link destination).
+        for closing, opening in ((")", "("), ("]", "["), ("}", "{")):
+            while (
+                candidate.endswith(closing)
+                and candidate.count(closing) > candidate.count(opening)
+            ):
+                candidate = candidate[:-1]
+        trailing = raw[len(candidate):]
+        if not candidate:
+            return raw
+        return (redact_url(candidate) or "[link]") + trailing
+
+    return _URL_IN_TEXT.sub(_replace, text or "")
 
 
 def local_request_ok(host: str | None, origin: str | None, port: int) -> bool:

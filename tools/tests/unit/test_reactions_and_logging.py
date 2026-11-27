@@ -241,6 +241,67 @@ def test_enricher_blocks_are_stripped_before_logging(text, expected):
     assert summarize_link_context(text).splitlines()[0] == expected.splitlines()[0]
 
 
+def test_user_urls_are_redacted_before_transcript_persistence():
+    from types import SimpleNamespace
+    from utils.core.sanitizer import persisted_turn, summarize_link_context
+
+    text = (
+        "please read "
+        "https://alice:pw@files.example.com/a.pdf?"
+        "accessToken=access123&refreshToken=refresh123&authToken=auth123&"
+        "clientSecret=client123&format=pdf#private-fragment."
+    )
+    expected = "please read https://files.example.com/a.pdf?format=pdf."
+
+    assert summarize_link_context(text) == expected
+    assert persisted_turn(text, SimpleNamespace(attachments=[], stickers=[])) == expected
+    # Balanced parentheses belong to the URL path, not surrounding prose.
+    wiki = "see https://example.com/wiki/Foo_(bar)."
+    assert summarize_link_context(wiki) == wiki
+
+
+def test_fetch_diagnostic_urls_redact_credentials_and_still_withhold_private_turns():
+    from utils.core.context_enricher import _pt
+    from utils.core.private_turn import WITHHELD, enter, leave
+
+    url = "https://files.example.com/a?accessToken=secret123&format=pdf"
+    token = enter(False)
+    try:
+        assert _pt(url) == "https://files.example.com/a?format=pdf"
+        error = "GET failed for https://files.example.com/a?clientSecret=error-secret&format=pdf"
+        assert _pt(error) == "GET failed for https://files.example.com/a?format=pdf"
+    finally:
+        leave(token)
+
+    token = enter(True)
+    try:
+        assert _pt(url) == WITHHELD
+    finally:
+        leave(token)
+
+
+def test_rag_persistence_redacts_urls_even_on_legacy_write_paths(tmp_path, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+    from utils.core import kaia_rag_persistence as persistence
+    from utils.core.kaia_rag_persistence import RAGPersistenceMixin
+    from utils.core.kaia_rag_retriever import sanitize_log_content
+
+    url = "https://alice:pw@files.example.com/remember?clientSecret=secret123&format=pdf#fragment"
+    expected = "https://files.example.com/remember?format=pdf"
+    assert sanitize_log_content(url, users_words=True) == expected
+
+    monkeypatch.setattr(persistence, "corpus_dir", lambda _path: str(tmp_path / "corpus"))
+    obj = SimpleNamespace(knowledge_base_dir=str(tmp_path), _data_lock=threading.RLock())
+    obj.log_user_interaction = lambda *_args: True
+    assert RAGPersistenceMixin.add_memory(obj, 42, "tester", url)
+
+    [injected] = (tmp_path / "corpus" / "user_logs" / "tester_42").glob("injected_*.txt")
+    logged = injected.read_text(encoding="utf-8")
+    assert expected in logged
+    assert "secret123" not in logged and "alice:pw" not in logged and "#fragment" not in logged
+
+
 def test_generation_still_sees_the_scaffolding():
     """Stripping belongs at persistence, not in sanitize_prompt — the model
     needs the directive to obey it."""

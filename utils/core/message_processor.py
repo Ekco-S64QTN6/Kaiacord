@@ -78,21 +78,23 @@ from utils.core.private_turn import text as _private_text   # a DM's reply stays
 
 
 def _vision_attachment_fetch_log(url: str) -> str:
-    """Diagnostic message with private-turn URL data withheld."""
-    return f"Fetching image attachment for inline vision: {_private_text(url)}"
+    """Diagnostic message with credentialed URLs and private-turn data withheld."""
+    return f"Fetching image attachment for inline vision: {_private_diagnostic_detail(url)}"
 
 
 def _vision_attachment_failure_log(filename: str, error: Exception) -> str:
-    """Keep public failure detail, but do not persist private attachment metadata."""
+    """Keep safe public failure detail, but withhold private attachment metadata."""
     return (
-        f"Failed to fetch image {_private_text(str(filename))} for inline vision: "
-        f"{_private_text(str(error))}"
+        f"Failed to fetch image {_private_diagnostic_detail(filename)} for inline vision: "
+        f"{_private_diagnostic_detail(error)}"
     )
 
 
 def _private_diagnostic_detail(value: Any) -> str:
-    """Render diagnostic detail without disclosing values from a private turn."""
-    return _private_text(str(value))
+    """Render diagnostics without private-turn content or URL credentials."""
+    from utils.core.sanitizer import redact_urls_in_text
+
+    return redact_urls_in_text(_private_text(str(value)))
 
 
 # Constants

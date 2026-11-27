@@ -81,7 +81,9 @@ class RAGPersistenceMixin:
                 log_file = os.path.join(user_log_dir, f"injected_{timestamp}.txt")
                 
                 log_text = f"User ({user_name}): Remember this: {text}\nKaia: Logged it. I'll remember that.\n"
-                
+                from utils.core.sanitizer import redact_urls_in_text
+                log_text = redact_urls_in_text(log_text)
+
                 from utils.core.atomic_write import write_atomic
                 write_atomic(log_file, log_text)
                     

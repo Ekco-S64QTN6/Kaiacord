@@ -163,18 +163,27 @@ def test_private_inline_vision_diagnostics_withhold_attachment_url_filename_and_
         assert secret not in failure_log
 
 
-def test_public_inline_vision_diagnostics_keep_useful_attachment_context():
+def test_public_inline_vision_diagnostics_keep_context_but_redact_url_credentials():
     from utils.core.message_processor import (
         _vision_attachment_fetch_log,
         _vision_attachment_failure_log,
     )
 
-    url = "https://cdn.discordapp.com/attachments/123456/789012/photo.png"
+    url = "https://cdn.discordapp.com/attachments/123456/789012/photo.png?accessToken=fetch-secret&format=png"
     filename = "photo.png"
-    error = OSError("connection reset")
+    error = OSError(
+        "connection reset for "
+        "https://cdn.discordapp.com/attachments/123456/789012/photo.png?"
+        "clientSecret=error-secret&format=png"
+    )
 
-    assert url in _vision_attachment_fetch_log(url)
+    fetch_log = _vision_attachment_fetch_log(url)
+    assert "https://cdn.discordapp.com/attachments/123456/789012/photo.png?format=png" in fetch_log
+    assert "accessToken" not in fetch_log and "fetch-secret" not in fetch_log
+
     failure_log = _vision_attachment_failure_log(filename, error)
     assert filename in failure_log
     assert "connection reset" in failure_log
+    assert "clientSecret" not in failure_log and "error-secret" not in failure_log
+    assert "format=png" in failure_log
 

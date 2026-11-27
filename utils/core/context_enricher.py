@@ -6,9 +6,20 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 from utils.infrastructure.system.yaml_config import config
-from utils.core.sanitizer import is_safe_url, public_only_connector, read_capped
-from utils.core.private_turn import text as _pt   # a DM's links stay out of the log
+from utils.core.sanitizer import (
+    is_safe_url,
+    public_only_connector,
+    read_capped,
+    redact_urls_in_text,
+)
+from utils.core.private_turn import text as _private_text   # a DM's links stay out of the log
 from utils.core import pdf_worker
+
+
+def _pt(value) -> str:
+    """Withhold private-turn diagnostics and redact credentials in public URLs."""
+    return redact_urls_in_text(str(_private_text(value)))
+
 
 # Each per-enricher cache has a hard entry cap; expired entries are pruned first.
 CACHE_MAX_ENTRIES = 256
@@ -365,7 +376,7 @@ class ContextEnricher:
         try:
             data = await att.read()
         except Exception as e:
-            log_warning(f"Could not download attachment ({_human_size(size)}): {e}")
+            log_warning(f"Could not download attachment ({_human_size(size)}): {_pt(e)}")
             return f"{header}\nContents unknown: the download failed."
         if b"\x00" in data[:8192]:
             return f"{header}\nContents unknown: it is binary, not text."
@@ -708,7 +719,7 @@ class ContextEnricher:
                         try:
                             parsed_text = await pdf_worker.run_cancellable_in_thread(_extract_pdf_text, raw_pdf)
                         except Exception as e:
-                            log_debug(f"URL PDF extraction failed {_pt(url)}: {type(e).__name__}: {e}")
+                            log_debug(f"URL PDF extraction failed {_pt(url)}: {type(e).__name__}: {_pt(e)}")
                             return ""
                         if not parsed_text:
                             log_debug(f"URL PDF {_pt(url)} had no extractable text (encrypted, malformed, or image-only)")
@@ -769,6 +780,6 @@ class ContextEnricher:
         except asyncio.TimeoutError:
             log_warning(f"URL fetch timed out: {_pt(url)}")
         except Exception as e:
-            log_debug(f"URL fetch error {_pt(url)}: {e}")
+            log_debug(f"URL fetch error {_pt(url)}: {_pt(e)}")
             
         return ""

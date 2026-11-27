@@ -67,9 +67,14 @@ def sanitize_log_content(text: str, users_words: bool = False) -> str:
     clean = re.sub(r'<think>.{0,5000}?</think>', '', clean, flags=re.DOTALL)
     clean = re.sub(r'</?think>', '', clean)  # Strip orphaned tags that weren't in complete pairs
     
+    # Redact URL credentials even when a caller writes directly to RAG logs
+    # without first passing through MessageProcessor.persisted_turn().
+    from utils.core.sanitizer import redact_urls_in_text
+    clean = redact_urls_in_text(clean)
+
     # Clean up resulting double spaces
     clean = re.sub(r'  +', ' ', clean)
-    
+
     return clean.strip()
 
 
