@@ -427,3 +427,35 @@ def test_legacy_tick_json_is_stale_for_a_targeted_read(tmp_path, monkeypatch):
     assert beatgrid.ticks_for(str(path), 120.0) is None
     beatgrid._read_ticks.cache_clear()
     audio_identity.clear_audio_signature_cache()
+
+
+def test_grid_snap_uses_the_catalog_bpm_not_the_refined_grid_bpm(tmp_path, monkeypatch):
+    monkeypatch.setattr(beatgrid, "TICKS_DIR", tmp_path / "ticks")
+    path = tmp_path / "record.mp3"
+    path.write_bytes(b"A" * 4096)
+    audio_identity.clear_audio_signature_cache()
+    signature = library.audio_signature(str(path))
+    assert signature
+
+    target_bpm = 124.0
+    cache = beatgrid._ticks_path(str(path))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({
+        "audio_signature": signature,
+        "target_bpm": target_bpm,
+        "bpm": target_bpm,
+        "ticks": [i * 60.0 / target_bpm for i in range(20)],
+    }), encoding="utf-8")
+    monkeypatch.setattr(
+        beatgrid, "_grid_for",
+        lambda *_args: beatgrid.Grid(123.7, 0.0, 8.0),
+    )
+    beatgrid._read_ticks.cache_clear()
+
+    snapped = beatgrid.grid_for(str(path), target_bpm)
+
+    assert snapped is not None
+    assert snapped.tracked
+    assert snapped.bpm == pytest.approx(target_bpm, abs=0.01)
+    beatgrid._read_ticks.cache_clear()
+    audio_identity.clear_audio_signature_cache()
