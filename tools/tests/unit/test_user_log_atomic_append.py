@@ -136,7 +136,7 @@ def test_sync_failure_returns_false_and_releases_append_lock(
     from utils.core import atomic_write
 
     path = tmp_path / f"interactions_{failure_stage}_failure.md"
-    events, state = _observe_syncs(monkeypatch)
+    _, state = _observe_syncs(monkeypatch)
     errors = []
     monkeypatch.setattr(persistence, "log_error", errors.append)
 
