@@ -71,6 +71,15 @@ async def _bounded_shutdown_component(awaitable, label: str, deadline: float, re
     return True
 
 
+def _shutdown_total_timeout_s() -> float:
+    """Return the bot-thread deadline, with a margin before the parent force-exits."""
+    try:
+        from utils.infrastructure.system.dashboard_manager import BOT_SHUTDOWN_DEADLINE_S
+        return max(0.0, float(BOT_SHUTDOWN_DEADLINE_S) - 2.0)
+    except Exception:
+        return 38.0
+
+
 def _shutdown_prelude_timeout() -> float:
     """One shared budget for voice/radio teardown before task cancellation."""
     try:
@@ -92,6 +101,7 @@ class CleanShutdown:
         self._shutdown_complete = threading.Event()
         self._setup_complete = False
         self.rag = None
+        self._rag_save_task = None
         
     def register_stats_poller(self, poller):
         """Register stats poller for cleanup"""
@@ -156,6 +166,11 @@ class CleanShutdown:
         Call this from an event loop before exiting.
         """
         log_info("  🔄 Running async shutdown...")
+        loop = asyncio.get_running_loop()
+        # The dashboard process gives the bot thread 40s to finish. Keep a
+        # small margin for the parent join/force-exit path so an overrun save
+        # never outlives the event loop or releases its RAG resources early.
+        shutdown_deadline = loop.time() + _shutdown_total_timeout_s()
 
         # 0. Stop voice/radio operations before cancelling the background registry.
         # Graceful Discord disconnects should complete where possible, but all four
@@ -277,30 +292,82 @@ class CleanShutdown:
 
         # 3. Persist RAG Index (Critical Data Safety)
         if self.rag:
+            log_info("  💾 Persisting RAG indices...")
+            # Keep an explicit Task reference: wait_for(to_thread(...)) cancels
+            # only its asyncio wrapper, not the worker that may still hold the
+            # RAG data/transaction locks and mutate the live snapshot.
+            save_task = asyncio.create_task(
+                asyncio.to_thread(self.rag.persist, shutdown=True),
+                name="shutdown:rag-persist",
+            )
+            self._rag_save_task = save_task
+            save_deadline = min(
+                shutdown_deadline,
+                loop.time() + max(0.0, float(RAG_SAVE_TIMEOUT_S)),
+            )
+            save_late = False
+            saved = False
             try:
-                log_info("  💾 Persisting RAG indices...")
-                # Only what changed since the last save: every change is saved
-                # when it is made, and rewriting all indices (~170 MB) here took
-                # long enough to be cut short by a second signal.
                 try:
                     saved = await asyncio.wait_for(
-                        asyncio.to_thread(lambda: self.rag.persist(shutdown=True)),
-                        # Saving the logs index (~80 MB) takes 7-22 s; at 15 s,
-                        # 19 of 31 shutdown saves (13-21 Nov) were cut short.
-                        # Within BOT_SHUTDOWN_DEADLINE_S with the steps around it.
-                        timeout=RAG_SAVE_TIMEOUT_S
+                        asyncio.shield(save_task),
+                        timeout=max(0.0, save_deadline - loop.time()),
                     )
-                    if saved is None:
-                        log_info("  ✅ RAG indices already on disk (nothing changed since the last save)")
-                    elif saved:
-                        log_success("  ✅ RAG indices saved")
-                    else:
-                        log_warning("  ⚠️ RAG indices NOT fully saved (see the error above)")
                 except asyncio.TimeoutError:
-                    log_warning(f"  ⚠️ RAG save did not finish in {RAG_SAVE_TIMEOUT_S:.0f}s; the files on disk are "
-                                "the last complete save, and the next boot re-indexes what changed since")
-            except Exception as e:
-                log_error(f"  ❌ Error persisting RAG: {e}")
+                    log_warning(
+                        f"  ⚠️ RAG save exceeded its {RAG_SAVE_TIMEOUT_S:.0f}s save budget; "
+                        "keeping the writer and RAG resources owned until it drains."
+                    )
+                    remaining = max(0.0, shutdown_deadline - loop.time())
+                    if remaining:
+                        try:
+                            saved = await asyncio.wait_for(
+                                asyncio.shield(save_task), timeout=remaining
+                            )
+                        except asyncio.TimeoutError:
+                            save_late = True
+                    else:
+                        save_late = True
+
+                    if save_late:
+                        log_error(
+                            "  ❌ RAG save reached the global shutdown deadline. "
+                            "Retaining the event loop and RAG resources until the writer exits; "
+                            "the dashboard's bounded process exit remains the final deadline."
+                        )
+                        # Do not let asyncio.run() cancel this owner and abandon
+                        # the thread. The dashboard's parent join will force-exit
+                        # the process if this writer never returns.
+                        from utils.core.rag_executor import _await_executor_and_drain
+                        saved = await _await_executor_and_drain(save_task)
+                except asyncio.CancelledError:
+                    # External cancellation cannot release the worker's owner.
+                    from utils.core.rag_executor import _await_executor_and_drain
+                    await _await_executor_and_drain(save_task)
+                    raise
+                except Exception as save_error:
+                    log_error(f"  ❌ RAG persistence worker failed: {save_error}")
+                    saved = False
+            finally:
+                if save_task.done() and self._rag_save_task is save_task:
+                    self._rag_save_task = None
+
+            if save_late or loop.time() >= shutdown_deadline:
+                # A completed-but-late save is still useful, but the remaining
+                # teardown budget is gone. Do not close the clients, executor,
+                # or GPU while the process is already beyond its shutdown cap.
+                log_error(
+                    "  ❌ Shutdown save drained after the global deadline; "
+                    "skipping remaining resource teardown."
+                )
+                return
+
+            if saved is None:
+                log_info("  ✅ RAG indices already on disk (nothing changed since the last save)")
+            elif saved:
+                log_success("  ✅ RAG indices saved")
+            else:
+                log_warning("  ⚠️ RAG indices NOT fully saved (see the error above)")
 
         # 4a. Close Forum Client
         try:
