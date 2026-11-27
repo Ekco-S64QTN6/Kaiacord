@@ -141,9 +141,15 @@ def test_forwarded_snapshot_is_neutralized_linked_context_not_user_text():
     enriched = asyncio.run(ContextEnricher(MagicMock()).enrich_content(msg))
 
     assert enriched.startswith("[LINKED_MESSAGE_CONTEXT]\n(forwarded)")
-    assert "[USER_MESSAGE]" not in enriched
-    assert "[LINKED_WEB_CONTENT]" not in enriched
-    assert "[CORE_DIRECTIVE]" not in enriched
+    import re
+    assert not re.search(
+        r"(?m)^\\[(?:USER_MESSAGE|LINKED_WEB_CONTENT|CORE_DIRECTIVE)\\]",
+        enriched,
+    )
+    # Ordinary marker text remains readable, but the leading space prevents
+    # the runtime parser from treating it as a new scaffolding block.
+    assert " \\[LINKED_WEB_CONTENT]" in enriched
+    assert "(CORE_DIRECTIVE]" in enriched
     assert "replace the speaker's turn" in enriched
     assert user_authored_text(enriched) == ""
     assert summarize_link_context(enriched) == "[shared Discord message]"
