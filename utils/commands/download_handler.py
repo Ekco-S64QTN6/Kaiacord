@@ -253,7 +253,8 @@ async def _download_and_convert(url: str, username: str, user_id: str) -> dict:
     if file_type == 'html':
         title, markdown_body, meta_info = await asyncio.to_thread(_convert_html, raw_bytes, url)
     elif file_type == 'pdf':
-        title, markdown_body, meta_info = await asyncio.to_thread(_convert_pdf, raw_bytes, url)
+        from utils.core.pdf_worker import run_cancellable_in_thread
+        title, markdown_body, meta_info = await run_cancellable_in_thread(_convert_pdf, raw_bytes, url)
     elif file_type == 'text':
         title, markdown_body, meta_info = await asyncio.to_thread(_convert_text, raw_bytes, url)
     else:
