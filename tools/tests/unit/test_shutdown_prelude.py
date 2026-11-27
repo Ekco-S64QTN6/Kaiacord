@@ -117,6 +117,16 @@ async def test_a_stuck_voice_stop_does_not_cost_the_index_save_or_the_model_unlo
     assert registry.get_all_tasks() == {}
 
 
+def test_simple_mode_enables_main_thread_shutdown_deadline():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    source = (root / "utils/infrastructure/system/dashboard_manager.py").read_text(
+        encoding="utf-8"
+    )
+    assert "shutdown_manager.enable_main_thread_shutdown_deadline()" in source
+
+
 @pytest.mark.asyncio
 async def test_timed_out_rag_shutdown_save_retains_worker_and_skips_later_teardown(
     monkeypatch, tmp_path
