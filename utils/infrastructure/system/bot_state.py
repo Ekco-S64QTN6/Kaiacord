@@ -476,20 +476,22 @@ class BotState:
         with self._lock:
             if self._writer_closing or self._writer_closed:
                 return
-            # Remove old entry if it exists to update it.
-            self.recent_ingestions = [
+            # Build the completed replacement before publishing it. Readers
+            # that do not need the state lock then see either the previous
+            # history or the new complete history, never an intermediate list.
+            recent = [
                 item for item in self.recent_ingestions
                 if item.get("filename") != filename
             ]
-            self.recent_ingestions.append({
+            recent.append({
                 "filename": filename,
                 "snippet": snippet,
                 "timestamp": time.time(),
             })
-
             # Keep only the last 10 ingestions.
-            if len(self.recent_ingestions) > 10:
-                self.recent_ingestions.pop(0)
+            if len(recent) > 10:
+                recent.pop(0)
+            self.recent_ingestions = recent
         self.save()
 
     def update_kaia_state(self, engagement_delta: float = 0.0, coherence_sample: float = None):
