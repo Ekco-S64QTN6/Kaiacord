@@ -528,6 +528,9 @@ class DashboardManager:
                 await initialize_logic_layer()
             else:
                 initialize_logic_layer()
+            # Simple mode runs the bot on this main thread, so it has no
+            # parent joiner to enforce the process-wide shutdown deadline.
+            shutdown_manager.enable_main_thread_shutdown_deadline()
             # The stop event is what a SIGTERM sets. Without it nothing here
             # closes the client, and the process never exits.
             await run_bot_async(sp, self.stop_event)
