@@ -368,6 +368,11 @@ class _Handler(BaseHTTPRequestHandler):
                 pic = spectrogram.render(clip, f"{name}")
                 return self._file(pic, "image/png") if pic else self._send(404, b"", "text/plain")
             elif path == "/events":
+                # Intentional live-only resume for non-tuned bands and overview:
+                # each connection seeds its cursors at the current sequence (there is
+                # no Last-Event-ID replay), so rows made while the tab is hidden are
+                # skipped. The tuned /span stream below separately replays its retained
+                # ring buffer on reconnect; status/frequency state always catches up.
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-store")
@@ -435,6 +440,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+        # Unlike /events, /span deliberately replays only its currently retained
+        # ring buffer. Older rows evicted while the page was hidden cannot be recovered.
         seq = max(0, scope.span.seq - len(scope.span.rows))
         while _server is not None:
             scanner.seen_by_dashboard()
