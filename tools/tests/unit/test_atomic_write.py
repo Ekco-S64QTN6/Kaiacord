@@ -241,3 +241,45 @@ def test_set_aside_moves_the_file_and_append_lock_is_a_context_manager(tmp_path)
     assert atomic_write.set_aside(store) is None
     with atomic_write.append_lock(store) as dest:
         assert dest == store
+
+
+def test_fsync_tree_syncs_regular_files_and_directories_bottom_up(tmp_path, monkeypatch):
+    import os
+    import stat
+    from pathlib import Path
+
+    from utils.core import atomic_write
+
+    root = tmp_path / "snapshot"
+    nested = root / "nested"
+    nested.mkdir(parents=True)
+    files = (
+        root / "root.json",
+        nested / "child.json",
+    )
+    for path in files:
+        path.write_text("durable", encoding="utf-8")
+    expected_inodes = {path.stat().st_ino for path in files}
+
+    real_fsync = os.fsync
+    synced_files = []
+
+    def observe_fsync(descriptor):
+        if stat.S_ISREG(os.fstat(descriptor).st_mode):
+            synced_files.append(os.fstat(descriptor).st_ino)
+        real_fsync(descriptor)
+
+    real_fsync_directory = atomic_write.fsync_directory
+    synced_directories = []
+
+    def observe_directory(directory):
+        synced_directories.append(Path(directory))
+        real_fsync_directory(directory)
+
+    monkeypatch.setattr(os, "fsync", observe_fsync)
+    monkeypatch.setattr(atomic_write, "fsync_directory", observe_directory)
+
+    atomic_write.fsync_tree(root)
+
+    assert set(synced_files) == expected_inodes
+    assert synced_directories == [nested, root, tmp_path]

@@ -992,14 +992,12 @@ class RAGIndexerMixin:
     def _save_indexed_files_locked(self):
         """Persist the mapping of indexed files to disk."""
         try:
-            if not os.path.exists(self.persist_dir):
-                os.makedirs(self.persist_dir)
-            tmp_path = self.state_file + ".tmp"
-            with open(tmp_path, 'w', encoding='utf-8') as f:
-                json.dump(self.indexed_files, f, indent=4)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, self.state_file)
+            # The manifest lives under memory/rag_storage, so it uses the same
+            # file + parent-directory fsync contract as every other durable
+            # memory write. The transaction lock around this method serializes
+            # the read/replace operation across RAG instances and processes.
+            from utils.core.atomic_write import write_atomic
+            write_atomic(self.state_file, json.dumps(self.indexed_files, indent=4))
             log_debug(f"Saved {len(self.indexed_files)} entries to {self.state_file}")
             return True
         except Exception as e:
