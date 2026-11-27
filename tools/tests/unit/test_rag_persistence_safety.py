@@ -1,6 +1,8 @@
 """An index write killed partway through must not cost the index."""
 import os
 
+import pytest
+
 
 
 def test_an_index_left_in_old_is_restored_at_load(tmp_path):
