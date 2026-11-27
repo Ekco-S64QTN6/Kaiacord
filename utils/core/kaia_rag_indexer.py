@@ -88,10 +88,16 @@ def _restore_last_good_index(itype_dir: str, old_dir: str, itype: str):
 
     The caller holds the persistence transaction lock. Validate the backup before
     moving the live directory; if validation or promotion fails, keep the original
-    live and backup paths intact. Reload after promotion so the storage context is
-    bound to the live path rather than the temporary backup path.
+    live and backup paths intact. Every directory-entry transition is synced in
+    the shared parent before recovery advances to the next state.
     """
     import shutil
+    from utils.core.atomic_write import fsync_directory
+
+    parent_dir = os.path.dirname(os.path.abspath(itype_dir))
+
+    def sync_parent() -> None:
+        fsync_directory(parent_dir)
 
     # Do not disturb the live path until the fallback has independently loaded.
     load_index_from_storage(StorageContext.from_defaults(persist_dir=old_dir))
@@ -108,9 +114,11 @@ def _restore_last_good_index(itype_dir: str, old_dir: str, itype: str):
         if os.path.lexists(itype_dir):
             os.rename(itype_dir, quarantine_dir)
             live_moved = True
+            sync_parent()
 
         os.rename(old_dir, itype_dir)
         backup_moved = True
+        sync_parent()
         restored = load_index_from_storage(
             StorageContext.from_defaults(persist_dir=itype_dir)
         )
@@ -119,11 +127,13 @@ def _restore_last_good_index(itype_dir: str, old_dir: str, itype: str):
         if backup_moved and os.path.lexists(itype_dir) and not os.path.lexists(old_dir):
             try:
                 os.rename(itype_dir, old_dir)
+                sync_parent()
             except Exception as exc:
                 rollback_errors.append(f"backup: {exc}")
         if live_moved and os.path.lexists(quarantine_dir) and not os.path.lexists(itype_dir):
             try:
                 os.rename(quarantine_dir, itype_dir)
+                sync_parent()
             except Exception as exc:
                 rollback_errors.append(f"live: {exc}")
         if rollback_errors:
@@ -140,10 +150,15 @@ def _restore_last_good_index(itype_dir: str, old_dir: str, itype: str):
                 shutil.rmtree(quarantine_dir)
             else:
                 os.remove(quarantine_dir)
+            # Promotion was already synced, so a cleanup-sync failure can only
+            # leave the corrupt quarantine entry to reappear after a host crash.
+            # The validated live snapshot remains the durable recovery point.
+            sync_parent()
         except OSError as exc:
-            # Recovery is already complete. A leftover corrupt snapshot is
-            # diagnostic debris, not a reason to discard the restored index.
-            log_warning(f"Could not remove quarantined corrupt {itype} snapshot {quarantine_dir}: {exc}")
+            log_warning(
+                f"Could not durably remove quarantined corrupt {itype} snapshot "
+                f"{quarantine_dir}: {exc}"
+            )
 
     log_warning(f"Restored {itype} index from validated last-good snapshot {old_dir}.")
     return restored
