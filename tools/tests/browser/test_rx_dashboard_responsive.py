@@ -9,6 +9,10 @@ from utils.radio import rx_dashboard as RX
 @pytest.fixture
 def rx_dashboard_url(monkeypatch):
     """Serve the real local RX page without starting an SDR or radio watcher."""
+    # The scanner module loads the shared config on its first state request.
+    # Browser CI uses harmless sentinels rather than production credentials.
+    monkeypatch.setenv("DISCORD_TOKEN", "test-discord-token")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-api-key")
     monkeypatch.setattr(
         RX, "_cfg",
         lambda key, default=None: 0 if key == "dashboard_port" else default,
