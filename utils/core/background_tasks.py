@@ -2108,10 +2108,16 @@ class CoreTaskManager:
             return
 
         self._news_followup_retry_date = today
-        self._news_followup_retry_task = asyncio.create_task(
+        retry_task = asyncio.create_task(
             self._run_news_followup_retry(today),
             name=f"grounded_news_followup_{today}",
         )
+        self._news_followup_retry_task = retry_task
+        # This retry is independent of the periodic loop that scheduled it.
+        # Register it so shutdown's ownership check cannot miss work it may
+        # resume after a lock wait or while using shared RAG/news resources.
+        from utils.infrastructure.monitoring.async_task_registry import task_registry
+        task_registry.register("grounded_news_followup_retry", retry_task)
         log_warning(
             f"Grounded global brief exhausted transient retries; one follow-up is "
             f"scheduled in {self.NEWS_FOLLOWUP_RETRY_DELAY_SECONDS // 60} minutes."
@@ -3012,6 +3018,9 @@ class CoreTaskManager:
         log_action("Core background tasks started via CoreTaskManager.")
 
     def stop(self):
+        retry_task = getattr(self, "_news_followup_retry_task", None)
+        if retry_task is not None and not retry_task.done():
+            retry_task.cancel()
         self.news_refresh_task.stop()
         self.dream_engine_task.stop()
         self.evening_reflection_task.stop()
