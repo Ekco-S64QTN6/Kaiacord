@@ -1161,13 +1161,14 @@ class RAGIndexerMixin:
         mtime = os.path.getmtime(file_path)
         size = os.path.getsize(file_path)
         docs = None
-        if file_path.lower().endswith(".pdf"):
+        pdf_file = file_path.lower().endswith(".pdf")
+        if pdf_file:
             # SimpleDirectoryReader delegates PDF parsing to pypdf in this
             # process. Never give it an untrusted object graph: use the shared,
             # resource-limited child and leave the last-good index intact on
             # oversize, timeout, queue pressure or parser failure.
-            from utils.core.pdf_worker import extract_pdf_file
-            extracted = extract_pdf_file(file_path)
+            from utils.core import pdf_worker
+            extracted = pdf_worker.extract_pdf_file(file_path)
             if extracted is None:
                 raise RuntimeError(
                     "PDF parser unavailable or resource limit reached; skipping this indexing cycle"
@@ -1212,6 +1213,12 @@ class RAGIndexerMixin:
             for sub_doc in self._pre_chunk_document(doc):
                 nodes = parser.get_nodes_from_documents([sub_doc])
                 prepared_batches.append(self._prepare_nodes(nodes))
+
+        # Cancellation may arrive after the child has exited but before this
+        # thread commits any replacement nodes. Do not start a cancelled PDF
+        # indexing transaction; the caller drains this thread before returning.
+        if pdf_file and pdf_worker.cancellation_requested():
+            raise RuntimeError("PDF indexing cancelled; skipping this indexing cycle")
 
         new_node_ids = [node.node_id for batch in prepared_batches for node in batch]
         with self._data_lock:
@@ -1426,8 +1433,21 @@ class RAGIndexerMixin:
                     file_path, is_modified, is_log, itype = file_info
                     async with semaphore:
                         try:
-                            # Index file in a separate thread to avoid blocking event loop
-                            if await asyncio.to_thread(self._index_single_file, file_path, is_modified, is_log, itype, corrupt_dir):
+                            # PDF parsing has an explicit cancellation owner: unlike
+                            # asyncio.to_thread(), it stops queued/active parser work and
+                            # drains the worker before cancellation escapes.
+                            if file_path.lower().endswith(".pdf"):
+                                from utils.core.pdf_worker import run_cancellable_in_thread
+                                indexed = await run_cancellable_in_thread(
+                                    self._index_single_file, file_path, is_modified,
+                                    is_log, itype, corrupt_dir,
+                                )
+                            else:
+                                indexed = await asyncio.to_thread(
+                                    self._index_single_file, file_path, is_modified,
+                                    is_log, itype, corrupt_dir,
+                                )
+                            if indexed:
                                 return itype
                         except Exception as e:
                             log_error(f"Error indexing {file_path}: {e}")

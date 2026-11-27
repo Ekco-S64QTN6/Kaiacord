@@ -1,9 +1,11 @@
 """Real-process regression coverage for the shared PDF parser boundary."""
+import asyncio
 import io
 import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from types import SimpleNamespace
 from pathlib import Path
@@ -68,7 +70,7 @@ def test_malformed_and_encrypted_pdfs_fail_closed():
 
 def test_oversized_input_is_rejected_before_starting_the_child(monkeypatch):
     called = []
-    monkeypatch.setattr(pw.subprocess, "run", lambda *a, **k: called.append(True))
+    monkeypatch.setattr(pw.subprocess, "Popen", lambda *a, **k: called.append(True))
 
     result = pw.extract_pdf_bytes(
         b"%PDF-" + b"x" * 17,
@@ -86,18 +88,35 @@ def test_invalid_worker_limits_are_rejected():
         pw.extract_pdf_bytes(_small_pdf(), max_pages=0)
 
 
-def test_child_timeout_fails_closed(monkeypatch):
+def test_child_timeout_fails_closed_and_reaps(monkeypatch):
     captured = {}
 
-    def timeout(command, **kwargs):
-        captured["command"] = command
-        captured.update(kwargs)
-        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+    class TimedOutProcess:
+        def __init__(self, command, **kwargs):
+            captured["command"] = command
+            captured.update(kwargs)
+            self.returncode = None
+            self.killed = False
+            self.reaped = False
 
-    monkeypatch.setattr(pw.subprocess, "run", timeout)
-    assert pw.extract_pdf_bytes(_small_pdf(), timeout_seconds=2) is None
+        def poll(self):
+            return self.returncode
+
+        def communicate(self, input=None, timeout=None):
+            if self.killed:
+                self.returncode = -9
+                self.reaped = True
+                return b"", b""
+            raise subprocess.TimeoutExpired(captured["command"], timeout)
+
+        def kill(self):
+            self.killed = True
+
+    process = TimedOutProcess
+    monkeypatch.setattr(pw.subprocess, "Popen", process)
+    assert pw.extract_pdf_bytes(_small_pdf(), timeout_seconds=1) is None
     assert captured["command"][:2] == [sys.executable, "-I"]
-    assert captured["timeout"] == 2
+    assert captured["stdin"] == subprocess.PIPE
     assert captured["stdout"] == subprocess.PIPE
     assert captured["stderr"] == subprocess.DEVNULL
 
@@ -109,33 +128,39 @@ def test_worker_program_sets_hard_resource_limits_and_no_core_dumps(monkeypatch)
         "pages": [[1, "bounded output"]], "truncated": False,
     }).encode()
 
-    def fake_run(command, **kwargs):
+    class FakeProcess:
+        returncode = 0
+
+        def communicate(self, input=None, timeout=None):
+            captured["input"] = input
+            return payload, b""
+
+    def fake_popen(command, **kwargs):
         captured["command"] = command
-        captured["input"] = kwargs["input"]
-        captured["timeout"] = kwargs["timeout"]
-        captured["stdout"] = kwargs["stdout"]
-        captured["stderr"] = kwargs["stderr"]
+        captured.update(kwargs)
         script = command[-1]
         assert "resource.setrlimit(resource.RLIMIT_AS" in script
         assert "resource.setrlimit(resource.RLIMIT_CPU" in script
         assert "resource.setrlimit(resource.RLIMIT_CORE, (0, 0))" in script
         assert ".prctl(4, 0, 0, 0, 0)" in script
-        return SimpleNamespace(returncode=0, stdout=payload)
+        return FakeProcess()
 
-    monkeypatch.setattr(pw.subprocess, "run", fake_run)
+    monkeypatch.setattr(pw.subprocess, "Popen", fake_popen)
     result = pw.extract_pdf_bytes(_small_pdf())
 
     assert result["text"] == "bounded output"
     assert captured["command"][:2] == [sys.executable, "-I"]
     assert captured["input"] == _small_pdf()
-    assert captured["timeout"] == pw.PDF_WORKER_TIMEOUT_SECONDS
+    assert captured["stdin"] == subprocess.PIPE
+    assert captured["stdout"] == subprocess.PIPE
+    assert captured["stderr"] == subprocess.DEVNULL
 
 
 def test_pdf_file_read_is_bounded_before_the_child(tmp_path, monkeypatch):
     path = tmp_path / "oversized.pdf"
     path.write_bytes(b"%PDF-" + b"x" * 32)
     called = []
-    monkeypatch.setattr(pw.subprocess, "run", lambda *a, **k: called.append(True))
+    monkeypatch.setattr(pw.subprocess, "Popen", lambda *a, **k: called.append(True))
 
     assert pw.extract_pdf_file(path, max_input_bytes=16) is None
     assert called == []
@@ -288,3 +313,73 @@ def test_pdf_file_waits_for_shared_slot_before_reading(tmp_path, monkeypatch):
         assert opened == []
     finally:
         pw._PDF_WORKER_SEMAPHORE.release()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_queued_pdf_does_not_start_after_the_slot_is_released(monkeypatch):
+    started_waiting = threading.Event()
+    child_started = []
+
+    real_acquire = pw._acquire_worker_slot
+
+    def observed_acquire(timeout):
+        started_waiting.set()
+        return real_acquire(timeout)
+
+    def forbidden_child(*_args, **_kwargs):
+        child_started.append(True)
+        raise AssertionError("cancelled PDF operation must not start a child")
+
+    monkeypatch.setattr(pw, "_acquire_worker_slot", observed_acquire)
+    monkeypatch.setattr(pw.subprocess, "Popen", forbidden_child)
+    assert pw._PDF_WORKER_SEMAPHORE.acquire(blocking=False)
+    try:
+        task = asyncio.create_task(
+            pw.run_cancellable_in_thread(
+                pw.extract_pdf_bytes, _small_pdf(), queue_wait_seconds=5
+            )
+        )
+        assert await asyncio.to_thread(started_waiting.wait, 1.0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        pw._PDF_WORKER_SEMAPHORE.release()
+
+    await asyncio.sleep(0.1)
+    assert child_started == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux process handling required")
+async def test_cancelling_an_active_pdf_child_kills_and_reaps_it(monkeypatch):
+    started = threading.Event()
+    children = []
+    real_popen = pw.subprocess.Popen
+
+    def observed_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        children.append(process)
+        started.set()
+        return process
+
+    monkeypatch.setattr(pw.subprocess, "Popen", observed_popen)
+    task = asyncio.create_task(
+        pw.run_cancellable_in_thread(
+            pw._run_pdf_child,
+            b"%PDF-1.4",
+            "import time\ntime.sleep(60)\n",
+            timeout_seconds=30,
+        )
+    )
+    assert await asyncio.to_thread(started.wait, 2.0)
+    process = children[0]
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert process.returncode is not None
+    assert process.poll() is not None
+    with pytest.raises(ProcessLookupError):
+        os.kill(process.pid, 0)

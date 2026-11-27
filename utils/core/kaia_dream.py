@@ -1508,6 +1508,9 @@ TODAY'S CONVERSATIONS:
 
     async def _extract_snippet_async(self, file_path: Path) -> Optional[str]:
         """Async wrapper for snippet extraction to avoid blocking event loop."""
+        if file_path.suffix.lower() == ".pdf":
+            from utils.core.pdf_worker import run_cancellable_in_thread
+            return await run_cancellable_in_thread(self._extract_snippet, file_path)
         return await asyncio.to_thread(self._extract_snippet, file_path)
 
     def _extract_snippet(self, file_path: Path) -> Optional[str]:
