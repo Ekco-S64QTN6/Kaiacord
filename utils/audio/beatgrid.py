@@ -340,6 +340,7 @@ def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
         return False
     return ticks_for(path, bpm) is not None
 
+
 def _snap(g: Optional[Grid], path: str, anchor: Optional[Grid] = None,
           target_bpm: Optional[float] = None) -> Optional[Grid]:
     """Snap a local grid to ticks folded for the original catalog BPM."""
