@@ -6,10 +6,13 @@ worker can bypass the shared process and memory budget.
 """
 from __future__ import annotations
 
+import asyncio
+import contextvars
 import json
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -25,6 +28,99 @@ PDF_MAX_CONCURRENT_WORKERS = 1
 # All PDF consumers in this interpreter share this slot: linked messages,
 # RAG refreshes, dreams and public downloads cannot start independent pools.
 _PDF_WORKER_SEMAPHORE = threading.BoundedSemaphore(PDF_MAX_CONCURRENT_WORKERS)
+_PDF_CANCELLATION: contextvars.ContextVar[Optional[threading.Event]] = contextvars.ContextVar(
+    "pdf_worker_cancellation", default=None
+)
+_PDF_SEMAPHORE_POLL_SECONDS = 0.05
+
+
+def _cancellation_event() -> Optional[threading.Event]:
+    """Return the cancellation token copied into this worker thread, if any."""
+    return _PDF_CANCELLATION.get()
+
+
+def _is_cancelled() -> bool:
+    event = _cancellation_event()
+    return bool(event is not None and event.is_set())
+
+
+async def run_cancellable_in_thread(func, /, *args, **kwargs):
+    """Run a synchronous PDF caller while retaining ownership through cancellation.
+
+    asyncio.to_thread() cancellation only cancels its awaiter. The worker thread
+    continues, so PDF entry points use this wrapper: on cancellation it signals
+    the copied threading.Event and drains the thread after the semaphore wait or
+    parser child has stopped. The synchronous call remains usable outside asyncio.
+    """
+    cancel_event = threading.Event()
+    token = _PDF_CANCELLATION.set(cancel_event)
+    try:
+        worker = asyncio.create_task(asyncio.to_thread(func, *args, **kwargs))
+    finally:
+        _PDF_CANCELLATION.reset(token)
+
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        cancel_event.set()
+        # Keep owning the executor thread until its parser child is killed and
+        # reaped, or its semaphore wait notices cancellation. A second cancel
+        # request must not detach that cleanup either.
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        try:
+            worker.result()
+        except Exception:
+            pass
+        raise
+
+
+def _acquire_worker_slot(queue_wait_seconds: float) -> bool:
+    """Acquire the shared parser slot while remaining responsive to cancellation."""
+    try:
+        wait = max(0.0, float(queue_wait_seconds))
+    except (TypeError, ValueError, OverflowError):
+        wait = 0.0
+    deadline = time.monotonic() + wait
+    event = _cancellation_event()
+    while True:
+        if event is not None and event.is_set():
+            return False
+        remaining = deadline - time.monotonic()
+        acquired = _PDF_WORKER_SEMAPHORE.acquire(
+            timeout=min(_PDF_SEMAPHORE_POLL_SECONDS, max(0.0, remaining))
+        )
+        if acquired:
+            if event is not None and event.is_set():
+                _PDF_WORKER_SEMAPHORE.release()
+                return False
+            return True
+        if remaining <= 0:
+            return False
+
+
+def _kill_and_reap(process: subprocess.Popen) -> None:
+    """Terminate a parser child and collect its pipes/exit status before returning."""
+    try:
+        if process.poll() is None:
+            process.kill()
+    except OSError:
+        pass
+    try:
+        process.communicate(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        # SIGKILL should make this exceptional; issue it again and do not abandon
+        # the Popen object while its child is still waitable.
+        try:
+            process.kill()
+        except OSError:
+            pass
+        process.communicate()
 
 _WORKER_TEMPLATE = r"""
 import sys
@@ -140,30 +236,61 @@ def _run_pdf_child(
     queue_wait_seconds: float = PDF_WORKER_QUEUE_WAIT_SECONDS,
     semaphore_held: bool = False,
 ):
-    """Run one worker under the shared semaphore; subprocess.run kills and reaps on timeout."""
+    """Run one disposable parser, with caller cancellation and kill/reap ownership."""
     if not isinstance(raw_bytes, bytes) or not raw_bytes.startswith(b"%PDF-"):
         return None
+    event = _cancellation_event()
+    if event is not None and event.is_set():
+        return None
+
     acquired_here = False
     if not semaphore_held:
-        if not _PDF_WORKER_SEMAPHORE.acquire(timeout=max(0.0, queue_wait_seconds)):
+        if not _acquire_worker_slot(queue_wait_seconds):
             return None
         acquired_here = True
+
+    arguments = [sys.executable, "-I", "-c", worker_script]
+    process = None
     try:
+        if event is not None and event.is_set():
+            return None
         try:
-            return subprocess.run(
-                [sys.executable, "-I", "-c", worker_script],
-                input=raw_bytes,
+            process = subprocess.Popen(
+                arguments,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                timeout=timeout_seconds,
-                check=False,
             )
-        except (OSError, subprocess.TimeoutExpired):
+        except OSError:
             return None
+
+        deadline = time.monotonic() + max(0.001, float(timeout_seconds))
+        input_bytes: Optional[bytes] = raw_bytes
+        while True:
+            if event is not None and event.is_set():
+                _kill_and_reap(process)
+                return None
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _kill_and_reap(process)
+                return None
+            try:
+                stdout, _stderr = process.communicate(
+                    input=input_bytes,
+                    timeout=min(_PDF_SEMAPHORE_POLL_SECONDS, remaining),
+                )
+                return subprocess.CompletedProcess(arguments, process.returncode, stdout, None)
+            except subprocess.TimeoutExpired:
+                # communicate() retains the original input after TimeoutExpired;
+                # subsequent calls must omit it while polling for cancellation.
+                input_bytes = None
+            except OSError:
+                _kill_and_reap(process)
+                return None
     finally:
         if acquired_here:
             _PDF_WORKER_SEMAPHORE.release()
-
 
 def extract_pdf_bytes(
     raw_bytes: bytes,
@@ -178,6 +305,8 @@ def extract_pdf_bytes(
     _semaphore_held: bool = False,
 ) -> Optional[dict[str, Any]]:
     """Return bounded page text and metadata, or None for invalid/unsafe PDFs."""
+    if _is_cancelled():
+        return None
     limits = {
         "max_input_bytes": _positive_int(max_input_bytes, "max_input_bytes"),
         "max_pages": _positive_int(max_pages, "max_pages"),
@@ -246,15 +375,17 @@ def extract_pdf_file(
     files while all its threads waited for the single parser process.
     """
     limit = _positive_int(max_input_bytes, "max_input_bytes")
-    if not _PDF_WORKER_SEMAPHORE.acquire(timeout=max(0.0, queue_wait_seconds)):
+    if _is_cancelled() or not _acquire_worker_slot(queue_wait_seconds):
         return None
     try:
+        if _is_cancelled():
+            return None
         try:
             with Path(path).open("rb") as source:
                 raw_bytes = source.read(limit + 1)
         except OSError:
             return None
-        if len(raw_bytes) > limit:
+        if _is_cancelled() or len(raw_bytes) > limit:
             return None
         return extract_pdf_bytes(
             raw_bytes,
