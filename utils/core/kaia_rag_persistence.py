@@ -207,7 +207,8 @@ class RAGPersistenceMixin:
         user_log_dir = os.path.join(corpus_dir(self.knowledge_base_dir), "user_logs", user_dir_name)
 
         if not os.path.exists(user_log_dir):
-            os.makedirs(user_log_dir)
+            from utils.core.atomic_write import mkdir_durable
+            mkdir_durable(user_log_dir)
             log_success(f"Created user log directory")
             log_info(user_log_dir)
 
@@ -298,6 +299,13 @@ class RAGPersistenceMixin:
                             )
                             f.write(header)
                         f.write(file_io_args["text"])
+                        # A successful append is a durable acknowledgement, not
+                        # merely bytes copied into Python/the kernel's page cache.
+                        f.flush()
+                        os.fsync(f.fileno())
+                    if is_new:
+                        from utils.core.atomic_write import fsync_directory
+                        fsync_directory(os.path.dirname(os.path.abspath(path)))
                 finally:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
