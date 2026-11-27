@@ -148,6 +148,22 @@ class SimpleBM25Retriever:
                 results.append((self.nodes[idx], float(scores[idx])))
         return results
 
+def copy_node_with_retrieval_method(node, method: str):
+    """Return a shallow request-local node copy carrying its retrieval label.
+
+    Vector indexes and the BM25 cache can return the same docstore Node to
+    overlapping queries. A query-specific method label must never be written
+    onto that shared object.
+    """
+    from copy import copy
+
+    scoped = copy(node)
+    metadata = getattr(node, "metadata", None)
+    scoped.metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    scoped.metadata["_retrieval_method"] = method
+    return scoped
+
+
 class HybridRetriever:
     """Vector + BM25 retriever optimized for memory and async execution."""
     def __init__(self, vector_index, bm25_retriever: SimpleBM25Retriever, multiplier: float = 60.0):
@@ -196,11 +212,7 @@ class HybridRetriever:
             in_vector = any(n.node.node_id == nid for n in vector_nodes)
             method = "hybrid" if (in_bm25 and in_vector) else ("bm25" if in_bm25 else "vector")
             
-            node = node_map[nid]
-            if not isinstance(node.metadata, dict):
-                node.metadata = {}
-            node.metadata["_retrieval_method"] = method
-            
+            node = copy_node_with_retrieval_method(node_map[nid], method)
             node_with_score = NodeWithScore(node=node, score=float(score * self.multiplier))
             results.append(node_with_score)
             
