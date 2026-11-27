@@ -35,7 +35,10 @@ RELATED_TESTS = {
         "tools/tests/unit/test_response_filters.py",
         "tools/tests/unit/test_ellipsis_salvage.py",
     ),
-    "utils/core/kaia_rag_retriever.py": ("tools/tests/unit/test_fast_vector_query.py",),
+    "utils/core/kaia_rag_retriever.py": (
+        "tools/tests/unit/test_fast_vector_query.py",
+        "tools/tests/unit/test_rag_retrieval_method_scope.py",
+    ),
     "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py", "tools/tests/unit/test_rag_persistence_concurrency.py", "tools/tests/unit/test_rag_persistence_safety.py"),
     "utils/core/rag_executor.py": ("tools/tests/unit/test_rag_executor_lifecycle.py",),
     "utils/core/rag_persistence_lock.py": ("tools/tests/unit/test_rag_persistence_concurrency.py",),
@@ -93,6 +96,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_rag_identity_scoping.py",
         "tools/tests/unit/test_rag_retrieval_metadata.py",
         "tools/tests/unit/test_rag_persistence_concurrency.py",
+        "tools/tests/unit/test_rag_retrieval_method_scope.py",
     ),
     "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py", "tools/tests/unit/test_rag_persistence_concurrency.py"),
     "utils/infrastructure/system/shutdown_fixed.py": (
