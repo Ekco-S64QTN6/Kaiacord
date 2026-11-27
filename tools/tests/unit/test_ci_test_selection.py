@@ -42,6 +42,12 @@ REQUIRED_RELATED_TESTS = {
         "tools/tests/unit/test_async_lock_metrics.py",
         "tools/tests/unit/ttrpg/test_rpg_serialization.py",
     ),
+    "utils/commands/youtube_handler.py": (
+        "tools/tests/unit/test_youtube_handler_limits.py",
+    ),
+    "tools/maintenance/youtube_to_kb_md.py": (
+        "tools/tests/unit/test_youtube_handler_limits.py",
+    ),
     "utils/audio/records.py": (
         "tools/tests/unit/test_records.py",
         "tools/tests/unit/test_dj_dashboard.py",
