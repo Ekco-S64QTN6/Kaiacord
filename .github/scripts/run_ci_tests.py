@@ -27,6 +27,7 @@ RELATED_TESTS = {
        for name in ("kaia_quality.py", "01_convert_logs.py", "01f_check_dataset.py",
                     "05c_evaluate_persona.py")},
     ".github/scripts/run_ci_tests.py": ("tools/tests/unit/test_ci_test_selection.py",),
+    "utils/core/ingress.py": ("tools/tests/unit/test_ingress_now.py",),
     "utils/core/response_filter.py": (
         "tools/tests/unit/test_response_filters.py",
         "tools/tests/unit/test_ellipsis_salvage.py",
