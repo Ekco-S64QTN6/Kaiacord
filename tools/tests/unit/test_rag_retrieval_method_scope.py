@@ -129,3 +129,41 @@ def test_vector_only_fallback_uses_a_request_local_node_copy():
     assert results[0].node is not shared
     assert results[0].node.metadata["_retrieval_method"] == "vector"
     assert shared.metadata == {"source_type": "general_knowledge"}
+
+
+def test_latest_news_candidates_labels_a_copy_not_the_docstore_node():
+    from threading import Lock
+    from types import SimpleNamespace
+
+    shared = TextNode(
+        text="latest space weather brief",
+        metadata={"source_type": "news", "file_path": "/tmp/knowledge_base/news/2026-11-27-brief.md"},
+    )
+
+    class QueryHarness(RAGQueryMixin):
+        def __init__(self):
+            self.indices = {
+                "knowledge": SimpleNamespace(
+                    docstore=SimpleNamespace(
+                        get_node=lambda node_id, raise_error=False: shared if node_id == shared.node_id else None,
+                    )
+                )
+            }
+            self.indexed_files = {
+                "/tmp/knowledge_base/news/2026-11-27-brief.md": {"nodes": [shared.node_id]},
+            }
+            self._data_lock = Lock()
+
+        @staticmethod
+        def _dated_filename_ts(_path):
+            return 1_795_737_600.0
+
+    results = QueryHarness()._latest_news_candidates([], "")
+
+    assert len(results) == 1
+    assert results[0].node is not shared
+    assert results[0].node.metadata["_retrieval_method"] == "recent"
+    assert shared.metadata == {
+        "source_type": "news",
+        "file_path": "/tmp/knowledge_base/news/2026-11-27-brief.md",
+    }
