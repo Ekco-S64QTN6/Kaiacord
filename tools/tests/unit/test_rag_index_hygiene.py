@@ -1015,6 +1015,7 @@ def test_stale_manifest_snapshot_serializes_with_a_concurrent_writer():
 
     iteration_started = threading.Event()
     allow_iteration = threading.Event()
+    writer_waiting = threading.Event()
     writer_finished = threading.Event()
     snapshot_result = []
     errors = []
@@ -1024,8 +1025,11 @@ def test_stale_manifest_snapshot_serializes_with_a_concurrent_writer():
             self._lock = threading.Lock()
 
         def __enter__(self):
-            if threading.current_thread().name == "snapshot":
+            name = threading.current_thread().name
+            if name == "snapshot":
                 snapshot_waiting.set()
+            elif name == "refresh-writer":
+                writer_waiting.set()
             self._lock.acquire()
             return self
 
@@ -1079,23 +1083,28 @@ def test_stale_manifest_snapshot_serializes_with_a_concurrent_writer():
         except Exception as exc:
             errors.append(exc)
 
-    snapshot_thread = threading.Thread(target=snapshot, name="snapshot")
+    snapshot_thread = threading.Thread(target=snapshot, name="snapshot", daemon=True)
+    writer_thread = None
     snapshot_thread.start()
-    assert snapshot_waiting.wait(timeout=1)
-    assert iteration_started.wait(timeout=1)
+    try:
+        assert snapshot_waiting.wait(timeout=1)
+        assert iteration_started.wait(timeout=1)
 
-    writer_thread = threading.Thread(target=writer, name="refresh-writer")
-    writer_thread.start()
-    assert not writer_finished.wait(timeout=0.05), (
-        "refresh changed the manifest while the query was taking its snapshot"
-    )
-
-    allow_iteration.set()
-    snapshot_thread.join(timeout=1)
-    writer_thread.join(timeout=1)
+        writer_thread = threading.Thread(target=writer, name="refresh-writer", daemon=True)
+        writer_thread.start()
+        assert writer_waiting.wait(timeout=1)
+        assert not writer_finished.wait(timeout=0.05), (
+            "refresh changed the manifest while the query was taking its snapshot"
+        )
+    finally:
+        # Release both workers even when a barrier assertion fails.
+        allow_iteration.set()
+        snapshot_thread.join(timeout=1)
+        if writer_thread is not None:
+            writer_thread.join(timeout=1)
 
     assert not snapshot_thread.is_alive()
-    assert not writer_thread.is_alive()
+    assert writer_thread is not None and not writer_thread.is_alive()
     assert errors == []
     assert snapshot_result == [{"stale-before"}]
     assert query.indexed_files["/kb/second.md"]["stale_nodes"] == ["stale-after"]
