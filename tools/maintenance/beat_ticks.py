@@ -13,9 +13,9 @@ Run by the system Python, which has Essentia (the bot's venv does not):
     /usr/bin/python3 tools/maintenance/beat_ticks.py --catalog FILE       # a whole dj_catalog.json
 
 Each record's ticks go to <cache>/<sha1 of path>.json with BPM, confidence,
-ticks, the complete audio signature and the requested folding BPM. Existing
-entries are retained only while both identities match. A tracker that lands on
-half or double the catalog's tempo is folded
+ticks, the complete audio signature and requested folding BPM. An entry is
+retained only while both identities match. A tracker that lands on half or
+double the catalog's tempo is folded
 back to it (half-time ticks get the beats between them). Existing entries are
 kept unless --force. Prints one line per record; exits non-zero if any failed.
 
