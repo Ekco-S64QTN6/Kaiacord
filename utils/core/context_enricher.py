@@ -1,8 +1,5 @@
 import re
 import asyncio
-import subprocess
-import sys
-import threading
 import discord
 import aiohttp
 from urllib.parse import urlparse
@@ -11,21 +8,8 @@ from utils.infrastructure.logging.kaia_logger import log_debug, log_warning
 from utils.infrastructure.system.yaml_config import config
 from utils.core.sanitizer import is_safe_url, public_only_connector, read_capped
 from utils.core.private_turn import text as _pt   # a DM's links stay out of the log
+from utils.core import pdf_worker
 
-# A page is read at most this far before parsing; the prompt keeps far less
-# (url_max_content_length). Without a cap a linked multi-gigabyte file served
-# as text/html was read whole into memory.
-MAX_PAGE_BYTES = 2_000_000
-MAX_PDF_PAGES = 20
-MAX_PDF_TEXT_CHARS = 16_000
-MAX_PDF_PARSE_MEMORY_BYTES = 256 * 1024 * 1024
-MAX_PDF_PARSE_CPU_SECONDS = 3
-MAX_PDF_PARSE_TIMEOUT_SECONDS = 5
-# Two isolated workers cap parser memory at roughly 512 MiB total.
-# A queued message waits at most one second before PDF extraction fails closed.
-MAX_CONCURRENT_PDF_PARSERS = 2
-MAX_PDF_PARSE_QUEUE_WAIT_SECONDS = 1
-_PDF_PARSE_SEMAPHORE = threading.BoundedSemaphore(MAX_CONCURRENT_PDF_PARSERS)
 # Each per-enricher cache has a hard entry cap; expired entries are pruned first.
 CACHE_MAX_ENTRIES = 256
 # A page that answered 200 with nothing but a notice that it needs a browser:
@@ -88,106 +72,29 @@ _MARKER_IN_FILE = re.compile(
 )
 
 
-_PDF_WORKER_SCRIPT = r"""
-import sys
-
-# Set process limits before importing the PDF parser or touching untrusted data.
-try:
-    import resource
-    memory_limit = __MAX_PDF_PARSE_MEMORY_BYTES__
-    cpu_limit = __MAX_PDF_PARSE_CPU_SECONDS__
-    resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
-    resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit + 1))
-except Exception:
-    # Environments without enforceable OS resource limits fail closed.
-    sys.exit(3)
-
-# A worker the limits kill (SIGXCPU) is the guard working, not a crash: no core
-# dump, so systemd-coredump does not report it as one. RLIMIT_CORE alone is not
-# enough when cores are piped to a handler; a non-dumpable process is never dumped.
-try:
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    import ctypes
-    ctypes.CDLL(None, use_errno=True).prctl(4, 0, 0, 0, 0)   # PR_SET_DUMPABLE, 0
-except Exception:
-    pass
-
-try:
-    from io import BytesIO
-    from pypdf import PdfReader
-
-    raw = sys.stdin.buffer.read(2_000_001)
-    if len(raw) > 2_000_000 or not raw.startswith(b"%PDF-"):
-        sys.exit(2)
-
-    reader = PdfReader(BytesIO(raw), strict=False)
-    if reader.is_encrypted:
-        sys.exit(2)
-
-    pages = reader.pages
-    page_count = len(pages)
-    remaining = 16_000
-    chunks = []
-    truncated_text = False
-    for page_index in range(min(page_count, 20)):
-        page_text = (pages[page_index].extract_text() or "").strip()
-        if not page_text:
-            continue
-        if len(page_text) > remaining:
-            page_text = page_text[:remaining]
-            truncated_text = True
-        if page_text:
-            chunks.append(page_text)
-            remaining -= len(page_text)
-        if remaining <= 0:
-            truncated_text = True
-            break
-
-    extracted = "\n\n".join(chunks)
-    if page_count > 20:
-        extracted += "\n\n[PDF truncated after 20 pages]"
-    elif truncated_text:
-        extracted += "\n\n[PDF text truncated]"
-    sys.stdout.buffer.write(extracted[:16_064].encode("utf-8", errors="replace"))
-except Exception:
-    # Parser errors, decompression failures, and resource-limit exceptions fail closed.
-    sys.exit(4)
-""".replace(
-    "__MAX_PDF_PARSE_MEMORY_BYTES__", str(MAX_PDF_PARSE_MEMORY_BYTES)
-).replace(
-    "__MAX_PDF_PARSE_CPU_SECONDS__", str(MAX_PDF_PARSE_CPU_SECONDS)
-)
+# Linked-message PDFs use a deliberately smaller budget than corpus ingestion.
+MAX_PAGE_BYTES = 2_000_000
+MAX_PDF_PAGES = 20
+MAX_PDF_TEXT_CHARS = 16_000
+MAX_PDF_PARSE_MEMORY_BYTES = 256 * 1024 * 1024
+MAX_PDF_PARSE_CPU_SECONDS = 3
+MAX_PDF_PARSE_TIMEOUT_SECONDS = 5
+MAX_PDF_PARSE_QUEUE_WAIT_SECONDS = 1
 
 
 def _extract_pdf_text(raw_bytes: bytes) -> str:
-    """Extract PDF text in a disposable worker with hard resource ceilings.
-
-    The raw response cap limits input bytes; the child-process address-space,
-    CPU and wall-clock limits bound decompression and parser work. A timed-out
-    or resource-killed worker is discarded rather than left running in a thread.
-    """
-    if not raw_bytes.startswith(b"%PDF-") or len(raw_bytes) > MAX_PAGE_BYTES:
-        return ""
-    if not _PDF_PARSE_SEMAPHORE.acquire(timeout=MAX_PDF_PARSE_QUEUE_WAIT_SECONDS):
-        log_debug("PDF extraction skipped: all parser workers are busy.")
-        return ""
-    try:
-        try:
-            completed = subprocess.run(
-                [sys.executable, "-I", "-c", _PDF_WORKER_SCRIPT],
-                input=raw_bytes,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                timeout=MAX_PDF_PARSE_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return ""
-        if completed.returncode != 0:
-            return ""
-        return completed.stdout.decode("utf-8", errors="replace").strip()[:MAX_PDF_TEXT_CHARS + 64]
-    finally:
-        _PDF_PARSE_SEMAPHORE.release()
+    """Extract a small linked PDF through the shared disposable worker."""
+    result = pdf_worker.extract_pdf_bytes(
+        raw_bytes,
+        max_input_bytes=MAX_PAGE_BYTES,
+        max_pages=MAX_PDF_PAGES,
+        max_text_chars=MAX_PDF_TEXT_CHARS,
+        memory_bytes=MAX_PDF_PARSE_MEMORY_BYTES,
+        cpu_seconds=MAX_PDF_PARSE_CPU_SECONDS,
+        timeout_seconds=MAX_PDF_PARSE_TIMEOUT_SECONDS,
+        queue_wait_seconds=MAX_PDF_PARSE_QUEUE_WAIT_SECONDS,
+    )
+    return result["text"] if result is not None else ""
 
 
 def _human_size(size: int) -> str:

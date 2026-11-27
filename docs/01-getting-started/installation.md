@@ -79,6 +79,9 @@ pip install -r requirements.txt
 
 `discord.py` 2.7 and `davey` are required, not optional: Discord refuses any voice connection
 without its DAVE end-to-end encryption, which older discord.py lacks.
+`PyNaCl` is also installed explicitly at 1.6.2 or newer. Do not add the `[voice]` extra
+for discord.py 2.7.1: its package metadata caps PyNaCl below 1.6, so the voice dependencies
+are listed separately in `requirements.txt`.
 
 ---
 

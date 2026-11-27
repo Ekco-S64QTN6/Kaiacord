@@ -241,26 +241,23 @@ def test_a_converted_pdf_is_not_retried_every_sweep(indexer, monkeypatch):
 
 
 def test_a_write_during_indexing_is_picked_up_next_sweep(indexer, monkeypatch):
-    """The file's mtime and size were read after its text, so a write between
-    the two was recorded as indexed and never re-read."""
+    """A write after text read but before indexing metadata is committed is re-read next sweep."""
+    import utils.core.kaia_rag_indexer as module
+
     ix, kb = indexer
     doc = kb / "documents" / "notes.md"
     doc.parent.mkdir()
     doc.write_text("first version")
     old_mtime = os.path.getmtime(doc)
-    import llama_index.core as li
-    real_reader = li.SimpleDirectoryReader
+    real_read = module._read_non_pdf_document
 
-    class ReadThenWrite:
-        def __init__(self, **kw):
-            self.inner = real_reader(**kw)
+    def read_then_write(path):
+        text = real_read(path)
+        doc.write_text("second version, written while the first was indexing")
+        os.utime(doc, (old_mtime + 5, old_mtime + 5))
+        return text
 
-        def load_data(self):
-            docs = self.inner.load_data()
-            doc.write_text("second version, written while the first was indexing")
-            os.utime(doc, (old_mtime + 5, old_mtime + 5))
-            return docs
-    monkeypatch.setattr(li, "SimpleDirectoryReader", ReadThenWrite)
+    monkeypatch.setattr(module, "_read_non_pdf_document", read_then_write)
     ix._index_regular_file(str(doc), str(doc.resolve()), "knowledge")
     assert str(doc.resolve()) in {os.path.abspath(p) for p, *_ in ix._find_changed_files()}
 
@@ -881,3 +878,79 @@ def test_failed_persist_does_not_advance_in_memory_pending_state_until_complete(
     assert ix._persist_updated_indices({"knowledge", "dreams"}) == {"knowledge"}
     assert ix._get_pending_index_persist_types() == {"knowledge", "dreams"}
 
+
+
+def test_regular_pdf_indexing_uses_the_shared_bounded_worker(indexer, monkeypatch):
+    import llama_index.core
+    from utils.core import pdf_worker
+
+    ix, kb = indexer
+    pdf = kb / "documents" / "bounded.pdf"
+    pdf.parent.mkdir()
+    pdf.write_bytes(b"%PDF-1.4 fixture")
+    calls = []
+
+    def extract(path, **kwargs):
+        calls.append((path, kwargs))
+        return {
+            "title": "Bounded report",
+            "author": "Test author",
+            "subject": "Fixture",
+            "page_count": 1,
+            "pages": [(1, "text extracted in the isolated PDF worker")],
+            "text": "text extracted in the isolated PDF worker",
+            "truncated": False,
+        }
+
+    class _Parser:
+        def get_nodes_from_documents(self, docs):
+            return [TextNode(text=docs[0].text, metadata=docs[0].metadata)]
+
+    def forbidden_reader(*_args, **_kwargs):
+        raise AssertionError("SimpleDirectoryReader must not parse PDFs in-process")
+
+    monkeypatch.setattr(pdf_worker, "extract_pdf_file", extract)
+    monkeypatch.setattr(llama_index.core, "SimpleDirectoryReader", forbidden_reader)
+    monkeypatch.setattr(ix, "_get_node_parser_for_doc", lambda *_a, **_k: _Parser())
+    monkeypatch.setattr(ix, "_pre_chunk_document", lambda doc: [doc])
+    monkeypatch.setattr(ix, "_apply_priority_metadata", lambda *_a, **_k: None)
+
+    assert ix._index_regular_file(str(pdf), str(pdf.resolve()), "knowledge")
+    assert len(calls) == 1
+    nodes = list(ix.indices["knowledge"].docstore.docs.values())
+    assert any("text extracted in the isolated PDF worker" in node.text for node in nodes)
+    assert any(node.metadata.get("title") == "Bounded report" for node in nodes)
+
+
+def test_pdf_resource_failure_keeps_the_last_good_rag_nodes(indexer, monkeypatch):
+    from utils.core import pdf_worker
+
+    ix, kb = indexer
+    pdf = kb / "documents" / "preserve.pdf"
+    pdf.parent.mkdir()
+    pdf.write_bytes(b"%PDF-1.4 replacement")
+    old_node = _add(ix, "knowledge", pdf, "last good PDF text")
+    abs_path = str(pdf.resolve())
+    old_stat = os.stat(pdf)
+    old_entry = {
+        "mtime": old_stat.st_mtime - 1,
+        "size": old_stat.st_size - 1,
+        "nodes": [old_node],
+        "itype": "knowledge",
+    }
+    ix.indexed_files[abs_path] = dict(old_entry)
+    monkeypatch.setattr(pdf_worker, "extract_pdf_file", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        ix, "_handle_corrupt_file",
+        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("resource-limited PDFs are not sent to fallback parsing")),
+    )
+
+    result = ix._index_single_file(
+        str(pdf), True, False, "knowledge", str(kb / "_quarantine" / "corrupt_files")
+    )
+
+    assert result is False
+    assert pdf.exists()
+    assert ix.indices["knowledge"].docstore.document_exists(old_node)
+    assert old_node in ix._vector_ids(ix.indices["knowledge"])
+    assert ix.indexed_files[abs_path] == old_entry

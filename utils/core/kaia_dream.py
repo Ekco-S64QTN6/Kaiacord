@@ -10,10 +10,6 @@ import asyncio
 import ollama
 from datetime import datetime, timedelta
 try:
-    import pypdf
-except ImportError:
-    pypdf = None
-try:
     import docx2txt
 except ImportError:
     docx2txt = None
@@ -1521,20 +1517,24 @@ TODAY'S CONVERSATIONS:
             ext = file_path.suffix.lower()
             snippet = ""
             
-            if ext == '.pdf' and pypdf:
-                try:
-                    reader = pypdf.PdfReader(str(file_path))
-                    num_pages = len(reader.pages)
-                    if num_pages > 0:
-                        # Skip the front matter and the back, when there is room.
-                        # `randint(min(5, n-1), max(0, n-5))` put the low bound
-                        # above the high one for any 6-9 page PDF and raised.
-                        lo = min(5, num_pages - 1)
-                        page_num = random.randint(lo, max(lo, num_pages - 5))
-                        content = reader.pages[page_num].extract_text()
+            if ext == '.pdf':
+                # Do not let a nightly dream parse a corpus PDF in a worker
+                # thread: thread cancellation cannot stop pypdf decompression.
+                # The shared child worker bounds bytes, pages, text, memory,
+                # CPU and wall time, and shares one process slot with every
+                # other PDF entry point.
+                from utils.core.pdf_worker import extract_pdf_file
+                extracted = extract_pdf_file(file_path, queue_wait_seconds=600)
+                if extracted is None:
+                    log_warning(f"Skipped PDF snippet after parser failure or resource limit: {file_path.name}")
+                else:
+                    pages = extracted["pages"]
+                    if pages:
+                        # Skip the front matter and back when the bounded
+                        # excerpt contains enough pages; short PDFs use all pages.
+                        candidates = pages[5:-5] if len(pages) > 10 else pages
+                        _page_number, content = random.choice(candidates or pages)
                         snippet = content[:2500] if content else ""
-                except Exception as e:
-                    log_warning(f"Failed to parse PDF {file_path.name}: {e}")
             
             elif ext == '.docx' and docx2txt:
                 try:

@@ -394,84 +394,33 @@ def _convert_html(raw_bytes: bytes, url: str) -> tuple:
     return title, markdown_body, meta
 
 
-#: A downloaded PDF is parsed in a disposable child process, never in the bot:
-#: the file is a stranger's, pypdf walks arbitrary object graphs and inflates
-#: streams, and a thread cannot be killed. The child gets address-space and CPU
-#: ceilings, the parent a wall-clock limit; any failure becomes DownloadError.
-#: Bigger than the chat link extractor's limits (utils/core/context_enricher),
-#: because a whole book is the point here.
-PDF_CHILD_MEMORY_BYTES = 1024 * 1024 * 1024
-PDF_CHILD_CPU_SECONDS = 60
-PDF_CHILD_TIMEOUT_SECONDS = 90
+#: Public downloads allow a larger document budget than inline chat links, but
+#: they share the same single parser process slot as every other PDF entry point.
+PDF_CHILD_MEMORY_BYTES = 768 * 1024 * 1024
+PDF_CHILD_CPU_SECONDS = 45
+PDF_CHILD_TIMEOUT_SECONDS = 60
 PDF_MAX_PAGES = 1500
 PDF_MAX_TEXT_CHARS = 4_000_000
 
-_PDF_CHILD_SCRIPT = r"""
-import sys, json
-try:
-    import resource
-    resource.setrlimit(resource.RLIMIT_AS, (__MEM__, __MEM__))
-    resource.setrlimit(resource.RLIMIT_CPU, (__CPU__, __CPU__ + 1))
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-except Exception:
-    sys.exit(3)
-try:
-    from io import BytesIO
-    from pypdf import PdfReader
-    raw = sys.stdin.buffer.read(__BYTES__ + 1)
-    if len(raw) > __BYTES__ or not raw.startswith(b"%PDF-"):
-        sys.exit(2)
-    reader = PdfReader(BytesIO(raw), strict=False)
-    if reader.is_encrypted:
-        sys.exit(2)
-    meta = reader.metadata
-    out = {"title": (meta.title or "") if meta else "", "author": (meta.author or "") if meta else "",
-           "subject": (meta.subject or "") if meta else "", "pages": [], "truncated": False}
-    total = 0
-    for i, page in enumerate(reader.pages):
-        if i >= __PAGES__ or total >= __CHARS__:
-            out["truncated"] = True
-            break
-        text = (page.extract_text() or "").strip()
-        if text:
-            out["pages"].append([i + 1, text])
-            total += len(text)
-    sys.stdout.write(json.dumps(out))
-except Exception:
-    sys.exit(4)
-"""
-
-
-def _pdf_child_source() -> str:
-    return (_PDF_CHILD_SCRIPT
-            .replace("__MEM__", str(PDF_CHILD_MEMORY_BYTES))
-            .replace("__CPU__", str(PDF_CHILD_CPU_SECONDS))
-            .replace("__BYTES__", str(MAX_DOWNLOAD_BYTES))
-            .replace("__PAGES__", str(PDF_MAX_PAGES))
-            .replace("__CHARS__", str(PDF_MAX_TEXT_CHARS)))
-
 
 def _read_pdf_in_child(raw_bytes: bytes) -> dict:
-    """The PDF's metadata and page text, read by a resource-limited child."""
-    import subprocess
-    import sys
-    try:
-        done = subprocess.run(
-            [sys.executable, "-I", "-c", _pdf_child_source()],
-            input=raw_bytes, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            timeout=PDF_CHILD_TIMEOUT_SECONDS, check=False,
-        )
-    except subprocess.TimeoutExpired:
-        raise DownloadError("that pdf took too long to read")
-    except OSError:
-        raise DownloadError("couldn't start the pdf reader")
-    if done.returncode != 0:
-        raise DownloadError("couldn't read that pdf (encrypted, damaged or too large)")
-    try:
-        return json.loads(done.stdout.decode("utf-8", errors="replace"))
-    except ValueError:
-        raise DownloadError("couldn't read that pdf")
+    """Read a downloaded PDF through the shared, resource-limited child."""
+    from utils.core.pdf_worker import extract_pdf_bytes
 
+    result = extract_pdf_bytes(
+        raw_bytes,
+        max_input_bytes=MAX_DOWNLOAD_BYTES,
+        max_pages=PDF_MAX_PAGES,
+        max_text_chars=PDF_MAX_TEXT_CHARS,
+        memory_bytes=PDF_CHILD_MEMORY_BYTES,
+        cpu_seconds=PDF_CHILD_CPU_SECONDS,
+        timeout_seconds=PDF_CHILD_TIMEOUT_SECONDS,
+    )
+    if result is None:
+        if len(raw_bytes) > MAX_DOWNLOAD_BYTES:
+            raise DownloadError("that pdf is too large to read")
+        raise DownloadError("couldn't read that pdf (encrypted, damaged, too large or resource-limited)")
+    return result
 
 def _convert_pdf(raw_bytes: bytes, url: str) -> tuple:
     """Convert PDF to markdown. Returns (title, markdown_body, meta)."""

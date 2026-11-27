@@ -93,6 +93,29 @@ The rest are transitive (`cryptography`, `urllib3`, `starlette`, `requests`, `ce
 others) or belong to the fine-tuning stack, which is not in `requirements.txt` (`torch`,
 `transformers`, `datasets`, `accelerate`, `sentence-transformers`).
 
+**Follow-up, 26 November 2026:** the 12 November snapshot above is historical and its pypdf
+"fixed by 6.21.4" row predates several later pypdf advisories. The direct pin is now
+`pypdf==7.2.0`, released 26 November with additional limits for embedded-file dictionaries,
+indexed colour-space lookup tables and CMap processing. `llama-index-readers-file==0.5.6` was removed because it caps pypdf below 7; Kaiacord now
+reads TXT/MD/DOCX explicitly and sends PDFs only through the shared worker. A package upgrade is not the whole
+mitigation: all four application entry points that parse PDFs (linked context, public download,
+RAG ingestion/recovery and dream snippets) now use `utils/core/pdf_worker.py`. It applies a
+single process-wide parser semaphore, bounded input/page/text sizes, and per-child address-space,
+CPU and wall-clock ceilings. The download path has a larger byte/page/text allowance, but it
+shares the same one-worker semaphore so it cannot create a second parser pool.
+ The context path fails fast after one second; corpus indexing waits up to the worker queue
+budget, and nightly dream extraction permits its bounded batch to drain serially rather than
+silently dropping every PDF that loses the first semaphore race.
+
+The dependency-audit artifact from this PR also found the still-permitted `PyNaCl==1.5.0`
+floor (CVE-2025-69277) and `starlette==0.50.0` (pulled by the unused FastAPI/Uvicorn server
+stack). The PyNaCl lower bound is raised to 1.6.2. Because discord.py 2.7.1's optional `[voice]`
+extra requires `PyNaCl<1.6`, Kaiacord installs `discord.py==2.7.1` without that extra and lists
+`PyNaCl>=1.6.2` and `davey>=0.1.6` separately; the voice client checks for those modules at
+runtime. Searches of repository source found no FastAPI, Uvicorn, uvloop or watchfiles imports
+or entry points, so those unused requirements were removed rather than upgrading an unused ASGI
+framework stack. The next dependency-audit run must confirm the resolved environment is clear.
+
 Policy:
 
 - An advisory against a package that handles untrusted input (`pypdf`, `Pillow`, `aiohttp`,
