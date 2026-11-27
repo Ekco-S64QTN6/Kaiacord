@@ -5,6 +5,7 @@ import time
 import threading
 import types
 import urllib.request
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -956,3 +957,13 @@ def test_persistent_pitch_http_control_keeps_program_and_new_pfl_decoder_aligned
         if server:
             server.shutdown()
             server.server_close()
+
+
+def test_dj_booth_stops_background_catalog_and_event_polling():
+    page = Path("assets/dj/index.html").read_text(encoding="utf-8")
+
+    assert "let boothEvents = null, boothReconnect = null;" in page
+    assert "stopBoothEvents();" in page
+    assert "if (setsOn && !document.hidden) loadSets();" in page
+    assert "if (!document.hidden) loadCrate();" in page
+    assert "releaseAllRolls(); releaseAllBends();" in page
