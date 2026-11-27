@@ -35,7 +35,8 @@ from utils.infrastructure.logging.kaia_logger import (
 )
 from utils.infrastructure.system.yaml_config import config
 from utils.core.kaia_rag_retriever import (
-    SimpleBM25Retriever, HybridRetriever, thread_safe_rag_operation
+    SimpleBM25Retriever, HybridRetriever, copy_node_with_retrieval_method,
+    thread_safe_rag_operation,
 )
 from utils.core.context_optimizer import Intent
 
@@ -714,12 +715,13 @@ class RAGQueryMixin:
             else:
                 retriever = self.indices[itype].as_retriever(similarity_top_k=retrieve_count)
                 vector_results = await retriever.aretrieve(query)
-                for res in vector_results:
-                    if hasattr(res, 'node'):
-                        if not isinstance(res.node.metadata, dict):
-                            res.node.metadata = {}
-                        res.node.metadata["_retrieval_method"] = "vector"
-                return vector_results
+                return [
+                    NodeWithScore(
+                        node=copy_node_with_retrieval_method(res.node, "vector"),
+                        score=res.score,
+                    ) if hasattr(res, "node") else res
+                    for res in vector_results
+                ]
         except Exception as e:
             err_msg = str(e)
             if ("not found in fetched nodes" in err_msg or "not found in index" in err_msg) and _retry_count < 50:
@@ -1147,8 +1149,8 @@ class RAGQueryMixin:
                     and not (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale")
                     and (topic_re is None or topic_re.search(node.text or ""))
                 ):
-                    node.metadata['_retrieval_method'] = 'recent'
-                    out.append(NodeWithScore(node=node, score=base))
+                    scoped = copy_node_with_retrieval_method(node, "recent")
+                    out.append(NodeWithScore(node=scoped, score=base))
         return out
 
     @staticmethod

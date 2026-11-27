@@ -26,6 +26,11 @@ REQUIRED_RELATED_TESTS = {
         "tools/tests/unit/test_rag_identity_scoping.py",
         "tools/tests/unit/test_rag_retrieval_metadata.py",
         "tools/tests/unit/test_rag_persistence_concurrency.py",
+        "tools/tests/unit/test_rag_retrieval_method_scope.py",
+    ),
+    "utils/core/kaia_rag_retriever.py": (
+        "tools/tests/unit/test_fast_vector_query.py",
+        "tools/tests/unit/test_rag_retrieval_method_scope.py",
     ),
     "utils/core/kaia_rag_indexer.py": (
         "tools/tests/unit/test_rag_index_hygiene.py",
