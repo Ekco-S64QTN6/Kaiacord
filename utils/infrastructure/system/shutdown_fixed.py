@@ -105,7 +105,12 @@ class CleanShutdown:
         self._shutdown_force_exit_timer = None
         self._shutdown_deadline_exit_lock = threading.Lock()
         self._shutdown_deadline_exit_requested = threading.Event()
+        self._enforce_main_thread_shutdown_deadline = False
         
+    def enable_main_thread_shutdown_deadline(self) -> None:
+        """Opt simple mode into the same hard deadline as dashboard mode."""
+        self._enforce_main_thread_shutdown_deadline = True
+
     def _force_exit_at_shutdown_deadline(self) -> None:
         """Force the process out once when a main-thread shutdown hits its cap."""
         with self._shutdown_deadline_exit_lock:
@@ -194,6 +199,8 @@ class CleanShutdown:
         # small margin for the parent join/force-exit path so an overrun save
         # never outlives the event loop or releases its RAG resources early.
         shutdown_deadline = loop.time() + _shutdown_total_timeout_s()
+        if self._enforce_main_thread_shutdown_deadline:
+            self._arm_main_thread_shutdown_deadline(loop, shutdown_deadline)
 
         # 0. Stop voice/radio operations before cancelling the background registry.
         # Graceful Discord disconnects should complete where possible, but all four
@@ -353,7 +360,6 @@ class CleanShutdown:
                         save_late = True
 
                     if save_late:
-                        self._arm_main_thread_shutdown_deadline(loop, shutdown_deadline)
                         log_error(
                             "  ❌ RAG save reached the global shutdown deadline. "
                             "Retaining the event loop and RAG resources until the writer exits; "
@@ -388,7 +394,10 @@ class CleanShutdown:
                 if timer is not None:
                     timer.cancel()
                     self._shutdown_force_exit_timer = None
-                if threading.current_thread() is threading.main_thread():
+                if (
+                    self._enforce_main_thread_shutdown_deadline
+                    and threading.current_thread() is threading.main_thread()
+                ):
                     self._force_exit_at_shutdown_deadline()
                 log_error(
                     "  ❌ Shutdown save drained after the global deadline; "
@@ -476,6 +485,10 @@ class CleanShutdown:
                 pass
         except Exception: pass
 
+        timer = self._shutdown_force_exit_timer
+        if timer is not None:
+            timer.cancel()
+            self._shutdown_force_exit_timer = None
         self._shutdown_complete.set()
         log_info("  ✅ Async shutdown complete")
     
