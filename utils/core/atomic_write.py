@@ -137,3 +137,45 @@ def append_atomic(path: PathLike, text: str, encoding: str = "utf-8") -> Path:
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
     return dest
+
+
+def fsync_tree(directory: PathLike) -> None:
+    """Durably sync every regular file and directory entry in a completed tree.
+
+    Directory snapshots are populated by storage backends that do not expose
+    file descriptors to their caller. Before renaming such a snapshot into its
+    live name, fsync its files and directories bottom-up, then fsync the
+    destination's parent so the completed staging-directory entry is durable.
+    """
+    import stat
+
+    root = Path(directory)
+    if root.is_symlink() or not root.is_dir():
+        raise NotADirectoryError(os.fspath(root))
+
+    def raise_walk_error(error: OSError) -> None:
+        raise error
+
+    for current, _directories, filenames in os.walk(
+        root, topdown=False, onerror=raise_walk_error
+    ):
+        current_path = Path(current)
+        for filename in filenames:
+            path = current_path / filename
+            mode = path.lstat().st_mode
+            # Symlink entries are persisted by the directory fsync below; do
+            # not follow them and accidentally sync content outside the tree.
+            if not stat.S_ISREG(mode):
+                continue
+            descriptor = os.open(
+                os.fspath(path),
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            )
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        fsync_directory(current_path)
+
+    # Persist the staging directory's own entry in its parent as well.
+    fsync_directory(root.parent)
