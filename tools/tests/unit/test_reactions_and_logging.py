@@ -259,6 +259,16 @@ def test_user_urls_are_redacted_before_transcript_persistence():
     wiki = "see https://example.com/wiki/Foo_(bar)."
     assert summarize_link_context(wiki) == wiki
 
+    # Redirect/proxy URLs can hide a second signed URL in an encoded query value.
+    nested = (
+        "see https://redirect.example/fetch?target="
+        "https%3A%2F%2Falice%3Apw%40files.example.com%2Fdoc"
+        "%3FaccessToken%3Dabc123"
+    )
+    cleaned_nested = summarize_link_context(nested)
+    assert "redirect.example" in cleaned_nested
+    assert all(secret not in cleaned_nested for secret in ("alice", "pw", "accessToken", "abc123"))
+
 
 def test_fetch_diagnostic_urls_redact_credentials_and_still_withhold_private_turns():
     from utils.core.context_enricher import _pt
