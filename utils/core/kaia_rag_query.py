@@ -1149,8 +1149,8 @@ class RAGQueryMixin:
                     and not (getattr(node, "metadata", {}) or {}).get("_rag_replacement_stale")
                     and (topic_re is None or topic_re.search(node.text or ""))
                 ):
-                    node.metadata['_retrieval_method'] = 'recent'
-                    out.append(NodeWithScore(node=node, score=base))
+                    scoped = copy_node_with_retrieval_method(node, "recent")
+                    out.append(NodeWithScore(node=scoped, score=base))
         return out
 
     @staticmethod
