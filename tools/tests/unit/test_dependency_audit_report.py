@@ -37,7 +37,7 @@ def test_clean_requirements_report_passes_the_blocking_pull_request_gate():
 def test_advisory_in_requirements_report_fails_the_blocking_pull_request_gate():
     result = audit.assess_report(_vulnerable_report(), audit_outcome="failure")
 
-    assert result.status == "failed"
+    assert result.status == "vulnerable"
     assert len(result.advisories) == 1
     assert result.advisories[0].advisory_id == "PYSEC-2099-123"
     assert audit.exit_code(result, event_name="pull_request") == 1
