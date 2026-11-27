@@ -1,5 +1,6 @@
 """Real-Chromium interaction and responsive-layout checks for KAIA//RX."""
 
+import pytest
 from playwright.sync_api import sync_playwright
 
 from utils.radio import rx_dashboard as RX
