@@ -29,6 +29,7 @@ REQUIRED_RELATED_TESTS = {
     "utils/core/kaia_rag_indexer.py": (
         "tools/tests/unit/test_rag_index_hygiene.py",
         "tools/tests/unit/test_rag_persistence_concurrency.py",
+        "tools/tests/unit/test_rag_persistence_safety.py",
     ),
     "utils/core/message_processor.py": (
         "tools/tests/unit/test_dm_privacy.py",

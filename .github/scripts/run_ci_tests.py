@@ -33,7 +33,7 @@ RELATED_TESTS = {
         "tools/tests/unit/test_ellipsis_salvage.py",
     ),
     "utils/core/kaia_rag_retriever.py": ("tools/tests/unit/test_fast_vector_query.py",),
-    "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py", "tools/tests/unit/test_rag_persistence_concurrency.py"),
+    "utils/core/kaia_rag_indexer.py": ("tools/tests/unit/test_rag_index_hygiene.py", "tools/tests/unit/test_rag_persistence_concurrency.py", "tools/tests/unit/test_rag_persistence_safety.py"),
     "utils/core/rag_persistence_lock.py": ("tools/tests/unit/test_rag_persistence_concurrency.py",),
     "utils/core/kaia_proactive.py": ("tools/tests/unit/test_proactive_dedup.py",),
     "utils/infrastructure/system/kaia_sysmon.py": (
