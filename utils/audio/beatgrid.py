@@ -318,8 +318,10 @@ def _read_ticks(cache: str, identity: str, cache_mtime_ns: int,
         ticks = _valid_tick_array(data["ticks"])
         if ticks is None:
             return None
-        alternate = (None if data["alternate_ticks"] is None
-                     else _valid_tick_array(data["alternate_ticks"]))
+        alternate_raw = data["alternate_ticks"]
+        alternate = None if alternate_raw is None else _valid_tick_array(alternate_raw)
+        if alternate_raw is not None and alternate is None:
+            return None
     except (OSError, ValueError, KeyError, TypeError, OverflowError):
         return None
     return ticks, alternate
