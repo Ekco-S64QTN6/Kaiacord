@@ -98,7 +98,11 @@ RELATED_TESTS = {
         "tools/tests/unit/test_rag_persistence_concurrency.py",
         "tools/tests/unit/test_rag_retrieval_method_scope.py",
     ),
-    "utils/core/kaia_rag_persistence.py": ("tools/tests/unit/test_telemetry_honesty.py", "tools/tests/unit/test_rag_persistence_concurrency.py"),
+    "utils/core/kaia_rag_persistence.py": (
+        "tools/tests/unit/test_telemetry_honesty.py",
+        "tools/tests/unit/test_rag_persistence_concurrency.py",
+        "tools/tests/unit/test_rag_executor_lifecycle.py",
+    ),
     "utils/infrastructure/system/shutdown_fixed.py": (
         "tools/tests/unit/test_telemetry_honesty.py",
         "tools/tests/unit/test_async_task_registry.py",
