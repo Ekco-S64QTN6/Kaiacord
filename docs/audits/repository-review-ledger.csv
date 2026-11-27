@@ -213,7 +213,7 @@ tools/tests/unit/test_commands_note.py,f46da3aadf0927ac8f16b25f45507895920ab5a7,
 tools/tests/unit/test_compact_user_logs_split.py,2ab3769d798dfdc0e09ab2cfcc8a4aad5b8e7ff6,1298,test,medium,not_reviewed,,,
 tools/tests/unit/test_concurrency_lock.py,3d209055845618d276307c49af65412ff2f97a05,1472,test,medium,not_reviewed,,,
 tools/tests/unit/test_contamination_scan.py,675f9fed8e894cb909207b0f0f1b985a57e31f34,4523,test,medium,not_reviewed,,,
-tools/tests/unit/test_context_enricher_files.py,d9d780371276d55dfcac0bab12e08a3dac58767f,5257,test,medium,not_reviewed,,,
+tools/tests/unit/test_context_enricher_files.py,d9d780371276d55dfcac0bab12e08a3dac58767f,5257,test,medium,reviewed,d9d780371276d55dfcac0bab12e08a3dac58767f,"Complete 126-line test file reviewed. Exercises the real ContextEnricher attachment reader, including marker neutralization, user-text separation, prompt-size cap, type/size/binary rejection, lookback ownership/time bounds, and reply attachment lookup.",#366
 tools/tests/unit/test_context_enricher_links.py,16e4d6ca128e59669b8498210e48ff36cd86fce9,22042,test,medium,not_reviewed,,,
 tools/tests/unit/test_conversation_arc.py,d198297402025a6c009883a1dd7d6a4fc046d78d,1446,test,medium,not_reviewed,,,
 tools/tests/unit/test_conversation_beliefs.py,8a808432d6b1e39e5b5995a12f7f0f2b5109807f,5525,test,medium,not_reviewed,,,
@@ -286,7 +286,7 @@ tools/tests/unit/test_kiwi_health.py,a14676a5af66d31e00b4b0faeda8cee7cc4fee53,44
 tools/tests/unit/test_kiwi_public_hosts.py,f7666afc1b38195553bc555f4094c81e28bb29c8,8070,test,medium,not_reviewed,,,
 tools/tests/unit/test_ledger_repair.py,67422764e3653db2536443c2207b00a1f71d8eb9,3714,test,medium,not_reviewed,,,
 tools/tests/unit/test_live_write_guard.py,1f44a2c472ce63188a77a3aaae6541de9163e797,3491,test,medium,reviewed,1f44a2c472ce63188a77a3aaae6541de9163e797,Reviewed the complete tests at main 438453f. Real filesystem tests cover checkout symlink aliases test-named symlinks to live files hard-link creation and write versus read detection. No confirmed gap found in the covered cases.,
-tools/tests/unit/test_local_request_guard.py,adb0fe06c9cc229c4c50d3d584b7b93c6c7dfb6c,3500,test,medium,not_reviewed,,,
+tools/tests/unit/test_local_request_guard.py,adb0fe06c9cc229c4c50d3d584b7b93c6c7dfb6c,3500,test,medium,reviewed,adb0fe06c9cc229c4c50d3d584b7b93c6c7dfb6c,"Complete test file reviewed. Tests local_request_ok allowed loopback names and hostile/missing Host or Origin cases, then sends real socket requests through admin, DJ booth, and RX handlers; verifies hostile GET and control POST requests return 403.",#366
 tools/tests/unit/test_local_scanner.py,190ec4f9811410c32f7e3809fb14e57dcc8ae62c,48492,test,medium,not_reviewed,,,
 tools/tests/unit/test_maintenance_tool_writes.py,468897042c3d1b779cdfe39352eaeaa958b29b99,2873,test,medium,not_reviewed,,,
 tools/tests/unit/test_mandelbrot_viewport.py,ed70282cbc067c19645e308451d159b95afd20f0,7562,test,medium,not_reviewed,,,
