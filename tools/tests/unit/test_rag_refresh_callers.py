@@ -85,7 +85,7 @@ def test_trigger_reindex_requests_live_bot_refresh_without_constructing_rag(
     monkeypatch,
 ):
     """The supported live-bot route only requests work from the existing owner."""
-    from tools.core import rag_utils
+    from utils.core import rag_utils
     from tools.maintenance import reindex_rag
 
     requested = []
