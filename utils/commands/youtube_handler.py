@@ -16,6 +16,7 @@ runs on its own over transcripts already in the corpus.
 """
 import asyncio
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -38,18 +39,84 @@ def _already_have(video_id: str):
                 continue
     return None
 
-# Fetching a two-hour transcript is a few seconds of network; cap it so a
-# hung request cannot occupy the worker thread indefinitely.
-FETCH_TIMEOUT_S = 90
-
-# Per-channel cooldown. A transcript is cheap for us and expensive for
-# YouTube; this also stops one user filling the ingress queue.
+# The global command rate limiter is per user; this separate cap protects
+# transcript fetches and local correction work across all channels/users.
+MAX_CONCURRENT_TRANSCRIPTS = 2
 _COOLDOWN_S = 20
 _last_used: dict[int, float] = {}
+_inflight_lock = threading.Lock()
+_inflight_video_ids: set[str] = set()
+_inflight_paths: set[Path] = set()
+
+
+def _reserve_transcript(video_id: str) -> str:
+    """Atomically reserve a global job slot and deduplicate an in-flight video."""
+    with _inflight_lock:
+        if video_id in _inflight_video_ids:
+            return "duplicate"
+        if len(_inflight_video_ids) >= MAX_CONCURRENT_TRANSCRIPTS:
+            return "busy"
+        _inflight_video_ids.add(video_id)
+        return "reserved"
+
+
+def _release_transcript(video_id: str) -> None:
+    """Release a reservation after every worker and staging step has finished."""
+    with _inflight_lock:
+        _inflight_video_ids.discard(video_id)
+
+
+def _reserve_ingress_path(title: str, safe_filename) -> Path:
+    """Reserve a collision-free transcript filename across concurrent jobs."""
+    with _inflight_lock:
+        base = INGRESS / safe_filename(title)
+        path = base
+        suffix = 2
+        while path.exists() or path in _inflight_paths:
+            path = base.with_name(f"{base.stem} ({suffix}){base.suffix}")
+            suffix += 1
+        _inflight_paths.add(path)
+        return path
+
+
+def _release_ingress_path(path: Path) -> None:
+    """Release a filename reservation once its staged document is committed."""
+    with _inflight_lock:
+        _inflight_paths.discard(path)
+
+
+def _is_transcript_inflight(video_id: str) -> bool:
+    with _inflight_lock:
+        return video_id in _inflight_video_ids
+
+
+async def _run_off_loop(func, /, *args):
+    """Run blocking work off-loop, but retain ownership until its thread exits.
+
+    Cancelling asyncio.to_thread() only cancels its awaiter. Shield the worker
+    and drain it on cancellation so the caller's reservation cannot be released
+    while its network/disk worker is still alive.
+    """
+    worker = asyncio.create_task(asyncio.to_thread(func, *args))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        try:
+            worker.result()
+        except Exception:
+            pass
+        raise
 
 
 async def handle_youtube_command(ctx, msg, send_kaia_response):
-    """Handle !youtube <url>."""
+    """Handle !youtube <url> with bot-wide concurrency and in-flight deduplication."""
     parts = msg.content.strip().split(None, 1)
     if len(parts) < 2 or not parts[1].strip():
         await msg.channel.send(embed=notice(
@@ -57,28 +124,48 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
         return
 
     now = time.time()
-    if now - _last_used.get(msg.channel.id, 0.0) < _COOLDOWN_S:
+    channel_id = msg.channel.id
+    if now - _last_used.get(channel_id, 0.0) < _COOLDOWN_S:
         await msg.channel.send(embed=notice("Give it a second — one transcript at a time here.", error=True))
         return
-    _last_used[msg.channel.id] = now
 
     url = parts[1].strip().split()[0]
-
     from tools.maintenance.youtube_to_kb_md import (
         YouTubeError, convert, extract_video_id, safe_filename,
     )
 
-    # Validate before promising anything — a bad link should not cost a
-    # placeholder message and a typing indicator.
+    # Validate before taking a global slot or starting any work.
     try:
         video_id = extract_video_id(url)
     except YouTubeError as e:
         await msg.channel.send(embed=notice(clean(str(e), 400), error=True))
         return
 
-    have = await asyncio.to_thread(_already_have, video_id)
+    reservation = _reserve_transcript(video_id)
+    if reservation == "duplicate":
+        await msg.channel.send(embed=notice(
+            "that transcript is already being fetched.", error=True))
+        return
+    if reservation == "busy":
+        await msg.channel.send(embed=notice(
+            "already fetching a couple of transcripts. try again in a minute.", error=True))
+        return
+
+    _last_used[channel_id] = now
+    try:
+        await _stage_transcript(ctx, msg, video_id, convert, safe_filename)
+    finally:
+        # _stage_transcript drains blocking worker threads on cancellation.
+        _release_transcript(video_id)
+
+
+async def _stage_transcript(ctx, msg, video_id: str, convert, safe_filename):
+    """Run one admitted transcript job through conversion, correction and staging."""
+    from tools.maintenance.youtube_to_kb_md import YouTubeError
+    have = await _run_off_loop(_already_have, video_id)
     if have:
-        await msg.channel.send(embed=notice(f"I already have that one: **{clean(have, 150)}**.", title="🎬  YouTube"))
+        await msg.channel.send(embed=notice(
+            f"I already have that one: **{clean(have, 150)}**.", title="🎬  YouTube"))
         return
 
     placeholder = None
@@ -88,13 +175,10 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
         pass
 
     try:
-        # Network and text processing, off the event loop.
-        markdown, stats = await asyncio.wait_for(
-            asyncio.to_thread(convert, video_id), timeout=FETCH_TIMEOUT_S
-        )
-    except asyncio.TimeoutError:
-        await _fail(msg, placeholder, "that took too long. try again in a bit.")
-        return
+        # The converter injects a requests.Session with finite per-request
+        # timeouts. Await the actual thread rather than timing out only its
+        # asyncio wrapper and leaving the network worker behind.
+        markdown, stats = await _run_off_loop(convert, video_id)
     except YouTubeError as e:
         await _fail(msg, placeholder, str(e))
         return
@@ -112,19 +196,17 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
     except Exception as e:
         log_warning(f"[youtube] name correction skipped: {type(e).__name__}: {e}")
 
+    reserved_path = None
     try:
         INGRESS.mkdir(parents=True, exist_ok=True)
-        path = INGRESS / safe_filename(stats["title"])
-        n = 2
-        while path.exists():
-            path = INGRESS / safe_filename(f"{stats['title']} ({n})")
-            n += 1
+        path = _reserve_ingress_path(stats["title"], safe_filename)
+        reserved_path = path
         # preformatted: the converter already produced knowledge-base Markdown
         # with frontmatter, headings and timestamp anchors. Running the ingress
         # normaliser over it would reflow the paragraphs and destroy them. So
         # the sidecar lands first: the hourly processor must never find the
         # document without it. Both writes fsync; neither runs on the loop.
-        await asyncio.to_thread(write_atomic, path.with_suffix(".meta.json"), json.dumps({
+        await _run_off_loop(write_atomic, path.with_suffix(".meta.json"), json.dumps({
             "title": stats["title"],
             "author": stats.get("channel", ""),
             "source_url": stats["url"],
@@ -140,11 +222,14 @@ async def handle_youtube_command(ctx, msg, send_kaia_response):
             # found and reversed.
             "name_corrections": {h: corrections[h] for h in counts},
         }, indent=2))
-        await asyncio.to_thread(write_atomic, path, markdown)
+        await _run_off_loop(write_atomic, path, markdown)
     except Exception as e:
         log_error(f"[youtube] staging failed: {e}")
         await _fail(msg, placeholder, "got the transcript but couldn't stage it.")
         return
+    finally:
+        if reserved_path is not None:
+            _release_ingress_path(reserved_path)
 
     if placeholder:
         try:
@@ -214,7 +299,7 @@ async def _correct_names(ctx, markdown: str, stats: dict, placeholder):
 
     glossary = await find_corrections(markdown, stats["title"], stats.get("channel", ""), ask,
                                       description=stats.get("description", ""))
-    fixed, counts = await asyncio.to_thread(apply_corrections, markdown, glossary)
+    fixed, counts = await _run_off_loop(apply_corrections, markdown, glossary)
     if counts:
         log_action(f"[youtube] corrected {len(counts)} misheard name(s) in "
                    f"'{stats['title'][:60]}' ({sum(counts.values())} replacements)")

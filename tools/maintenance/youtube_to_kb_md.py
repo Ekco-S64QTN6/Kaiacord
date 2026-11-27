@@ -25,10 +25,27 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from requests import Session
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 OEMBED = "https://www.youtube.com/oembed?url={}&format=json"
 USER_AGENT = "Mozilla/5.0 (compatible; KaiaBot/1.0; +knowledge-base-ingestion)"
+
+#: youtube-transcript-api uses requests.Session without a default request timeout.
+#: The caller also waits for the real worker thread to finish, so every network
+#: operation must have its own finite bound before its admission slot is released.
+TRANSCRIPT_HTTP_TIMEOUT_S = 20
+
+
+class _TranscriptHTTPTimeoutSession(Session):
+    """A requests session that bounds every YouTube transcript HTTP request."""
+
+    def request(self, method, url, **kwargs):
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = TRANSCRIPT_HTTP_TIMEOUT_S
+        return super().request(method, url, **kwargs)
+
 
 #: Target paragraph size in words. Long enough to carry an argument, short
 #: enough that a retrieved chunk is about one thing.
@@ -129,7 +146,7 @@ def fetch_transcript(video_id: str, languages=("en", "en-US", "en-GB")):
             "(venv/bin/python -m pip install youtube-transcript-api)"
         ) from e
 
-    api = YouTubeTranscriptApi()
+    api = YouTubeTranscriptApi(http_client=_TranscriptHTTPTimeoutSession())
     try:
         listing = api.list(video_id)
     except Exception as e:

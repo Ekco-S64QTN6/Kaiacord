@@ -68,6 +68,8 @@ RELATED_TESTS = {
         "tools/tests/unit/ttrpg/test_world_event_async_io.py",
     ),
     "utils/commands/download_handler.py": ("tools/tests/unit/test_download_sidecar.py",),
+    "utils/commands/youtube_handler.py": ("tools/tests/unit/test_youtube_handler_limits.py",),
+    "tools/maintenance/youtube_to_kb_md.py": ("tools/tests/unit/test_youtube_handler_limits.py",),
     "utils/commands/news_handler.py": ("tools/tests/unit/test_command_boxes.py",),
     "tools/maintenance/process_ingress.py": ("tools/tests/unit/test_ingress_now.py",),
     "tools/maintenance/scrape_tech_news.py": ("tools/tests/unit/test_news_manager.py",),
