@@ -45,6 +45,25 @@ async def _await_worker_completion(task: asyncio.Task):
                 return task.result()
 
 
+async def _teardown_step(fn, label: str) -> bool:
+    """Run one blocking teardown call to its end; True if this task was
+    cancelled while it ran (the caller re-raises after the remaining steps)."""
+    worker = asyncio.ensure_future(asyncio.to_thread(fn))
+    cancelled = False
+    while not worker.done():
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception:
+            break
+    try:
+        worker.result()
+    except Exception as exc:
+        log_debug(f"[music] {label}: {exc}")
+    return cancelled
+
+
 async def _acquire_monitor_lease() -> bool:
     """Acquire the speaker loopback without leaking it on startup cancellation.
 
@@ -290,24 +309,23 @@ class MusicSession:
                 await asyncio.gather(task, return_exceptions=True)
 
         # Playwright, FFmpeg and capture-thread teardown can wait; never run it
-        # synchronously on Discord's event loop.
-        try:
-            await asyncio.to_thread(self.engine.stop)
-        except Exception as exc:
-            log_debug(f"[music] stop pattern: {exc}")
+        # synchronously on Discord's event loop. Each step is run to its end
+        # even when shutdown cancels this: a cancelled to_thread() leaves its
+        # worker running, and returning then skipped the capture child's reap
+        # and the browser's close. The cancellation is passed on afterwards.
+        cancelled = await _teardown_step(self.engine.stop, "stop pattern")
         try:
             if self.vc.is_playing():
                 self.vc.stop()
         except Exception as exc:
             log_debug(f"[music] stop playback: {exc}")
-        try:
-            await asyncio.to_thread(self.source.cleanup)
-        except Exception as exc:
-            log_debug(f"[music] cleanup source: {exc}")
-        try:
-            await asyncio.to_thread(self.engine.close)
-        except Exception as exc:
-            log_debug(f"[music] close engine: {exc}")
+        cancelled |= await _teardown_step(self.source.cleanup, "cleanup source")
+        cancelled |= await _teardown_step(self.engine.close, "close engine")
+        if cancelled:
+            if self._monitor_on_speakers:
+                self._monitor_on_speakers = False
+                await _teardown_step(lambda: monitor_to_speakers(False), "speaker monitor release")
+            raise asyncio.CancelledError
 
         if self._monitor_on_speakers:
             self._monitor_on_speakers = False

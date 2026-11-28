@@ -574,3 +574,52 @@ def test_stop_cancels_the_scheduled_pass_before_engine_teardown():
         voice.disconnect.assert_awaited_once_with(force=True)
 
     asyncio.run(scenario())
+
+
+def test_a_stop_cancelled_mid_teardown_still_reaps_capture_and_closes_the_engine():
+    """Shutdown's voice prelude cancels stop() at its deadline. A cancelled
+    to_thread() leaves its worker running; stop() used to return there and
+    skip the capture child's reap and the browser's close."""
+    import threading
+    import time
+
+    events = []
+    release = threading.Event()
+    entered = threading.Event()
+
+    def slow_stop():
+        entered.set()
+        release.wait(5)
+        events.append("engine.stop")
+
+    async def scenario():
+        voice = SimpleNamespace(guild=SimpleNamespace(id=8848), is_playing=lambda: False,
+                                disconnect=AsyncMock())
+        session = object.__new__(ss.MusicSession)
+        session._closing = False
+        session._pass_task = session._task = None
+        session.vc = voice
+        session.engine = SimpleNamespace(stop=slow_stop, close=lambda: events.append("engine.close"))
+        session.source = SimpleNamespace(cleanup=lambda: events.append("source.cleanup"))
+        session._monitor_on_speakers = False
+        session.started_at = time.time()
+        session.listeners_seen = set()
+        session.requested_by = "pytest"
+        session.requests = 0
+        session._remember = AsyncMock()
+
+        task = asyncio.create_task(session.stop())
+        await asyncio.to_thread(entered.wait, 5)
+        task.cancel()
+        await asyncio.sleep(0.05)
+        assert not task.done(), "stop() gave up its teardown worker when cancelled"
+        release.set()
+        try:
+            await task
+            raise AssertionError("the cancellation was swallowed")
+        except asyncio.CancelledError:
+            pass
+        assert events == ["engine.stop", "source.cleanup", "engine.close"]
+        voice.disconnect.assert_not_awaited()
+
+    asyncio.run(scenario())
