@@ -108,9 +108,9 @@ class DesireEngine:
 
     # ── Persistence ─────────────────────────────────────────────────
     def _load(self) -> DesireVector:
+        from utils.core.atomic_write import read_json_store
+        raw = read_json_store(self.path, {}, kind=dict, label="desires.json")
         try:
-            with open(self.path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
             return DesireVector(**{k: raw[k] for k in raw if k in DesireVector.__annotations__})
         except Exception:
             return DesireVector()

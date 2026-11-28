@@ -2732,17 +2732,12 @@ class CoreTaskManager:
                 digest_path = Path("memory/observation_digest.json")
                 digest_path.parent.mkdir(parents=True, exist_ok=True)
 
-                history = []
-                if digest_path.exists():
-                    try:
-                        with open(digest_path, "r", encoding="utf-8") as f:
-                            history = json.load(f)
-                    except Exception:
-                        pass
+                from utils.core.atomic_write import read_json_store
+                history = read_json_store(digest_path, [], kind=list, label="observation digest history")
 
                 # Filter history to keep only last 7 days
                 cutoff = time.time() - (7 * 86400)
-                history = [item for item in history if item.get("timestamp", 0) > cutoff]
+                history = [item for item in history if isinstance(item, dict) and item.get("timestamp", 0) > cutoff]
 
                 entry_ts = time.time()
                 history.append({

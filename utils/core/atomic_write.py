@@ -95,6 +95,44 @@ def set_aside(path: PathLike) -> Path | None:
     return kept
 
 
+def read_json_store(path: PathLike, default, *, kind=None, label: str = ""):
+    """The JSON store at `path`, or a copy of `default` when there is none.
+
+    A file that exists but does not parse, or is not a `kind` (dict, list), is
+    set aside first (`set_aside`) and logged: answering the default for it and
+    letting the next save replace the file is how nine stores lost everything
+    to one bad write before each was fixed by hand (21 Nov). A file that exists
+    but cannot be read at all is left where it is and the default answered.
+    """
+    import copy
+    import json
+    dest = Path(path)
+    try:
+        text = dest.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return copy.deepcopy(default)
+    except OSError as e:
+        _store_warning(f"{label or dest.name} could not be read ({e}); using the default")
+        return copy.deepcopy(default)
+    try:
+        data = json.loads(text)
+        ok = kind is None or isinstance(data, kind)
+    except ValueError:
+        ok = False
+    if not ok:
+        _store_warning(f"{label or dest.name} is not readable JSON; kept as {set_aside(dest)}")
+        return copy.deepcopy(default)
+    return data
+
+
+def _store_warning(message: str) -> None:
+    try:
+        from utils.infrastructure.logging.kaia_logger import log_warning
+        log_warning(message)
+    except Exception:
+        pass
+
+
 @contextlib.contextmanager
 def append_lock(path: PathLike):
     """Hold the sidecar lock that serialises appends to `path`.

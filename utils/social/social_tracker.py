@@ -64,15 +64,8 @@ class SocialTracker:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     def _read_state(self) -> dict:
-        if not self.state_path.exists():
-            return {}
-        try:
-            with open(self.state_path, "r", encoding="utf-8") as f:
-                state = json.load(f)
-            return state if isinstance(state, dict) else {}
-        except (OSError, json.JSONDecodeError, TypeError) as e:
-            log_warning(f"[SocialTracker] Failed to read state snapshot: {e}")
-            return {}
+        from utils.core.atomic_write import read_json_store
+        return read_json_store(self.state_path, {}, kind=dict, label="[SocialTracker] state snapshot")
 
     def _read_log_entries(self) -> list[dict]:
         """Read current JSONL events and legacy one-ID-per-line entries."""

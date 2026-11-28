@@ -283,3 +283,22 @@ def test_fsync_tree_syncs_regular_files_and_directories_bottom_up(tmp_path, monk
 
     assert set(synced_files) == expected_inodes
     assert synced_directories == [nested, root, tmp_path]
+
+
+def test_read_json_store_sets_an_unreadable_store_aside_instead_of_answering_over_it(tmp_path):
+    """Answering {} for a store that would not parse, then saving, replaced the
+    whole store; nine of them were fixed by hand on 21 Nov."""
+    from utils.core.atomic_write import read_json_store
+    store = tmp_path / "desires.json"
+    assert read_json_store(store, {"a": 1}) == {"a": 1}              # missing: the default
+    store.write_text('{"curiosity": 0.4}', encoding="utf-8")
+    assert read_json_store(store, {}, kind=dict) == {"curiosity": 0.4}
+    store.write_text('{"curiosity": 0.4', encoding="utf-8")          # torn
+    assert read_json_store(store, {}, kind=dict) == {}
+    assert not store.exists()
+    kept = list(tmp_path.glob("desires.json.unreadable-*"))
+    assert len(kept) == 1 and kept[0].read_text() == '{"curiosity": 0.4'
+    store.write_text('[1, 2]', encoding="utf-8")                     # the wrong shape
+    default = {"x": []}
+    got = read_json_store(store, default, kind=dict)
+    assert got == default and got is not default and not store.exists()

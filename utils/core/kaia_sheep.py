@@ -180,10 +180,8 @@ def recolor(genome: str, lut) -> str:
 # ── the flock ───────────────────────────────────────────────────────
 
 def load_index() -> dict:
-    try:
-        return json.loads(INDEX.read_text())
-    except Exception:
-        return {}
+    from utils.core.atomic_write import read_json_store
+    return read_json_store(INDEX, {}, kind=dict, label="the flock index")
 
 
 def save_index(index: dict) -> None:
