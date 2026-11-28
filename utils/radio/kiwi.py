@@ -381,23 +381,51 @@ def _recorder_cmd(r: Receiver, khz: float, mode: str) -> list[str]:
             "--log_level=info"]
 
 
-async def _stop(proc: asyncio.subprocess.Process, grace: float = 8.0) -> None:
-    """SIGINT first, so kiwirecorder closes its WAV properly; then kill."""
+KILL_WAIT_S = 5.0
+
+
+async def _stop(proc: asyncio.subprocess.Process, grace: float = 8.0) -> bool:
+    """SIGINT first, so kiwirecorder closes its WAV properly; then kill. False
+    when it has not exited even after the kill: it may still hold the remote
+    receiver's slot and write into its folder, so the caller hands it to
+    `_keep_waiting` instead of forgetting it."""
     if proc.returncode is not None:
-        return
+        return True
     try:
         proc.send_signal(signal.SIGINT)
         await asyncio.wait_for(proc.wait(), grace)
+        return True
     except (asyncio.TimeoutError, ProcessLookupError):
         try:
             proc.kill()
             # Bounded: an unbounded wait here could hang the caller on a child
             # the kernel cannot reap (issue #46).
-            await asyncio.wait_for(proc.wait(), 5.0)
+            await asyncio.wait_for(proc.wait(), KILL_WAIT_S)
+            return True
         except ProcessLookupError:
-            pass
+            return True
         except asyncio.TimeoutError:
-            log_warning(f"[radio] recorder pid {proc.pid} did not exit after kill")
+            log_warning(f"[radio] recorder pid {proc.pid} did not exit after kill; still waiting for it")
+            return False
+
+
+#: Recorders that outlived their kill, each still waited for by a task.
+_UNREAPED: set = set()
+
+
+def _keep_waiting(proc, then=None) -> None:
+    """Go on waiting for a recorder that did not exit after SIGKILL, and run
+    `then` (removing the folder it was writing into) only once it has."""
+    async def wait_out():
+        try:
+            await proc.wait()
+            log_debug(f"[radio] recorder pid {proc.pid} exited at last")
+        finally:
+            if then is not None:
+                then()
+    task = asyncio.ensure_future(wait_out())
+    _UNREAPED.add(task)
+    task.add_done_callback(_UNREAPED.discard)
 
 
 async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_dir: Path,
@@ -418,14 +446,21 @@ async def record(receiver: Receiver, khz: float, mode: str, seconds: float, out_
     import shutil
     import tempfile
     run_dir = Path(tempfile.mkdtemp(prefix=".rec-", dir=out_dir))
+    held: dict = {}
     try:
-        return await _record_in(receiver, khz, mode, seconds, out_dir, run_dir, label, squelch_db)
+        return await _record_in(receiver, khz, mode, seconds, out_dir, run_dir, label, squelch_db, held)
     finally:
-        shutil.rmtree(run_dir, ignore_errors=True)
+        if held.get("proc") is not None:
+            # Its folder goes once it has exited, not while it may still write.
+            _keep_waiting(held["proc"], then=lambda: shutil.rmtree(run_dir, ignore_errors=True))
+        else:
+            shutil.rmtree(run_dir, ignore_errors=True)
 
 
 async def _record_in(receiver, khz, mode, seconds, out_dir: Path, run_dir: Path, label,
-                     squelch_db) -> list[Path]:
+                     squelch_db, held: Optional[dict] = None) -> list[Path]:
+    """`held` gets the recorder under "proc" if it could not be stopped."""
+    held = {} if held is None else held
     cmd = _recorder_cmd(receiver, khz, mode) + ["-d", str(run_dir), "--station", label]
     if squelch_db is not None:
         cmd += ["-T", f"{squelch_db:g}", "--squelch-tail", "3"]
@@ -442,10 +477,13 @@ async def _record_in(receiver, khz, mode, seconds, out_dir: Path, run_dir: Path,
         # Cancelled mid-recording: the recorder still holds a slot on someone
         # else's receiver (a squelched one has no time limit), and record()
         # is about to remove the folder it writes to.
-        await _stop(proc)
+        if not await _stop(proc):
+            held["proc"] = proc
         raise
     quit_early = proc.returncode is not None
-    await _stop(proc)
+    if not await _stop(proc):
+        held["proc"] = proc
+        raise FeedError(f"{receiver.host} recorder would not stop")
     written = sorted(run_dir.glob("*.wav"))
     if refused and not written:
         note_failed(receiver, refused)
@@ -532,10 +570,12 @@ async def smeter(receiver: Receiver, khz: float, mode: str, seconds: float) -> l
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), seconds + 30)
     except asyncio.TimeoutError:
-        await _stop(proc)
+        if not await _stop(proc):
+            _keep_waiting(proc)
         out = b""
     except BaseException:
-        await _stop(proc)
+        if not await _stop(proc):
+            _keep_waiting(proc)
         raise
     readings = []
     for line in out.decode("utf-8", "replace").splitlines():
@@ -569,13 +609,15 @@ def first_audio(proc, timeout: float = 12.0) -> bool:
     return bool(ready) and proc.poll() is None
 
 
-def close_stream(proc) -> None:
+def close_stream(proc) -> bool:
     """Stop a receiver stream: SIGINT so rtl_fm or kiwirecorder lets go of the
     dongle or the remote slot, kill if it has not exited in 3 s, and reap it
-    either way (utils/audio/process_lifecycle, the "receiver" policy).
+    either way (utils/audio/process_lifecycle, the "receiver" policy). False
+    when a killed child still could not be reaped: whoever holds the device
+    for it must keep holding it.
 
     stdout is deliberately left open: discord.py's pipe reader may still be
     blocked on it, and it is meant to see end-of-stream and exit on its own
     (`live.stop`)."""
     from utils.audio.process_lifecycle import stop
-    stop(proc, "receiver")
+    return stop(proc, "receiver")

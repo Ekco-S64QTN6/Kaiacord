@@ -207,9 +207,11 @@ async def start_local(channel, freq_hz: int, label: str, requested_by: str, gain
         settle("live radio")
         vc.play(source, after=lambda e: log_error(f"[radio] playback error: {e}") if e else None)
     except Exception:
-        if proc is not None:
-            kiwi.close_stream(proc)           # or rtl_fm keeps the dongle after the lock is gone
-        rtl.DEVICE.release()
+        # or rtl_fm keeps the dongle after the lock is gone
+        if proc is None or kiwi.close_stream(proc):
+            rtl.DEVICE.release()
+        else:
+            log_error("[radio] rtl_fm could not be reaped; the RTL-SDR stays reserved")
         raise
     session = LiveSession(guild_id, vc, proc, None, freq_hz / 1e3, "fm", label, requested_by,
                           reader=reader, local=True)
@@ -275,12 +277,16 @@ async def stop(guild_id: int) -> bool:
     s = _sessions.pop(guild_id, None)
     if not s:
         return False
+    reaped, cancelled = False, False
     try:
         # Stream first: discord.py's pipe writer then reads end-of-stream and
         # exits on its own. Stopping playback first blanks its handles while
         # it is still blocked reading, and the thread dies with a traceback.
-        await asyncio.to_thread(kiwi.close_stream, s.proc)
-        await asyncio.sleep(0.5)
+        # Run to its end even if this is cancelled: a cancelled to_thread()
+        # leaves rtl_fm being stopped while the lock below would be released.
+        reaped, cancelled = await _drained(kiwi.close_stream, s.proc)
+        if not cancelled:
+            await asyncio.sleep(0.5)
         if s.vc.is_playing():
             s.vc.stop()
     finally:
@@ -300,12 +306,35 @@ async def stop(guild_id: int) -> bool:
                 if s.local:
                     try:
                         from utils.radio import rtl
-                        if rtl.DEVICE.locked():
+                        if not reaped:
+                            log_error("[radio] rtl_fm could not be reaped; the RTL-SDR stays reserved")
+                        elif rtl.DEVICE.locked():
                             rtl.DEVICE.release()
                     except Exception as e:
                         log_error(f"[radio] RTL-SDR lock release failed: {e}")
+    if cancelled:
+        raise asyncio.CancelledError
     log_action(f"[radio] live session ended after {s.minutes:.0f} min")
     return True
+
+
+async def _drained(fn, *args):
+    """(fn's result, whether this task was cancelled while it ran): the
+    worker thread is waited for either way."""
+    worker = asyncio.ensure_future(asyncio.to_thread(fn, *args))
+    cancelled = False
+    while not worker.done():
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception:
+            break
+    try:
+        return worker.result(), cancelled
+    except Exception as e:
+        log_error(f"[radio] stopping the stream failed: {e}")
+        return False, cancelled
 
 
 async def stop_all() -> None:

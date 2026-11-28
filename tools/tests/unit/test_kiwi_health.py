@@ -116,3 +116,74 @@ def test_a_cancelled_recording_stops_its_recorder(tmp_path, monkeypatch):
         except asyncio.CancelledError:
             return True
     assert asyncio.run(run()) and stopped == [proc]
+
+
+class _StuckRecorder:
+    """A recorder that does not exit on SIGINT or SIGKILL until told to."""
+    pid = 4242
+
+    def __init__(self):
+        self.returncode = None
+        self.gone = asyncio.Event()
+
+    def send_signal(self, sig):
+        pass
+
+    def kill(self):
+        pass
+
+    async def wait(self):
+        await self.gone.wait()
+        self.returncode = -9
+        return self.returncode
+
+
+def test_a_recorder_that_outlives_its_kill_is_reported_and_kept(monkeypatch):
+    monkeypatch.setattr(kiwi, "KILL_WAIT_S", 0.01)
+
+    async def run():
+        proc = _StuckRecorder()
+        assert await kiwi._stop(proc, grace=0.01) is False
+        done = asyncio.Event()
+        kiwi._keep_waiting(proc, then=done.set)
+        await asyncio.sleep(0.02)
+        assert not done.is_set() and kiwi._UNREAPED
+        proc.gone.set()
+        await asyncio.wait_for(done.wait(), 1)
+        return True
+
+    assert asyncio.run(run())
+
+
+def test_a_recording_keeps_its_folder_until_a_stuck_recorder_exits(monkeypatch, tmp_path):
+    """record() removed its run folder in `finally` even when the recorder was
+    still alive and writing into it."""
+    proc_box = {}
+
+    async def stuck(receiver, khz, mode, seconds, out_dir, run_dir, label, squelch_db, held):
+        proc_box["run_dir"] = run_dir
+        held["proc"] = proc_box["proc"] = _StuckRecorder()
+        raise FeedError("recorder would not stop")
+
+    async def same(receiver):
+        return receiver
+
+    monkeypatch.setattr(kiwi, "available", lambda: True)
+    monkeypatch.setattr(kiwi, "resolve_receiver", same)
+    monkeypatch.setattr(kiwi, "_record_in", stuck)
+    r = kiwi.Receiver("kiwi.example.org", 8073, "x", "y", 0.0, 0.0, 0, 4, 20, 0, 30000, connect_host="93.184.216.34")
+
+    async def run():
+        try:
+            await kiwi.record(r, 4625, "usb", 60, tmp_path, "uvb76")
+        except FeedError:
+            pass
+        assert proc_box["run_dir"].is_dir()
+        proc_box["proc"].gone.set()
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if not proc_box["run_dir"].exists():
+                return True
+        return False
+
+    assert asyncio.run(run())
