@@ -9,11 +9,15 @@ on:
     branches: ["main"]
     paths:
       - "requirements.txt"
+      - "requirements.lock"
+      - "tools/maintenance/lock_requirements.py"
       - ".github/workflows/dependency-audit.yml"
       - "tools/maintenance/dependency_audit_report.py"
   pull_request:
     paths:
       - "requirements.txt"
+      - "requirements.lock"
+      - "tools/maintenance/lock_requirements.py"
       - ".github/workflows/dependency-audit.yml"
       - "tools/maintenance/dependency_audit_report.py"
       - "tools/tests/unit/test_dependency_audit_report.py"
@@ -38,12 +42,15 @@ jobs:
         run: python -m pip install --no-input --disable-pip-version-check pip-audit==2.10.1
       # Run once and preserve the structured result. The following step owns
       # the policy: blocking for PRs, report-only for weekly/manual runs.
-      - name: Audit requirements.txt
+      # The audit reads the lock: the exact graph CI and the deployment install,
+      # not a fresh resolution that can drift from it.
+      - name: Audit requirements.lock
         id: audit
         continue-on-error: true
         run: |
           rm -f pip-audit.json
-          pip-audit -r requirements.txt --progress-spinner off --desc off -f json -o pip-audit.json
+          python tools/maintenance/lock_requirements.py
+          pip-audit -r requirements.lock --no-deps --progress-spinner off --desc off -f json -o pip-audit.json
       - name: Enforce PR policy and publish summary
         if: always()
         run: |

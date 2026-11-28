@@ -66,7 +66,9 @@ jobs:
         timeout-minutes: 5
         run: |
           python -m pip install --no-input --disable-pip-version-check --upgrade pip
-          python -m pip install --no-input --disable-pip-version-check -r requirements.txt pytest pytest-asyncio 'pytest-cov>=6,<8'
+          # The lock is the resolved graph; a stale one fails here, before installing.
+          python tools/maintenance/lock_requirements.py
+          python -m pip install --no-input --disable-pip-version-check -r requirements.txt -c requirements.lock pytest pytest-asyncio 'pytest-cov>=6,<8'
           if ! grep -qiE '^[[:space:]]*scipy([<=>!~[:space:]]|$)' requirements.txt; then
             python -m pip install --no-input --disable-pip-version-check "scipy>=1.15.0"
           fi

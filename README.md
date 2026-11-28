@@ -53,7 +53,7 @@ Linux, an NVIDIA GPU with 12 GB of VRAM, Python 3.12 and [Ollama](https://ollama
 
 ```bash
 git clone https://github.com/Ekco-S64QTN6/Kaiacord.git && cd Kaiacord
-python3 -m venv venv && venv/bin/pip install -r requirements.txt
+python3 -m venv venv && venv/bin/pip install -r requirements.txt -c requirements.lock
 
 ollama pull gemma3:12b             # chat, narration, vision (GPU)
 ollama pull nomic-embed-text-cpu   # retrieval embeddings (CPU)

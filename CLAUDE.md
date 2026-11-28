@@ -96,7 +96,7 @@ so a mis-marked test fails fast instead of loading a model:
 | `records-audio-tests.yml` | the records, identity, cache, skill, intent, set and mixer suites when a records module or its tests change |
 | `records-browser-tests.yml` | the booth and KAIA//RX pages driven in Chromium (`tools/tests/browser/`) when either page or its server changes |
 | `quality.yml` | every push to `main`: `ruff check .` (error rules), then `tools/maintenance/type_ratchet.py` |
-| `dependency-audit.yml` | weekly and on a `requirements.txt` change: `pip-audit`; blocking on a pull request, a report otherwise |
+| `dependency-audit.yml` | weekly and on a `requirements.txt`/`requirements.lock` change: `pip-audit` of the lock; blocking on a pull request, a report otherwise |
 
 `unit-tests.yml` also collects coverage from the tests it selected and fails when under 20% of
 the statements a change adds to `utils/*.py` ran (`tools/maintenance/changed_line_coverage.py`).
@@ -106,7 +106,9 @@ locally before pushing anything wider than one module. Tests named by behaviour 
 what they import; a test that reaches a module only indirectly still needs a `RELATED_TESTS`
 entry. Until 6 Nov only the file name was matched, and three `kaia_rag_query` tests failed on main
 for a week with every check green. CI
-installs `pytest` and `pytest-asyncio` itself; neither is in `requirements.txt`.
+installs `pytest` and `pytest-asyncio` itself; neither is in `requirements.txt`. Dependencies install as
+`pip install -r requirements.txt -c requirements.lock`; after editing `requirements.txt`, rerun
+`tools/maintenance/lock_requirements.py --write` and commit both, or CI fails on the stale lock.
 
 > [!NOTE]
 > **Correction (Sept 2026).** Earlier agent docs claimed that importing anything from `utils/`

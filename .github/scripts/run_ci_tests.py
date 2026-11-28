@@ -31,6 +31,8 @@ RELATED_TESTS = {
         "tools/tests/unit/test_ci_high_fan_in_coverage.py",
     ),
     "utils/core/ingress.py": ("tools/tests/unit/test_ingress_now.py",),
+    **{name: ("tools/tests/unit/test_requirements_lock.py", "tools/tests/unit/test_voice_dependency_specs.py")
+       for name in ("requirements.txt", "requirements.lock")},
     "utils/core/response_filter.py": (
         "tools/tests/unit/test_response_filters.py",
         "tools/tests/unit/test_ellipsis_salvage.py",

@@ -74,7 +74,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -r requirements.txt -c requirements.lock
 ```
 
 `discord.py` 2.7 and `davey` are required, not optional: Discord refuses any voice connection
@@ -184,7 +184,7 @@ sudo pacman -S nvidia nvidia-utils  # Arch
 venv/bin/python3 tools/maintenance/health_check.py
 
 # Reinstall dependencies into the venv
-venv/bin/pip install -r requirements.txt --force-reinstall
+venv/bin/pip install -r requirements.txt -c requirements.lock --force-reinstall
 ```
 
 A package installed with the system `pip` lands outside the venv and fixes nothing; a

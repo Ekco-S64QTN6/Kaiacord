@@ -143,10 +143,12 @@ Policy:
 
 ## Reproducible installs
 
-`requirements.txt` mixes exact pins with lower bounds and there is no lockfile, so two installs a
-month apart can differ in every transitive package. The intended workflow is a compiled
-constraints file: `requirements.txt` stays the hand-edited input, and
-`uv pip compile requirements.txt --python-version 3.12 -o requirements.lock`
-writes the full pinned set, installed with `pip install -r requirements.txt -c requirements.lock`
-in CI and on the deployment. It is not adopted yet: the lock has to be generated against the
-deployment's platform and checked on it before CI installs from it.
+`requirements.txt` is the hand-edited list of direct dependencies, several with lower bounds only.
+`requirements.lock` is everything pip resolves it to, transitive packages included, for the
+deployment's interpreter (CPython 3.12, linux x86_64), with a hash of the `requirements.txt` it
+came from. CI and the deployment install `pip install -r requirements.txt -c requirements.lock`;
+the dependency audit reads the lock (`pip-audit -r requirements.lock --no-deps`), so it audits the
+graph that is installed. After editing `requirements.txt`, run
+`venv/bin/python3 tools/maintenance/lock_requirements.py --write` and commit both: CI runs the
+same tool's check first and fails on a stale lock, and `test_requirements_lock.py` checks every
+direct requirement is pinned within its range.
