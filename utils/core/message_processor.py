@@ -969,8 +969,8 @@ class MessageProcessor:
                             f"if it comes up naturally, ask about it. don't force it.]"
                         )
                         # Clear after injection — one-shot callback
-                        rel['last_open_loop'] = ''
-                        self.bot_state.save()
+                        if self.bot_state.set_open_loop(ctx.author_id, ''):
+                            self.bot_state.save()
 
                 # 8b2. Anticipatory context priming dossier.
                 dossier = self.bot_state.get_user_dossier(ctx.author_id, ctx.author_name)
@@ -3050,7 +3050,7 @@ class MessageProcessor:
                             if getattr(self.bot_state, 'pending_afterthoughts', None) is not None:
                                 import secrets as _sec
                                 if _sec.randbelow(100) < 10:
-                                    self.bot_state.pending_afterthoughts.append({
+                                    self.bot_state.queue_afterthought({
                                         "channel_id": ctx.channel_id,
                                         "user_id": ctx.author_id,
                                         "user_name": ctx.author_name,
@@ -3086,9 +3086,7 @@ class MessageProcessor:
                         from utils.core.open_loops import find as _find_open_loop
                         _loop_text = _find_open_loop(_own)
                         if _loop_text:
-                            _rel = self.bot_state.relationships.get(str(ctx.author_id))
-                            if _rel is not None:
-                                _rel['last_open_loop'] = _loop_text
+                            if self.bot_state.set_open_loop(ctx.author_id, _loop_text):
                                 self.bot_state.save()
                                 log_info(f"Open loop saved for {ctx.author_name}: {_loop_text[:60]}")
                     except Exception:

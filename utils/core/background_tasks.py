@@ -358,35 +358,12 @@ class CoreTaskManager:
             if getattr(self.ctx.bot_state, 'is_generating', False): return
             if getattr(self.ctx.bot_state, 'is_generating_image', False): return
             
-            pending = getattr(self.ctx.bot_state, 'pending_afterthoughts', [])
-            if not pending: return
-
-            now = time.time()
-            to_remove = []
-            to_execute = None
-            
-            for i, p in enumerate(pending):
-                age = now - p['timestamp']
-                # Discard afterthoughts older than 1 hour (stale)
-                if age >= 3600:
-                    to_remove.append(i)
-                    continue
-                # Only trigger if 10 minutes have passed since queuing
-                if age >= 600:
-                    # Check per-channel activity to see if anyone spoke recently
-                    chan_id = p['channel_id']
-                    last_activity = self.ctx.bot_state.channel_last_activity.get(chan_id, 0)
-                    if now - last_activity >= 600:
-                        # Channel has been silent for 10+ minutes — deliver
-                        to_execute = p
-                        to_remove.append(i)
-                        break  # Only do one at a time
-                    # else: channel still active — leave it in the queue for next cycle
-            
-            # Clean up processed/stale
-            for i in reversed(to_remove):
-                pending.pop(i)
-            self.ctx.bot_state.save()
+            if not getattr(self.ctx.bot_state, 'pending_afterthoughts', []): return
+            # Taken under the state lock: a worker thread's save() snapshots
+            # this queue while the loop would otherwise be popping from it.
+            to_execute, changed = self.ctx.bot_state.take_due_afterthought()
+            if changed:
+                self.ctx.bot_state.save()
             
             if to_execute:
                 try:

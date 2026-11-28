@@ -273,3 +273,52 @@ def test_parallel_ingestion_history_updates_do_not_overwrite_each_other(tmp_path
     assert {
         item["filename"] for item in saved["recent_ingestions"]
     } == {"first.md", "second.md"}
+
+
+def test_relationship_open_loop_and_afterthought_writes_hold_the_state_lock(tmp_path):
+    """save() copies these from a worker thread under _lock; a write that did
+    not take it could be copied half-applied (an interaction counted, its
+    last_seen and familiarity not yet). Each write is checked mid-way."""
+    import time
+    state = BotState(state_file=str(tmp_path / "bot_state_lock.json"))
+    seen = []
+
+    class Watched(dict):
+        def get(self, *a, **k):
+            seen.append(state._lock.locked())
+            return super().get(*a, **k)
+
+    state.relationships = Watched()
+    state.update_relationship("1", 0.7, "Ekco")
+    assert state.set_open_loop("1", "try the new pedal")
+    assert state.relationships["1"]["last_open_loop"] == "try the new pedal"
+    assert not state.set_open_loop("2", "nobody")
+    assert seen and all(seen)
+
+    class WatchedList(list):
+        def append(self, item):
+            seen.append(state._lock.locked())
+            super().append(item)
+
+    state.pending_afterthoughts = WatchedList()
+    state.queue_afterthought({"channel_id": 5, "timestamp": time.time() - 700})
+    assert seen[-1] is True
+    state.close()
+
+
+def test_a_due_afterthought_is_taken_and_a_stale_one_dropped(tmp_path):
+    state = BotState(state_file=str(tmp_path / "bot_state_afterthought.json"))
+    now = 10_000.0
+    state.channel_last_activity = {1: now - 900, 2: now - 60}
+    state.pending_afterthoughts = [
+        {"channel_id": 1, "timestamp": now - 5000},   # stale
+        {"channel_id": 2, "timestamp": now - 700},    # due, but the channel is busy
+        {"channel_id": 1, "timestamp": now - 700},    # due
+        {"channel_id": 1, "timestamp": now - 100},    # too new
+    ]
+    due, changed = state.take_due_afterthought(now)
+    assert changed and due == {"channel_id": 1, "timestamp": now - 700}
+    assert state.pending_afterthoughts == [{"channel_id": 2, "timestamp": now - 700},
+                                           {"channel_id": 1, "timestamp": now - 100}]
+    assert state.take_due_afterthought(now) == (None, False)
+    state.close()

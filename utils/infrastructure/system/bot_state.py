@@ -567,6 +567,13 @@ class BotState:
         valence_sample: 0.0=very negative, 0.5=neutral, 1.0=very positive.
         display_name: the user's current Discord display name (stored for proactive features).
         """
+        # Under _lock: save() snapshots relationships from a worker thread
+        # (RAG ingestion calls add_ingestion there), and a copy taken between
+        # these field updates was complete JSON and a half-applied interaction.
+        with self._lock:
+            self._update_relationship_locked(user_id, valence_sample, display_name)
+
+    def _update_relationship_locked(self, user_id: str, valence_sample: float, display_name: str):
         now = time.time()
         uid = str(user_id)
         rel = self.relationships.get(uid)
@@ -611,6 +618,43 @@ class BotState:
                                 key=lambda k: self.relationships[k].get('last_seen', 0))
             for old_id in sorted_ids[:100]:
                 del self.relationships[old_id]
+
+    def set_open_loop(self, user_id, text: str) -> bool:
+        """Record (or clear, with "") the open loop to ask a known person about."""
+        with self._lock:
+            rel = self.relationships.get(str(user_id))
+            if rel is None:
+                return False
+            rel['last_open_loop'] = text
+            return True
+
+    def queue_afterthought(self, item: dict) -> None:
+        with self._lock:
+            self.pending_afterthoughts.append(item)
+
+    def take_due_afterthought(self, now: Optional[float] = None, *, wait_s: float = 600.0,
+                              stale_s: float = 3600.0):
+        """(the first afterthought due, whether the queue changed).
+
+        Due: queued at least `wait_s` ago in a channel quiet for `wait_s`. Older
+        than `stale_s` is dropped. The due one is removed from the queue.
+        """
+        now = time.time() if now is None else now
+        with self._lock:
+            keep, due = [], None
+            for item in self.pending_afterthoughts:
+                age = now - item['timestamp']
+                if age >= stale_s:
+                    continue
+                if (due is None and age >= wait_s
+                        and now - self.channel_last_activity.get(item['channel_id'], 0) >= wait_s):
+                    due = item
+                    continue
+                keep.append(item)
+            changed = len(keep) != len(self.pending_afterthoughts)
+            if changed:
+                self.pending_afterthoughts = keep
+        return due, changed
 
     def get_relationship_summary(self, user_id: str, user_name: str) -> str:
         """Returns a compact relationship context line for system prompt injection."""

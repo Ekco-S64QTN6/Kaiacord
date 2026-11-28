@@ -67,7 +67,7 @@ def test_private_dm_does_not_update_cross_channel_memory():
         "learn_from_interaction", "update_relationship", "save_event_async",
         "record_claim", "note_argument", "emotional_arc", "observe_exchange",
         "desire_engine", "append_growth_event", "_find_open_loop",
-        "write_atomic", "pending_afterthoughts",
+        "write_atomic", "queue_afterthought", "set_open_loop",
     }
     found = set()
     for node in ast.walk(tree):
