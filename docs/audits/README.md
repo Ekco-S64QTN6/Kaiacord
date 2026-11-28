@@ -36,4 +36,4 @@ The checker compares the ledger with `git ls-files`, rejects missing/new/deleted
 
 ## Remaining audit work
 
-The manifest is only the coverage ledger. The file-by-file review, relevant test review, security/concurrency/persistence analysis, frontend/API route audit, shared-sibling check and environment-dependent acceptance remain outstanding until their individual rows contain review evidence. **Do not close #366 because this manifest exists or because its completeness check passes.**
+The manifest is only the coverage ledger. The file-by-file review, relevant test review, security/concurrency/persistence analysis, frontend/API route audit, shared-sibling check and environment-dependent acceptance remain outstanding until their individual rows contain review evidence. #366 was closed on 28 November 2026 with this ledger and [the roadmap](../ROADMAP.md) as its tracker. **Do not describe the repository as audited because this manifest exists or because its completeness check passes.**

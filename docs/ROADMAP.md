@@ -1,6 +1,7 @@
 # Roadmap
 
-What is open, and the call on each. Updated 26 November 2026.
+What is open, and the call on each. Updated 28 November 2026. This page is the tracker: the GitHub
+issues it used to point at are closed, and what was left of each is written here.
 
 Each item carries a decision: **Yes** (to build), **Watch** (measure before building), **Owner's
 call**, or **No** (researched and declined, with the reason). Closed work is in `git log`.
@@ -23,16 +24,11 @@ perfectly locked transition can still be boring, crowded or emotionally wrong. B
 checks are guardrails, not an artistic score. The full product bar and capability target are in
 [records-and-booth.md](03-architecture/records-and-booth.md).
 
-Implementation sequence (keep these independently reviewable):
-
-1. [#408 — invalidate record caches by audio identity](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408) ties every derived record artifact (profiles, envelopes, ticks/grids, graph edges, loudness gain and booth waveforms) to the actual audio content, not path/mtime alone.
-2. [#404 — cached phrase-level musical-state profiles](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404) builds the evidence layer by extending `songmap` on top of correct cache identity.
-3. [#405 — full-set musical arcs and transition intent](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405) consumes those profiles; it must not equate technical lock with artistic quality.
-4. [#403 — professional booth/mixer parity](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) supplies the real hardware/control primitives; it can progress alongside the analysis/planner work.
-5. [#406 — composable DJ skills and phrase scheduler](https://github.com/Ekco-S64QTN6/Kaiacord/issues/406) composes only the actions the active mixer actually supports.
-6. [#407 — records-mode listener requests](https://github.com/Ekco-S64QTN6/Kaiacord/issues/407) routes intent to the active records session without changing Strudel behavior.
-7. [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) remains the parent acceptance bar: real-crate full-set listening and independent assessment of musicality, not only passing technical tests.
-
+**Built 25–27 Nov** (issues #403–#408 and #401, closed 28 Nov): cache identity by the whole audio
+payload (`audio_identity`; the caches were carried over by `migrate_record_identity.py`), phrase
+profiles (`songmap`), profile-ranked set planning (`musical_plan`), listener direction in records
+mode (`records_intent`), the bounded skill catalog (`dj_skills`) and the booth's hand controls.
+What each does and does not do is below; what remains is the table at the end of this section.
 
 **#405 implementation boundary (merged in PR #411):** the first profile-guided set-planning layer
 ranks only already-measured graph edges, compares approximate exit/entry phrase evidence, applies
@@ -41,7 +37,7 @@ soft recent-role pacing preferences, and records separate technical/musical/arc 
 not yet a live wait-for-the-next-phrase execution policy. Missing profiles fall back to the existing
 rank. The lead/midrange and other feature curves remain proxies, not vocal/stem/percussion truth.
 Real-crate listening and independent assessment have not been performed here and remain mandatory
-before any claim that the sets sound better. `#402` remains the acceptance parent.
+before any claim that the sets sound better (*Audible musicality acceptance*, below).
 
 **#407 implementation boundary (merged in PR #412):** listener requests are routed to the active
 records session without resolving Strudel while records mode is playing. Explicit booth track-path
@@ -53,7 +49,7 @@ cached phrase evidence supports the requested direction; missing, weak or contra
 preserves the existing set order. It does not change the currently playing deck or claim an
 audible effect. A request received during an in-flight pick is deferred to the following pick.
 Unit tests cover routing, request lifecycle and preference ranking, not audible DJ quality.
-Real-crate listening and independent assessment remain under `#402`.
+Real-crate listening and independent assessment remain (*Audible musicality acceptance*, below).
 
 **#403 implementation boundary (crossfader in PR #416; PFL in PR #418; hot/memory cue bank in PR #419; beat loops in PR #420):**
 the mixer provides backward-compatible `standard`, equal-power `constant_power` and midpoint `cut`
@@ -84,7 +80,7 @@ whole-gesture cap includes movement through the neutral centre; both the engine 
 paths enforce it. If a browser reload loses the pointer state, a platter tap acknowledges the
 engine's completed release latch without requiring a global mixer reset. The browser acceptance
 tests exercise both the real platter nudge and this recovery path. This is a manual phase/pitch nudge, distinct from the persistent pitch fader described above
-and not an autonomous pitch-ride skill. Remaining #403 work includes additional performance
+and not an autonomous pitch-ride skill. Remaining booth work includes additional performance
 effects with independent bounds and recovery paths, wider control-interaction coverage and local
 audio/device audition.
 
@@ -95,20 +91,20 @@ the planner's existing finite echo-out. Solo actions compile from cached phrase 
 latest-track-wins worker and use source-time coordinates even when a deck is stretched; blend
 actions compile before plan publication. The renderer evaluates only a bounded action list and
 ramps. Manual lane changes claim ownership and ease Kaia's action out; KAIA MIX hands back.
-Until #403 supplies the shared runtime capability registry, the catalog validates against a
+Until a shared runtime capability registry exists, the catalog validates against a
 conservative current-engine capability allowlist. Manual slip rolls, live jog bend and master
 echo are operator controls rather than autonomous skills. Permanent pitch rides, the full FX bank
 and beat-juggling repertoire remain outside the current autonomous catalog; it also does not claim
 scratches, stutters or vocal/percussion recognition. No real-crate audition or blind listening evaluation has been performed here;
-#402 remains the acceptance parent.
+Listening remains the acceptance (*Audible musicality acceptance*, below).
 
 | Item | What | Call |
 |:--|:--|:--|
-| **Expert DJ judgment and set storytelling** | Replace compatibility-first selection as the definition of quality with a musical decision process: understand the records' structure and musical roles, choose the right moment, account for vocals/hooks/density/energy/tension/release, plan the full hour's pacing and contrast, and evaluate what actually sounds. Kaia must sometimes wait, reject a technically valid blend, cut, contrast or choose an unexpected but coherent partner. | Yes — owner-confirmed; [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
-| **Composable expert DJ skill library** | Build real, explainable and safely executable skills: beat/phase work, pitch rides, cues, loops/rolls, cue/beat juggling, genuine scratches, phrase cuts, long/short blends, drop and breakdown swaps, vocal/acapella overlays, call-and-response, mashups, filters, FX, stutters, repeats, backspins, brakes and genre-aware technique. No cosmetic controls or fake tricks. | Yes — part of [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
-| **Professional booth/mixer parity** | Real PFL/cue mix, hot/memory cues, counted beat loops, manual slip rolls, a temporary ±8% jog bend, a persistent ±8% pitch fader with PFL and tempo-match synchronization, configurable crossfader behavior and a manual tempo-synchronised master echo. Additional bounded performance effects and physical audio/device acceptance remain. | Yes — [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) |
-| **Dashboard test-selection coverage** | Select `test_dj_dashboard.py` for dashboard Python changes, map the booth asset to meaningful browser tests, and test control interactions rather than CSS strings alone. | Yes — [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401) |
-| **Audible musicality acceptance** | Use real local crates and independent/blind human listening to assess full-set pacing, contrast, breakdown timing, vocal overlays, clutter, surprise and purposeful effects. Unit tests and beat-lock metrics alone cannot establish that the mix is good. | Yes — mandatory acceptance for [#402](https://github.com/Ekco-S64QTN6/Kaiacord/issues/402) |
+| **Expert DJ judgment and set storytelling** | Replace compatibility-first selection as the definition of quality with a musical decision process: understand the records' structure and musical roles, choose the right moment, account for vocals/hooks/density/energy/tension/release, plan the full hour's pacing and contrast, and evaluate what actually sounds. Kaia must sometimes wait, reject a technically valid blend, cut, contrast or choose an unexpected but coherent partner. | Yes — owner-confirmed |
+| **Composable expert DJ skill library** | Build real, explainable and safely executable skills: beat/phase work, pitch rides, cues, loops/rolls, cue/beat juggling, genuine scratches, phrase cuts, long/short blends, drop and breakdown swaps, vocal/acapella overlays, call-and-response, mashups, filters, FX, stutters, repeats, backspins, brakes and genre-aware technique. No cosmetic controls or fake tricks. | Yes |
+| **Professional booth/mixer parity** | Real PFL/cue mix, hot/memory cues, counted beat loops, manual slip rolls, a temporary ±8% jog bend, a persistent ±8% pitch fader with PFL and tempo-match synchronization, configurable crossfader behavior and a manual tempo-synchronised master echo. Additional bounded performance effects, a shared runtime capability registry for the skill catalog, and physical audio/device acceptance remain. | Yes |
+| **Dashboard test-selection coverage** | Select `test_dj_dashboard.py` for dashboard Python changes, map the booth asset to meaningful browser tests, and test control interactions rather than CSS strings alone. | Built (PRs #421, #422, #429) |
+| **Audible musicality acceptance** | Use real local crates and independent/blind human listening to assess full-set pacing, contrast, breakdown timing, vocal overlays, clutter, surprise and purposeful effects. Unit tests and beat-lock metrics alone cannot establish that the mix is good. | Yes — mandatory before any claim the sets sound better |
 | **Far-moved blends want ears** | A blend moved 0.18 beat or more now needs 0.8 of the shared-kick bars (and four) behind it, and one at the edge of the search is refused. The thresholds come from one blend heard as rough and the journal's numbers: a few far moves that still pass want listening to. The pair graph is measured again (`METHOD` 5) the next time a set starts. | Watch |
 | **One voice at a time** | The vocals change hands at the swap in the mids and the presence band (to 6 kHz); only the air above rides early. The outgoing's whole vocal still plays over the incoming's held-down one during the ride, and where a record's voice is cannot be measured without stems. | Watch |
 | **Mix-out points need ears** | She leaves a record at its outro or last breakdown where a blend locks there, found from loudness curves. The curves find sections, not taste: a few blends at each kind of point want listening to. | Watch |
@@ -126,7 +122,7 @@ explicit review status. All initial entries are `not_reviewed`; the risk tiers a
 triage only, not audit findings. The validator checks that the ledger still accounts for the
 tracked files and that review evidence is tied to the exact blob reviewed.
 
-**This does not complete #366.** The file-by-file source review, test audit, security/privacy/
+**#366 is closed (28 Nov); the ledger is the tracker, and it is not a completed audit.** The file-by-file source review, test audit, security/privacy/
 concurrency/persistence analysis, route/API and frontend sink review, shared-sibling review,
 and environment-dependent acceptance remain open. Do not describe the repository as audited
 until each applicable row has evidence and the outstanding runtime checks have been completed.
@@ -136,12 +132,30 @@ contains 780 file blobs (686 Python and 94 non-Python). The ledger excludes itse
 779 rows; all 779 remain `not_reviewed`. This preserves the rule that reading a file during a
 targeted investigation does not automatically count as a completed manifest-backed review.
 
+On 28 Nov the ledger covers 802 files, 60 of them reviewed at their current blob (a change sends a file back to not reviewed); the rest wait.
+
 One suspected live-write-guard symlink bypass was checked and disproved: the current guard resolves
 both the checkout root and candidate path with `realpath()`, and its regression tests exercise a
 directory alias, a `.test`-named symlink to a live file, and hard-link creation using a temporary
-checkout. The evidence is recorded in #366. A second guard makes the CI import cutoff auditable:
+checkout. The evidence is in the closed issue #366. A second guard makes the CI import cutoff auditable:
 every tracked production Python module with more than 40 importing unit/integration tests must have
 an explicit selector mapping and an independent required-mapping entry.
+
+## Memory and cognition on the live model (was #330)
+
+Built: `tools/maintenance/replay_turns.py` replays logged turns through the real `MessageProcessor`
+and retrieval in a sandbox copy and sends the assembled prompt to the live model per prompt variant
+and seed; `--probes` adds 11 scored fact probes (her model and name, a false premise, an unattached
+picture, real/famous/invented quotes, a false correction about a pet, a joke she should not
+diagnose, a blank message). On `gemma3:12b` (digest `478f8be5`, seeds 7/8/9) every probe is 3/3
+except the false correction (0/3: she apologises and agrees). The 21–28 Nov log review (reply
+shape, guard damage confirmed in what was sent) is the latest pass over real traffic.
+
+| Item | What | Effort | Call |
+|:--|:--|:--|:--|
+| **Curated memory/privacy set** | Fixtures with known expected and forbidden sources: same-name users, channel/thread ID collisions, stale and contradictory memories, DM content, old news, a model timeout; run on the live model with a recorded corpus snapshot (manifest hash) and model digest. | 1 day | Yes, when nobody is talking to her |
+| **Human-scored rubric** | Grounding, attribution, relevance, privacy and tone, scored by the owner on the same cases, compared across model or config changes. | an evening | Owner's call |
+| **False corrections** | Told "Lucky is a calico" she apologises and agrees (0/3); a note beside the message changed nothing. A fix needs a deterministic test with it. | 2 h+ | Yes |
 
 ## Aethelgard
 
