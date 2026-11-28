@@ -1,0 +1,22 @@
+# The fine-tune toolchain, pinned: the set the 31 Oct dataset rebuild and its
+# checks were run with (installed in the bot's venv; GPU-only, never a runtime
+# dependency: requirements.txt does not include it).
+#
+#   venv/bin/pip install -r finetune/requirements.txt
+#
+# Target: CPython 3.12, linux x86_64, CUDA 12.8 (torch's build), NVIDIA driver
+# 620+, RTX 3060 12 GB. 02_check_hardware.py refuses a run whose installed
+# versions differ from these, and 03_train.py writes them into run.json.
+# Change a pin only together: unsloth and unsloth_zoo, trl and transformers
+# move in step, and a new set is checked by a training run before it is
+# committed.
+unsloth==2026.3.3
+unsloth_zoo==2026.3.1
+torch==2.10.0
+transformers==5.2.0
+trl==0.24.0
+peft==0.18.1
+datasets==4.3.0
+accelerate==1.13.0
+bitsandbytes==0.49.2
+xformers==0.0.28.post3

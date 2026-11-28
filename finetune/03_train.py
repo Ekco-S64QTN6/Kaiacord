@@ -76,6 +76,45 @@ def formatting_func(examples, tokenizer):
     return {"text": texts}
 
 
+def _environment(md) -> dict:
+    """Enough to rebuild the toolchain this adapter came from: every pinned
+    package's installed version, Python, torch's CUDA, the GPU and driver,
+    and the commit the pipeline ran from."""
+    import platform
+    import subprocess
+
+    def installed(name):
+        try:
+            return md.version(name)
+        except md.PackageNotFoundError:
+            return None
+
+    pins_path = os.path.join(SCRIPT_DIR, "requirements.txt")
+    names = []
+    if os.path.isfile(pins_path):
+        for line in open(pins_path, encoding="utf-8"):
+            line = line.split("#", 1)[0].strip()
+            if "==" in line:
+                names.append(line.split("==", 1)[0].strip())
+    env = {"packages": {n: installed(n) for n in names or ("unsloth", "trl", "transformers", "peft", "torch")},
+           "python": platform.python_version(), "platform": platform.platform()}
+    try:
+        import torch
+        env["cuda"] = torch.version.cuda
+        env["gpu"] = torch.cuda.get_device_name(0) if torch.cuda.is_available() else None
+    except Exception:
+        pass
+    for key, cmd in (("driver", ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"]),
+                     ("commit", ["git", "-C", SCRIPT_DIR, "rev-parse", "HEAD"]),
+                     ("dirty", ["git", "-C", SCRIPT_DIR, "status", "--porcelain", "--", "."])):
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout.strip()
+            env[key] = bool(out) if key == "dirty" else out
+        except Exception:
+            env[key] = None
+    return env
+
+
 def write_run_record(trainer, training_args):
     """What produced this adapter, next to it: the dataset (by hash, with the
     builder's report), the settings, the library versions and the eval-loss
@@ -103,7 +142,7 @@ def write_run_record(trainer, training_args):
         "best_eval_loss": trainer.state.best_metric,
         "steps": trainer.state.global_step,
         "eval_loss": [(h["step"], h["eval_loss"]) for h in trainer.state.log_history if "eval_loss" in h],
-        "versions": {p: md.version(p) for p in ("unsloth", "trl", "transformers", "peft", "torch")},
+        "environment": _environment(md),
     }
     with open(os.path.join(OUTPUT_DIR, "run.json"), "w", encoding="utf-8") as f:
         json.dump(record, f, indent=2, default=str)

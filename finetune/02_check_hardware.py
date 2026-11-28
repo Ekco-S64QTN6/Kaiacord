@@ -80,9 +80,7 @@ def check_unsloth():
     except ImportError:
         print("  ERROR: unsloth is not installed.")
         print()
-        print("  Install with these commands:")
-        print('    pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"')
-        print("    pip install --no-deps trl peft accelerate bitsandbytes")
+        print("  Install the pinned toolchain: venv/bin/pip install -r finetune/requirements.txt")
         return False
 
 
@@ -110,9 +108,64 @@ def check_other_deps():
             all_ok = False
 
     if not all_ok:
-        print("  Some dependencies are missing. Install them before training.")
+        print("  Some dependencies are missing: venv/bin/pip install -r finetune/requirements.txt")
 
     return all_ok
+
+
+PINS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+PYTHON = (3, 12)
+
+
+def pinned_versions(path: str = PINS) -> dict:
+    """{package: version} from finetune/requirements.txt."""
+    out = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if "==" in line:
+                name, version = line.split("==", 1)
+                out[name.strip()] = version.strip()
+    return out
+
+
+def version_mismatches(pins: dict, installed) -> list:
+    """What differs from the pins: `installed(name)` returns a version or None."""
+    wrong = []
+    for name, want in pins.items():
+        have = installed(name)
+        if have != want:
+            wrong.append(f"{name} {have or 'not installed'} (pinned {want})")
+    return wrong
+
+
+def check_versions():
+    """The exact toolchain a run is reproduced from, or no run."""
+    import importlib.metadata as md
+    print()
+    print("=" * 60)
+    print("3b. Pinned Toolchain")
+    print("=" * 60)
+
+    def installed(name):
+        try:
+            return md.version(name)
+        except md.PackageNotFoundError:
+            return None
+
+    ok = True
+    if sys.version_info[:2] != PYTHON:
+        print(f"  ERROR: Python {sys.version.split()[0]}; the pins are for {PYTHON[0]}.{PYTHON[1]}.")
+        ok = False
+    wrong = version_mismatches(pinned_versions(), installed)
+    for line in wrong:
+        print(f"  MISMATCH: {line}")
+    if wrong:
+        print("  Install the pinned set: venv/bin/pip install -r finetune/requirements.txt")
+        ok = False
+    elif ok:
+        print(f"  OK: all {len(pinned_versions())} pinned packages at their versions")
+    return ok
 
 
 def check_dataset():
@@ -151,7 +204,7 @@ def main():
 
     cuda_ok, vram_gb = check_cuda()
     unsloth_ok = check_unsloth()
-    deps_ok = check_other_deps()
+    deps_ok = check_other_deps() and check_versions()
     dataset_ok = check_dataset()
 
     # Summary

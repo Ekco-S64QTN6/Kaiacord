@@ -41,6 +41,7 @@ knowledge_base/*/*
 finetune/*
 !finetune/*.py
 !finetune/Modelfile
+!finetune/requirements.txt
 !finetune/*/
 finetune/*/*
 finetune/output/
