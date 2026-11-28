@@ -133,7 +133,9 @@ def open_pcm(path: str, ratio: float = 1.0, gain: float = 0.0, offset: float = 0
 
 
 FRAME_SAMPLES = RATE * FRAME_MS // 1000
-_FRAME_SAMPLE_OFFSETS = np.arange(FRAME_SAMPLES, dtype=np.float32)
+#: float64: the resampler adds these to a read cursor that grows all record;
+#: in float32 it loses whole samples past 2**24 (under six minutes).
+_FRAME_SAMPLE_OFFSETS = np.arange(FRAME_SAMPLES, dtype=np.float64)
 #: The blend: this many beats from the incoming record's first downbeat to the
 #: outgoing record gone. The bass swaps halfway, on a bar.
 MIX_BEATS = 64

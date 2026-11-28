@@ -2784,6 +2784,30 @@ def test_live_jog_bend_defers_automatic_planning_until_neutral(loop_source):
 
 
 
+def test_pitch_resampler_keeps_whole_samples_after_minutes_on_the_bend_path():
+    """The read cursor grows for as long as the bend path is active. Past
+    2**24 samples a float32 position steps by 2, then 4: repeated and skipped
+    samples instead of a resampled ramp."""
+    values = np.arange(30_000, dtype=np.int16)
+    pcm = np.repeat(values, 2).tobytes()
+    deck = Deck(rec("pitch-ramp", 120, "8A"), 1.0, 0.6, lambda *_a, **_k: io.BytesIO(pcm))
+    wait_for(deck, 30)
+    try:
+        assert deck.set_pitch(1.02, immediate=True)
+        for _ in range(3):
+            assert deck.frame()
+        # Twenty minutes on: shift both cursors by a multiple of the ring's size,
+        # so the ring still maps to the same samples.
+        shift = deck._bend_capacity * ((20 * 60 * RATE) // deck._bend_capacity)
+        assert shift > 2 ** 25
+        deck._bend_read_pos += shift
+        deck._bend_write_pos += shift
+        out = np.frombuffer(deck.frame(), dtype=np.int16).reshape(-1, 2)[:, 0].astype(np.int64)
+        assert set(np.diff(out).tolist()) <= {1, 2}
+    finally:
+        deck.close()
+
+
 def test_persistent_pitch_fader_composes_with_live_jog_and_returns_to_its_setting():
     deck = Deck(rec("pitch-ride", 120, "8A"), 1.0, 5.0, tone(1000, 5.0))
     wait_for(deck, 30)
