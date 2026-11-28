@@ -1,5 +1,5 @@
 # Resolved from requirements.txt for CPython 3.12.16 on linux x86_64 (pip 25.0.1). Do not edit by hand.
-# requirements.txt sha256: 2d9612bcfc1b53cddb3aa9f5c4dea070f2cccbc4e82e6a966586ee7086f9fcb7
+# requirements.txt sha256: e2af0855b3c6d46cb7b84bcf7f85d34f35b41560c5d60fadce43298a6961b08c
 # Install: venv/bin/pip install -r requirements.txt -c requirements.lock
 # Regenerate after editing requirements.txt: venv/bin/python3 tools/maintenance/lock_requirements.py --write
 aiohappyeyeballs==2.7.1
@@ -31,7 +31,7 @@ dnspython==2.9.2
 docx2txt==0.9
 filetype==1.2.0
 frozenlist==1.8.0
-fsspec==2026.9.0
+fsspec==2025.9.0
 google-auth==2.63.1
 google-genai==3.6.1
 greenlet==3.5.6

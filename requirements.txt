@@ -36,6 +36,9 @@ llama-index-llms-ollama==0.9.1
 llama-index-embeddings-ollama==0.8.6
 # RAG reads TXT/MD/DOCX directly; PDFs use the isolated shared pypdf worker.
 llama-index-workflows==2.12.2
+# The fine-tune toolchain (finetune/requirements.txt) shares this venv, and its
+# datasets 4.3.0 needs fsspec <= 2025.9.0; llama-index-core needs >= 2023.5.0.
+fsspec>=2023.5.0,<=2025.9.0
 
 # Search & Retrieval
 rank-bm25==0.2.2
