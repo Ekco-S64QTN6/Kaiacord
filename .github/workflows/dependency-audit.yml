@@ -3,6 +3,14 @@ name: Dependency audit
 # Advisories are published on their own schedule, so this runs weekly and
 # whenever the requirements change, never as a check on an unrelated change.
 on:
+  # Changes are pushed straight to main, so a push audits too (report-only:
+  # dependency_audit_report.py blocks only a pull request).
+  push:
+    branches: ["main"]
+    paths:
+      - "requirements.txt"
+      - ".github/workflows/dependency-audit.yml"
+      - "tools/maintenance/dependency_audit_report.py"
   pull_request:
     paths:
       - "requirements.txt"

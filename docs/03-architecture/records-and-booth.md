@@ -116,6 +116,15 @@ size, mtime and ctime so ordinary same-path, same-size replacements with a prese
 invalidate immediately; a full revalidation is forced at least every five minutes to cover
 unusual filesystems. Every map, envelope/level, beat-tick, beatgrid, loudness, graph and booth
 waveform cache must validate this identity and invalidate related in-memory/disk results together.
+
+The change of identity itself invalidated every cache keyed by the old head/tail SHA-1 — all 347
+records in `graph.json` with their measured pairs, and all 346 beat-tick files. The tick files cannot
+be made again on this machine: `beat_ticks.py` needs Essentia under the system Python, and on 28 Nov
+neither `python3` (3.14) nor `python3.12` had it. `tools/maintenance/migrate_record_identity.py` carried
+them over (dry run unless `--apply`): a graph record whose old fingerprint, recomputed, is the stored
+one gets the new identity; a tick file gets it where it was written after the record last changed or
+its tempo is within 4% of the catalog's, with no alternate phase (how it was read before). Run on 28
+Nov: 347 of 347 records, 343 of 346 tick files. Any future change to the identity needs the same.
 Background analyses recheck identity before publishing their result. This is [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408),
 a prerequisite for [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404). Full hashing and
 refresh must stay off the 20 ms voice callback.
@@ -719,3 +728,148 @@ used otherwise. **On Ekco's machine `gst-plugins-good` is not installed (31 Oct)
 the browser fallback.** The booth's fallback (`dj_dashboard._browser`) tries Chromium, then Brave, then
 Google Chrome: Chrome came first, and a Chrome flatpak with wrappers in `~/.local/bin` was opened in place
 of the system Chromium Ekco uses. The monitor plays through Web Audio and falls back to an endless WAV (`/monitor.wav`).
+
+## Engineering rules for the booth and the DJ
+
+These were written into CLAUDE.md with each change (25–27 Nov 2026) and moved here whole; CLAUDE.md keeps
+a summary. They are the contracts the code and tests hold.
+
+- **PFL/headphones use an independent local signal path.** The selected deck has its own `Deck` decoder;
+  the PFL tap applies channel EQ and trim before channel fader, crossfader and program master, and must
+  never consume the program deck's frames. `CrossfadeSource.read()` only dequeues one buffered preview
+  frame and publishes fixed 20 ms PCM to bounded per-client queues. `/phones/stream` is served by an
+  HTTP thread; the booth uses an AudioWorklet at 48 kHz. The equal-power CUE/MASTER blend and monitor
+  level are separate from program controls and must never route browser audio back to Discord.
+- **Memory/hot cues are persistent, audio-identity scoped and frame-safe.** The one memory cue and eight
+  hot cues per deck live in `memory/records/cues.json`, keyed by `audio_identity.audio_signature`, never
+  in `dj_catalog.json`. Empty click stores source time; a filled pad recalls it; Shift-click overwrites;
+  right-click clears. Warm the replacement `Deck` off the renderer, re-check the expected record and
+  transition ownership under `CrossfadeSource._lock`, swap only at the frame boundary, then close the
+  old decoder after releasing the lock. Cue-bank disk access stays on dashboard threads.
+- **Beat loops are bounded, predecoded and use a separate source-time clock.** Only 1/2/4/8-beat loops
+  are currently supported, and only on a counted, bar-known on-air deck with no active or pending
+  transition. Decode the exact loop PCM on the booth request thread (maximum 500 frames); recheck
+  transition ownership before committing it, and never seek or decode in `CrossfadeSource.read()`.
+  `Deck.played` remains monotonic for renderer/transition scheduling; `Deck.at()` alone wraps to the
+  loop's source position. Suppress end planning and tempo glide while the loop is armed/active. Exit
+  must warm both program and selected PFL decoders at the loop end, then swap them together at the next
+  loop boundary. Hot-cue seeks must not replace a deck while its loop or loop-exit handoff owns it.
+  A separate manual slip-roll control now predecodes a counted 1/2/4/8-beat segment off-renderer,
+  repeats it while the live program and selected PFL decoder clocks advance, and crossfades back
+  to the live position over four 20 ms frames. A 600-frame hard cap releases a lost pointer hold.
+  It is not a persistent loop, an autonomous DJ skill, or the full beat-juggling repertoire.
+  The on-air jog platter now supports a manual live nudge: resample decoder PCM from 0.92× to
+  1.08×, keep the source cursor and selected PFL twin in step, and ramp to unity over eight
+  rendered frames on release. The complete hold is capped at 500 frames (10 seconds), even
+  when the gesture crosses the neutral centre; the browser also releases at that limit and on
+  cancellation, blur or page hide. If a reload loses the pointer state, a platter tap acknowledges
+  the engine's completed release latch; pause, skip and KAIA MIX/reset are also explicit hand-backs.
+  Allocate its fixed PCM ring on the booth request thread, not under the render lock. Do not use
+  this as a permanent pitch setting, scratch/backspin control
+  or autonomous skill. A manual tempo-synchronised master echo is one bounded audio effect;
+  it does not imply a general effects bank or autonomous effect skill.
+- **Booth interactions are verified through real browser gestures.** The Playwright suite opens the
+  loopback DJ page in Chromium and uses actual pointer clicks, Shift-clicks and context-menu gestures
+  for cue and loop pads, plus real pointer-held SLIP and live-jog platter gestures. Do not replace
+  these with direct POSTs or DOM event dispatch: the browser test must exercise the page's real
+  event handlers and verify the resulting engine state and live source-clock behavior.
+- **Phrase profiles are evidence, not truth.** Reuse `songmap`'s cached curves and
+  `phrase_profile()` for time-local overall/bass/lead-proxy/upper/transient evidence. The
+  lead curve is not a vocal detector; upper-band energy is limited by its sample rate; spectral
+  flux is not a drum classifier. Treat section labels as candidates with heuristic strength,
+  keep raw time coordinates, and never claim phrase alignment when `bar_known` is false.
+  Path-based profile construction belongs on a background worker, never the audio callback.
+  See [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404).
+- **Keep musical preference separate from measured feasibility.** Set construction may rank only
+  edges already measured as locking by `mixcheck`; `musical_plan.assess_transition()` adds a
+  soft, explainable preference from cached phrase windows and `arc_adjustment()` considers recent
+  roles. A `defer_if_alternative` decision reorders choices, it does not invalidate the technical
+  lock or hard-delete the edge; when no better measured path exists the builder retains a fallback.
+  Unaligned windows may supply time-local proxy features, but never counted section roles. Missing
+  profiles are neutral. Keep `graph.json` decision traces split into technical facts, musical
+  observations and set-arc context. Build profiles only in the background `records_graph.py`
+  process, never in the renderer callback. `SET_METHOD` changes must not bump graph `METHOD`.
+  See [#405](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405).
+- **Keep records listener requests isolated from Strudel and from booth track picks.**
+  `music_handler.py` must route a `request` to `RecordsSession.request()` when records is
+  active and must not resolve/call the Strudel session in that branch; when records is not
+  active, preserve the existing Strudel request behavior. Keep explicit booth track paths in
+  `RecordsSession.requests` and musical intent in the separate `records_intent` slot. The
+  bounded records vocabulary is more/less bass, darker/brighter, build/drop and calmer/harder;
+  vocal/acapella and percussion/drum detection are unsupported and must be declined honestly.
+  Requests are latest-wins, one-shot and expire after 15 minutes. A pick worker already in
+  flight when a request arrives must finish with its prior choice; the new intent may only
+  steer a later autonomous pick. It can reorder the baseline only with meaningful positive
+  profile evidence; weak/contrary/missing evidence preserves the existing set order. This
+  changes a future selection, not the currently playing deck's EQ, tempo or effects. Mark the
+  request selected only after the incoming deck is prepared and a plan is published; never
+  claim the sound changed. Profile work stays on the picker worker, never the 20 ms callback.
+  See [#407](https://github.com/Ekco-S64QTN6/Kaiacord/issues/407).
+
+- **Musical outcome outranks mechanical perfection.** A beat/key/phrase lock or a high compatibility
+  score is a technical prerequisite, never proof of a good DJ transition. A locked pair can still
+  be boring, crowded or emotionally wrong. Judge the musical moment — vocals/hooks, bass, percussion,
+  arrangement, density, energy, tension/release and what the listener needs — and the arc of the
+  whole hour. Kaia must be able to wait, reject a technically valid blend, choose a surprising but
+  coherent partner, cut, contrast, or let a breakdown breathe. Longer blends, more layers, higher
+  energy and more effects are not automatically better.
+- **Keep the records crossfader transfer law explicit and backward-compatible.** `standard` must
+  reproduce the old A/B overlap law exactly. `constant_power` is a cosine/sine equal-power pair;
+  `cut` switches A to B at the defined midpoint. Each deck may be assigned A, B or THRU, with
+  THRU bypassing only the crossfader. Curve and assignment changes ramp from currently applied
+  gains over eight 20 ms frames advanced once under the source render lock; direct fader movement
+  remains immediate. Reject non-finite values and unknown names. Reset must restore standard/A/B.
+  The booth selectors must reflect the server snapshot and their actual values must affect the
+  rendered channel gain. Keep the records-audio path filter watching `assets/dj/index.html` and
+  test the transfer functions and HTTP/UI control routes. PFL, cue banks, beat loops, manual
+  slip rolls, live jog bend and the master echo now have real paths. Do not claim a permanent
+  pitch slider/ride, scratches, further FX, physical headphone/device acceptance or complete
+  #403 parity without those separate paths/evidence.
+
+- **Treat DJ skills as real musical operations, not labels or UI promises.** Every skill needs a
+  purpose, preconditions, timing/phrase rules, bounded parameters, explanation, owned lanes,
+  composition rules and safe cancellation/release. The first `dj_skills.py` catalog may select only
+  current real capabilities: counted build/drop solo EQ moves, explicit no-op breakdown/groove
+  choices, the legacy phrase-EQ fallback, the existing blend headroom/upper-band/air moves and
+  the existing bounded echo-out. Do not infer counted roles from unaligned windows. Profile actions
+  use source-time coordinates; compensate for deck stretch rather than comparing against playback
+  seconds directly. Compile on the profile/planner workers, cap action count, and let the 20 ms
+  renderer evaluate only fixed bounded ramps. Manual booth control owns the touched lane until the
+  explicit KAIA MIX hand-back; automation must ease out and never fight the user. The booth's
+  active skill state must show target parameters, action/phrase bounds and their timebase, plus
+  manual lane ownership, directly from the scheduler; labels alone are not evidence of execution.
+  The manual slip-roll, jog-bend and master-echo primitives are human-operated capabilities only;
+  none is an autonomous skill yet. Do not add them to the skill catalog until phrase-aware action
+  contracts, composition rules, manual ownership and safe release/hand-back are implemented.
+  Permanent pitch rides, scratches, filters, stutters, further FX, vocal/percussion separation and
+  other absent capabilities still require real #403 primitives; never fake them or expose cosmetic controls. Until #403 adds
+  the shared runtime capability registry, the catalog must validate against its conservative
+  current-engine allowlist and must state that this is a bridge,
+  not a dynamic #403 capability model. No implementation or unit test proves musical taste: #402
+  still requires real-crate audition and independent/blind listening assessment.
+- **Evaluate what can be heard.** Unit tests and mixcheck validate technical behavior, not taste.
+  Do not call the DJ goal complete without real-crate listening and independent/blind human
+  assessment of full-set musicality. The present compatibility graph, narrow mixcheck and limited
+  phrase-locked `kaia_hands` gestures are foundations, not expert judgment. Full target and
+  capability list: the sections above.
+  Active work: [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408) (audio-cache identity),
+  [#404](https://github.com/Ekco-S64QTN6/Kaiacord/issues/404) (musical-state profiles),
+  [#405](https://github.com/Ekco-S64QTN6/Kaiacord/issues/405) (set-level musical planning),
+  [#403](https://github.com/Ekco-S64QTN6/Kaiacord/issues/403) (real mixer capabilities),
+  [#406](https://github.com/Ekco-S64QTN6/Kaiacord/issues/406) (skill/action execution),
+  [#407](https://github.com/Ekco-S64QTN6/Kaiacord/issues/407) (records requests), and
+  [#401](https://github.com/Ekco-S64QTN6/Kaiacord/issues/401) (dashboard test coverage). #402
+  remains the parent musical-quality and real-listening acceptance bar.
+- **A record path or mtime is not audio identity.** Every audio-derived cache and decision
+  artifact (maps, envelopes/levels, loudness gain, beat ticks, beatgrid calculations, measured
+  pair edges, derived sets and booth waveforms) must be tied to a robust, versioned source-audio identity. Preserve metadata-only retag
+  reuse, but detect same-path audio replacement even when timestamps and size are preserved.
+  `audio_signature()` now streams a complete BLAKE2 digest of the audio payload (excluding
+  ID3v2/ID3v1 metadata), caches it against device/inode/size/mtime/ctime, and forces a full
+  revalidation at least every five minutes. Revalidate after any background decode before
+  publishing derived results. Keep all full-file hashing off the audio callback.
+  See [#408](https://github.com/Ekco-S64QTN6/Kaiacord/issues/408).
+- **Keep musical intelligence out of the 20 ms callback.** Use cached/background analysis and
+  planning; execute bounded, ramped, phrase-aware operations at safe boundaries. Never put
+  disk/network I/O, unbounded DSP or blocking inference/planning on the voice thread. Preserve
+  the frame/lock invariants fixed in #312 and #317.
