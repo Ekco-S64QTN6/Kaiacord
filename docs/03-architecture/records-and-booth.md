@@ -598,6 +598,10 @@ a mix that sounded wrong:
   one, snapped to a 4-bar phrase). Intros hold the bassline back 8–48 bars; when it comes in later than
   the swap's bar, the incoming starts that many bars into its intro, so the swap never hands the low end
   to a kick alone. A cue set at the booth is never moved for it.
+- **How much must agree** (`music.records_lock_agree`, default 0.6, clamped 0.5–0.95; not in
+  `default_config.yaml`): the share of the bars where both records have a kick that must agree on one lag
+  for a blend to verify, live and for pairs measured from then on. Ekco rated a blend locked on 11 of 16
+  bars rough (25 Nov); 0.7 refuses it and 15% of the measured pairs. Try it in `kaia.yaml` and listen.
 - **Key sync** (`library.key_sync`, `music.records_key_sync`): an incoming that clashes with the key
   on air (`Deck.key`, after any earlier sync) and fits a semitone up or down is shifted by rubberband's
   `pitch`, and stays shifted. Rubberband only — atempo cannot move a key.

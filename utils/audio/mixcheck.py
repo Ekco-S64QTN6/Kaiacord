@@ -81,7 +81,29 @@ def needed(n: int) -> int:
     eight need six (so five and six must all agree, seven needs six), longer
     overlaps AGREE of them. Never more than there are."""
     import math
-    return n if n <= 4 else min(n, max(6, math.ceil(AGREE * n))) if n <= 8 else math.ceil(AGREE * n)
+    agree = agree_share()
+    return n if n <= 4 else min(n, max(6, math.ceil(agree * n))) if n <= 8 else math.ceil(agree * n)
+
+
+_agree_share: Optional[float] = None
+
+
+def agree_share() -> float:
+    """AGREE, or `music.records_lock_agree` where set (read once per process).
+
+    Ekco rated a blend locked on 11 of 16 bars "a little rough on the exit"
+    (25 Nov); at 0.7 that one is refused, and 1,575 of the graph's 10,206 edges
+    (15%) would no longer verify. A setting to try by ear, not a default."""
+    global _agree_share
+    if _agree_share is None:
+        value = AGREE
+        try:
+            from utils.infrastructure.system.yaml_config import config
+            value = float(config.get("music.records_lock_agree", AGREE) or AGREE)
+        except Exception:
+            pass
+        _agree_share = min(0.95, max(0.5, value))
+    return _agree_share
 
 
 #: The second band listened to: claps, snares and hats (2–5 kHz). Where no
