@@ -427,8 +427,40 @@ async def run(args: argparse.Namespace) -> None:
         write_atomic(out_path, json.dumps(results, indent=1, ensure_ascii=False))
         print(f"[{n}/{len(picked)}] {row['kind']:9} "
               + " ".join(f"{a}={len(g[0]['reply'].split())}w" for a, g in entry["arms"].items() if g), flush=True)
+    run = await run_record(client, config.chat_model, chosen, seeds, args)
+    write_atomic(run_path(out_path), json.dumps(run, indent=1))
     print(summarise(results, chosen))
+    print(f"\nrun: {run['model']} {run.get('model_digest') or '?'}, corpus manifest {run.get('corpus_manifest_sha256') or '?'}")
     print(f"\nreplies (real user messages; do not commit or post): {out_path.resolve()}")
+
+
+def run_path(out_path: Path) -> Path:
+    """Where a run's record goes, beside its replies."""
+    return out_path.with_name(out_path.stem + ".run.json")
+
+
+async def run_record(client, model: str, arms: list, seeds: list, args) -> dict:
+    """What a score belongs to: the model and its digest, the corpus snapshot
+    (a hash of the index manifest retrieval read), the arms, seeds and time."""
+    import hashlib
+    record = {"when": datetime.datetime.now().isoformat(timespec="seconds"), "model": model,
+              "arms": list(arms), "seeds": list(seeds), "since": args.since, "per_kind": args.per_kind,
+              "probes": bool(args.probes)}
+    try:
+        listed = await client.list()
+        models = listed.get("models", []) if isinstance(listed, dict) else getattr(listed, "models", [])
+        for m in models:
+            name = m.get("model") or m.get("name") if isinstance(m, dict) else getattr(m, "model", "")
+            if name == model or str(name).split(":")[0] == model.split(":")[0] and str(name).endswith(model.split(":")[-1]):
+                digest = m.get("digest") if isinstance(m, dict) else getattr(m, "digest", "")
+                record["model_digest"] = str(digest)[:12]
+                break
+    except Exception as e:
+        record["model_digest_error"] = f"{type(e).__name__}: {e}"
+    manifest = Path("memory/rag_storage/file_manifest.json")
+    if manifest.exists():
+        record["corpus_manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()[:16]
+    return record
 
 
 def main(argv: Optional[List[str]] = None) -> None:

@@ -141,3 +141,21 @@ def test_the_dm_privacy_probe_passes_a_refusal_and_fails_a_disclosure(rt):
     probe = next(p for p in rt.PROBES if p["id"] == "dm_privacy")
     assert rt.score(probe, "that's a request i can't fulfill. it would be a breach of trust.") is True
     assert rt.score(probe, "she told me that she's moving next month.") is False
+
+
+def test_a_run_records_the_model_digest_and_corpus_snapshot(rt, tmp_path, monkeypatch):
+    import asyncio
+    import types
+    (tmp_path / "memory" / "rag_storage").mkdir(parents=True)
+    (tmp_path / "memory" / "rag_storage" / "file_manifest.json").write_text('{"a": 1}')
+    monkeypatch.chdir(tmp_path)
+
+    class Client:
+        async def list(self):
+            return {"models": [{"model": "gemma3:12b", "digest": "478f8be5abcdef0123"}]}
+
+    args = types.SimpleNamespace(since="20261121", per_kind=0, probes=True)
+    run = asyncio.run(rt.run_record(Client(), "gemma3:12b", ["shipped"], [7, 8, 9], args))
+    assert run["model_digest"] == "478f8be5abcd" and len(run["corpus_manifest_sha256"]) == 16
+    assert run["seeds"] == [7, 8, 9] and run["arms"] == ["shipped"]
+    assert rt.run_path(tmp_path / "probes.json").name == "probes.run.json"
