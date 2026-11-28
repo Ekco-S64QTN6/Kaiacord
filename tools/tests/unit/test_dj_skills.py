@@ -209,6 +209,26 @@ def test_blend_compiler_retains_headroom_exchange_and_outgoing_air_skills():
     }
 
 
+@pytest.mark.parametrize("beats", [32, 64, 96, 128])
+@pytest.mark.parametrize("energy", [0.2, 0.5, 0.9])
+def test_blend_rides_match_the_kaia_hands_moves_they_replaced(beats, energy):
+    """Blends of 64 beats or fewer have no shared-ride window, and the old
+    kaia_hands still eased the outgoing air into the swap there."""
+    from utils.audio import records as R
+    beat = 60.0 / 124.0
+    plan = R.Plan("blend", 100.0, 110.0, beats * beat, beat, 1.0, None, 0.0)
+    scheduler = S.SkillScheduler()
+    scheduler.plan_blend(plan, energy, R.ramp(plan), R.tail(plan))
+    t0 = plan.drop - 2.0
+    while t0 < plan.done + 2.0:
+        times = t0 + np.arange(960, dtype=np.float32) / 48000
+        old, _ = R.kaia_hands(plan, times, energy)
+        new, _, _ = scheduler.render_blend(plan, times, 1, 2)
+        for a, b in zip(old, new):
+            assert np.allclose(a, b, atol=1e-6), (beats, energy, t0)
+        t0 += 0.1
+
+
 def test_blend_manual_override_eases_owned_lane_and_explicit_handback_restores_skill():
     scheduler = S.SkillScheduler()
     plan = _blend_plan()

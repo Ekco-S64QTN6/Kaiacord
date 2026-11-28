@@ -173,7 +173,7 @@ SKILL_CATALOG: dict[str, SkillDefinition] = {
         (("depth", 0.05, 0.12),),
         ("out.high",), ("blend_headroom_ride", "blend_upper_exchange"),
         "the action is tied to one plan and is discarded when that plan is cancelled",
-        "leave the upper band unchanged when the blend is not long enough",
+        "leave the upper band unchanged below the 0.45 energy floor",
         "easing the outgoing upper band toward the bass handoff",
         "blend_envelope",
     ),
@@ -506,21 +506,23 @@ class SkillScheduler:
         swap = float(plan.drop) + float(plan.length) / 2.0
         lo = float(plan.drop) + 2.0 * float(ramp_s)
         hi = swap + float(tail_s) - 2.0 * min(float(ramp_s), float(tail_s) / 2.0)
-        if hi - lo < 16.0 * beat:
-            return
         energy = max(0.0, min(1.0, float(energy)))
-        actions = [
-            self._action("blend_headroom_ride", "out.gain", lo, lo + beat,
-                         hi - beat, hi, STAGE_MULTIPLIER,
-                         "keeping both records a little under the soft limiter"),
-            self._action("blend_headroom_ride", "in.gain", lo, lo + beat,
-                         hi - beat, hi, STAGE_MULTIPLIER,
-                         "keeping both records a little under the soft limiter"),
-            self._action("blend_upper_exchange", "upper_pair", lo, lo + beat,
-                         hi - beat, hi, 0.06 + 0.06 * energy,
-                         "trading a little upper-band prominence every eight bars",
-                         mode="upper_exchange", cycle_s=TRADE_BARS * 4.0 * beat),
-        ]
+        actions = []
+        # The shared ride needs four bars of window; blends of 64 beats or
+        # fewer have none. The air ease into the swap does not depend on it.
+        if hi - lo >= 16.0 * beat:
+            actions += [
+                self._action("blend_headroom_ride", "out.gain", lo, lo + beat,
+                             hi - beat, hi, STAGE_MULTIPLIER,
+                             "keeping both records a little under the soft limiter"),
+                self._action("blend_headroom_ride", "in.gain", lo, lo + beat,
+                             hi - beat, hi, STAGE_MULTIPLIER,
+                             "keeping both records a little under the soft limiter"),
+                self._action("blend_upper_exchange", "upper_pair", lo, lo + beat,
+                             hi - beat, hi, 0.06 + 0.06 * energy,
+                             "trading a little upper-band prominence every eight bars",
+                             mode="upper_exchange", cycle_s=TRADE_BARS * 4.0 * beat),
+            ]
         if energy >= 0.45:
             depth = 0.12 * energy
             actions.append(self._action(
