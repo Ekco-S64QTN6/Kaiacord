@@ -277,6 +277,16 @@ _FUSED_COPULA = re.compile(
     re.IGNORECASE)
 
 
+# A connector left standing alone after a dash, the clause it hung off cut:
+# "the token frequency distribution trick—that's clever, though" cut to "the
+# token frequency distribution trick— though." After a comma it is ordinary
+# ("that's clever, though."), so only the dash, colon and semicolon count.
+_ORPHANED_CONNECTOR = re.compile(
+    r"[\u2014\u2013;:]\s*(?:though|however|too|then|anyway|still|yet|although|but|and|or|so)"
+    r"\s*(?:[.!?\u2026]+|$)(?=\s|$)",
+    re.IGNORECASE)
+
+
 def _quote_imbalance(text: str) -> int:
     """Unpaired quotation marks: an odd count of straight ones, and the
     difference between opening and closing curly ones."""
@@ -298,8 +308,9 @@ def excision_broke_grammar(before: str, after: str) -> bool:
     4. A quotation emptied or left open. `than simply saying "you're right."`
        is her *mentioning* the phrase, and cut it shipped `than simply saying "`.
     5. A sentence left ending on a word that led into what was cut
-       (`"thank you for."`), or a linking verb fused onto the next clause
-       (`"it's my earlier analysis …"`), more often than the original had one.
+       (`"thank you for."`, `"trick— though."`), or a linking verb fused onto
+       the next clause (`"it's my earlier analysis …"`), more often than the
+       original had one.
     """
     if not after:
         return False
@@ -311,7 +322,7 @@ def excision_broke_grammar(before: str, after: str) -> bool:
         return True
     if _STRANDED_COPULA.search(after) and not _STRANDED_COPULA.search(before or ""):
         return True
-    for shape in (_DANGLING_END, _FUSED_COPULA):
+    for shape in (_DANGLING_END, _FUSED_COPULA, _ORPHANED_CONNECTOR):
         if len(shape.findall(after)) > len(shape.findall(before or "")):
             return True
     return bool(set(_WORDS.findall(after.lower()))
@@ -413,7 +424,9 @@ class BotSpeakFilter:
         r"my\s+knowledge\s+cutoff",
         r"I\s+don't\s+have\s+personal\s+opinions",
         r"How\s+can\s+I\s+help\s+you\s+today\?",
-        r"\b(sentient\s+)?digital\s+entity\b",
+        # Her describing herself as one, not the phrase: a quip about making
+        # "a digital entity feel real" lost that sentence twice in November.
+        r"\b(?:i\s+am|i['\u2019]m|as|being)\s+(?:just\s+|only\s+)?an?\s+(?:sentient\s+)?digital\s+entity\b",
         # Bot-speak patterns from correction log incidents
         r"\brecalibrat(e|ing)\b",
         r"\bdiagnostic\s+review\b",
@@ -1047,8 +1060,10 @@ class BotSpeakFilter:
         # 5. Enforce lowercase on all prose (excluding code, urls, disclaimers)
         cleaned = cls.smart_lowercase(cleaned)
         
-        # Post-harden guard: If the response was truncated to nonsense (< 3 chars), fail it
-        if len(cleaned) < 3:
+        # Post-harden guard: a response the filters cut to under three characters
+        # is nonsense. One she wrote that short is a reply: "?" answering a
+        # game of "?" was emptied three times into the drawing-a-blank fallback.
+        if len(cleaned) < 3 and (not cleaned or len(text.strip()) >= 3):
             log_warning(f"[BAIT_GUARD] Truncated output to < 3 chars, returning empty string to trigger retry. Original: '{text}'")
             return ""
             

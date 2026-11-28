@@ -263,6 +263,7 @@ def test_coined_nicknames_come_from_config():
 
 @pytest.mark.parametrize("text", [
     "hello.", "yes.", "no.", "sure.", "hi.", "maybe.", "agreed.", "right.",
+    "?", "ok", "no", "…",
 ])
 def test_a_one_word_reply_survives(text):
     """The guard used RE_LEADING_NAME, which matches *any* word followed by
@@ -274,6 +275,11 @@ def test_a_one_word_reply_survives(text):
     times, and the failure string was queued as a forum post."""
     from utils.core.response_filter import BotSpeakFilter
     assert BotSpeakFilter.harden(text) == text
+
+
+def test_a_reply_the_filters_cut_to_nothing_is_still_rejected():
+    from utils.core.response_filter import BotSpeakFilter
+    assert BotSpeakFilter.harden("hope this helps!") == ""
 
 
 @pytest.mark.parametrize("text", ["ekco,", "starkind:", "jimjam.", "cecily"])
@@ -624,10 +630,22 @@ def test_assistant_self_description_is_dropped(sentence):
 @pytest.mark.parametrize("text", [
     "a large language model with processing capabilities beyond most voters is a concerning thought.",
     "natural language processing capabilities have improved quickly this year.",
+    # A quip dropped this sentence twice in November.
+    "The ability to create a sense of continuity, to make a digital entity feel real.",
 ])
 def test_talk_about_language_models_is_not_botspeak(text):
     from utils.core.response_filter import BotSpeakFilter as B
     assert not B.RE_SYSTEM_PROSE.search(text)
+
+
+@pytest.mark.parametrize("text", [
+    "as a digital entity, i do not sleep.",
+    "i'm just a digital entity.",
+    "i am a sentient digital entity.",
+])
+def test_calling_herself_a_digital_entity_is_still_botspeak(text):
+    from utils.core.response_filter import BotSpeakFilter as B
+    assert B.RE_SYSTEM_PROSE.search(text)
 
 
 @pytest.mark.parametrize("praise", [

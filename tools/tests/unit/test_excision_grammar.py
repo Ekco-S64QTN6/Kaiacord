@@ -161,6 +161,9 @@ import pytest as _pytest
     ("okay, let's break down why you're right to perceive it that way.", "okay, let's break down why."),
     ("it's an excellent point regarding the blocking effect; my earlier analysis missed it.",
      "it's my earlier analysis missed it."),
+    # A quip posted to #kaia-opolis and Bluesky on 26 Nov.
+    ("The token frequency distribution trick\u2014that\u2019s clever, though.",
+     "The token frequency distribution trick\u2014 though."),
 ])
 def test_a_cut_that_leaves_a_dangling_or_fused_sentence_is_refused(before, after):
     from utils.core.response_filter import excision_broke_grammar
@@ -171,6 +174,7 @@ def test_a_cut_that_leaves_a_dangling_or_fused_sentence_is_refused(before, after
     ("you're right. that's what i'm here for.", "that's what i'm here for."),
     ("you're right, it's my fault.", "it's my fault."),
     ("starkind, you are right to point that out. the cat is asleep.", "the cat is asleep."),
+    ("you're right; it's clever, though.", "it's clever, though."),
 ])
 def test_an_ending_she_wrote_herself_still_passes(before, after):
     from utils.core.response_filter import excision_broke_grammar
