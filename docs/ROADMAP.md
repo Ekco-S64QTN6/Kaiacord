@@ -12,7 +12,6 @@ call**, or **No** (researched and declined, with the reason). Closed work is in 
 |:--|:--|:--|:--|
 | **Twitch chat** | Kaia in the owner's Twitch chat (IRC over TLS/WebSocket with a bot account's OAuth token). | 1–2 days | Yes, when the owner says go |
 | **UV-K5 as a scanner receiver** | The Quansheng UV-K5 alongside or instead of the RTL-SDR. It demodulates inside the radio and sends no IQ, so it needs an audio path (an AIOC, or a cable into a USB sound card). Receive only: Kaia never transmits. | 1 day once the audio path exists | Yes; blocked on hardware |
-| **Clause excision fragments** | Four shapes still survive in logged sentences (none sent recently): a cut that leaves a clause ending on "for", "to" or "why", or fuses "it's" onto the next clause. `excision_broke_grammar` should keep the original for them. | 1–2 h | Yes, next; measure over the logged matches first |
 | **Her self-written notes in the analyst register** | The identity stream, impressions, anchors and beliefs she writes overnight use the vocabulary her persona bans, and they are injected every turn. The fix is in the dream and impression writing prompts. | 2 h | Yes, on the owner's word |
 | **Verdicts on a member's state of mind** | Asked by one member to assess another, she judged a real person's mental state. The dream rule against diagnosing people does not cover live replies; it needs a grounding fact, not another negative instruction. | 1–2 h | Yes; the owner words it |
 

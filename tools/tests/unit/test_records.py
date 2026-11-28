@@ -3004,3 +3004,21 @@ def test_pfl_can_be_rebuilt_at_a_steady_non_unity_pitch(headphone_source):
     assert not preview.pitch_ramping
     assert preview.at() == pytest.approx(program.at(), abs=1 / R.FRAMES_PER_S)
 
+
+
+def test_stalls_are_logged_with_their_time_by_the_watcher_not_the_voice_thread(monkeypatch):
+    """A set's summary had only totals (59 underruns in three hours, 25 Nov);
+    the watcher now logs each 15 s that had one."""
+    logged = []
+    monkeypatch.setattr(R, "log_warning", logged.append)
+    session = object.__new__(R.RecordsSession)
+    session.source = None
+    session.voice_source = types.SimpleNamespace(underruns=0, late_count=0, worst_late=0.0, low_water=15)
+    session._note_stalls()
+    assert logged == []
+    session.voice_source.underruns, session.voice_source.late_count = 3, 1
+    session.voice_source.worst_late, session.voice_source.low_water = 0.143, 0
+    session._note_stalls()
+    assert len(logged) == 1 and "3 buffer underrun(s), 1 late voice callback(s), worst 143 ms" in logged[0]
+    session._note_stalls()
+    assert len(logged) == 1

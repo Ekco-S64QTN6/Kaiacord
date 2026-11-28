@@ -4612,6 +4612,7 @@ class RecordsSession:
         while not self._closing:
             await asyncio.sleep(15)
             await asyncio.to_thread(self._feel)
+            self._note_stalls()
             people = self._humans()
             self.listeners_seen.update(people)
             if people:
@@ -4625,6 +4626,26 @@ class RecordsSession:
             if not self.vc.is_playing() and not self._closing:
                 await self.stop()
                 return
+
+    #: Last counts `_note_stalls` reported: (underruns, late callbacks).
+    _stall_seen = (0, 0)
+
+    def _note_stalls(self) -> None:
+        """Log underruns and late voice callbacks since the last look, with the
+        time, from the watcher (the voice callback must not log). The set's
+        closing summary had only totals: 59 underruns in a 3-hour set on 25 Nov,
+        and nothing to say when they happened or what else was running then."""
+        vs = self.voice_source
+        if vs is None:
+            return
+        under, late = getattr(vs, "underruns", 0), getattr(vs, "late_count", 0)
+        seen_under, seen_late = self._stall_seen
+        self._stall_seen = (under, late)
+        if under > seen_under or late > seen_late:
+            now = self.now.name if self.now else "?"
+            log_warning(f"[records] stalled in the last 15 s: {under - seen_under} buffer underrun(s), "
+                        f"{late - seen_late} late voice callback(s), worst {getattr(vs, 'worst_late', 0) * 1000:.0f} ms "
+                        f"so far, buffer low {getattr(vs, 'low_water', '?')} frames; playing {now}")
 
     def skip(self) -> None:
         self.after_load(lambda: self.source.skip() if self.source else None)
