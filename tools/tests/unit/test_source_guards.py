@@ -26,8 +26,13 @@ def test_a_records_start_tears_down_whatever_it_built_before_play():
 
 
 def test_the_ebook_converter_cannot_hang_on_a_bad_file():
+    """Both converters run under the bounded runner (wall clock, CPU, output);
+    test_ingress_conversion_limits exercises it."""
+    from tools.maintenance import ebook_to_kb_md as E
     src = (ROOT / "tools/maintenance/ebook_to_kb_md.py").read_text(encoding="utf-8")
-    assert src.count("timeout=600") == 2
+    assert src.count("_run_bounded(") == 3            # the runner and its two callers
+    assert "subprocess.run(" not in src.split("def _run_bounded")[1].split("def extract_text")[0]
+    assert 0 < E.CONVERT_WALL_S <= 600 and 0 < E.CONVERT_CPU_S <= E.CONVERT_WALL_S
 
 
 def test_the_convert_menu_takes_a_folder_name_not_a_path():

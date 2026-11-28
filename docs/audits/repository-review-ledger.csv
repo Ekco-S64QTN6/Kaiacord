@@ -400,7 +400,7 @@ tools/tests/unit/test_social_context_standalone.py,30b6d20311765f71ed591a5d5c424
 tools/tests/unit/test_social_mention_channel.py,991340ef098379d639d21b7bea1dd0d687686809,693,test,medium,not_reviewed,,,
 tools/tests/unit/test_social_tracker.py,5ba4397dae57d6d54181feee065d68e162b826f7,8152,test,medium,not_reviewed,,,
 tools/tests/unit/test_songmap.py,c566f95c450aff2b6dd6af173e442e92ad95f016,11424,test,medium,not_reviewed,,,
-tools/tests/unit/test_source_guards.py,d849323f8a7a726559c8cb6e82e7bafce49135d6,1426,test,medium,not_reviewed,,,
+tools/tests/unit/test_source_guards.py,6bce491272c09751851314e74e1061731d207059,1838,test,medium,not_reviewed,,,
 tools/tests/unit/test_speaker_heuristics.py,2a4307c22fb2449bcbec623a8ccf13165ef98c62,1893,test,medium,not_reviewed,,,
 tools/tests/unit/test_spectrogram.py,038ca8557236e7587beb07f1a8a70cc3736922b1,1893,test,medium,not_reviewed,,,
 tools/tests/unit/test_spine_persistence.py,206d9abcfa4cd5d1aa455446f40ff3eedd9c5ec2,1052,test,medium,not_reviewed,,,
