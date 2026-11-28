@@ -78,6 +78,62 @@ def _require(tool: str, hint: str) -> None:
         sys.exit(f"error: '{tool}' is required for this input type.\n       {hint}")
 
 
+#: Ceilings for the converter children. A book's text is a few MB; these leave
+#: room for any real one and stop a malformed or hostile file from taking the
+#: machine: CPU seconds, address space (pdftotext; pandoc caps its own heap
+#: with +RTS -M, its runtime reserves address space up front), captured output.
+CONVERT_CPU_S = 300
+CONVERT_WALL_S = 600
+PDFTOTEXT_ADDRESS_SPACE = 2 * 1024 ** 3
+PANDOC_HEAP = "2G"
+MAX_OUTPUT_BYTES = 32 * 1024 ** 2
+
+
+def _run_bounded(cmd: list, *, address_space: int = 0) -> tuple[int, str, str]:
+    """(returncode, stdout, stderr) of a converter run under the ceilings above.
+    Output past MAX_OUTPUT_BYTES or a run past CONVERT_WALL_S kills it."""
+    import threading
+
+    def limits():
+        import resource
+        resource.setrlimit(resource.RLIMIT_CPU, (CONVERT_CPU_S, CONVERT_CPU_S + 5))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        if address_space:
+            resource.setrlimit(resource.RLIMIT_AS, (address_space, address_space))
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=limits)
+    err = bytearray()
+
+    def drain():
+        while chunk := proc.stderr.read(65536):
+            if len(err) < 65536:
+                err.extend(chunk[:65536 - len(err)])
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    timer = threading.Timer(CONVERT_WALL_S, proc.kill)
+    timer.start()
+    out = bytearray()
+    too_much = False
+    try:
+        while chunk := proc.stdout.read(65536):
+            out.extend(chunk)
+            if len(out) > MAX_OUTPUT_BYTES:
+                too_much = True
+                proc.kill()
+                break
+    finally:
+        proc.wait()
+        timer.cancel()
+        reader.join(5)
+        proc.stdout.close()
+        proc.stderr.close()
+    if too_much:
+        return -1, "", f"output passed {MAX_OUTPUT_BYTES // 1024 ** 2} MB"
+    return (proc.returncode, out.decode("utf-8", errors="replace"),
+            err.decode("utf-8", errors="replace"))
+
+
 def extract_pandoc(path: Path) -> tuple[str, dict]:
     """Convert via pandoc and return (markdown, ebook_metadata).
 
@@ -85,13 +141,13 @@ def extract_pandoc(path: Path) -> tuple[str, dict]:
     is parsed for title/author before clean_markup() strips it. One invocation, not two.
     """
     _require("pandoc", "Install with: sudo pacman -S pandoc")
-    proc = subprocess.run(
-        ["pandoc", "-s", "-t", _PANDOC_MD, "--wrap=none", "--strip-comments", str(path)],
-        capture_output=True, text=True, timeout=600,
+    code, out, err = _run_bounded(
+        ["pandoc", "+RTS", f"-M{PANDOC_HEAP}", "-RTS",
+         "-s", "-t", _PANDOC_MD, "--wrap=none", "--strip-comments", str(path)],
     )
-    if proc.returncode != 0:
-        sys.exit(f"error: pandoc failed on {path.name}:\n{proc.stderr.strip()}")
-    return proc.stdout, parse_yaml_head(proc.stdout)
+    if code != 0:
+        sys.exit(f"error: pandoc failed on {path.name}:\n{err.strip()}")
+    return out, parse_yaml_head(out)
 
 
 def parse_yaml_head(text: str) -> dict:
@@ -124,14 +180,14 @@ def extract_pdf(path: Path) -> str:
     document's own reading order.
     """
     _require("pdftotext", "Install poppler: sudo pacman -S poppler")
-    proc = subprocess.run(
-        ["pdftotext", "-nopgbrk", "-q", str(path), "-"],
-        capture_output=True, text=True, timeout=600,
-    )
-    if proc.returncode != 0 or not proc.stdout.strip():
+    code, out, err = _run_bounded(["pdftotext", "-nopgbrk", "-q", str(path), "-"],
+                                  address_space=PDFTOTEXT_ADDRESS_SPACE)
+    if code != 0 and err:
+        sys.exit(f"error: pdftotext failed on {path.name}: {err.strip()}")
+    if code != 0 or not out.strip():
         sys.exit(f"error: pdftotext produced no text for {path.name} "
                  f"(scanned image PDF? OCR is out of scope).")
-    return proc.stdout
+    return out
 
 
 def extract_text(path: Path) -> str:

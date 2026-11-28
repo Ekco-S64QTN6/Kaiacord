@@ -191,6 +191,10 @@ def drop_leading_title(body: str, title: str) -> str:
 # Extensions the ebook converter can read. A file dropped into _ingress/ by
 # hand is usually one of these rather than markdown.
 CONVERTIBLE = {".pdf", ".txt", ".html", ".htm", ".epub", ".docx", ".rtf"}
+#: A hand-staged file larger than this is not converted (the same input
+#: ceiling as the PDF worker). The converters have their own CPU, memory and
+#: output ceilings (ebook_to_kb_md._run_bounded).
+RAW_MAX_BYTES = 50 * 1024 * 1024
 
 
 def convert_staged_file(path: Path, dry_run: bool) -> tuple:
@@ -208,6 +212,12 @@ def convert_staged_file(path: Path, dry_run: bool) -> tuple:
     ext = path.suffix.lower()
     if ext not in CONVERTIBLE:
         return False, f"unsupported extension {ext or '(none)'}"
+    try:
+        size = path.stat().st_size
+    except OSError as e:
+        return False, f"cannot read it: {e}"
+    if size > RAW_MAX_BYTES:
+        return False, f"too large to convert ({size / 1024 ** 2:.0f} MB; the limit is {RAW_MAX_BYTES // 1024 ** 2} MB)"
 
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
