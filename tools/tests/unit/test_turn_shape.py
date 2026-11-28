@@ -14,7 +14,18 @@ def test_a_passing_remark_is_an_aside(text):
 
 
 @pytest.mark.parametrize("text", [
+    "how are you kaia?", "Kaia, how's it going?", "hey what's up?", "you okay kaia?",
+    "how have you been?", "how's your night?",
+])
+def test_a_check_in_is_a_passing_remark_even_as_a_question(text):
+    """"how are you kaia?" drew 407 words as a question (25 Nov)."""
+    assert turn_shape.kind_of(text) == "aside"
+    assert "a line or two" in turn_shape.note_for(text)
+
+
+@pytest.mark.parametrize("text", [
     "kaia what day is it", "is there anything to output?", "who wrote neuromancer?",
+    "how are you feeling about the dream you had?", "what's up with the scanner?",
 ])
 def test_a_short_question_is_recognised_and_left_alone(text):
     assert turn_shape.kind_of(text) == "question"

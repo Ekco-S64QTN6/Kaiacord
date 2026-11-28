@@ -60,6 +60,20 @@ _QUESTION_OPENER = re.compile(
 )
 
 
+# A social check-in is a passing remark even with a question mark on it. As
+# questions they got no note: "how are you kaia?" drew 407 words (25 Nov);
+# the same check-ins typed without the "?" got 12-58 as asides.
+_CHECK_IN = re.compile(
+    r"^(?:(?:hey|hi|hello|yo|ok|so)\s+)?(?:"
+    r"how\s+(?:are|r)\s+(?:you|u|ya)(?:\s+(?:doing|feeling|today|tonight|now))?"
+    r"|how(?:['’]?s|\s+is)\s+(?:it\s+going|everything|things|life|your\s+(?:day|night|evening|morning))"
+    r"|how\s+have\s+you\s+been|how\s+(?:you|ya)\s+(?:doing|been)"
+    r"|what['’]?s\s+up|sup|wyd|what\s+are\s+you\s+up\s+to|(?:are\s+)?you\s+(?:good|ok|okay|alright)"
+    r")$",
+    re.IGNORECASE,
+)
+
+
 def typed_words(own_words: str) -> list:
     """The words the speaker typed: no links, no mentions, not her name used to call her."""
     text = _MENTION.sub(" ", _URL.sub(" ", own_words or ""))
@@ -81,6 +95,8 @@ def kind_of(own_words: str) -> str:
         return "invitation"
     if len(words) >= LONG_WORDS:
         return "long"
+    if _CHECK_IN.match(" ".join(words)):
+        return "aside"
     if "?" in text or _QUESTION_OPENER.match(" ".join(words)):
         return "question" if len(words) <= QUICK_QUESTION_WORDS else "statement"
     if len(words) <= ASIDE_WORDS:

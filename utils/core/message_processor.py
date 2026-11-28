@@ -1865,10 +1865,13 @@ class MessageProcessor:
                 _own = ctx.own_words or ""
                 _given = "\n".join(str(m.get("content", "")) for m in messages[:-1])
                 _given += "\n" + str(messages[-1].get("content", "")).replace(_own, " ", 1)
+                _seen = {}
+                if self.bot_state is not None and hasattr(self.bot_state, "last_seen_by_name"):
+                    _seen = self.bot_state.last_seen_by_name()
                 _ground = grounding_notes.notes_for(
                     _own, has_picture=bool(messages[-1].get("images")),
                     tried_pictures=bool(attachments_to_process), given=_given,
-                    history=messages[:-1])
+                    history=messages[:-1], last_seen=_seen if isinstance(_seen, dict) else {})
                 if _ground:
                     messages[-1]["content"] += f"\n\n{_ground}"
                     log_info(f"[grounding_notes] {_ground[:60]}…")

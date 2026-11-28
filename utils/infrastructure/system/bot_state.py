@@ -619,6 +619,16 @@ class BotState:
             for old_id in sorted_ids[:100]:
                 del self.relationships[old_id]
 
+    def last_seen_by_name(self) -> dict:
+        """Display name -> the last time that person spoke to her (newest per name)."""
+        with self._lock:
+            out = {}
+            for rel in self.relationships.values():
+                name, ts = rel.get('display_name') or '', rel.get('last_seen') or 0
+                if name and ts > out.get(name, 0):
+                    out[name] = ts
+            return out
+
     def set_open_loop(self, user_id, text: str) -> bool:
         """Record (or clear, with "") the open loop to ask a known person about."""
         with self._lock:

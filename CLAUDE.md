@@ -482,7 +482,8 @@ voice intact. The same note on short questions was tried and dropped: 3 of 12 re
 capitalised or in assistant phrasing, and scene questions went flat. Do not add length advice to another injection; the hour's note is
 tone only. The conversational-fatigue note ("your responses should be getting shorter" from
 a session's fifteenth message) was removed on Ekco's word, 21 Nov: it was on 41 of 85 replies on 18 Nov, the day
-Starkind said she seemed off. A new cue that should offer room goes in `_INVITATION`, checked against her logs first. Ekco reversed his 12 Nov removal on 13 Nov: replies had become long again (a forwarded post she could not read drew 448 words), and "a line or two" on passing remarks had worked before.
+Starkind said she seemed off. A new cue that should offer room goes in `_INVITATION`, checked against her logs first; a social check-in
+("how are you kaia?", 407 words on 25 Nov) is a passing remark whatever its punctuation (`_CHECK_IN`). Ekco reversed his 12 Nov removal on 13 Nov: replies had become long again (a forwarded post she could not read drew 448 words), and "a line or two" on passing remarks had worked before.
 
 **What she can't see or can't place, she is told beside the message** (`utils/core/grounding_notes.py`). Asked
 about a picture that never reached her, she described a sunset three times in three; asked who said an invented line,
@@ -493,6 +494,8 @@ load keeps the vision note, Q40; a picture among the last six user turns is the 
 quoted line she is asked to attribute is in nothing she was given. Replayed
 (`tools/maintenance/replay_turns.py --probes`, three seeds): 0/3 to 3/3 on both, Gibson and Shakespeare still named.
 A note that only said "never guess a name" made her forget Hamlet; keep the escape for lines everyone knows.
+Asked when someone last spoke ("when was the last message from Jimjam?": "about an hour ago", 25 Nov; it was
+6 Oct), the note gives the date she has (`last_seen_note`, from `BotState.last_seen_by_name`), for a name she knows only.
 A link that answers with only a browser check (a `share.google` link: "If you're having trouble accessing Google
 Search…") counts as a page that would not load (`context_enricher._is_shell_page`); handed the notice as the page,
 she described what it "categorises" (14 Nov).

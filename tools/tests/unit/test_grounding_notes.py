@@ -112,3 +112,37 @@ def test_the_picture_just_shared_is_the_one_meant():
           [{"role": "user", "content": f"Starkind: line {i}"} for i in range(g.RECENT_PICTURE_TURNS)]
     assert g.notes_for(words, has_picture=False, tried_pictures=False,
                                      given="", history=old) == g.PICTURE_NOTE
+
+
+_SEEN = {"Jimjam": 1791322223.0, "GuardNGnowm": 1795800000.0}
+_NOW = 1795900000.0
+
+
+@pytest.mark.parametrize("asked", [
+    "Kaia when was the last message from Jimjam?",      # 25 Nov: she said "about an hour ago"
+    "have you seen jimjam lately", "where has Jimjam been?", "when was the last time jimjam was here",
+])
+def test_a_question_about_when_someone_last_spoke_gets_the_date_she_has(asked):
+    from utils.core.grounding_notes import last_seen_note
+    note = last_seen_note(asked, _SEEN, _NOW)
+    assert "Jimjam last spoke to you on Tuesday 6 October (52 days ago)" in note
+    assert "don't make it up" in note
+
+
+@pytest.mark.parametrize("text", [
+    "when was the last message from the server?", "last time i checked it was fine",
+    "when did you last eat", "have you seen the new trailer", "where has everyone been?",
+])
+def test_no_last_seen_note_without_a_name_she_knows(text):
+    from utils.core.grounding_notes import last_seen_note
+    assert last_seen_note(text, _SEEN, _NOW) == ""
+
+
+def test_last_seen_by_name_keeps_the_newest_per_name(tmp_path):
+    from utils.infrastructure.system.bot_state import BotState
+    state = BotState(state_file=str(tmp_path / "bot_state_seen.json"))
+    state.relationships = {"1": {"display_name": "Jimjam", "last_seen": 100.0},
+                           "2": {"display_name": "Jimjam", "last_seen": 200.0},
+                           "3": {"display_name": "", "last_seen": 300.0}}
+    assert state.last_seen_by_name() == {"Jimjam": 200.0}
+    state.close()
