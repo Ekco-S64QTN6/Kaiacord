@@ -51,6 +51,23 @@ def wait_for_bot_shutdown(bot_thread, dashboard_process, logger,
     return True
 
 
+def _release_ollama_after_shutdown(clean: bool) -> None:
+    """Unload the models and stop their runners, once the bot is done with them.
+
+    An incomplete shutdown (a task still running past its deadline, the bot
+    thread still alive) left its resources in use on purpose; unloading the
+    models and killing runners underneath it is what that teardown skipped.
+    """
+    if not clean:
+        log_warning("Ollama models and runners left as they are: the bot's shutdown did not finish.")
+        return
+    try:
+        from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
+        kill_orphaned_runners()
+    except Exception:
+        pass
+
+
 def _run_dashboard_process(shared_stats, log_queue, stop_event, error_queue):
     """Entry point for the isolated dashboard process."""
     try:
@@ -488,13 +505,8 @@ class DashboardManager:
             except Exception:
                 pass
             
-            # ALWAYS kill orphaned Ollama runners (synchronous, no IPC needed)
-            try:
-                from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
-                kill_orphaned_runners()
-            except Exception:
-                pass
-            
+            _release_ollama_after_shutdown(clean)
+
             self.logger.set_dashboard_mode(False)
             try:
                 # \033[0m    - Reset all attributes
@@ -540,13 +552,8 @@ class DashboardManager:
                 print(f"\n❌ Error in simple mode: {e}")
                 failed = True
         finally:
-            # ALWAYS kill orphaned Ollama runners (synchronous, no IPC needed)
-            try:
-                from utils.infrastructure.gpu.clear_gpu_memory import kill_orphaned_runners
-                kill_orphaned_runners()
-            except Exception:
-                pass
-                
+            _release_ollama_after_shutdown(shutdown_manager._shutdown_complete.is_set())
+
             self.logger.set_dashboard_mode(False)
             sys.__stdout__.write("\n[SUCCESS] Kaia has entered hibernation.\n")
             sys.__stdout__.flush()

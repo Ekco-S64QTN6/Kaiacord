@@ -140,6 +140,33 @@ def stop_and_reap(proc, grace: float, kill_wait: float = 5.0) -> bool:
         return False
 
 
+def _is_ollama_runner(proc_name: str, cmd_str: str) -> bool:
+    """An Ollama model runner: `ollama runner …` in older releases, and
+    `/usr/lib/ollama/llama-server --model …/blobs/sha256-…` since. The daemon
+    itself (`ollama serve`) is not one."""
+    if "ollama" not in proc_name and "ollama" not in cmd_str:
+        return False
+    return "runner" in cmd_str or "llama-server" in proc_name or "llama-server" in cmd_str
+
+
+def _runners_to_stop(processes, preserved_digests, current_pid):
+    """The Ollama runners to stop: every one but this process and those serving
+    a preserved model (its blob digest is in the runner's command line;
+    killing that runner is the reload preserving the model was meant to avoid)."""
+    import psutil
+    for proc in processes:
+        try:
+            cmd_str = ' '.join(proc.info.get('cmdline') or []).lower()
+            proc_name = (proc.info.get('name') or '').lower()
+            if not _is_ollama_runner(proc_name, cmd_str) or proc.info['pid'] == current_pid:
+                continue
+            if any(digest and digest.lower() in cmd_str for digest in preserved_digests):
+                continue
+            yield proc
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+
 def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, force_all: bool = False):
     """Aggressively unload VRAM via sync HTTP, then kill any lingering ollama runners."""
     import psutil
@@ -150,6 +177,7 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, 
 
     # 1. Graceful Synchronous Unload (Bypasses active async event loops)
     log_info(f"🔄 Ensuring all models are flushed from VRAM via HTTP (force_all={force_all})...")
+    preserved_digests = set()
     try:
         # Check what's ACTUALLY running instead of all installed tags
         req = urllib.request.Request("http://127.0.0.1:11434/api/ps", method="GET")
@@ -167,6 +195,8 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, 
                      # CRITICAL: Verify it's actually in VRAM, not sitting in CPU
                      if model_info.get("size_vram", 0) > 0:
                          log_info(f"  ✅ Preserving {name} (already resident in VRAM with {ctx_len} ctx)")
+                         if model_info.get("digest"):
+                             preserved_digests.add(str(model_info["digest"]).removeprefix("sha256:"))
                          continue
                      else:
                          log_info(f"  ⚠️  Model {name} found but resident in CPU. Triggering unload...")
@@ -189,19 +219,12 @@ def kill_orphaned_runners(preserve_model: str = None, preserve_ctx: int = None, 
         log_info(f"  ⚠️ Could not ping Ollama daemon for flush: {e}")
 
     # 2. Hard Kill lingering rogue runners
-    current_pid = os.getpid()
     still_running = []
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+    for proc in _runners_to_stop(psutil.process_iter(['pid', 'name', 'cmdline']),
+                                 preserved_digests, os.getpid()):
         try:
-            cmdline = proc.info.get('cmdline') or []
-            cmd_str = ' '.join(cmdline).lower()
-            proc_name = proc.info['name'].lower()
-            
-            if 'ollama' in proc_name or 'ollama' in cmd_str:
-                if 'runner' in cmd_str:
-                    if proc.info['pid'] != current_pid:
-                        if not stop_and_reap(proc, grace=2.0):
-                            still_running.append(proc.info['pid'])
+            if not stop_and_reap(proc, grace=2.0):
+                still_running.append(proc.info['pid'])
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
