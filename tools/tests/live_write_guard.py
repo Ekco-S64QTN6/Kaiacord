@@ -24,7 +24,10 @@ _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 current_test = "<collection>"
 offences: dict = {}
 _lock = threading.Lock()
-_root = os.getcwd() + os.sep
+# The checkout, from this file: pytest may be run from anywhere
+# (`pytest -c /path/to/pytest.ini /path/to/tests`), and a root taken from the
+# working directory then called every write into the checkout harmless.
+_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + os.sep
 
 
 def live_path(path) -> str:

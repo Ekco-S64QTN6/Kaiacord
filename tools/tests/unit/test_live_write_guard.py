@@ -82,3 +82,21 @@ def test_the_shared_bot_state_is_redirected():
     from utils.infrastructure.system.bot_state import BotState, bot_state
     assert ".test" in bot_state.state_file
     assert ".test" in BotState().state_file
+
+
+def test_the_root_is_the_checkout_wherever_pytest_was_started(tmp_path):
+    """A root taken from the working directory missed every live write when the
+    suite ran from elsewhere. Only classifies a path that does not exist."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    checkout = Path(guard.__file__).resolve().parents[2]
+    probe = checkout / "memory" / "no_such_fixture_for_the_guard.json"
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]); import live_write_guard as g; "
+         "print(g.live_path(sys.argv[2]))",
+         str(checkout / "tools" / "tests"), str(probe)],
+        cwd=tmp_path, capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == os.path.join("memory", "no_such_fixture_for_the_guard.json")
+    assert not probe.exists()
