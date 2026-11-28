@@ -809,6 +809,39 @@ def _scan_wanted() -> bool:
     return within_hours() or listening_along() or bool(asked())
 
 
+async def _reap_watcher(proc, stop) -> tuple:
+    """Stop the watcher child and wait for it: (gone, cancelled meanwhile).
+
+    The joins run to their end through a cancellation (a cancelled to_thread()
+    leaves the join running and the caller would release the dongle early).
+    """
+    if proc is None or not proc.is_alive():
+        return True, False
+    cancelled = False
+
+    async def join(seconds):
+        nonlocal cancelled
+        worker = asyncio.ensure_future(asyncio.to_thread(proc.join, seconds))
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception:
+                break
+
+    try:
+        stop.set()
+        proc.terminate()
+        await join(5)
+        if proc.is_alive():
+            proc.kill()
+            await join(2)
+    except Exception as e:
+        log_warning(f"[scanner] could not stop the watcher: {e}")
+    return not proc.is_alive(), cancelled
+
+
 async def _watch(pin: Optional[dict] = None) -> None:
     """Hold the dongle and run the waterfall until the window closes or a live
     listen asks for it. The watcher runs in a child process
@@ -866,7 +899,8 @@ async def _watch(pin: Optional[dict] = None) -> None:
                 continue
 
     try:
-        async with rtl.DEVICE:
+        await rtl.DEVICE.acquire()
+        try:
             rtl.YIELD.clear()
             # The hop plan keeps every seeded and configured channel out of a
             # slice's blind centre; config is read here, before the fork.
@@ -927,6 +961,17 @@ async def _watch(pin: Optional[dict] = None) -> None:
             if proc.exitcode not in (0, None) and time.time() - started < 30:
                 raise RuntimeError(f"the scanner process exited with code {proc.exitcode} — "
                                    "is the RTL-SDR busy or unplugged?")
+        finally:
+            # The child is stopped and reaped while the dongle is still held:
+            # released first, a listen-along could open the device the old
+            # watcher still had. One that cannot be reaped keeps it held.
+            gone, cancelled = await _reap_watcher(proc, stop)
+            if gone:
+                rtl.DEVICE.release()
+            else:
+                log_warning("[scanner] the watcher could not be reaped; the RTL-SDR stays reserved")
+            if cancelled:
+                raise asyncio.CancelledError
         _remember_lockouts()
         # The dongle is free: the next watch may start now. Finishing the last
         # classifications (Whisper on a catch can take a minute) and the night's
@@ -942,18 +987,9 @@ async def _watch(pin: Optional[dict] = None) -> None:
         _failed_at = time.time()
         log_warning(f"[scanner] waterfall watch failed: {type(e).__name__}: {e} — retrying in 15 minutes")
     finally:
-        # Anything that raised between the fork and the child's end (or a cancelled
-        # task) must not leave the child holding the dongle.
-        if proc is not None and proc.is_alive():
-            try:
-                stop.set()
-                proc.terminate()
-                await asyncio.to_thread(proc.join, 5)
-                if proc.is_alive():
-                    proc.kill()
-                    await asyncio.to_thread(proc.join, 2)
-            except Exception as e:
-                log_warning(f"[scanner] could not stop the watcher: {e}")
+        # Anything that raised before the dongle was taken, or a cancellation
+        # there, must not leave a child running either.
+        await _reap_watcher(proc, stop)
         from utils.radio import transcribe
         transcribe.release_if_idle()
         _release(stop, pin)

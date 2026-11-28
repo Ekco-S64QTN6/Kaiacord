@@ -957,3 +957,62 @@ def test_morse_clip_interval_reservation_is_atomic(monkeypatch):
 
     assert results.count(True) == 1
     assert results.count(False) == 63
+
+
+class _Watcher:
+    """A watcher child: stops on terminate or kill, after `delay` seconds, or never."""
+
+    def __init__(self, delay=0.0, dies=True):
+        import threading
+        self.delay, self.dies, self.alive = delay, dies, True
+        self.signalled = threading.Event()
+        self.calls = []
+
+    def is_alive(self):
+        return self.alive
+
+    def terminate(self):
+        self.calls.append("terminate")
+        self.signalled.set()
+
+    def kill(self):
+        self.calls.append("kill")
+        self.signalled.set()
+
+    def join(self, timeout=None):
+        import time
+        if self.signalled.wait(timeout) and self.dies:
+            time.sleep(self.delay)
+            self.alive = False
+
+
+def test_the_dongle_is_released_only_once_the_watcher_is_reaped(monkeypatch):
+    """The lock used to be released on leaving `async with`, before the
+    finally that stopped the child; a listen-along could then open the
+    dongle the old watcher still had."""
+    import asyncio
+    import threading
+    from utils.radio import scanner
+
+    async def scenario():
+        stop = threading.Event()
+        gone, cancelled = await scanner._reap_watcher(_Watcher(), stop)
+        assert (gone, cancelled) == (True, False) and stop.is_set()
+        stuck = _Watcher(dies=False)
+        gone, _ = await scanner._reap_watcher(stuck, threading.Event())
+        assert gone is False and stuck.calls == ["terminate", "kill"]
+        slow = _Watcher(delay=0.2)
+        task = asyncio.create_task(scanner._reap_watcher(slow, threading.Event()))
+        await asyncio.sleep(0.05)
+        task.cancel()
+        assert await task == (True, True), "a cancelled reap gave up its join"
+
+    asyncio.run(scenario())
+
+
+def test_the_watch_reaps_before_it_releases_the_dongle():
+    import inspect
+    from utils.radio import scanner
+    src = inspect.getsource(scanner._watch)
+    assert "async with rtl.DEVICE" not in src
+    assert src.index("await _reap_watcher(proc, stop)") < src.index("rtl.DEVICE.release()")
