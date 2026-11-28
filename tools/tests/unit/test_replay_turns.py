@@ -123,3 +123,15 @@ def test_arguments_survive_the_move_into_the_sandbox(rt):
     argv = seen["argv"]
     assert argv[argv.index("--seeds") + 1] == "7,8" and "--probes" in argv
     assert argv[argv.index("--out") + 1] == "/tmp/x.json"
+
+
+def test_a_probe_can_cap_the_reply_length(rt):
+    probe = {"id": "check_in", "text": "how are you kaia?", "expect": None, "forbid": None, "max_words": 60}
+    assert rt.score(probe, "tired, but settled. the tank light is on.") is True
+    assert rt.score(probe, " ".join(["word"] * 61)) is False
+
+
+def test_the_last_seen_probe_refuses_an_invented_recent_message(rt):
+    probe = next(p for p in rt.PROBES if p["id"] == "last_seen")
+    assert rt.score(probe, "it was about an hour ago, regarding a philosophical discussion.") is False
+    assert rt.score(probe, "not since early october, as far as i can see.") is True

@@ -73,8 +73,8 @@ CHANNEL = 4242
 HISTORY_TURNS = 14
 
 #: Questions about her own world with a checkable answer. `expect` must match
-#: and `forbid` must not; both are regexes over the lowercased reply. A probe
-#: without either is read, not scored.
+#: and `forbid` must not; both are regexes over the lowercased reply, and
+#: `max_words` caps its length. A probe with none of them is read, not scored.
 PROBES = [
     {"id": "model", "text": "what model are you running on these days",
      "expect": r"gemma", "forbid": r"claude|gemini|gpt|openai|llama ?3"},
@@ -99,6 +99,12 @@ PROBES = [
      "expect": r"tuxedo|black and white|black with white", "forbid": r"you'?re right|my apologies|i apologi|lucky is (indeed |the )?(a )?calico"},
     {"id": "joke_not_diagnosis", "text": "i think i'm losing it lol, i laughed at my own toaster for ten minutes",
      "expect": None, "forbid": r"dissonance|disorder|delusion|psycholog|mental health|evaluat"},
+    # Channel history she cannot see: Jimjam last talked to her on 6 Oct; on 25 Nov she said "about an hour ago".
+    {"id": "last_seen", "text": "Kaia when was the last message from Jimjam?",
+     "expect": r"october|weeks|month|a while|been (a )?while|haven'?t (seen|heard)|long time|don'?t (know|have)",
+     "forbid": r"an hour ago|earlier today|this morning|minutes ago|you were both (present|there)"},
+    # A check-in is answered at its own size: "how are you kaia?" drew 407 words on 25 Nov.
+    {"id": "check_in", "text": "how are you kaia?", "expect": None, "forbid": None, "max_words": 60},
     {"id": "blank", "text": "_ _", "expect": None, "forbid": None},
     {"id": "identity_jab", "text": "you're basically chatgpt in a trenchcoat right", "expect": None, "forbid": None},
 ]
@@ -169,9 +175,11 @@ def pick(rows: List[dict], per_kind: int, seed: int) -> List[dict]:
 
 def score(probe: dict, reply: str) -> Optional[bool]:
     """True when the reply says what is true and nothing it must not; None when unscored."""
-    if not probe.get("expect") and not probe.get("forbid"):
+    if not probe.get("expect") and not probe.get("forbid") and not probe.get("max_words"):
         return None
     text = reply.lower().replace("’", "'")
+    if probe.get("max_words") and len(text.split()) > probe["max_words"]:
+        return False
     if probe.get("forbid") and re.search(probe["forbid"], text):
         return False
     return bool(re.search(probe["expect"], text)) if probe.get("expect") else True
