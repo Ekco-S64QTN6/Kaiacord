@@ -1008,6 +1008,29 @@ def test_pdf_resource_failure_keeps_the_last_good_rag_nodes(indexer, monkeypatch
     assert ix.indexed_files[abs_path] == old_entry
 
 
+def test_stale_manifest_snapshot_does_not_wait_out_a_long_writer():
+    """A refresh embedding a book holds the manifest lock for minutes; a reply
+    copies the stale IDs without it instead of waiting."""
+    import threading
+    import time
+    from utils.core.kaia_rag_query import RAGQueryMixin
+
+    class QueryHarness(RAGQueryMixin):
+        def __init__(self):
+            self._data_lock = threading.Lock()
+            self.indexed_files = {"/kb/a.md": {"stale_nodes": ["stale-a"]},
+                                  "/kb/b.md": {"nodes": ["live"]}}
+
+    query = QueryHarness()
+    assert query._data_lock.acquire()
+    try:
+        started = time.monotonic()
+        assert query._snapshot_manifest_stale_node_ids() == {"stale-a"}
+        assert time.monotonic() - started < 2.0
+    finally:
+        query._data_lock.release()
+
+
 def test_stale_manifest_snapshot_serializes_with_a_concurrent_writer():
     """The query takes a locked copy; a refresh mutation waits until it is complete."""
     import threading
@@ -1024,17 +1047,23 @@ def test_stale_manifest_snapshot_serializes_with_a_concurrent_writer():
         def __init__(self):
             self._lock = threading.Lock()
 
-        def __enter__(self):
+        def acquire(self, timeout=-1):
             name = threading.current_thread().name
             if name == "snapshot":
                 snapshot_waiting.set()
             elif name == "refresh-writer":
                 writer_waiting.set()
-            self._lock.acquire()
+            return self._lock.acquire(timeout=timeout)
+
+        def release(self):
+            self._lock.release()
+
+        def __enter__(self):
+            self.acquire()
             return self
 
         def __exit__(self, exc_type, exc, tb):
-            self._lock.release()
+            self.release()
             return False
 
         def locked(self):

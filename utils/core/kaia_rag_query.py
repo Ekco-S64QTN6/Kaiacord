@@ -844,22 +844,39 @@ class RAGQueryMixin:
                 ids |= self._resolve_identity_mappings(uid)
         return ids
 
+    #: How long a reply waits for the manifest lock before copying without it.
+    #: A refresh holds that lock while it embeds a whole file (minutes for a
+    #: book) and a forced persist while it writes every index.
+    STALE_SNAPSHOT_LOCK_S = 0.25
+
     def _snapshot_manifest_stale_node_ids(self) -> Set[str]:
-        """Copy stale-node IDs while holding the indexer's manifest lock."""
+        """Copy stale-node IDs, under the indexer's manifest lock when it is free."""
         def collect(indexed_files):
             return {
                 node_id
-                for entry in indexed_files.values()
-                for node_id in entry.get("stale_nodes", [])
+                for entry in list(indexed_files.values())
+                for node_id in list(entry.get("stale_nodes", []))
             }
 
         lock = getattr(self, "_data_lock", None)
         if lock is None:
             return collect(getattr(self, "indexed_files", {}))
-        with lock:
-            # Index initialization can replace the whole manifest object;
-            # resolve it and copy nested stale-node lists before releasing it.
-            return collect(getattr(self, "indexed_files", {}))
+        if lock.acquire(timeout=self.STALE_SNAPSHOT_LOCK_S):
+            try:
+                # Index initialization can replace the whole manifest object;
+                # resolve it and copy nested stale-node lists before releasing it.
+                return collect(getattr(self, "indexed_files", {}))
+            finally:
+                lock.release()
+        # A writer has it. Copy without it rather than hold the reply: scoring
+        # also refuses a node whose docstore copy is marked stale, so a copy
+        # that misses an entry the writer is adding now loses nothing.
+        for _ in range(5):
+            try:
+                return collect(getattr(self, "indexed_files", {}))
+            except RuntimeError:          # resized while it was copied
+                continue
+        return set()
 
     def _score_and_filter_nodes(self, all_node_results: List[Any], query_lower: str, 
                                relevant_ids: Set[str], routing: Dict[str, Any], 
