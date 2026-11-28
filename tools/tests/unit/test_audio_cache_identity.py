@@ -591,3 +591,17 @@ def test_double_tempo_ticks_require_a_local_phase_hint_but_remain_available(tmp_
     assert beatgrid.ticks_for(str(path), 120.0, near=0.30)[0] == pytest.approx(0.25)
     beatgrid._read_ticks.cache_clear()
     audio_identity.clear_audio_signature_cache()
+
+
+def test_beat_ticks_run_under_the_essentia_venv_when_there_is_one(monkeypatch, tmp_path):
+    from utils.audio import beatgrid
+    monkeypatch.delenv("KAIA_TICKS_PYTHON", raising=False)
+    venv_py = tmp_path / "python3"
+    monkeypatch.setattr(beatgrid, "ESSENTIA_VENV_PYTHON", venv_py)
+    assert beatgrid.ticks_python() in ("/usr/bin/python3", "python3")
+    venv_py.write_text("")
+    assert beatgrid.ticks_python() == str(venv_py)
+    chosen = tmp_path / "other-python"
+    chosen.write_text("")
+    monkeypatch.setenv("KAIA_TICKS_PYTHON", str(chosen))
+    assert beatgrid.ticks_python() == str(chosen)

@@ -7,7 +7,12 @@ half a beat from one stretch of a record to the next, and blends played two
 kicks 30–180 ms apart. Essentia's RhythmExtractor2013 (multifeature) holds its
 ticks within ~4–8 ms whether a record is read raw or stretched.
 
-Run by the system Python, which has Essentia (the bot's venv does not):
+Run by a Python with Essentia (the bot's venv has none). `beatgrid.ensure_ticks`
+uses KAIA_TICKS_PYTHON, else `.venv/essentia/bin/python3`, else the system
+Python. To make that venv (Essentia ships a CPython 3.12 wheel):
+
+    /usr/bin/python3.12 -m venv .venv/essentia && .venv/essentia/bin/pip install essentia
+
 
     /usr/bin/python3 tools/maintenance/beat_ticks.py PATH [PATH…]        # these records
     /usr/bin/python3 tools/maintenance/beat_ticks.py --catalog FILE       # a whole dj_catalog.json

@@ -374,16 +374,32 @@ def ticks_for(path: str, bpm: Optional[float] = None, *,
     return ticks if _audio_identity(path) == identity else None
 
 
+#: A Python with Essentia of its own, kept out of the bot's venv (its wheel
+#: brings its own numpy). The system Python had it until it moved to 3.14.
+ESSENTIA_VENV_PYTHON = Path(__file__).resolve().parents[2] / ".venv" / "essentia" / "bin" / "python3"
+
+
+def ticks_python() -> str:
+    """The interpreter beat_ticks.py runs under: KAIA_TICKS_PYTHON, else the
+    project's Essentia venv (.venv/essentia), else the system Python."""
+    chosen = os.environ.get("KAIA_TICKS_PYTHON", "")
+    if chosen and os.path.exists(chosen):
+        return chosen
+    if ESSENTIA_VENV_PYTHON.exists():
+        return str(ESSENTIA_VENV_PYTHON)
+    return "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else "python3"
+
+
 def ensure_ticks(path: str, bpm: Optional[float]) -> bool:
     """Find ticks for this audio and catalog BPM if that cache is absent (~2–3 s).
-    Uses system Python with Essentia. Blocking: call it off the voice thread."""
+    Runs beat_ticks.py under `ticks_python()`. Blocking: call it off the voice thread."""
     if ticks_available(path, bpm):
         return True
     try:
         from utils.infrastructure.monitoring.telemetry_paths import is_test_run
         if is_test_run() or not os.path.isfile(path) or not TICKS_TOOL.is_file():
             return False
-        py = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else "python3"
+        py = ticks_python()
         subprocess.run([py, str(TICKS_TOOL)] + (["--bpm", f"{bpm:g}"] if bpm else []) + [path],
                        capture_output=True, timeout=180)
     except (OSError, subprocess.SubprocessError):
